@@ -43,7 +43,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import LLMLL.Syntax
-import LLMLL.HoleAnalysis (extractCalls)
+import LLMLL.HoleAnalysis (extractCallsScoped)
 
 -- | Every function of the program (entry plus cached modules) mapped to the
 -- functions it calls or uses as a value, all names qualified as described in
@@ -57,7 +57,10 @@ qualifiedCallGraph cache entryStmts =
     graphFor prefix stmts =
       let resolve = resolveWith cache prefix stmts
       in Map.fromList
-           [ (prefix <> f, nub (concatMap resolve (extractCalls body ++ extractRefs ps body)))
+           -- FN-SHADOW-1: a call head bound by a parameter or local binder is
+           -- not an edge ('extractCallsScoped'), as a shadowed value use is not
+           -- ('extractRefs').
+           [ (prefix <> f, nub (concatMap resolve (extractCallsScoped ps body ++ extractRefs ps body)))
            | (f, ps, body) <- defsOf stmts ]
 
 -- | DEF-ADMIT-XMOD-1: resolve a name written in the ENTRY module to the graph

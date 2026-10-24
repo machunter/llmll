@@ -1,0 +1,14 @@
+;; FN-SHADOW-1 witness S1 (fn-param-uf-1-proposal). `g` calls its parameter
+;; `pick`, here bound to a lambda that returns its second argument. Up to
+;; v0.31.0 `verify` resolved the call to the top-level `pick` and proved g's
+;; post; the built program, which calls the parameter, violates it.
+(import wasi.io (capability stdout :deterministic false))
+(def pick [x: int y: int] -> int
+  (post (= result x))
+  x)
+(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int
+  (post (= result a))
+  (pick a b))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (g (fn [x: int y: int] y) 1 2))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

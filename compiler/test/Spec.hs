@@ -116,6 +116,11 @@ import qualified Crypto.Hash.SHA256 as GNSHA
 import qualified Numeric as GNNum
 import qualified LLMLL.RuntimePure as RP
 import qualified LLMLL.ProgramGraph as PG
+-- FN-SHADOW-1
+import qualified LLMLL.CallGraph as FSCG
+import LLMLL.HoleAnalysis (extractCallsScoped)
+import LLMLL.TrustReport (uncheckedCallPres)
+import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames)
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
 import Test.QuickCheck (property, choose)
@@ -21787,8 +21792,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             report = buildTrustReport Map.empty (parseSrc src) Map.empty
         concatMap teAssumedFacts (trEntries report) `shouldBe` []
         formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
-      it "RF-P4 checker_soundness_version is \"3\" (TRUST-REPORT-GATE-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
-        checkerSoundnessVersion `shouldBe` "3"
+      -- FN-SHADOW-1 moved the stamp to "4"; FS-13 pins "3" as discarded.
+      it "RF-P4 checker_soundness_version is \"4\" (FN-SHADOW-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "4"
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "2")]) `shouldBe` True
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
 
@@ -23540,6 +23546,109 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- bytes-length-range. bytes[2^63] used to narrow to TBytes (-2^63), and the
   -- verifier then held bytesLen = -2^63 beside bytesLen >= 0: a false SAFE.
   -- -----------------------------------------------------------------------
+  -- -----------------------------------------------------------------------
+  -- FN-SHADOW-1 (fn-param-uf-1-proposal R1): a parameter or local binder
+  -- shadows a top-level function of the same name in the verifier, the test
+  -- evaluator, strict-core admission and every call-graph reader.
+  -- -----------------------------------------------------------------------
+  describe "FN-SHADOW-1 binder shadowing" $ do
+    let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left e   -> error (show e)
+          Right ss -> ss
+        emitBody src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+        pickDef = "(def pick [x: int y: int] -> int (post (= result x)) x)\n"
+        tcErrs src = [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedOk src))
+                                     , diagSeverity d == SevError ]
+
+    it "FS-1 S1: a call through parameter pick does not assume the top-level pick's post" $ do
+      r <- emitBody (pickDef ++ "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (post (= result a)) (pick a b))")
+      erBodyFallback r `shouldSatisfy` elem "g"
+      erFQText r `shouldSatisfy` (not . T.isInfixOf "call_pick")
+
+    it "FS-2 S2: a let-bound function value named pick is not the top-level pick" $ do
+      r <- emitBody (pickDef ++ unlines
+             [ "(def-shell mk [n: int] -> (fn [int int] -> int) (fn [x: int y: int] y))"
+             , "(def-shell g2 [a: int b: int] -> int (post (= result a)) (let [(pick (mk 0))] (pick a b)))" ])
+      erBodyFallback r `shouldSatisfy` elem "g2"
+      erFQText r `shouldSatisfy` (not . T.isInfixOf "call_pick")
+
+    it "FS-3 the per-function environment drops parameters and every let, match, lambda and do binder" $ do
+      let body = ELet [(PVar "l", Nothing, ELit (LitInt 1))]
+                   (EMatch (EVar "s") [ (PConstructor "Box" [PVar "m"], ELambda [("lam", TInt)] (EVar "lam")) ])
+          cenv = Map.fromList [ (n, ([], Contract Nothing Nothing Nothing Nothing Nothing [] [], Nothing))
+                              | n <- ["p", "l", "m", "lam", "keep"] ]
+      localBinderNames body `shouldBe` Set.fromList ["l", "m", "lam"]
+      Map.keys (scopedContractEnv cenv [("p", TInt)] (Just body)) `shouldBe` ["keep"]
+
+    it "FS-4 S3: the evaluator never runs a top-level function for a call through a binder" $ do
+      let fe = Map.fromList [("pick", (["x", "y"], EVar "x"))]
+          lam = ELambda [("x", TInt), ("y", TInt)] (EVar "y")
+      evalExprStaticWith fe maxFuel (Map.fromList [("pick", lam)]) (EApp "pick" [ELit (LitInt 1), ELit (LitInt 2)])
+        `shouldBe` Nothing
+      r <- runPropertyTests (parsedOk (pickDef ++ unlines
+             [ "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (pick a b))"
+             , "(check \"true at run time\" (for-all [a: int b: int] (= (g (fn [x: int y: int] y) a b) b)))"
+             , "(check \"false at run time\" (for-all [a: int b: int] (= (g (fn [x: int y: int] y) a b) a)))" ]))
+      map pbtStatus (pbtResults r) `shouldBe` [PBTSkipped, PBTSkipped]
+
+    it "FS-5 S4: a def calling a parameter named like a trusted builtin is refused, naming a binder" $
+      tcErrs "(def g [abs: (fn [int] -> int) a: int] -> int (abs a))"
+        `shouldSatisfy` any (T.isInfixOf "callee 'abs' is a parameter or local binder")
+
+    it "FS-6 S4, local form: the message names a parameter, not \"defined in this file\"" $ do
+      let es = tcErrs (pickDef ++ "(def g [pick: (fn [int int] -> int) a: int b: int] -> int (post (= result a)) (pick a b))")
+      es `shouldSatisfy` any (T.isInfixOf "callee 'pick' is a parameter or local binder")
+      es `shouldSatisfy` (not . any (T.isInfixOf "is defined in this file"))
+
+    it "FS-7 pinned over-approximation: a name bound in one scope disables the top-level call in another" $ do
+      r <- emitBody (pickDef ++ "(def-shell f [a: int b: int] -> int (post (= result a)) (if (> a 0) (let [(pick 1)] a) (pick a b)))")
+      erBodyFallback r `shouldSatisfy` elem "f"
+
+    it "FS-8 extractCallsScoped drops heads bound by a parameter, let, match, lambda or do binder" $ do
+      let body = EApp "free" [ EApp "p" []
+                             , ELet [(PVar "l", Nothing, EApp "l" [])] (EApp "l" [])
+                             , EMatch (EVar "s") [(PVar "m", EApp "m" [])]
+                             , ELambda [("q", TInt)] (EApp "q" [])
+                             , EDo [DoStep (Just "d") (EApp "d" []) False, DoStep Nothing (EApp "d" []) False] ]
+      extractCallsScoped ["p"] body `shouldBe` ["free", "l", "d"]
+
+    it "FS-9 the termination graph has no edge for a call through a parameter (no spurious cycle)" $ do
+      let ss = parsedOk $ unlines
+            [ "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (pick a b))"
+            , "(def-shell pick [x: int y: int] -> int (g (fn [p: int q: int] p) x y))" ]
+      Map.lookup "g" (FSCG.qualifiedCallGraph Map.empty ss) `shouldBe` Just []
+
+    it "FS-10 call-pre unchecked does not report a call through a parameter inside a lambda" $ do
+      let ss = parsedOk $ unlines
+            [ "(def pick [x: int y: int] -> int (pre (> x 0)) (post (= result x)) x)"
+            , "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (list-length (list-map [a] (fn [z: int] (pick z b)))))" ]
+      uncheckedCallPres Map.empty ss ["pick"] `shouldBe` []
+
+    it "FS-11 no trust-gap warning for a call through a parameter named like an imported function" $ do
+      let modEnv = ModuleEnv
+            { meExports = DM.fromList [("safe-add", TFn [TInt] TInt)]
+            , meStatements = [ SDefLogic "safe-add" [("x", TInt)] (Just TInt) (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] []) (EVar "x"), SExport ["safe-add"] ]
+            , meInterfaces = DM.empty, meAliasMap = DM.empty, mePath = ["math"]
+            , meContractStatus = DM.fromList
+                [("safe-add", ContractStatus Nothing (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])]
+            , meContracts = DM.empty, meRetTypes = DM.empty, meBuiltinAxioms = Nothing }
+          cache = DM.fromList [(["math"], modEnv)]
+          caller = SDefShell "caller" [("math.safe-add", TFn [TInt] TInt)] (Just TInt)
+                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "math.safe-add" [ELit (LitInt 5)]) []
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv [SImport (Import "math" Nothing Nothing), caller]
+      filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report) `shouldBe` []
+
+    it "FS-12 the trust report lists no callee row for a call through a parameter" $ do
+      let ss = parsedOk (pickDef ++ "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (post (= result a)) (pick a b))")
+          vrec = Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False Nothing False [])
+          report = buildTrustReport Map.empty ss (Map.fromList [("pick", ContractStatus Nothing vrec [])])
+      fmap (length . teDeps) (listToMaybe [ e | e <- trEntries report, teName e == "g" ]) `shouldBe` Just 0
+
+    it "FS-13 checker_soundness_version is \"4\": a sidecar stamped \"3\" is discarded" $ do
+      checkerSoundnessVersion `shouldBe` "4"
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "3")]) `shouldBe` True
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "4")]) `shouldBe` False
+
   describe "BYTES-LEN-RANGE-1 bytes length range" $ do
     let progKind src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
           Left err -> diagKind (megaparsecToDiagnostic "<t>" err)

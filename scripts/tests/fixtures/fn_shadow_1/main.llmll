@@ -1,0 +1,8 @@
+;; FN-SHADOW-1 witness S4: a def whose parameter `pick` shadows the opened
+;; pk.pick. Up to v0.31.0 admission resolved the call to pk.pick. It is now
+;; refused, naming a parameter.
+(module main)
+(import pk)
+(open pk)
+(def g [pick: (fn [int int] -> int) a: int b: int] -> int
+  (pick a b))

@@ -1,0 +1,6 @@
+;; FN-SHADOW-1 witness S4: the imported module. `pick` is a def-shell whose
+;; post is asserted (its body falls back), so a caller inherits a trust gap.
+(module pk)
+(def-shell pick [x: int y: int] -> int
+  (post (= result x))
+  (- (+ x (* y y)) (* y y)))

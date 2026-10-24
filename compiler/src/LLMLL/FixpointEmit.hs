@@ -98,6 +98,8 @@ module LLMLL.FixpointEmit
   , resultReturnUnsafe           -- COMP-4-RESULT: non-admissible Result-return firewall
   , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
   , typeToSort                   -- JSON-1: the opaque-carrier lowering test
+  , scopedContractEnv            -- FN-SHADOW-1: per-function contract environment
+  , localBinderNames             -- FN-SHADOW-1: binders that shadow top-level names
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
@@ -1073,8 +1075,22 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv sccSet measureMap respRefs
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenvAll sccSet measureMap respRefs
     name params mRet contract0 mBody mDec stmtIdx = do
+
+  -- FN-SHADOW-1 (fn-param-uf-1-proposal R1): a parameter or local binder
+  -- shadows a top-level function of the same name. Every reader of a call head
+  -- in this function's emission (the EApp clause of 'bodyToPredM', the ANF
+  -- hoist set, 'arrGateActive', the carrier/sum argument scans, the
+  -- Result-scrutinee and bytes-call sorts) consults this function's contract
+  -- environment, so a name the function binds is removed from it here.
+  -- Without this a call through a parameter `pick` assumed the top-level
+  -- `pick`'s post (a false SAFE; the built program calls the parameter).
+  -- Removing a name for the WHOLE function is a sound over-approximation: a
+  -- top-level call in a scope the binder does not reach loses its contract
+  -- and falls back. Callers still see this function's own entry in
+  -- 'cenvAll'.
+  let cenv = scopedContractEnv cenvAll params mBody
 
   -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into this
   -- function's own effective precondition, so the body VC assumes them
@@ -4036,6 +4052,36 @@ freshName base = do
   n <- get
   put (n + 1)
   return ("_bv_" <> base <> "_" <> T.pack (show n))
+
+-- | FN-SHADOW-1: the contract environment one function's emission reads.
+-- Every name the function binds (its parameters, and each let, match-payload,
+-- lambda and do binder in its body) is removed, because inside the function
+-- such a name denotes the binder, not the top-level function.
+scopedContractEnv :: ContractEnv -> [(Name, Type)] -> Maybe Expr -> ContractEnv
+scopedContractEnv cenv params mBody =
+  foldr Map.delete cenv
+    (map fst params ++ maybe [] (Set.toList . localBinderNames) mBody)
+
+-- | FN-SHADOW-1: every name bound anywhere inside an expression by a let, a
+-- match pattern, a lambda parameter or a do step.
+localBinderNames :: Expr -> Set.Set Name
+localBinderNames = go
+  where
+    go e = case e of
+      ELet bs body  -> Set.unions (go body : [ Set.union (patVars p) (go r) | (p, _, r) <- bs ])
+      EMatch sc arms -> Set.unions (go sc : [ Set.union (patVars p) (go a) | (p, a) <- arms ])
+      ELambda ps b  -> Set.union (Set.fromList (map fst ps)) (go b)
+      EDo steps     -> Set.unions [ Set.union (maybe Set.empty Set.singleton (dsName st)) (go (dsExpr st)) | st <- steps ]
+      EApp _ as     -> Set.unions (map go as)
+      EOp _ as      -> Set.unions (map go as)
+      EIf a b c     -> Set.unions (map go [a, b, c])
+      EPair a b     -> Set.union (go a) (go b)
+      EAwait a      -> go a
+      _             -> Set.empty
+    patVars p = case p of
+      PVar v            -> Set.singleton v
+      PConstructor _ ps -> Set.unions (map patVars ps)
+      _                 -> Set.empty
 
 -- | A-normalization for the body-VC path. Lift user-function CALLS out of
 -- argument / operator / pair-component / if-condition / match-scrutinee

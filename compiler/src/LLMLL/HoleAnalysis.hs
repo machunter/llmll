@@ -30,6 +30,7 @@ module LLMLL.HoleAnalysis
     -- * v0.9.0: call graph (shared with FixpointEmit for SCC detection)
   , buildCallGraph
   , extractCalls     -- PARTIAL-FNS-GRAPH-1: shared with CallGraph
+  , extractCallsScoped -- FN-SHADOW-1: call heads not bound by a parameter or local binder
     -- * v0.10: pointer → function name (shared with ObligationAssembly)
   , enclosingFunc
     -- * v0.11 LT-PPR: non-linear arithmetic predicate (shared with TypeCheck)
@@ -612,17 +613,47 @@ extractCalls (EAwait e)         = extractCalls e
 extractCalls (ELambda _ body)   = extractCalls body
 extractCalls (EDo steps)        = concatMap (\(DoStep _ e _) -> extractCalls e) steps
 
+-- | FN-SHADOW-1 (fn-param-uf-1-proposal R1): the call heads of a function body
+-- that name a FUNCTION. A head bound by one of the given parameters, or by a
+-- let, match, lambda or do binder in scope at the call, is that binder and is
+-- dropped. 'extractCalls' keeps such a head and so reads a call through a
+-- parameter `pick` as a call to a top-level `pick`: a spurious edge in the
+-- termination graph, the call-pre report and the trust report's callee rows.
+-- Use this for any reader that resolves a call head to a function.
+extractCallsScoped :: [Name] -> Expr -> [Name]
+extractCallsScoped params = go (Set.fromList params)
+  where
+    go bound e = case e of
+      EApp f as      -> [ f | not (f `Set.member` bound) ] ++ concatMap (go bound) as
+      EOp _ as       -> concatMap (go bound) as
+      EIf a b c      -> concatMap (go bound) [a, b, c]
+      ELet bs body   ->
+        let step (bd, acc) (p, _, r) = (Set.union bd (patVars p), acc ++ go bd r)
+            (bd', acc') = foldl step (bound, []) bs
+        in acc' ++ go bd' body
+      EMatch sc arms -> go bound sc ++ concat [ go (Set.union bound (patVars p)) a | (p, a) <- arms ]
+      ELambda ps b   -> go (Set.union bound (Set.fromList (map fst ps))) b
+      EPair a b      -> go bound a ++ go bound b
+      EAwait a       -> go bound a
+      EDo steps      -> snd (foldl (\(bd, acc) (DoStep n x _) -> (maybe bd (`Set.insert` bd) n, acc ++ go bd x)) (bound, []) steps)
+      _              -> []
+    patVars p = case p of
+      PVar v            -> Set.singleton v
+      PConstructor _ ps -> Set.unions (map patVars ps)
+      _                 -> Set.empty
+
 -- | Build call graph: function name → list of called function names.
+-- FN-SHADOW-1: a call through a parameter or local binder is not an edge.
 buildCallGraph :: [Statement] -> Map.Map Name [Name]
 buildCallGraph stmts = Map.fromList $ mapMaybe go stmts
   where
-    go (SDefLogic name _ _ _ body)  = Just (name, nub $ extractCalls body)
-    go (SLetrec name _ _ _ _ body)  = Just (name, nub $ extractCalls body)
+    go (SDefLogic name ps _ _ body)  = Just (name, nub $ extractCallsScoped (map fst ps) body)
+    go (SLetrec name ps _ _ _ body)  = Just (name, nub $ extractCallsScoped (map fst ps) body)
     -- LT-INV (v0.11)
-    go (SDef      name _ _ _ body)  = Just (name, nub $ extractCalls body)
-    go (SDefShell name _ _ _ body _)  = Just (name, nub $ extractCalls body)
+    go (SDef      name ps _ _ body)  = Just (name, nub $ extractCallsScoped (map fst ps) body)
+    go (SDefShell name ps _ _ body _)  = Just (name, nub $ extractCallsScoped (map fst ps) body)
     -- v0.12.1
-    go (SDefInvariant name _ _ _ body) = Just (name, nub $ extractCalls body)
+    go (SDefInvariant name ps _ _ body) = Just (name, nub $ extractCallsScoped (map fst ps) body)
     go _                            = Nothing
 
 -- | Build map: function name → list of body holes (only AgentTask/Blocking).
