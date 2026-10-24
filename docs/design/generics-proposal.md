@@ -463,3 +463,48 @@ No question is left for the professor. Both review questions are answered above.
   - **`LLMLL.md` §13:** `compare`.
   - **`docs/llmll-ast.schema.json`:** the schema version, in landing order.
   - **CHANGELOG:** an entry for the release.
+
+## Appendix — Professor review log
+
+Per DOC-CONSOLIDATE §M2, the standalone professor review for this proposal is folded here and the
+source file archived to
+[`docs/archive/professor-reviews/generics-review.md`](../archive/professor-reviews/generics-review.md).
+Folded at settlement (Rev 1, 2026-10-24).
+
+**Source:** `docs/archive/professor-reviews/generics-review.md` at commit
+`e37c2cc35e8a8c6ed65a61e27ec433eb13b4fbaf` (one round, of Rev 0, 2026-10-24; reviewer: professor).
+The per-item dispositions are in [Changes from Rev 0](#changes-from-rev-0) above and are not
+repeated; what follows is the round's verdict, answers and recommendation, and where each landed.
+
+### Round 1, of Rev 0 (2026-10-24)
+
+- **Verdict:** accept the design at a smaller v1 scope, after five repairs: lower `key` to
+  `(Ord k, Show k)` (witness G1: `Could not deduce ‘Show k’` from `map_get`); state rule 2 per
+  strongly connected component; hash the expanded type arguments into the evidence key; extend
+  CTOR-FN-FIELD-1 to generic types (witness G2: `Could not deduce ‘Eq (a -> a)’`); correct
+  witness 12, whose post also proves at an uninterpreted sort. **Landed:** all five, in Rev 1;
+  the `key` repair in the stronger form of contexts derived from the reached preamble signatures,
+  and the CTOR-FN-FIELD-1 extension in `GENERIC-TYPES-1`.
+- **Q1, is the v2 hybrid sound and established:** yes, by the substitution property of
+  many-sorted first-order validity (Dafny's abstract type parameters; Liquid Haskell's abstract
+  refinements), under three side conditions: the emitter commutes with substitution; any `compare`
+  axiom holds at every `ord` type, so v2 keeps to quantifier-free facts as sealed axioms with
+  TRUST-AXIOM rows; refinement aliases as type arguments need the abstract-refinement argument.
+  **Landed:** v2 is `GENERICS-2` (DECIDE) under those conditions; Rev 1 allows refinement aliases
+  as type arguments in v1 on a different argument, that specialization makes every obligation
+  explicit in the copy.
+- **Q2, is polymorphic codegen faithful to specialized VCs:** yes, up to dictionary elaboration
+  with one instance per type (Wadler–Blott 1989, Jones 1993). **Landed:** the `nc-038` amendment
+  text under "Codegen", promoted to `LLMLL.md` §0 on ship.
+- **Gaps 5 to 11:** contract clauses checked with rigid parameters; "none lost" restated for P1
+  only; strict-core admission by option (b), `def-shell` only in v1; the regular-recursion rule
+  and generic types deferred to `GENERIC-TYPES-1`; the synthesis order for a parameter that occurs
+  only in a lambda's result; the PBT lift keyed per instance. **Landed:** all adopted or answered
+  in Rev 1.
+- **Recommendation:** v1 = `GENERICS-1` reduced; the five repairs; polymorphic codegen; v2 = the
+  hybrid; `GENERIC-TYPES-1` trigger-gated; sequence after S0. **Landed:** all but the last, which
+  settlement decision 2 superseded: `GENERICS-1` has no dependency on S0, and lands after
+  `FN-PARAM-UF-1` (decision 3).
+- **Open questions to the language-team:** refinement aliases as type arguments, and the
+  synthesis order when a parameter occurs only in a function argument's result. **Answered** in
+  "Refinement aliases as type arguments" and "Instantiating at a call".
