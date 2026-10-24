@@ -3,7 +3,7 @@
 ;; about which vocabulary is missing; these two say.
 
 (def-shell nonlinear_post [n: int] -> int
-  (post (= result (* n 2)))
+  (post (= result (* n n)))
   (+ n n))
 
 (def-shell string_post [a: string b: string] -> int

@@ -127,6 +127,11 @@ smtOp FQEq  = "="
 smtOp FQNeq = "distinct"
 smtOp FQAdd = "+"
 smtOp FQSub = "-"
+-- SIGMA-CONST-ARITH-1: SMT-LIB integer `*`, `div` and `mod`. The emitter builds
+-- these only with a numeral coefficient or a numeral divisor > 0.
+smtOp FQMul = "*"
+smtOp FQDiv = "div"
+smtOp FQMod = "mod"
 
 -- ---------------------------------------------------------------------------
 -- Query construction

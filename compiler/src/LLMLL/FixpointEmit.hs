@@ -129,6 +129,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, isNothing, catMaybes, listToMaybe)
+import Data.Functor.Identity (Identity(..))
 import Data.List (nub, nubBy, partition)
 import Data.Function (on)
 import Control.Monad (forM_, forM, when, unless)
@@ -148,7 +149,7 @@ import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkBodyFallbackWarning, mkDecreasesUndischarged)
 import LLMLL.HoleAnalysis (buildCallGraph)
-import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
+import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
 -- def, premise sites, warnings). Pure; the checker already raised every error.
 import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), PremiseSite(..), PremiseCase(..), RespFact(..), FactCategory(..), factCategoryName)
@@ -3611,6 +3612,10 @@ exprToPred (EApp op [l, r])
   | op `elem` ["/=", "!=", "≠"] = (\a b -> FQBinPred FQNeq a b) <$> exprToPred l <*> exprToPred r
   | op == "+"              = (\a b -> FQBinArith FQAdd a b) <$> exprToPred l <*> exprToPred r
   | op == "-"              = (\a b -> FQBinArith FQSub a b) <$> exprToPred l <*> exprToPred r
+  -- SIGMA-CONST-ARITH-1: an admitted constant-linear `*`, `/` or `mod` (a ground
+  -- term, a numeral coefficient, or a numeral divisor > 0) reflects; every
+  -- other form refuses on the next line, with its label unchanged.
+  | Just m <- constArithTerm (Identity . exprToPred) op [l, r] = runIdentity m
   -- non-linear ops: reject
   | op `elem` ["*", "/", "mod", "rem", "^", "**"] = Nothing
 exprToPred (EApp "and" args) = FQAnd <$> mapM exprToPred args
@@ -4374,6 +4379,18 @@ bodyToPredM env se cenv sccSet (EApp op [l, r])
         (Just (SimpleVC [] lp), Just (SimpleVC [] rp)) ->
           return . Just $ SimpleVC [] (FQBinPred binOp lp rp)
         _ -> return Nothing
+
+-- SIGMA-CONST-ARITH-1: an admitted constant-linear `*`, `/` or `mod`, through
+-- the same rule as 'exprToPred' and 'classifyGuardM' ('constArithTerm'). The
+-- non-constant operand must translate to a simple term, as for `+` and `-`.
+bodyToPredM env se cenv sccSet (EApp op args)
+  | Just m <- constArithTerm simpleOperand op args = fmap (SimpleVC []) <$> m
+  where
+    simpleOperand e = do
+      vc <- bodyToPredM env se cenv sccSet e
+      return $ case vc of
+        Just (SimpleVC [] p) -> Just p
+        _                    -> Nothing
 
 -- Non-linear operators: reject
 bodyToPredM _ _ _ _ (EApp op [_, _])

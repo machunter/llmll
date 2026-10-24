@@ -91,6 +91,11 @@ module LLMLL.Syntax
   , normalizeDefStmt
   , defFormTag
   , isCoreBodySyntactic
+    -- * SIGMA-CONST-ARITH-1: linear constant arithmetic
+  , ConstArith(..)
+  , groundInt
+  , constArith
+  , constArithAdmitted
 
     -- * Match-arm admissibility (SHELL-FALLBACK-SILENT-1)
   , classifyResultArms
@@ -103,6 +108,7 @@ module LLMLL.Syntax
   ) where
 
 import Data.Map.Strict (Map)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
@@ -832,19 +838,84 @@ defFormTag SDefLogic{}     = "def"
 defFormTag SDefInvariant{} = "def"
 defFormTag _               = "def"
 
+-- | SIGMA-CONST-ARITH-1 (docs/design/sigma-const-arith-1-proposal.md): the
+-- value of a GROUND CONSTANT, a closed term of integer literals under `+`,
+-- `-`, `*`, `/` and `mod`, folded with the codegen semantics: exact 'Integer'
+-- arithmetic and Haskell `div` / `mod` (`emitOp` in "LLMLL.CodegenHs"). A `/`
+-- or `mod` folds only when its divisor folds to a value > 0; otherwise the
+-- term is not ground. Both spellings ('EOp' and 'EApp') are read.
+groundInt :: Expr -> Maybe Integer
+groundInt e = case e of
+  ELit (LitInt n) -> Just n
+  EOp  op [a, b]  -> arith op a b
+  EApp op [a, b]  -> arith op a b
+  _               -> Nothing
+  where
+    arith op a b = do
+      x <- groundInt a
+      y <- groundInt b
+      case op of
+        "+"   -> Just (x + y)
+        "-"   -> Just (x - y)
+        "*"   -> Just (x * y)
+        "/"   | y > 0 -> Just (x `div` y)
+        "mod" | y > 0 -> Just (x `mod` y)
+        _     -> Nothing
+
+-- | SIGMA-CONST-ARITH-1: an admitted constant-linear node, with the folded
+-- constant and the operand the solver still sees.
+data ConstArith
+  = MulL Integer Expr   -- ^ @(* c e)@
+  | MulR Expr Integer   -- ^ @(* e c)@
+  | DivC Expr Integer   -- ^ @(/ e c)@, @c > 0@
+  | ModC Expr Integer   -- ^ @(mod e c)@, @c > 0@
+  deriving (Show, Eq)
+
+-- | SIGMA-CONST-ARITH-1: classify one `*`, `/` or `mod` node. 'Nothing' for a
+-- product of two non-ground terms, a non-ground divisor, or a ground divisor
+-- <= 0 (a negative divisor disagrees between Haskell and SMT-LIB; a zero
+-- divisor raises at run time). `rem`, `^` and `**` are never admitted. This
+-- is a property of THIS node only; the operand's own admission is decided
+-- where it is translated or walked.
+constArith :: Name -> [Expr] -> Maybe ConstArith
+constArith "*" [a, b]
+  | Just c <- groundInt a = Just (MulL c b)
+  | Just c <- groundInt b = Just (MulR a c)
+constArith "/" [e, d]
+  | Just c <- groundInt d, c > 0 = Just (DivC e c)
+constArith "mod" [e, d]
+  | Just c <- groundInt d, c > 0 = Just (ModC e c)
+constArith _ _ = Nothing
+
+-- | SIGMA-CONST-ARITH-1: the node is ground, or an admitted constant-linear form.
+constArithAdmitted :: Name -> [Expr] -> Bool
+constArithAdmitted op args =
+  op `elem` constArithOps
+  && (isJust (groundInt (EOp op args)) || isJust (constArith op args))
+
+-- | The operators 'constArith' decides.
+constArithOps :: [Name]
+constArithOps = ["*", "/", "mod"]
+
 -- | LT-INV (v0.11): return 'True' if an expression is admissible inside a
 -- strict-core ('SDef') body per the grammar production in the proposal §3.2.
--- Admits: literals, variables, QF-LIA operators (no *\/mod/rem), let, if,
+-- Admits: literals, variables, QF-LIA operators (`*`, `/` and `mod` only in an admitted
+-- constant-linear form, SIGMA-CONST-ARITH-1; never `rem`), let, if,
 -- function application, two-arm Result EMatch, n-arm (>= 2) sum EMatch whose
 -- arms are all nullary / single-payload / catch-all (MATCH-WIDEN-2 verifier
 -- parity), pair constructor, and non-'HProofRequired' holes.
--- Rejects: lambdas, do-notation, await, non-linear operators, a match arm with
+-- Rejects: lambdas, do-notation, await, non-linear operators (a product of two
+-- non-constant terms, a non-constant or non-positive divisor, `rem`), a match arm with
 -- a multi-payload constructor pattern, and '?proof-required' holes.
 isCoreBodySyntactic :: Expr -> Bool
 isCoreBodySyntactic expr = case expr of
   ELit _                   -> True
   EVar _                   -> True
-  EOp op args              -> isLinearOp op && all isCoreBodySyntactic args
+  -- SIGMA-CONST-ARITH-1: `*`, `/` and `mod` are core syntax exactly when the
+  -- node is an admitted constant-linear form ('constArithAdmitted').
+  EOp op args
+    | op `elem` constArithOps -> constArithAdmitted op args && all isCoreBodySyntactic args
+    | otherwise               -> isLinearOp op && all isCoreBodySyntactic args
   ELet binds body          -> all (\(_, _, e) -> isCoreBodySyntactic e) binds
                               && isCoreBodySyntactic body
   EIf c t e                -> all isCoreBodySyntactic [c, t, e]

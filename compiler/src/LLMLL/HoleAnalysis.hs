@@ -343,11 +343,19 @@ isSimpleDecreases _         = False
 -- Heuristic: any EApp of (* / mod) applied to two non-literal sub-expressions.
 -- This is a sufficient (not necessary) condition — false negatives are safe;
 -- the worst outcome is a missing proof-required hole (user can add manually).
+--
+-- SIGMA-CONST-ARITH-1: a `*`, `/` or `mod` node is nonlinear exactly when it is
+-- not an admitted constant-linear form ('constArithAdmitted', the predicate the
+-- verifier uses), so `(* 8 r)` no longer gets a `non-linear-contract` hole and
+-- `(/ x 0)` now does. `rem`, `^` and `**` keep the literal-operand rule.
 isNonLinear :: Expr -> Bool
 isNonLinear (EApp op args)
-  | op `elem` ["*", "/", "mod", "rem", "^", "**"]
+  | op `elem` ["*", "/", "mod"]
   , length args == 2
-  , not (all isLit args) = True  -- e.g. (* n m) where n, m are not both literals
+  , not (constArithAdmitted op args) = True  -- e.g. (* n m), (/ x y), (mod x -8)
+  | op `elem` ["rem", "^", "**"]
+  , length args == 2
+  , not (all isLit args) = True  -- e.g. (rem n m) where n, m are not both literals
   | otherwise            = any isNonLinear args
   where isLit (ELit _) = True; isLit _ = False
 -- Parsers route operators (incl. * and /) to EOp, not EApp; normalize to the
