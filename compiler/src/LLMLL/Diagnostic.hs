@@ -60,6 +60,7 @@ module LLMLL.Diagnostic
   , mkCoreMembershipViolation
   , mkCoreFfiCallee
   , mkCoreMembershipViolationLocal
+  , mkCoreBinderCallee
   , mkCoreTerminationAssumed
   , mkCoreExcludedBuiltin
   -- * REFINE-REUSE: non-blocking reuse-duplicate warning
@@ -743,6 +744,22 @@ mkCoreMembershipViolation defName callee =
   in (mkError Nothing msg)
        { diagKind       = Just "core-membership-violation"
        , diagSuggestion = Just ("Verify '" <> callee <> "' with (llmll verify) before calling it from a strict-core def")
+       }
+
+-- | FN-SHADOW-1 (fn-param-uf-1-proposal R1, R6): the same violation when the
+-- call head is a parameter or a local binder. It names the binder: before
+-- FN-SHADOW-1 the check resolved such a head to a top-level function of the
+-- same name and admitted it on that function's evidence, or blamed that
+-- function for having none.
+mkCoreBinderCallee :: Text -> Text -> Diagnostic
+mkCoreBinderCallee defName callee =
+  let msg = "def '" <> defName <> "': callee '" <> callee
+            <> "' is a parameter or local binder, not a function; a strict-core body "
+            <> "may call only verified functions and trusted builtins, so a call through a "
+            <> "function value is not admissible"
+  in (mkError Nothing msg)
+       { diagKind       = Just "core-membership-violation"
+       , diagSuggestion = Just ("Write '" <> defName <> "' as a def-shell, which may call a function-typed parameter")
        }
 
 -- | FFI-TIER1-1 (E9): the same violation when the callee is a haskell.*

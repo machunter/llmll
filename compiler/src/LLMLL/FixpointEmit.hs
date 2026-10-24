@@ -98,6 +98,8 @@ module LLMLL.FixpointEmit
   , resultReturnUnsafe           -- COMP-4-RESULT: non-admissible Result-return firewall
   , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
   , typeToSort                   -- JSON-1: the opaque-carrier lowering test
+  , scopedContractEnv            -- FN-SHADOW-1: per-function contract environment
+  , localBinderNames             -- FN-SHADOW-1: binders that shadow top-level names
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
@@ -1073,8 +1075,31 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv sccSet measureMap respRefs
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenvAll sccSet measureMap respRefs
     name params mRet contract0 mBody mDec stmtIdx = do
+
+  -- FN-SHADOW-1 (fn-param-uf-1-proposal R1): a parameter or local binder
+  -- shadows a top-level function of the same name. Every reader of a call head
+  -- in this function's emission (the EApp clause of 'bodyToPredM', the ANF
+  -- hoist set, 'arrGateActive', the carrier/sum argument scans, the
+  -- Result-scrutinee and bytes-call sorts) consults this function's contract
+  -- environment, so a name the function binds is removed from it here.
+  -- Without this a call through a parameter `pick` assumed the top-level
+  -- `pick`'s post (a false SAFE; the built program calls the parameter).
+  -- Removing a name for the WHOLE function is a sound over-approximation: a
+  -- top-level call in a scope the binder does not reach loses its contract
+  -- and falls back. Callers still see this function's own entry in
+  -- 'cenvAll'.
+  --
+  -- FN-PARAM-UF-1 (R2): a FUNCTION-TYPED parameter is added back as a callee
+  -- with its own signature and an EMPTY contract, so a call through it is
+  -- emitted exactly as a call to an uncontracted named function: a fresh,
+  -- unconstrained result binder at the return type's sort, hoisted by ANF,
+  -- with payload-subtyping as for any callee, and no pre or post. Nothing is
+  -- assumed about the function value, so the VC holds for every value bound
+  -- to the parameter. Only parameters: a let-, match- or lambda-bound
+  -- function value stays outside the fragment.
+  let cenv = Map.union (fnParamCallees aliases params) (scopedContractEnv cenvAll params mBody)
 
   -- NIW (v0.12, F-NIW-1): fold refinement-aliased param predicates into this
   -- function's own effective precondition, so the body VC assumes them
@@ -4037,6 +4062,47 @@ freshName base = do
   put (n + 1)
   return ("_bv_" <> base <> "_" <> T.pack (show n))
 
+-- | FN-SHADOW-1: the contract environment one function's emission reads.
+-- Every name the function binds (its parameters, and each let, match-payload,
+-- lambda and do binder in its body) is removed, because inside the function
+-- such a name denotes the binder, not the top-level function.
+scopedContractEnv :: ContractEnv -> [(Name, Type)] -> Maybe Expr -> ContractEnv
+scopedContractEnv cenv params mBody =
+  foldr Map.delete cenv
+    (map fst params ++ maybe [] (Set.toList . localBinderNames) mBody)
+
+-- | FN-PARAM-UF-1 (R2): the opaque callee entry of each function-typed
+-- parameter: its parameter types (named @p$1 .. p$n@, never mentioned by a
+-- clause), an empty contract, and its return type.
+fnParamCallees :: AliasMap -> [(Name, Type)] -> ContractEnv
+fnParamCallees aliases params = Map.fromList
+  [ (p, ( [ (p <> "$" <> T.pack (show i), t) | (i, t) <- zip [1 :: Int ..] ts ]
+        , Contract Nothing Nothing Nothing Nothing Nothing [] []
+        , Just r ))
+  | (p, pt) <- params
+  , TFn ts r <- [resolveAliasTy aliases pt] ]
+
+-- | FN-SHADOW-1: every name bound anywhere inside an expression by a let, a
+-- match pattern, a lambda parameter or a do step.
+localBinderNames :: Expr -> Set.Set Name
+localBinderNames = go
+  where
+    go e = case e of
+      ELet bs body  -> Set.unions (go body : [ Set.union (patVars p) (go r) | (p, _, r) <- bs ])
+      EMatch sc arms -> Set.unions (go sc : [ Set.union (patVars p) (go a) | (p, a) <- arms ])
+      ELambda ps b  -> Set.union (Set.fromList (map fst ps)) (go b)
+      EDo steps     -> Set.unions [ Set.union (maybe Set.empty Set.singleton (dsName st)) (go (dsExpr st)) | st <- steps ]
+      EApp _ as     -> Set.unions (map go as)
+      EOp _ as      -> Set.unions (map go as)
+      EIf a b c     -> Set.unions (map go [a, b, c])
+      EPair a b     -> Set.union (go a) (go b)
+      EAwait a      -> go a
+      _             -> Set.empty
+    patVars p = case p of
+      PVar v            -> Set.singleton v
+      PConstructor _ ps -> Set.unions (map patVars ps)
+      _                 -> Set.empty
+
 -- | A-normalization for the body-VC path. Lift user-function CALLS out of
 -- argument / operator / pair-component / if-condition / match-scrutinee
 -- positions into fresh @let@ bindings, so every call has an enclosing 'ELet'
@@ -4182,7 +4248,20 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
         translateCallArg a = do
           mvc <- bodyToPredM env se cenv _sccSet a
           return $ case mvc of Just (SimpleVC [] p) -> Just p; _ -> Nothing
-    mArgPredsList <- mapM translateCallArg args
+        -- FN-PARAM-UF-1 (R3): an argument in a FUNCTION-TYPED parameter
+        -- position is not translated (a variable, a named function and a
+        -- lambda are all accepted). No translated clause of the callee can
+        -- mention that parameter, so the argument needs no term; the slot
+        -- holds a placeholder that the substitution never reads, and
+        -- 'fnPosNames' below makes any clause that did mention it fall back.
+        calleeParamTys = case Map.lookup fname cenv of
+          Just (ps, _, _) -> map snd ps
+          Nothing         -> []
+        isFnTy t = case t of { TFn _ _ -> True; _ -> False }
+        translateArgAt (a, mt) = case mt of
+          Just t | isFnTy t -> return (Just FQTrue)
+          _                 -> translateCallArg a
+    mArgPredsList <- mapM translateArgAt (zip args (map Just calleeParamTys ++ repeat Nothing))
     let mArgPreds = sequence mArgPredsList
     case mArgPreds of
       Nothing -> return Nothing  -- argument translation failed
@@ -4252,12 +4331,18 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
             calleeCompNames = Set.fromList $ concat
               [ [ p <> "$has", p <> "$val" ]
               | p <- "result" : paramNames ]
+            -- FN-PARAM-UF-1 (R3): the callee's function-typed parameters. A
+            -- clause that mentions one has no caller-side term for it.
+            fnPosNames = Set.fromList [ q | (q, qt) <- params, isFnTy qt ]
             uncoveredComps extraKeys p =
-              any (\v -> v `Set.member` calleeCompNames
-                      && not (v `Map.member` mapCompSubst)
-                      && not (v `Set.member` extraKeys))
+              any (\v -> (v `Set.member` calleeCompNames
+                          && not (v `Map.member` mapCompSubst)
+                          && not (v `Set.member` extraKeys))
+                       || v `Set.member` fnPosNames)
                   (predVars p)
-        let subst = Map.union mapCompSubst (Map.fromList (zip paramNames argPreds))
+        let subst = Map.union mapCompSubst
+                      (Map.fromList [ (q, a) | (q, a) <- zip paramNames argPreds
+                                             , not (q `Set.member` fnPosNames) ])
         -- Issue 1 resolution: three-way pre distinction (soundness-critical)
         --   callee has no pre        → no obligation, assumption valid
         --   callee has pre, translates → obligation emitted

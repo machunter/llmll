@@ -28,6 +28,7 @@ module LLMLL.CallGraph
   ( qualifiedCallGraph
   , resolveIn
   , extractRefs
+  , unprovedEdges
   , undischargedCycleMembers
   , callerClosure
   ) where
@@ -43,7 +44,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import LLMLL.Syntax
-import LLMLL.HoleAnalysis (extractCalls)
+import LLMLL.HoleAnalysis (extractCallsScoped)
 
 -- | Every function of the program (entry plus cached modules) mapped to the
 -- functions it calls or uses as a value, all names qualified as described in
@@ -57,7 +58,10 @@ qualifiedCallGraph cache entryStmts =
     graphFor prefix stmts =
       let resolve = resolveWith cache prefix stmts
       in Map.fromList
-           [ (prefix <> f, nub (concatMap resolve (extractCalls body ++ extractRefs ps body)))
+           -- FN-SHADOW-1: a call head bound by a parameter or local binder is
+           -- not an edge ('extractCallsScoped'), as a shadowed value use is not
+           -- ('extractRefs').
+           [ (prefix <> f, nub (concatMap resolve (extractCallsScoped ps body ++ extractRefs ps body)))
            | (f, ps, body) <- defsOf stmts ]
 
 -- | DEF-ADMIT-XMOD-1: resolve a name written in the ENTRY module to the graph
@@ -102,6 +106,38 @@ defsOf = mapMaybe go
   where
     go (SLetrec n ps _ _ _ b) = Just (n, map fst ps, b)
     go s = (\(n, ps, _, _, b) -> (n, map fst ps, b)) <$> normalizeDefStmt s
+
+-- | FN-PARAM-UF-1 (R5): for each entry function, the callees a BODY-FAITHFUL
+-- body VC does not prove a pre for. A body VC proves the pre of each direct
+-- call it translates; it proves nothing for a function passed as a value
+-- (`extractRefs`) or for a call inside a lambda body, which the VC does not
+-- enter. Resolved to graph nodes as 'qualifiedCallGraph' resolves an edge.
+unprovedEdges :: ModuleCache -> [Statement] -> Map Name [Name]
+unprovedEdges cache entryStmts =
+  let resolve = resolveWith cache "" entryStmts
+  in Map.fromList
+       [ (f, nub (concatMap resolve (extractRefs ps body ++ lambdaCalls (Set.fromList ps) body)))
+       | (f, ps, body) <- defsOf entryStmts ]
+  where
+    -- call heads inside a lambda body, scope-aware
+    lambdaCalls bound e = case e of
+      ELambda ps b   -> extractCallsScoped (Set.toList (Set.union bound (Set.fromList (map fst ps)))) b
+      EApp _ as      -> concatMap (lambdaCalls bound) as
+      EOp _ as       -> concatMap (lambdaCalls bound) as
+      EIf a b c      -> concatMap (lambdaCalls bound) [a, b, c]
+      EPair a b      -> lambdaCalls bound a ++ lambdaCalls bound b
+      EAwait a       -> lambdaCalls bound a
+      EMatch s arms  -> lambdaCalls bound s ++ concat [ lambdaCalls (Set.union bound (pv p)) b | (p, b) <- arms ]
+      ELet bs body   ->
+        let step (acc, bd) (p, _, r) = (acc ++ lambdaCalls bd r, Set.union bd (pv p))
+            (inB, bd') = foldl' step ([], bound) bs
+        in inB ++ lambdaCalls bd' body
+      EDo steps      -> fst (foldl' (\(acc, bd) (DoStep mn x _) -> (acc ++ lambdaCalls bd x, maybe bd (`Set.insert` bd) mn)) ([], bound) steps)
+      _              -> []
+    pv p = case p of
+      PVar n            -> Set.singleton n
+      PConstructor _ ps -> Set.unions (map pv ps)
+      _                 -> Set.empty
 
 prefixOf :: ModulePath -> Text
 prefixOf p = T.intercalate "." p <> "."

@@ -91,7 +91,8 @@ import LLMLL.CDP (CDPResult(..), CDPWarning(..), cdpWarningLabel, overAnnotation
 import LLMLL.AstEmit (exprToJson)
 -- PARTIAL-FNS-GRAPH-1: 'partial_fns' reads the module-qualified graph, the
 -- same one 'termination_assumed_fns' reads ('LLMLL.ProgramGraph').
-import LLMLL.CallGraph (qualifiedCallGraph, undischargedCycleMembers, extractRefs)
+import LLMLL.CallGraph (qualifiedCallGraph, undischargedCycleMembers, extractRefs, unprovedEdges)
+import LLMLL.HoleAnalysis (extractCallsScoped)
 import LLMLL.Ffi (FfiEntry(..), ffiEntriesOf, camelName)
 import LLMLL.EvidenceKey (evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM
 
@@ -1295,12 +1296,18 @@ uncheckedCallPres :: ModuleCache -> [Statement] -> [Name] -> [(Name, Name)]
 uncheckedCallPres cache entryStmts faithful =
   [ (f, c)
   | f <- entryFns
-  , f `notElem` faithful
-  , c <- Map.findWithDefault [] f graph
+  -- FN-PARAM-UF-1 (R5): edges, not callers. A body-faithful caller still
+  -- reports the callees its body VC proves nothing for: a function passed as
+  -- a value and a call inside a lambda body ('unprovedEdges'). A caller that
+  -- fell back reports every edge, as before.
+  , c <- if f `elem` faithful
+           then Map.findWithDefault [] f unproved
+           else Map.findWithDefault [] f graph
   , c /= f
   , Map.member c reqs ]
   where
     graph    = qualifiedCallGraph cache entryStmts
+    unproved = unprovedEdges cache entryStmts
     reqs     = collectDeclaredRequires cache entryStmts
     entryFns = nub (mapMaybe fnName entryStmts)
     fnName (SLetrec n _ _ _ _ _) = Just n
@@ -1344,30 +1351,32 @@ buildModuleEntries prefix stmts allCS =
 
 buildEntry :: Text -> Map Name ContractStatus -> Statement -> Maybe TrustEntry
 buildEntry prefix allCS stmt = case stmt of
-  SDefLogic name _ _ contract body ->
+  SDefLogic name ps _ contract body ->
     let qname = prefix <> name
-    in Just (mkEntry qname contract body allCS)
-  SLetrec name _ _ contract _ body ->
+    in Just (mkEntry qname (map fst ps) contract body allCS)
+  SLetrec name ps _ contract _ body ->
     let qname = prefix <> name
-    in Just (mkEntry qname contract body allCS)
+    in Just (mkEntry qname (map fst ps) contract body allCS)
   -- LT-INV (v0.11): SDef and SDefShell contribute to trust report identically.
-  SDef      name _ _ contract body ->
+  SDef      name ps _ contract body ->
     let qname = prefix <> name
-    in Just (mkEntry qname contract body allCS)
-  SDefShell name _ _ contract body _ ->
+    in Just (mkEntry qname (map fst ps) contract body allCS)
+  SDefShell name ps _ contract body _ ->
     let qname = prefix <> name
-    in Just (mkEntry qname contract body allCS)
+    in Just (mkEntry qname (map fst ps) contract body allCS)
   -- v0.12.1: def-invariant contributes to trust report identically to SDefLogic.
-  SDefInvariant name _ _ contract body ->
+  SDefInvariant name ps _ contract body ->
     let qname = prefix <> name
-    in Just (mkEntry qname contract body allCS)
+    in Just (mkEntry qname (map fst ps) contract body allCS)
   _ -> Nothing
 
-mkEntry :: Name -> Contract -> Expr -> Map Name ContractStatus -> TrustEntry
-mkEntry qname contract body allCS =
+mkEntry :: Name -> [Name] -> Contract -> Expr -> Map Name ContractStatus -> TrustEntry
+mkEntry qname params contract body allCS =
   let ownCS = Map.findWithDefault (ContractStatus Nothing Nothing []) qname allCS
       -- Find all function calls in the body
-      callees = nub $ extractCalls body
+      -- FN-SHADOW-1: a call through a parameter or local binder names no
+      -- function, so it adds no callee row and no evidence meet.
+      callees = nub $ extractCallsScoped params body
       -- Build dependencies for cross-module callees that have contract status
       deps = mapMaybe (\callee ->
         case Map.lookup callee allCS of
@@ -1418,7 +1427,7 @@ markFfiAssumptions cache entryStmts graph entries = map stamp entries
          [ (q, rows)
          | (f, ps, body) <- defBodies stmts
          , let q = prefix <> f
-               used = nub (extractCalls body ++ extractRefs ps body)
+               used = nub (extractCallsScoped ps body ++ extractRefs ps body)
                rows = [ FfiAssumption q pkg ex | n <- used, Just (pkg, ex) <- [Map.lookup n ffi] ]
          , not (null rows) ]
     defBodies stmts =
@@ -1432,20 +1441,9 @@ markFfiAssumptions cache entryStmts graph entries = map stamp entries
                          | c <- Set.toList (Map.findWithDefault Set.empty n reach), c /= n ]
       in e { teFfiAssumptions = nub (own ++ via) }
 
--- | Extract all function call names from an expression (recursive walk).
-extractCalls :: Expr -> [Name]
-extractCalls (EApp name args)   = name : concatMap extractCalls args
-extractCalls (ELit _)           = []
-extractCalls (EVar _)           = []
-extractCalls (ELet binds body)  = concatMap (\(_, _, e) -> extractCalls e) binds ++ extractCalls body
-extractCalls (EIf c t e)        = extractCalls c ++ extractCalls t ++ extractCalls e
-extractCalls (EMatch e cases)   = extractCalls e ++ concatMap (\(_, b) -> extractCalls b) cases
-extractCalls (EOp _ args)       = concatMap extractCalls args
-extractCalls (EPair a b)        = extractCalls a ++ extractCalls b
-extractCalls (EHole _)          = []
-extractCalls (EAwait e)         = extractCalls e
-extractCalls (ELambda _ body)   = extractCalls body
-extractCalls (EDo steps)        = concatMap (\(DoStep _ e _) -> extractCalls e) steps
+-- FN-SHADOW-1: the local 'extractCalls' is gone; call heads come from
+-- 'LLMLL.HoleAnalysis.extractCallsScoped', which drops a head bound by a
+-- parameter or local binder.
 
 -- | Compute epistemic drift warnings.
 -- v0.8.1b: Drift uses isSolverBacked and the transitive reachable set.

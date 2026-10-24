@@ -1275,6 +1275,18 @@ coreExcludedBuiltins =
 -- body-faithful QF-LIA SAFE result (FixpointEmit body VC); the '¬tainted'
 -- conjunct excludes the one unbounded-Int escape. No record reaches this leg
 -- with a non-QF-LIA body-faithful claim.
+-- | FN-SHADOW-1: is this name bound, at this point, by a parameter, a let, a
+-- match payload or a lambda parameter (the 'withTaggedEnv' sources)? An
+-- opened import is tagged too, but it names a module function, not a binder.
+isLocalBinder :: Name -> TC Bool
+isLocalBinder n = do
+  prov <- gets tcProvenance
+  pure $ case Map.lookup n prov of
+    Just SrcParam      -> True
+    Just SrcLetBinding -> True
+    Just SrcMatchArm   -> True
+    _                  -> False
+
 checkCalleeAdmissibility :: Name -> TC ()
 checkCalleeAdmissibility func = do
   inCore <- gets tcCoreMode
@@ -2841,6 +2853,8 @@ inferExpr (ELet bindings body) = do
       _ -> checkPattern pat inferredTy
     -- Extend scope for subsequent bindings
     mapM_ (uncurry tcInsert) newBindings
+    -- FN-SHADOW-1: a later binding's RHS sees these names as let binders.
+    modify $ \st -> st { tcProvenance = foldr (\(n, _) pacc -> Map.insert n SrcLetBinding pacc) (tcProvenance st) newBindings }
     pure (acc ++ newBindings)
     ) [] bindings
   -- Restore to pre-let env, then use withTaggedEnv for the body only.
@@ -3040,7 +3054,18 @@ inferExpr (EApp func args) = do
       modify $ \st -> st { tcErrors = tcErrors st ++ [mkRegexReplacementLiteral r] }
     _ -> pure ()
   -- LT-INV (v0.11): under strict-core mode, callee must be body-faithful or trusted-prelude.
-  checkCalleeAdmissibility func
+  -- FN-SHADOW-1 (fn-param-uf-1-proposal R1, R6): a call head bound by a
+  -- parameter or a local binder is that binder, not the top-level function of
+  -- the same name. It is never admitted on that function's evidence; under
+  -- strict core it is refused and named as a binder.
+  localHead <- isLocalBinder func
+  if localHead
+    then do
+      inCore <- gets tcCoreMode
+      when inCore $ do
+        enclosing <- gets (maybe "<unknown>" id . tcCurrentFn)
+        modify $ \s -> s { tcErrors = tcErrors s ++ [mkCoreBinderCallee enclosing func] }
+    else checkCalleeAdmissibility func
   -- XMOD-SCOPE R3: was the S4 dotted-name warning. A qualified call to a module
   -- in the closure now resolves or is an error; the S4 text stays only for a
   -- dotted name no closure module matches (see 'qualifiedValueCheck').
@@ -3064,7 +3089,9 @@ inferExpr (EApp func args) = do
     tcWarn $ "self-recursive call to '" <> func <> "' inside def-logic; "
               <> "use (letrec " <> func <> " [...] :decreases ...) to provide a termination measure"
   -- v0.3: trust-gap warning for cross-module calls with unproven contracts
-  do csMap  <- gets tcContractStatus
+  -- FN-SHADOW-1: not for a call through a binder, which calls no module function.
+  unless localHead $ do
+     csMap  <- gets tcContractStatus
      trusts <- gets tcTrusts
      case Map.lookup func csMap of
        Nothing -> pure ()  -- no contract status known (local or unknown)

@@ -452,6 +452,21 @@ evalC cs fe fuel env (ELet bindings body) = do
       pure (Map.insert n val acc)
     extendEnv _ _ = Nothing  -- non-variable patterns: bail
 
+-- FN-SHADOW-1 (fn-param-uf-1-proposal R1): a call head bound in the
+-- environment (a parameter, a let or match binder, a captured closure name)
+-- denotes that binder, never the program function of the same name. Such a
+-- call does not reduce here, so the sample discards: the evaluator used to
+-- run the top-level function and gave a property false `tested` evidence.
+--
+-- PBT-FN-PARAM-1: a head bound to a closure value (a lambda, with its free
+-- variables already captured by the ELambda clause below) is applied to the
+-- evaluated arguments. Any other bound value does not reduce.
+evalC cs fe fuel env (EApp func args)
+  | Just bound <- Map.lookup func env = case bound of
+      lam@(ELambda _ _) -> do
+        argVals <- mapM (evalC cs fe fuel env) args
+        applyLambda cs fe (fuel - 1) lam argVals
+      _ -> Nothing
 evalC cs fe fuel env (EApp func args) = do
   argVals <- mapM (evalC cs fe fuel env) args
   case Map.lookup func fe of
@@ -495,8 +510,17 @@ evalC cs fe fuel env (EPair a b) = do
 -- shadows an outer name of the same spelling, so it is removed from the
 -- substitution. Environment values are reduced values, closed, and each
 -- re-evaluates to itself, so the substitution captures nothing.
+-- FN-SHADOW-1: a captured name used as a CALL HEAD cannot be substituted (a
+-- head is a name, not a term), so it is re-bound by a let at the top of the
+-- body. Applying the closure then finds the head in its environment and
+-- resolves it to the captured binder, not to a program function.
 evalC _ _ _ env (ELambda ps body) =
-  Just (ELambda ps (substValues (foldr (Map.delete . fst) env ps) body))
+  let m     = foldr (Map.delete . fst) env ps
+      heads = [ h | h <- Set.toList (freeCallHeads body), Just _ <- [Map.lookup h m] ]
+      body' = substValues m body
+      wrap  = if null heads then body'
+              else ELet [ (PVar h, Nothing, m Map.! h) | h <- heads ] body'
+  in Just (ELambda ps wrap)
 
 evalC _ _ _ _ _ = Nothing
 
@@ -967,6 +991,29 @@ stringConcatMany _                                      = Nothing
 -- parameter and a do-step name each remove their name for the scope they
 -- open. A call head is a function name, not a variable, and is left alone.
 -- A delegate hole is left alone (its fallback is evaluated where it stands).
+-- | FN-SHADOW-1: the call heads of an expression not bound inside it.
+freeCallHeads :: Expr -> Set Name
+freeCallHeads = go Set.empty
+  where
+    go bound e = case e of
+      EApp f as      -> Set.unions ((if f `Set.member` bound then Set.empty else Set.singleton f) : map (go bound) as)
+      EOp _ as       -> Set.unions (map (go bound) as)
+      EIf a b c      -> Set.unions (map (go bound) [a, b, c])
+      ELet bs body   ->
+        let step (bd, acc) (p, _, r) = (Set.union bd (pv p), Set.union acc (go bd r))
+            (bd', acc') = foldl step (bound, Set.empty) bs
+        in Set.union acc' (go bd' body)
+      EMatch sc arms -> Set.unions (go bound sc : [ go (Set.union bound (pv p)) a | (p, a) <- arms ])
+      ELambda ps b   -> go (Set.union bound (Set.fromList (map fst ps))) b
+      EPair a b      -> Set.union (go bound a) (go bound b)
+      EAwait a       -> go bound a
+      EDo steps      -> snd (foldl (\(bd, acc) st -> (maybe bd (`Set.insert` bd) (dsName st), Set.union acc (go bd (dsExpr st)))) (bound, Set.empty) steps)
+      _              -> Set.empty
+    pv p = case p of
+      PVar v            -> Set.singleton v
+      PConstructor _ ps -> Set.unions (map pv ps)
+      _                 -> Set.empty
+
 substValues :: Map Name Expr -> Expr -> Expr
 substValues m0 = go m0
   where

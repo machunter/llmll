@@ -1,0 +1,13 @@
+;; FN-PARAM-UF-1 witness W2 (fn-param-uf-1-proposal). min2-by calls its
+;; function-typed parameter (R2) and pick-lambda passes it a lambda (R3). Both
+;; are body-faithful and proved; the run prints the smaller argument.
+(import wasi.io (capability stdout :deterministic false))
+(def-shell min2-by [le: (fn [int int] -> bool) a: int b: int] -> int
+  (post (or (= result a) (= result b)))
+  (if (le a b) a b))
+(def-shell pick-lambda [a: int b: int] -> int
+  (post (or (= result a) (= result b)))
+  (min2-by (fn [x: int y: int] (<= x y)) a b))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (pick-lambda 7 3))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

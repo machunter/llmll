@@ -1,0 +1,13 @@
+;; FN-PARAM-UF-1 witness W6. The refinement on the parameter's return type is
+;; not assumed (`check` does not enforce it where a function value is passed),
+;; so use-pos is refuted; the run shows why: the lambda returns -5.
+(import wasi.io (capability stdout :deterministic false))
+(type PositiveInt (where [x: int] (> x 0)))
+(def-shell use-pos [f: (fn [int] -> PositiveInt) a: int] -> int
+  (post (> result 0))
+  (f a))
+(def-shell caller [a: int] -> int
+  (use-pos (fn [x: int] (- 0 5)) a))
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (int-to-string (caller 3))))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

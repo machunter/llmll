@@ -1,0 +1,8 @@
+;; FN-SHADOW-1: the same call in a def-shell is legal. Up to v0.31.0 `check`
+;; warned that it inherits pk.pick's trust gap; the call reaches no module
+;; function, so there is no warning.
+(module shell)
+(import pk)
+(open pk)
+(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int
+  (pick a b))

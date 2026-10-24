@@ -116,6 +116,11 @@ import qualified Crypto.Hash.SHA256 as GNSHA
 import qualified Numeric as GNNum
 import qualified LLMLL.RuntimePure as RP
 import qualified LLMLL.ProgramGraph as PG
+-- FN-SHADOW-1
+import qualified LLMLL.CallGraph as FSCG
+import LLMLL.HoleAnalysis (extractCallsScoped)
+import LLMLL.TrustReport (uncheckedCallPres)
+import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames)
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
 import Test.QuickCheck (property, choose)
@@ -21166,10 +21171,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       mapM_ (\f -> erBodyFaithfulFns er `shouldSatisfy` elem f) ["w1", "w2", "w3"]
       solverSays "wrong" er "Unsafe"
 
-    it "MMF-6: a parameter named min is not the builtin (falls back, never proves)" $ do
+    -- FN-PARAM-UF-1 (R2) changed this: the call through the parameter is an
+    -- opaque call, so g is body-faithful and its post, false for a parameter
+    -- that returns b, is refuted. It never proves, and min is never reflected.
+    it "MMF-6: a parameter named min is not the builtin (body-faithful, never reflected, refuted)" $ do
       er <- emitSrc =<< fixture "shadow-param"
-      erBodyFaithfulFns er `shouldNotSatisfy` elem "g"
+      erBodyFaithfulFns er `shouldSatisfy` elem "g"
       erFQText er `shouldNotSatisfy` T.isInfixOf "(if "
+      solverSays "shadow-param" er "Unsafe"
 
     it "MMF-7: a top-level function named min is called as that function, not reflected" $ do
       er <- emitSrc "(def-shell min [a: int b: int] -> int b)\n(def-shell g [a: int b: int] -> int (post (<= result a)) (min a b))"
@@ -21787,8 +21796,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             report = buildTrustReport Map.empty (parseSrc src) Map.empty
         concatMap teAssumedFacts (trEntries report) `shouldBe` []
         formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
-      it "RF-P4 checker_soundness_version is \"3\" (TRUST-REPORT-GATE-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
-        checkerSoundnessVersion `shouldBe` "3"
+      -- FN-SHADOW-1 moved the stamp to "4"; FS-13 pins "3" as discarded.
+      it "RF-P4 checker_soundness_version is \"4\" (FN-SHADOW-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "4"
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "2")]) `shouldBe` True
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
 
@@ -23540,6 +23550,238 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- bytes-length-range. bytes[2^63] used to narrow to TBytes (-2^63), and the
   -- verifier then held bytesLen = -2^63 beside bytesLen >= 0: a false SAFE.
   -- -----------------------------------------------------------------------
+  -- -----------------------------------------------------------------------
+  -- FN-SHADOW-1 (fn-param-uf-1-proposal R1): a parameter or local binder
+  -- shadows a top-level function of the same name in the verifier, the test
+  -- evaluator, strict-core admission and every call-graph reader.
+  -- -----------------------------------------------------------------------
+  describe "FN-SHADOW-1 binder shadowing" $ do
+    let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left e   -> error (show e)
+          Right ss -> ss
+        emitBody src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+        pickDef = "(def pick [x: int y: int] -> int (post (= result x)) x)\n"
+        tcErrs src = [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedOk src))
+                                     , diagSeverity d == SevError ]
+
+    -- FN-PARAM-UF-1 retargeted this: the call through the parameter is now an
+    -- opaque call (R2), so g is body-faithful and its false post is REFUTED.
+    -- Under FN-SHADOW-1 alone it fell back; before, it was proved.
+    it "FS-1 S1: a call through parameter pick does not assume the top-level pick's post" $ do
+      r <- emitBody (pickDef ++ "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (post (= result a)) (pick a b))")
+      erBodyFaithfulFns r `shouldSatisfy` elem "g"
+      tmp <- getTemporaryDirectory
+      let fqPath = tmp <> "/fn-shadow-s1.fq"
+      TIO.writeFile fqPath (erFQText r)
+      mLF <- do a <- findExecutable "liquid-fixpoint"
+                maybe (findExecutable "fixpoint") (pure . Just) a
+      case mLF of
+        Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+        Just lf -> do
+          (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+          T.pack out `shouldSatisfy` T.isInfixOf "Unsafe"
+
+    it "FS-2 S2: a let-bound function value named pick is not the top-level pick" $ do
+      r <- emitBody (pickDef ++ unlines
+             [ "(def-shell mk [n: int] -> (fn [int int] -> int) (fn [x: int y: int] y))"
+             , "(def-shell g2 [a: int b: int] -> int (post (= result a)) (let [(pick (mk 0))] (pick a b)))" ])
+      erBodyFallback r `shouldSatisfy` elem "g2"
+      erFQText r `shouldSatisfy` (not . T.isInfixOf "call_pick")
+
+    it "FS-3 the per-function environment drops parameters and every let, match, lambda and do binder" $ do
+      let body = ELet [(PVar "l", Nothing, ELit (LitInt 1))]
+                   (EMatch (EVar "s") [ (PConstructor "Box" [PVar "m"], ELambda [("lam", TInt)] (EVar "lam")) ])
+          cenv = Map.fromList [ (n, ([], Contract Nothing Nothing Nothing Nothing Nothing [] [], Nothing))
+                              | n <- ["p", "l", "m", "lam", "keep"] ]
+      localBinderNames body `shouldBe` Set.fromList ["l", "m", "lam"]
+      Map.keys (scopedContractEnv cenv [("p", TInt)] (Just body)) `shouldBe` ["keep"]
+
+    it "FS-4 S3: the evaluator never runs a top-level function for a call through a binder" $ do
+      let fe = Map.fromList [("pick", (["x", "y"], EVar "x"))]
+          lam = ELambda [("x", TInt), ("y", TInt)] (EVar "y")
+      -- PBT-FN-PARAM-1: the bound closure is applied (it returns y = 2), never
+      -- the top-level pick (which would return x = 1).
+      evalExprStaticWith fe maxFuel (Map.fromList [("pick", lam)]) (EApp "pick" [ELit (LitInt 1), ELit (LitInt 2)])
+        `shouldBe` Just (ELit (LitInt 2))
+      r <- runPropertyTests (parsedOk (pickDef ++ unlines
+             [ "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (pick a b))"
+             , "(check \"true at run time\" (for-all [a: int b: int] (= (g (fn [x: int y: int] y) a b) b)))"
+             , "(check \"false at run time\" (for-all [a: int b: int] (= (g (fn [x: int y: int] y) a b) a)))" ]))
+      map pbtStatus (pbtResults r) `shouldBe` [PBTPassed, PBTFailed]
+
+    it "FS-5 S4: a def calling a parameter named like a trusted builtin is refused, naming a binder" $
+      tcErrs "(def g [abs: (fn [int] -> int) a: int] -> int (abs a))"
+        `shouldSatisfy` any (T.isInfixOf "callee 'abs' is a parameter or local binder")
+
+    it "FS-6 S4, local form: the message names a parameter, not \"defined in this file\"" $ do
+      let es = tcErrs (pickDef ++ "(def g [pick: (fn [int int] -> int) a: int b: int] -> int (post (= result a)) (pick a b))")
+      es `shouldSatisfy` any (T.isInfixOf "callee 'pick' is a parameter or local binder")
+      es `shouldSatisfy` (not . any (T.isInfixOf "is defined in this file"))
+
+    it "FS-7 pinned over-approximation: a name bound in one scope disables the top-level call in another" $ do
+      r <- emitBody (pickDef ++ "(def-shell f [a: int b: int] -> int (post (= result a)) (if (> a 0) (let [(pick 1)] a) (pick a b)))")
+      erBodyFallback r `shouldSatisfy` elem "f"
+
+    it "FS-8 extractCallsScoped drops heads bound by a parameter, let, match, lambda or do binder" $ do
+      let body = EApp "free" [ EApp "p" []
+                             , ELet [(PVar "l", Nothing, EApp "l" [])] (EApp "l" [])
+                             , EMatch (EVar "s") [(PVar "m", EApp "m" [])]
+                             , ELambda [("q", TInt)] (EApp "q" [])
+                             , EDo [DoStep (Just "d") (EApp "d" []) False, DoStep Nothing (EApp "d" []) False] ]
+      extractCallsScoped ["p"] body `shouldBe` ["free", "l", "d"]
+
+    it "FS-9 the termination graph has no edge for a call through a parameter (no spurious cycle)" $ do
+      let ss = parsedOk $ unlines
+            [ "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (pick a b))"
+            , "(def-shell pick [x: int y: int] -> int (g (fn [p: int q: int] p) x y))" ]
+      Map.lookup "g" (FSCG.qualifiedCallGraph Map.empty ss) `shouldBe` Just []
+
+    it "FS-10 call-pre unchecked does not report a call through a parameter inside a lambda" $ do
+      let ss = parsedOk $ unlines
+            [ "(def pick [x: int y: int] -> int (pre (> x 0)) (post (= result x)) x)"
+            , "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (list-length (list-map [a] (fn [z: int] (pick z b)))))" ]
+      uncheckedCallPres Map.empty ss ["pick"] `shouldBe` []
+
+    it "FS-11 no trust-gap warning for a call through a parameter named like an imported function" $ do
+      let modEnv = ModuleEnv
+            { meExports = DM.fromList [("safe-add", TFn [TInt] TInt)]
+            , meStatements = [ SDefLogic "safe-add" [("x", TInt)] (Just TInt) (Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] []) (EVar "x"), SExport ["safe-add"] ]
+            , meInterfaces = DM.empty, meAliasMap = DM.empty, mePath = ["math"]
+            , meContractStatus = DM.fromList
+                [("safe-add", ContractStatus Nothing (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])]
+            , meContracts = DM.empty, meRetTypes = DM.empty, meBuiltinAxioms = Nothing }
+          cache = DM.fromList [(["math"], modEnv)]
+          caller = SDefShell "caller" [("math.safe-add", TFn [TInt] TInt)] (Just TInt)
+                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "math.safe-add" [ELit (LitInt 5)]) []
+          report = typeCheckWithCache GrammarCoreInversion cache emptyEnv [SImport (Import "math" Nothing Nothing), caller]
+      filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report) `shouldBe` []
+
+    it "FS-12 the trust report lists no callee row for a call through a parameter" $ do
+      let ss = parsedOk (pickDef ++ "(def-shell g [pick: (fn [int int] -> int) a: int b: int] -> int (post (= result a)) (pick a b))")
+          vrec = Just (EvidenceRecord (DLVerified "liquid-fixpoint") False Nothing [] False Nothing Nothing False Nothing False [])
+          report = buildTrustReport Map.empty ss (Map.fromList [("pick", ContractStatus Nothing vrec [])])
+      fmap (length . teDeps) (listToMaybe [ e | e <- trEntries report, teName e == "g" ]) `shouldBe` Just 0
+
+    it "FS-13 checker_soundness_version is \"4\": a sidecar stamped \"3\" is discarded" $ do
+      checkerSoundnessVersion `shouldBe` "4"
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "3")]) `shouldBe` True
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "4")]) `shouldBe` False
+
+  -- -----------------------------------------------------------------------
+  -- FN-PARAM-UF-1 (fn-param-uf-1-proposal R2, R3, R5) and PBT-FN-PARAM-1: a
+  -- call through a function-typed parameter is an opaque call (a fresh,
+  -- unconstrained result binder), a function-typed argument is not
+  -- translated, call-pre unchecked counts edges, and the evaluator applies a
+  -- closure bound to a call head.
+  -- -----------------------------------------------------------------------
+  describe "FN-PARAM-UF-1 calls through function-typed parameters" $ do
+    let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left e   -> error (show e)
+          Right ss -> ss
+        emitSrc src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+        solverSays tag src want = do
+          er <- emitSrc src
+          tmp <- getTemporaryDirectory
+          let fqPath = tmp <> "/fn-param-uf-" <> tag <> ".fq"
+          TIO.writeFile fqPath (erFQText er)
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just lf -> do
+              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              T.pack out `shouldSatisfy` T.isInfixOf want
+          pure er
+        minBy = "(def-shell min2-by [le: (fn [int int] -> bool) a: int b: int] -> int (post (or (= result a) (= result b))) (if (le a b) a b))\n"
+
+    it "FP-W1 a call through a parameter in an if condition is hoisted and proved" $ do
+      er <- solverSays "w1" minBy "Safe"
+      erBodyFaithfulFns er `shouldSatisfy` elem "min2-by"
+
+    it "FP-W2 a lambda passed in a function-typed position is accepted (R3) and proved" $ do
+      er <- solverSays "w2" (minBy ++ "(def-shell pick-lambda [a: int b: int] -> int (post (or (= result a) (= result b))) (min2-by (fn [x: int y: int] (<= x y)) a b))") "Safe"
+      erBodyFaithfulFns er `shouldSatisfy` elem "pick-lambda"
+
+    it "FP-W2b a parameter passed on to another function-typed position proves" $ do
+      er <- solverSays "w2b" (minBy ++ "(def-shell pass-through [le: (fn [int int] -> bool) a: int b: int] -> int (post (or (= result a) (= result b))) (min2-by le a b))") "Safe"
+      erBodyFaithfulFns er `shouldSatisfy` elem "pass-through"
+
+    it "FP-W4 (f (f x)) is hoisted into two unrelated binders and proves a post that needs no value" $ do
+      er <- solverSays "w4" "(def-shell g [f: (fn [int] -> int) x: int] -> int (post (or (= result x) (not (= result x)))) (f (f x)))" "Safe"
+      erBodyFaithfulFns er `shouldSatisfy` elem "g"
+      T.count "bind" (T.unlines (filter (T.isInfixOf "_bv_call_f_") (T.lines (erFQText er)))) `shouldSatisfy` (>= 2)
+
+    it "FP-W5 two equal calls are unrelated (no congruence): a post that needs it is refuted" $
+      () <$ (solverSays "w5" "(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))" "Unsafe")
+
+    it "FP-W6 a refinement on the parameter's return type is not assumed: refuted" $ do
+      er <- solverSays "w6" (unlines
+              [ "(type PositiveInt (where [x: int] (> x 0)))"
+              , "(def-shell use-pos [f: (fn [int] -> PositiveInt) a: int] -> int (post (> result 0)) (f a))" ]) "Unsafe"
+      erBodyFaithfulFns er `shouldSatisfy` elem "use-pos"
+
+    it "FP-W7a a key function over a payload sum (Task) proves" $
+      () <$ (solverSays "w7a" (unlines
+        [ "(type Task (| Task int))"
+        , "(def-shell pick-by [key: (fn [Task] -> int) a: Task b: Task] -> Task (post (or (= result a) (= result b))) (if (<= (key a) (key b)) a b))" ]) "Safe")
+
+    it "FP-W7b a string-valued key function over a payload sum (Job) proves" $
+      () <$ (solverSays "w7b" (unlines
+        [ "(type Job (| Job string))"
+        , "(def-shell pick-job [key: (fn [Job] -> string) a: Job b: Job] -> Job (post (or (= result a) (= result b))) (if (= (key a) (key b)) a b))" ]) "Safe")
+
+    it "FP-W8 a Command-returning parameter gets an unconstrained binder and proves" $
+      () <$ (solverSays "w8" (unlines
+        [ "(import wasi.io (capability stdout :deterministic false))"
+        , "(def-shell t8 [mk: (fn [int] -> Command) a: int] -> int (post (= result a)) (let [(c (mk a))] a))" ]) "Safe")
+
+    it "FP-W9 call-pre unchecked reports a pre-carrying function passed as a value and one called in a lambda (R5)" $ do
+      let ss = parsedOk $ unlines
+            [ "(def pos-le [x: int y: int] -> bool (pre (> x 0)) (post (= result (<= x y))) (<= x y))"
+            , minBy
+            , "(def-shell via-lambda [a: int b: int] -> int (post (or (= result a) (= result b))) (min2-by (fn [x: int y: int] (pos-le x y)) a b))"
+            , "(def-shell via-value [a: int b: int] -> int (post (or (= result a) (= result b))) (min2-by pos-le a b))" ]
+      uncheckedCallPres Map.empty ss ["pos-le", "min2-by", "via-lambda", "via-value"]
+        `shouldBe` [("via-lambda", "pos-le"), ("via-value", "pos-le")]
+
+    it "FP-W10 a def calling a function-typed parameter is still refused (R6), naming a parameter" $
+      [ diagMessage d | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedOk
+          "(def min2-by [le: (fn [int int] -> bool) a: int b: int] -> int (post (or (= result a) (= result b))) (if (le a b) a b))"))
+      , diagSeverity d == SevError ]
+        `shouldSatisfy` any (T.isInfixOf "callee 'le' is a parameter or local binder")
+
+    it "FP-W11 a post that applies the parameter stays a contract-only fallback (R4)" $ do
+      er <- emitSrc "(def-shell m [le: (fn [int int] -> bool) a: int b: int] -> int (post (le a b)) a)"
+      erBodyFaithfulFns er `shouldNotSatisfy` elem "m"
+
+    it "FP-R2-scope a let-bound function value stays outside the fragment" $ do
+      er <- emitSrc (unlines
+        [ "(def-shell mk [n: int] -> (fn [int int] -> int) (fn [x: int y: int] y))"
+        , "(def-shell g2 [a: int b: int] -> int (post (or (= result a) (= result b))) (let [(h (mk 0))] (h a b)))" ])
+      erBodyFallback er `shouldSatisfy` elem "g2"
+
+    it "FP-R3 a callee clause mentioning a function-typed parameter makes the call fall back" $ do
+      let fnTy  = TFn [TInt] TInt
+          cenv  = Map.fromList [ ("h", ([("q", fnTy), ("x", TInt)]
+                                       , Contract (Just (EOp "=" [EVar "q", EVar "q"])) Nothing Nothing Nothing Nothing [] []
+                                       , Just TInt)) ]
+          (_, mvc) = bodyToPredFrom 0 (Map.fromList [("a", FQInt)]) cenv Set.empty
+                       (ELet [(PVar "r", Nothing, EApp "h" [EVar "f", EVar "a"])] (EVar "r"))
+      isNothing mvc `shouldBe` True
+
+    it "FP-PBT-1 PBT-FN-PARAM-1: a parameter bound to a lambda is applied (true passes, false fails)" $ do
+      r <- runPropertyTests (parsedOk (unlines
+             [ "(def-shell app1 [f: (fn [int] -> int) x: int] -> int (f x))"
+             , "(check \"identity\" (for-all [x: int] (= (app1 (fn [y: int] y) x) x)))"
+             , "(check \"false\" (for-all [x: int] (= (app1 (fn [y: int] y) x) (+ x 1))))" ]))
+      map pbtStatus (pbtResults r) `shouldBe` [PBTPassed, PBTFailed]
+
+    it "FP-PBT-2 a closure captured inside a lambda body is applied through the captured name" $ do
+      r <- runPropertyTests (parsedOk (unlines
+             [ "(def-shell app2 [f: (fn [int] -> int) x: int] -> int (list-fold (list-map [x] (fn [z: int] (f z))) 0 (fn [acc: int v: int] (+ acc v))))"
+             , "(check \"captured\" (for-all [x: int] (= (app2 (fn [y: int] (+ y 1)) x) (+ x 1))))" ]))
+      map pbtStatus (pbtResults r) `shouldBe` [PBTPassed]
+
   describe "BYTES-LEN-RANGE-1 bytes length range" $ do
     let progKind src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
           Left err -> diagKind (megaparsecToDiagnostic "<t>" err)

@@ -379,8 +379,14 @@ reservedCallerObligationsKey = "caller_obligations"
 -- that carries its subject's evidence key ('pwSubjectKey'), and a SAFE write
 -- now carries such records forward. A sidecar written by an older binary is
 -- revalidated on first read; its 'tested' records have no key and demote.
+--
+-- "4" (FN-SHADOW-1): the verifier, the test evaluator and strict-core
+-- admission resolved a call through a parameter or local binder to a
+-- top-level function of the same name, so an older sidecar can hold a false
+-- `verified` (fn-param-uf-1-proposal S1, S2, S4) or a false `tested` (S3).
+-- Every older sidecar is discarded once.
 checkerSoundnessVersion :: Text
-checkerSoundnessVersion = "3"
+checkerSoundnessVersion = "4"
 
 -- | SAFE-ARG: reserved top-level sidecar key carrying 'checkerSoundnessVersion'.
 reservedCheckerSoundnessKey :: Text
