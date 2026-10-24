@@ -89,6 +89,55 @@ decisions R1-1 to R1-3.
 - **No program that built before changes:** a 47-program gate gives identical `-Wtype-defaults`
   warnings with and without the pragma. `check` is unchanged.
 
+### `FN-SHADOW-1`: a parameter or local binder shadows a top-level function (soundness)
+
+Design: [`docs/design/fn-param-uf-1-proposal.md`](docs/design/fn-param-uf-1-proposal.md) Rev 0, R1.
+
+- **A false `verified` is closed.** A parameter or local binder (`let`, `match`, lambda or `do`)
+  now shadows a top-level function of the same name in the verifier, the test evaluator and
+  strict-core admission, as it already did in codegen. Before,
+  `(def-shell g [pick: (fn [int int] -> int) …] (post (= result a)) (pick a b))` was verified
+  with the top-level `pick`'s contract while the built program called the parameter, and
+  `llmll test` ran the top-level `pick` for a property over `g`.
+- **`checker_soundness_version` is now `"4"`.** Every `.verified.json` written by an older binary
+  is discarded once. Run `llmll verify` (leaf modules first) and `llmll test` again to restore
+  `verified` and `tested` evidence.
+- **A call through a binder is not a call to a function.** The call graph, the trust report's
+  callee rows, `call-pre unchecked` and the trust-gap warning no longer count it.
+- **`core-membership-violation` names the binder.** A `def` that calls a parameter is refused with
+  "callee 'pick' is a parameter or local binder, not a function", and the suggestion is
+  `def-shell`. Before, admission resolved the call to an opened `pick` and could admit it.
+
+### `FN-PARAM-UF-1`: a call through a function-typed parameter is an opaque call
+
+Design: [`docs/design/fn-param-uf-1-proposal.md`](docs/design/fn-param-uf-1-proposal.md) Rev 0,
+R2, R3 and R5.
+
+- **A call through a function-typed parameter no longer makes the body fall back.** It is
+  verified as a call to an uncontracted named function: a fresh result binder at the return
+  type's sort, with no assumption on it and no pre to prove, hoisted out of `if` conditions,
+  arguments and scrutinees. `(def-shell min2-by [le: (fn [int int] -> bool) a: int b: int] -> int
+  (post (or (= result a) (= result b))) (if (le a b) a b))` is now body-faithful and proved. A
+  `let`-, `match`- or lambda-bound function value still falls back.
+- **A lambda or a function in a function-typed argument position is accepted.** A caller that
+  passes `(fn [x: int y: int] (<= x y))` to `min2-by` is body-faithful; it fell back with
+  `app:min2-by`.
+- **`call-pre unchecked` reports per edge.** A body-faithful caller now also lists a pre-carrying
+  callee that its body VC proves nothing for: one passed as a value, or called inside a lambda.
+  `(min2-by pos-le a b)` was body-faithful and unreported.
+- **Release note: a function that fell back can now be refuted, so `verify` exits 1.** The
+  return refinement of a function-typed parameter is not assumed, and two calls with equal
+  arguments are not known to agree (`CALL-CONGRUENCE-1`). In the tracked tree only the `MMF-6`
+  fixture changes (`compiler/test/fixtures/minmax-frag/shadow-param.llmll`, now refuted). No
+  version stamp or schema changes.
+
+### `PBT-FN-PARAM-1`: `llmll test` applies a function-typed parameter
+
+- A call through a parameter bound to a lambda reduces, including through a lambda that
+  captured the parameter. `(for-all [x: int] (= (app1 (fn [y: int] y) x) x))` passes; it was
+  skipped with 0 samples. A named top-level function passed as a value does not reduce yet, so
+  such a property is still skipped (`PBT-FN-VALUE-1`).
+
 ### Documentation
 
 - **Closed** `FLOAT-LIT-1`. **Filed** `JSON-INT-UNBOUNDED-1` (G3, PLAN after a bound is decided: a
@@ -107,8 +156,15 @@ decisions R1-1 to R1-3.
   arithmetic; §13.1 the floor rounding of `/` and `mod`; §13.6 the Class A index rule; §13.9 the
   timeout bound; §3.2 and §13.12 `bytes-length-range`; §4.4.5 the `bytes-set` discard and the
   `gen3` tag.
+- **Closed** `FN-SHADOW-1`, `FN-PARAM-UF-1` and `PBT-FN-PARAM-1`. **Filed** `PBT-FN-VALUE-1` (G1,
+  PLAN: `llmll test` does not apply a named top-level function passed as a value).
+- **`LLMLL.md`:** §4.4.4 extends binder shadowing from the call graph to the verifier, the test
+  evaluator and strict-core admission; §5.3.3 states the opaque-call rule for a function-typed
+  parameter; §5.3.4 states the per-edge `call-pre unchecked` rule; §5.3.5 corrects the
+  uncontracted-callee row (body-faithful, opaque result) and adds a row for a call through a
+  function-typed parameter.
 
-**Tests:** hspec 2642 → 2736, 0 failures; Python 589 → 602 passed, 5 skipped (2681 and 594 after `FLOAT-LIT-1`).
+**Tests:** hspec 2642 → 2765, 0 failures; Python 589 → 605 passed, 5 skipped (2681 and 594 after `FLOAT-LIT-1`; 2736 and 602 before `FN-SHADOW-1`).
 
 <a id="Latest"></a>
 
