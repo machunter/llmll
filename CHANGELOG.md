@@ -2,6 +2,49 @@
 
 ---
 
+## Unreleased (on `main` after v0.31.0)
+
+### `FLOAT-LIT-1`: float literals have a defined form and range
+
+Design: [`docs/design/decimal-numbers-proposal.md`](docs/design/decimal-numbers-proposal.md) Rev 1,
+decisions R1-1 to R1-3.
+
+- **`FLOAT` has a lexical definition, and `"-" FLOAT` is a literal.** A float literal is the
+  RFC 8259 number without its sign, with a fraction or an exponent required: `0.5`, `1.25e-3`,
+  `1E+3`, `-0.5`. `00.5` and `01e3` are now parse errors; INT is unchanged, so `007` is still 7.
+  `LLMLL.md` §3.1 gave `-0.5` as an example value that the parser refused.
+- **`float-literal-range`** (phase `parse`, both source surfaces). A literal is rounded to the
+  nearest double, ties to even. One that rounds to an infinity, or a non-zero one that rounds to
+  `0.0`, is refused: `1e400` passed `check` and failed `build` with `Infinity` not in scope, and
+  `1e-400` silently became `0.0`. Subnormals such as `4.9e-324` are accepted. The exponent is read
+  as text: `1e18446744073709551617` compiled as `10.0`, and a JSON `lit-int` read it as `10`; both
+  are now `float-literal-range`.
+- **Every zero literal, `-0.0` included, is `+0.0`,** and a negative float is emitted as
+  `(-x :: Double)`, so the pattern `(Box -0.5)` builds.
+- **Breaking: a literal pattern whose type does not match the scrutinee is a `check` error.** It
+  was a warning. `(match x (2 …))` on a `float` scrutinee now fails with a hint to write `2.0`.
+  There is no implicit `int`-to-`float` widening in patterns, as there is none in expressions.
+- **JSON-AST `schemaVersion` 0.13.0 → 0.14.0, additive.** A literal pattern may carry
+  `"literal_kind": "int"` or `"float"`, because a JSON number does not keep the difference
+  between `2` and `2.0`; `build --emit` writes `"float"` on float patterns. A kind that disagrees
+  with the number is the parse error `literal-kind-mismatch`. The literal-pattern `value` is now
+  `anyOf`, not `oneOf`, so an integral pattern validates. The reader still accepts 0.13.0.
+- The verifier gives a `float` payload an opaque `Flt` sort instead of `int`; no verification
+  condition and no version stamp changes.
+
+### Documentation
+
+- **Closed** `FLOAT-LIT-1`. **Filed** `JSON-INT-UNBOUNDED-1` (G3, PLAN after a bound is decided: a
+  JSON `lit-int` above `Int64` is refused although `int` is unbounded) and `PATCH-EXP-WRAP-1` (G3,
+  PLAN: `llmll patch` decodes before the exponent pre-scan, so a wrapped exponent in a patch op
+  still reads `10`).
+- **`LLMLL.md`:** §12 defines `FLOAT` and adds `"-" FLOAT`, with the leading-zero difference from
+  INT, the rounding and range rules, and the literal-pattern type rule; §3.1 states that `float`
+  has literals and `=` only until `FLOAT-OPS-1`; the hub schema cite is 0.14.0.
+  **`getting-started.md`:** the schema-version note and two examples move to 0.14.0.
+
+**Tests:** hspec 2642 → 2681, 0 failures; Python 594 passed, 5 skipped (589 at v0.31.0).
+
 <a id="Latest"></a>
 
 ## v0.31.0: Eight collection and file builtins, property tests that reach the pure builtins, and checked length measures (2026-10-23)
