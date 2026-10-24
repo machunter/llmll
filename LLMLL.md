@@ -139,7 +139,7 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 | Type | Description | Example values |
 |------|-------------|---------------|
 | `int` | Mathematical integer (unbounded; lowers to Haskell `Integer` at codegen) | `0`, `-1`, `9999` |
-| `float` | 64-bit IEEE 754 double | `3.14`, `-0.5` |
+| `float` | 64-bit IEEE 754 double. Literals (§12 `FLOAT`) and `=` only, until `FLOAT-OPS-1`; there is no arithmetic, ordering or conversion. A literal is rounded to the nearest double, ties to even; every zero literal, `-0.0` included, is `+0.0` | `3.14`, `-0.5`, `1.25e-3`, `1E+3` |
 | `string` | Immutable UTF-8 byte sequence | `"hello"`, `""` |
 | `bool` | Boolean | `true`, `false` |
 | `unit` | No-value type (result of pure IO commands) | `()` |
@@ -1462,7 +1462,7 @@ If both `.llmll` and `.ast.json` exist for the same path, `.llmll` takes precede
 > with a `removed-construct` diagnostic (exit 1) under **all** grammar modes —
 > def-logic is not a valid construct. `{"kind": "letrec"}` produces a
 > `core-grammar-violation` (exit 1) under `GrammarCoreInversion`. Hub publishers
-> must ship `schemaVersion 0.13.0` modules using `def`/`def-shell` node kinds (`0.12.0`, `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` are still accepted by the reader).
+> must ship `schemaVersion 0.14.0` modules using `def`/`def-shell` node kinds (`0.13.0`, `0.12.0`, `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` are still accepted by the reader).
 >
 > `wasi.*`, `haskell.*`, and `c.*` builtin-namespace imports carry no parseable
 > file and are exempt from grammar-mode checking.
@@ -2673,8 +2673,25 @@ weakness-ok = "(" "weakness-ok" IDENT STRING ")" ;
 expr        = literal | var | let | if | match | app | qual-app
             | op | pair | await | do | lambda | hole ;
 
-literal     = INT | "-" INT | FLOAT | STRING | "true" | "false" ;
-              (* Negative integers: '-' immediately precedes digits with no whitespace *)
+literal     = INT | "-" INT | FLOAT | "-" FLOAT | STRING | "true" | "false" ;
+              (* Negative literals: '-' immediately precedes digits with no whitespace *)
+FLOAT       = DIGITS ( FRAC [ EXP ] | EXP ) ;
+DIGITS      = "0" | NZDIGIT { DIGIT } ;
+FRAC        = "." DIGIT { DIGIT } ;
+EXP         = ( "e" | "E" ) [ "+" | "-" ] DIGIT { DIGIT } ;
+              (* FLOAT is the RFC 8259 number without its sign, with a fraction  *)
+              (* or an exponent required: 0.5, 1.25e-3, 1e3, 1E+3. 1. and .5 are *)
+              (* refused, and so is a leading + .                                 *)
+              (* INT and FLOAT treat leading zeros differently: INT 007 is 7,     *)
+              (* while FLOAT 00.5 and 01e3 are parse errors.                      *)
+              (* A FLOAT is its exact decimal value rounded to the nearest double, *)
+              (* ties to even. A literal whose rounded value is infinite, or a    *)
+              (* non-zero literal that rounds to 0.0, is the parse-phase error    *)
+              (* float-literal-range (1e400, 2e-324); subnormals are accepted     *)
+              (* (4.9e-324). The exponent is read as text and never wraps:        *)
+              (* 1e18446744073709551617 is float-literal-range. Every zero        *)
+              (* literal, -0.0 included, denotes +0.0. JSON-AST lit-float applies *)
+              (* the same range and rounding rules.                               *)
 var         = IDENT ;
 
 (* let is SEQUENTIAL: each binding is in scope for all subsequent bindings *)
@@ -2693,7 +2710,9 @@ match       = "(" "match" expr { match-arm } ")" ;
 match-arm   = "(" pattern expr ")" ;
 pattern     = "_"                            (* catch-all wildcard *)
             | IDENT                          (* variable binding   *)
-            | literal                        (* literal equality   *)
+            | literal                        (* literal equality; its type must  *)
+                                             (* match the scrutinee's, or check  *)
+                                             (* fails: no int-to-float widening  *)
             | "(" IDENT { pattern } ")" ;   (* constructor pattern *)
 
 app         = "(" IDENT { expr } ")" ;          (* plain function call *)
