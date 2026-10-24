@@ -132,6 +132,13 @@ data FQBinOp
   | FQNeq  -- ^ /=
   | FQAdd  -- ^ +
   | FQSub  -- ^ -
+  -- SIGMA-CONST-ARITH-1: only ever built with a constant operand (a numeral
+  -- coefficient, or a numeral divisor > 0), so every term stays linear. On the
+  -- `int` sort fixpoint's `/` and `mod` are SMT-LIB `div` and `mod`, which equal
+  -- Haskell `div` and `mod` for a positive divisor.
+  | FQMul  -- ^ * (one operand a numeral)
+  | FQDiv  -- ^ / (integer division by a numeral > 0)
+  | FQMod  -- ^ mod (by a numeral > 0)
   deriving (Show, Eq)
 
 data FQPred
@@ -355,6 +362,9 @@ emitOp FQEq  = "="
 emitOp FQNeq = "/="
 emitOp FQAdd = "+"
 emitOp FQSub = "-"
+emitOp FQMul = "*"
+emitOp FQDiv = "/"
+emitOp FQMod = "mod"
 
 emitReft :: FQReft -> Text
 emitReft r =

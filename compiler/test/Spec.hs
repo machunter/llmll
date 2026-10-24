@@ -11323,7 +11323,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- Use a non-linear post that exprToPred can't handle
         let stmts = [ SDefLogic "mul" [("x", TInt), ("y", TInt)] (Just TInt)
                         (Contract Nothing Nothing
-                          (Just (EApp "*" [EVar "result", ELit (LitInt 2)])) Nothing Nothing [] [])
+                          (Just (EApp "*" [EVar "result", EVar "y"])) Nothing Nothing [] [])
                         (EVar "x")
                     ]
         emitR <- emitFixpoint "test.llmll" stmts
@@ -21879,6 +21879,188 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- the fragment, and a contract-less def as a post that left a fragment it
   -- never entered. Both are label decisions, so both are pinned here.
   -- -----------------------------------------------------------------------
+  -- -----------------------------------------------------------------------
+  -- SIGMA-CONST-ARITH-1 (docs/design/sigma-const-arith-1-proposal.md):
+  -- linear constant arithmetic in Σ_auto. `*` with a ground-constant operand,
+  -- and `/` / `mod` by a ground constant > 0, reflect; ground terms fold with
+  -- Haskell `div`/`mod`; every other form refuses with its label unchanged.
+  -- -----------------------------------------------------------------------
+  describe "SIGMA-CONST-ARITH-1: linear constant arithmetic" $ do
+    let i = ELit . LitInt
+        v = EVar
+        op o a b = EOp o [a, b]
+        intSe = Map.fromList [("x", FQInt), ("r", FQInt), ("n", FQInt), ("y", FQInt)] :: Map.Map T.Text FQSort
+        noRename = Map.empty :: Map.Map T.Text T.Text
+        emitS src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+        solve er = do
+          tmp <- getTemporaryDirectory
+          let fqPath = tmp <> "/sigma-const-arith-spec.fq"
+          TIO.writeFile fqPath (erFQText er)
+          a <- findExecutable "liquid-fixpoint"
+          mLF <- maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pure Nothing
+            Just lf -> do
+              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              pure (Just (T.pack out))
+        expectSolver er tag = do
+          mOut <- solve er
+          case mOut of
+            Nothing  -> pendingWith "liquid-fixpoint not on PATH"
+            Just out -> out `shouldSatisfy` T.isInfixOf ("\"tag\":\"" <> tag <> "\"")
+        checkErrs src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts)
+
+    -- Ground-constant folder: Haskell semantics, positive divisor only.
+    it "SCA-1: groundInt folds literals and +, -, * exactly" $ do
+      groundInt (i 8) `shouldBe` Just 8
+      groundInt (op "-" (i 0) (i 7)) `shouldBe` Just (-7)
+      groundInt (op "*" (i 2) (i 4)) `shouldBe` Just 8
+    it "SCA-2: groundInt folds / and mod with Haskell floor semantics" $ do
+      groundInt (op "/" (i 256) (i 2)) `shouldBe` Just 128
+      groundInt (op "mod" (op "-" (i 0) (i 7)) (i 8)) `shouldBe` Just 1
+      groundInt (op "/" (op "-" (i 0) (i 7)) (i 8)) `shouldBe` Just (-1)
+    it "SCA-3: groundInt refuses a zero or negative divisor and any variable" $ do
+      groundInt (op "/" (i 7) (i 0)) `shouldBe` Nothing
+      groundInt (op "mod" (i 7) (op "-" (i 0) (i 8))) `shouldBe` Nothing
+      groundInt (op "*" (i 2) (v "x")) `shouldBe` Nothing
+
+    -- The admission predicate.
+    it "SCA-4: constArith admits a ground coefficient on either side, of any sign" $ do
+      constArith "*" [i 8, v "r"] `shouldBe` Just (MulL 8 (v "r"))
+      constArith "*" [v "r", i 8] `shouldBe` Just (MulR (v "r") 8)
+      constArith "*" [op "-" (i 0) (i 3), v "x"] `shouldBe` Just (MulL (-3) (v "x"))
+    it "SCA-5: constArith admits / and mod by a positive ground divisor" $ do
+      constArith "/" [v "x", op "*" (i 2) (i 4)] `shouldBe` Just (DivC (v "x") 8)
+      constArith "mod" [v "x", i 8] `shouldBe` Just (ModC (v "x") 8)
+    it "SCA-6: constArith refuses x*y, a non-positive or non-ground divisor, a let-bound constant, and rem" $ do
+      constArith "*" [v "x", v "y"] `shouldBe` Nothing
+      constArith "/" [v "x", op "-" (i 0) (i 8)] `shouldBe` Nothing
+      constArith "/" [v "x", op "-" (i 1) (i 1)] `shouldBe` Nothing
+      constArith "mod" [v "x", v "y"] `shouldBe` Nothing
+      constArith "*" [v "k", v "x"] `shouldBe` Nothing
+      constArith "rem" [v "x", i 8] `shouldBe` Nothing
+
+    -- Contract-side reflection: exact terms.
+    it "SCA-7: exprToPred reflects (* 8 r), (r * 8), (/ x 8) and (mod x 8)" $ do
+      exprToPred (op "*" (i 8) (v "r")) `shouldBe` Just (FQBinArith FQMul (FQLit 8) (FQVar "r"))
+      exprToPred (op "*" (v "r") (i 8)) `shouldBe` Just (FQBinArith FQMul (FQVar "r") (FQLit 8))
+      exprToPred (op "/" (v "x") (i 8)) `shouldBe` Just (FQBinArith FQDiv (FQVar "x") (FQLit 8))
+      exprToPred (EApp "mod" [v "x", i 8]) `shouldBe` Just (FQBinArith FQMod (FQVar "x") (FQLit 8))
+    it "SCA-8: a ground term with * folds to one literal; a ground coefficient emits as a numeral" $ do
+      exprToPred (op "*" (i 2) (i 3)) `shouldBe` Just (FQLit 6)
+      exprToPred (op "+" (v "x") (op "*" (i 2) (i 3))) `shouldBe` Just (FQBinArith FQAdd (FQVar "x") (FQLit 6))
+      exprToPred (op "*" (op "-" (i 0) (i 3)) (v "x")) `shouldBe` Just (FQBinArith FQMul (FQLit (-3)) (FQVar "x"))
+    it "SCA-9 (stamp pin): a ground term of + and - alone keeps today's unfolded emission" $
+      exprToPred (op "+" (op "-" (i 0) (i 7)) (v "x"))
+        `shouldBe` Just (FQBinArith FQAdd (FQBinArith FQSub (FQLit 0) (FQLit 7)) (FQVar "x"))
+    it "SCA-10: refused forms still translate to Nothing" $ do
+      exprToPred (op "*" (v "x") (v "y")) `shouldBe` Nothing
+      exprToPred (op "/" (v "x") (op "-" (i 0) (i 8))) `shouldBe` Nothing
+      exprToPred (op "/" (v "x") (i 0)) `shouldBe` Nothing
+      exprToPred (EApp "rem" [v "x", i 8]) `shouldBe` Nothing
+    it "SCA-11: nesting is recursive: (+ (* 256 hi) lo) and (mod (/ x 8) 4)" $ do
+      exprToPred (op "+" (op "*" (i 256) (v "hi")) (v "lo"))
+        `shouldBe` Just (FQBinArith FQAdd (FQBinArith FQMul (FQLit 256) (FQVar "hi")) (FQVar "lo"))
+      exprToPred (EApp "mod" [op "/" (v "x") (i 8), i 4])
+        `shouldBe` Just (FQBinArith FQMod (FQBinArith FQDiv (FQVar "x") (FQLit 8)) (FQLit 4))
+
+    -- Rendering.
+    it "SCA-12: emitPred renders the fixpoint infix forms the witnesses use" $ do
+      emitPred (FQBinArith FQMod (FQVar "x") (FQLit 8)) `shouldBe` "(x mod 8)"
+      emitPred (FQBinArith FQDiv (FQVar "x") (FQLit 8)) `shouldBe` "(x / 8)"
+      emitPred (FQBinArith FQMul (FQLit (-3)) (FQVar "x")) `shouldBe` "(-3 * x)"
+    it "SCA-13: fqPredToSMT renders SMT-LIB div and mod" $ do
+      fqPredToSMT (FQBinArith FQDiv (FQVar "x") (FQLit 8)) `shouldBe` Just "(div x 8)"
+      fqPredToSMT (FQBinArith FQMod (FQVar "x") (FQLit 8)) `shouldBe` Just "(mod x 8)"
+      fqPredToSMT (FQBinArith FQMul (FQLit 8) (FQVar "x")) `shouldBe` Just "(* 8 x)"
+
+    -- Body and guard.
+    it "SCA-14: bodyToPredM reflects an admitted body term and refuses (* x y)" $ do
+      snd (bodyToPredFrom 0 intSe Map.empty Set.empty (EApp "mod" [v "x", i 8]))
+        `shouldBe` Just (SimpleVC [] (FQBinArith FQMod (FQVar "x") (FQLit 8)))
+      snd (bodyToPredFrom 0 intSe Map.empty Set.empty (op "*" (v "x") (v "y"))) `shouldBe` Nothing
+    it "SCA-15: classifyGuardM classifies a parity guard (= (mod x 2) 0)" $
+      evalState (classifyGuardM noRename intSe (EApp "=" [EApp "mod" [v "x", i 2], i 0])) 0
+        `shouldBe` Just (FQBinPred FQEq (FQBinArith FQMod (FQVar "x") (FQLit 2)) (FQLit 0))
+
+    -- Check (strict core) and the advisory hole.
+    it "SCA-16: isCoreBodySyntactic admits (* 8 r), (/ x 8), (mod x 8) and refuses (* x y), (/ x 0), rem" $ do
+      isCoreBodySyntactic (op "*" (i 8) (v "r")) `shouldBe` True
+      isCoreBodySyntactic (op "/" (v "x") (i 8)) `shouldBe` True
+      isCoreBodySyntactic (op "mod" (v "x") (i 8)) `shouldBe` True
+      isCoreBodySyntactic (op "*" (v "x") (v "y")) `shouldBe` False
+      isCoreBodySyntactic (op "/" (v "x") (i 0)) `shouldBe` False
+      isCoreBodySyntactic (op "*" (op "*" (v "x") (v "y")) (i 2)) `shouldBe` False
+      isCoreBodySyntactic (op "rem" (v "x") (i 8)) `shouldBe` False
+    it "SCA-17: (def m8 [r: int] -> int (* 8 r)) passes check; (def f [x: int y: int] -> int (* x y)) does not" $ do
+      checkErrs "(def m8 [r: int] -> int (* 8 r))" `shouldSatisfy` all ((/= SevError) . diagSeverity)
+      checkErrs "(def f [x: int y: int] -> int (* x y))" `shouldSatisfy` any ((== SevError) . diagSeverity)
+    it "SCA-18: isNonLinear fires only on refused forms" $ do
+      isNonLinear (op "*" (i 8) (v "r")) `shouldBe` False
+      isNonLinear (EApp "mod" [v "x", i 8]) `shouldBe` False
+      isNonLinear (op "*" (v "x") (v "y")) `shouldBe` True
+      isNonLinear (op "/" (v "x") (op "-" (i 0) (i 8))) `shouldBe` True
+      isNonLinear (op "/" (i 7) (i 0)) `shouldBe` True
+
+    -- Labels for refused forms are unchanged.
+    it "SCA-19: refused forms keep their nonlinear: labels, including a let-bound constant" $ do
+      refusedConstructs (EApp "=" [v "result", op "/" (v "x") (op "-" (i 0) (i 8))]) `shouldBe` ["nonlinear:/"]
+      refusedConstructs (EApp "=" [v "result", EApp "mod" [v "x", i 0]]) `shouldBe` ["nonlinear:mod"]
+      refusedConstructs (ELet [(PVar "k", Nothing, i 8)] (op "*" (v "k") (v "x"))) `shouldBe` ["nonlinear:*"]
+
+    -- Edge cases end to end, through the solver (single files only).
+    it "SCA-20 (edge 1): (mod x 8) at x = -7 proves 1, and the truncation answer -7 is refuted" $ do
+      ok <- emitS "(def-shell md [x: int] -> int (pre (= x (- 0 7))) (post (= result 1)) (mod x 8))"
+      erBodyFaithfulFns ok `shouldBe` ["md"]
+      expectSolver ok "Safe"
+      bad <- emitS "(def-shell md [x: int] -> int (pre (= x (- 0 7))) (post (= result (- 0 7))) (mod x 8))"
+      expectSolver bad "Unsafe"
+    it "SCA-21 (edge 2): (/ x 8) at x = -7 proves -1, and 0 is refuted" $ do
+      ok <- emitS "(def-shell dv [x: int] -> int (pre (= x (- 0 7))) (post (= result (- 0 1))) (/ x 8))"
+      erBodyFaithfulFns ok `shouldBe` ["dv"]
+      expectSolver ok "Safe"
+      bad <- emitS "(def-shell dv [x: int] -> int (pre (= x (- 0 7))) (post (= result 0)) (/ x 8))"
+      expectSolver bad "Unsafe"
+    it "SCA-22 (edge 3): a def computing (* 8 r) proves 8 additions, refutes (* 7 r), and a (* 8 r) post over additions proves" $ do
+      ok <- emitS "(def m8 [r: int] -> int (post (= result (+ r (+ r (+ r (+ r (+ r (+ r (+ r r))))))))) (* 8 r))"
+      erBodyFaithfulFns ok `shouldBe` ["m8"]
+      expectSolver ok "Safe"
+      bad <- emitS "(def m8 [r: int] -> int (post (= result (* 7 r))) (* 8 r))"
+      expectSolver bad "Unsafe"
+      lin <- emitS "(def lin [r: int] -> int (post (= result (* 8 r))) (+ r (+ r (+ r (+ r (+ r (+ r (+ r r))))))))"
+      erBodyFaithfulFns lin `shouldBe` ["lin"]
+      expectSolver lin "Safe"
+    it "SCA-23 (edges 4, 5; soundness guard): a negative or zero divisor stays refused, with its label" $ do
+      neg <- emitS "(def-shell nd [x: int] -> int (pre (= x (- 0 7))) (post (= result 1)) (mod x (- 0 8)))"
+      erBodyFallback neg `shouldBe` ["nd"]
+      lookup "nd" (erFallbackConstructs neg) `shouldBe` Just ["nonlinear:mod"]
+      zero <- emitS "(def-shell zd [x: int] -> int (post (= result 0)) (/ x (- 1 1)))"
+      erBodyFallback zero `shouldBe` ["zd"]
+      lookup "zd" (erFallbackConstructs zero) `shouldBe` Just ["nonlinear:/"]
+    it "SCA-24 (edges 6, 7): degenerate and folded constants are body-faithful and prove" $ do
+      er <- emitS (unlines
+        [ "(def-shell z [x: int] -> int (post (= result 0)) (* 0 x))"
+        , "(def-shell one [x: int] -> int (post (= result x)) (/ x 1))"
+        , "(def-shell m1 [x: int] -> int (post (= result 0)) (mod x 1))"
+        , "(def-shell gf [x: int] -> int (post (= result (+ x 6))) (+ x (* 2 3)))"
+        , "(def-shell gd [x: int] -> int (post (= result (/ x 8))) (/ x (* 2 4)))" ])
+      erBodyFallback er `shouldBe` []
+      expectSolver er "Safe"
+    it "SCA-25 (edge 10): a parity guard path-splits and proves" $ do
+      er <- emitS "(def par [x: int] -> bool (post (= result (= (mod x 2) 0))) (if (= (mod x 2) 0) true false))"
+      erBodyFaithfulFns er `shouldBe` ["par"]
+      expectSolver er "Safe"
+    it "SCA-26 (edge 11): a halving recursion discharges its measure under n > 0, and is refuted under n >= 0" $ do
+      ok <- emitS "(def-shell halve [n: int] -> int (pre (> n 0)) (post (>= result 0)) (decreases n) (if (= n 1) 0 (+ 1 (halve (/ n 2)))))"
+      erBodyFaithfulFns ok `shouldBe` ["halve"]
+      expectSolver ok "Safe"
+      bad <- emitS "(def-shell halve [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (= n 1) 0 (+ 1 (halve (/ n 2)))))"
+      expectSolver bad "Unsafe"
+
   describe "FALLBACK-CENSUS-1: holes, absent posts and refusing constructs" $ do
     let emitFC src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
           Left err    -> error ("parse failed: " <> show err)
@@ -21926,7 +22108,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 10
 
     it "a nonlinear post names the operator, not the whole clause" $ do
-      er <- emitFC "(def-shell nl [n: int] -> int (post (= result (* n 2))) (+ n n))"
+      -- SIGMA-CONST-ARITH-1: (* n 2) is admitted now; (* n n) is still refused.
+      er <- emitFC "(def-shell nl [n: int] -> int (post (= result (* n n))) (+ n n))"
       causeOf "nl" er `shouldBe` Just FallbackContractPost
       consOf  "nl" er `shouldBe` Just ["nonlinear:*"]
 
@@ -21991,7 +22174,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "refusedConstructs reports the minimal refusing sub-term, not the whole clause" $ do
       refusedConstructs (EApp "=" [ EVar "result"
-                                  , EApp "*" [EVar "n", ELit (LitInt 2)] ])
+                                  , EApp "*" [EVar "n", EVar "n"] ])
         `shouldBe` ["nonlinear:*"]
 
     it "hasHole sees a hole at any depth and is false on a hole-free body" $ do

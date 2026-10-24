@@ -16,6 +16,8 @@ module LLMLL.GuardClassifier
     -- * Operator lookup tables (moved from FixpointEmit)
   , lookupPredOp
   , lookupArithOp
+    -- * SIGMA-CONST-ARITH-1: shared emission of admitted constant-linear forms
+  , constArithTerm
   ) where
 
 import Data.Map.Strict (Map)
@@ -23,7 +25,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust, catMaybes)
 import Control.Monad.State.Strict (State)
 
-import LLMLL.Syntax (Name, Expr(..), Literal(..))
+import LLMLL.Syntax (Name, Expr(..), Literal(..), ConstArith(..), groundInt, constArith)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), strlitConst)
 -- F1: SortEnv is a type alias defined in FixpointEmit. We import it
 -- as Map Name FQSort directly since it's just a type alias.
@@ -84,6 +86,11 @@ classifyGuardM env se (EApp op [l, r])
       rp <- classifyGuardM env se r
       return $ FQBinArith binOp <$> lp <*> rp
 
+-- SIGMA-CONST-ARITH-1: an admitted constant-linear form (a parity test such as
+-- `(= (mod x 2) 0)`) classifies; every other `*`, `/`, `mod` refuses below.
+classifyGuardM env se (EApp op args)
+  | Just m <- constArithTerm (classifyGuardM env se) op args = m
+
 -- Non-linear in guards
 classifyGuardM _ _ (EApp op [_, _])
   | op `elem` ["*", "/", "mod", "rem"] = return Nothing
@@ -137,6 +144,34 @@ lookupArithOp :: Name -> Maybe FQBinOp
 lookupArithOp "+" = Just FQAdd
 lookupArithOp "-" = Just FQSub
 lookupArithOp _   = Nothing
+
+-- | SIGMA-CONST-ARITH-1 (docs/design/sigma-const-arith-1-proposal.md): the one
+-- emission rule for `*`, `/` and `mod`, shared by 'classifyGuardM' and by
+-- FixpointEmit's 'exprToPred' and 'bodyToPredM'. Given a translator for the
+-- one non-constant operand, it returns 'Nothing' when the node is not
+-- admitted (the caller then refuses as before, so the refusal label does not
+-- change), or the action that emits it:
+--
+--   * a ground term folds to one literal ('groundInt', Haskell semantics);
+--   * @(* c e)@ / @(* e c)@ emit @c * e@ / @e * c@ with @c@ as a numeral;
+--   * @(/ e c)@ / @(mod e c)@ with @c > 0@ emit @e / c@ / @e mod c@.
+--
+-- Folding happens only inside a `*`, `/` or `mod` node. A ground term built
+-- from `+` and `-` alone never reaches here, so it keeps its existing
+-- emission and no previously translated clause changes a byte.
+--
+-- Deliberately NOT a 'lookupArithOp' entry: FixpointEmit reads that table to
+-- recognise built-in operators on the callee path, which must not change.
+constArithTerm :: Monad m => (Expr -> m (Maybe FQPred)) -> Name -> [Expr] -> Maybe (m (Maybe FQPred))
+constArithTerm tr op args
+  | op `notElem` (["*", "/", "mod"] :: [Name]) = Nothing
+  | Just v <- groundInt (EOp op args) = Just (return (Just (FQLit v)))
+  | Just form <- constArith op args = Just $ case form of
+      MulL c e -> fmap (FQBinArith FQMul (FQLit c)) <$> tr e
+      MulR e c -> fmap (\p -> FQBinArith FQMul p (FQLit c)) <$> tr e
+      DivC e c -> fmap (\p -> FQBinArith FQDiv p (FQLit c)) <$> tr e
+      ModC e c -> fmap (\p -> FQBinArith FQMod p (FQLit c)) <$> tr e
+  | otherwise = Nothing
 
 -- | Look up a predicate binary operator (including Unicode aliases).
 lookupPredOp :: Name -> Maybe FQBinOp
