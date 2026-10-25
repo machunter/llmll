@@ -2,7 +2,8 @@
 ;; Here `(min a b)` calls the parameter, not the builtin, and the post is false
 ;; for a parameter returning b. The parameter is in neither the sort env nor the
 ;; renaming env, so a gate on those envs read it as the builtin and PROVED g.
-;; Must fall back (post assumed), never prove.
+;; Must never prove. Since FN-PARAM-UF-1 the call is opaque (a fresh result,
+;; nothing assumed), so g is body-faithful and refuted.
 (def-shell g [min: (fn [int int] -> int) a: int b: int] -> int
   (post (<= result a))
   (min a b))
