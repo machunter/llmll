@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.31.0)
+<a id="Latest"></a>
+
+## v0.32.0: Float literals, soundness fixes for bytes lengths and function shadowing, opaque calls through function parameters, constant arithmetic, int narrowing, and ambiguous type variables (2026-10-24)
 
 ### `FLOAT-LIT-1`: float literals have a defined form and range
 
@@ -156,6 +158,14 @@ R2, R3 and R5.
   arithmetic; §13.1 the floor rounding of `/` and `mod`; §13.6 the Class A index rule; §13.9 the
   timeout bound; §3.2 and §13.12 `bytes-length-range`; §4.4.5 the `bytes-set` discard and the
   `gen3` tag.
+- **Filed** `FN-SHADOW-1` (G1, closed above), `GENERICS-1` and `GENERIC-COMPARE-1` (G7, PLAN),
+  `GENERICS-2` (G7, DECIDE), and `GENERIC-TYPES-1` and `CALL-CONGRUENCE-1` (Trigger-gated Parking
+  Lot). Designs: [`docs/design/generics-proposal.md`](docs/design/generics-proposal.md) Rev 1,
+  settled (v1: type parameters on `def-shell`; generic `def` and generic types deferred), with the
+  professor review folded as the appendix and moved to `docs/archive/professor-reviews/`; and
+  [`docs/design/fn-param-uf-1-proposal.md`](docs/design/fn-param-uf-1-proposal.md) Rev 0, settled.
+  [`docs/design/type-classes-proposal.md`](docs/design/type-classes-proposal.md) Rev 1 is a draft,
+  not settled, and its professor review is not folded.
 - **Closed** `FN-SHADOW-1`, `FN-PARAM-UF-1` and `PBT-FN-PARAM-1`. **Filed** `PBT-FN-VALUE-1` (G1,
   PLAN: `llmll test` does not apply a named top-level function passed as a value).
 - **`LLMLL.md`:** §4.4.4 extends binder shadowing from the call graph to the verifier, the test
@@ -165,8 +175,6 @@ R2, R3 and R5.
   function-typed parameter.
 
 **Tests:** hspec 2642 → 2765, 0 failures; Python 589 → 605 passed, 5 skipped (2681 and 594 after `FLOAT-LIT-1`; 2736 and 602 before `FN-SHADOW-1`).
-
-<a id="Latest"></a>
 
 ## v0.31.0: Eight collection and file builtins, property tests that reach the pure builtins, and checked length measures (2026-10-23)
 
