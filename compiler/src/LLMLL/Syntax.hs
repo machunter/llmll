@@ -18,6 +18,13 @@ module LLMLL.Syntax
 
     -- * Types
   , Type(..)
+  , TyConstraint(..)
+  , entails
+  , tyConstraintLabel
+  , parseTyConstraint
+  , bindTypeParams
+  , typeParamsNotSupportedMessage
+  , unknownTypeVarMessage
   , bytesLengthInRange
   , bytesLengthRangeMessage
   , typeLabel
@@ -85,6 +92,8 @@ module LLMLL.Syntax
   , ModulePath
   , ModuleEnv(..)
   , ModuleCache
+  , SiteKey
+  , GenericSites
 
     -- * Grammar Mode (LT-INV v0.11)
   , GrammarMode(..)
@@ -161,7 +170,41 @@ data Type
   | TVar Name                     -- ^ Type variable (for generics / interfaces)
   | TCustom Name                  -- ^ User-defined type name (alias or opaque ref)
   | TSumType [(Name, Maybe Type)] -- ^ Structured sum type: [(ConstructorName, Maybe PayloadType)]
+  -- | GENERICS-1: a rigid type parameter of a generic @def-shell@, with its
+  -- declared constraint. Distinct from 'TVar' on purpose: 'TVar' is a
+  -- placeholder (a wildcard at about nine sites outside the checker), and a
+  -- rigid parameter unifies only with itself. A new constructor fails closed
+  -- at every catch-all that does not name it. Produced only by
+  -- 'bindTypeParams'; 'LLMLL.TypeCheck.freshenFnType' is where a generic
+  -- callee's parameters become placeholders, per call.
+  | TParam Name (Maybe TyConstraint)
   deriving (Show, Eq, Generic)
+
+-- | GENERICS-1: the closed constraint set on a type parameter, with the
+-- lattice @key => ord => eq@. @eq@ is the equality-capable types (§13.2),
+-- @ord@ the ordered types O (§13.5), @key@ the map-key class (§13.12).
+data TyConstraint = TCEq | TCOrd | TCKey
+  deriving (Show, Eq, Ord, Generic)
+
+-- | @have `entails` want@: a parameter constrained by @have@ satisfies @want@.
+entails :: TyConstraint -> TyConstraint -> Bool
+entails have want = rank have >= rank want
+  where
+    rank TCEq  = 1 :: Int
+    rank TCOrd = 2
+    rank TCKey = 3
+
+-- | The surface spelling of a constraint, shared by both front ends and AstEmit.
+tyConstraintLabel :: TyConstraint -> Text
+tyConstraintLabel TCEq  = "eq"
+tyConstraintLabel TCOrd = "ord"
+tyConstraintLabel TCKey = "key"
+
+parseTyConstraint :: Text -> Maybe TyConstraint
+parseTyConstraint "eq"  = Just TCEq
+parseTyConstraint "ord" = Just TCOrd
+parseTyConstraint "key" = Just TCKey
+parseTyConstraint _     = Nothing
 
 -- | Human-readable label for a type (for error messages).
 -- | BYTES-LEN-RANGE-1: a @bytes[n]@ length must lie in [0, 2^63 - 1], the range
@@ -177,6 +220,26 @@ bytesLengthRangeMessage n =
   "bytes-length-range: bytes[" <> n <> "] declares a length outside"
   <> " 0..9223372036854775807; a bytes length must fit the runtime's Int"
   <> " (int-index-wrap-1-proposal D4)"
+
+-- | GENERICS-1: the refusal of a @:type-params@ clause outside @def-shell@.
+-- Shared by both front ends; it begins with the diagnostic kind. @form@ is
+-- the surface keyword (@def@, @letrec@, @def-interface@, @type@).
+typeParamsNotSupportedMessage :: Text -> Name -> Text
+typeParamsNotSupportedMessage form name =
+  "type-params-not-supported: '" <> form <> " " <> name <> "' declares :type-params,"
+  <> " which v1 allows only on def-shell; "
+  <> (if form == "type"
+        then "generic type declarations are deferred to GENERIC-TYPES-1."
+             <> " Declare the type once per element type"
+        else "a generic " <> form <> " is deferred to GENERICS-2."
+             <> " Write the definition as a def-shell, or at a concrete type")
+
+-- | GENERICS-1: a JSON-AST @type-var@ whose name no enclosing @type_params@
+-- declares. It begins with the diagnostic kind.
+unknownTypeVarMessage :: Name -> Text
+unknownTypeVarMessage n =
+  "unknown-type-var: type variable '" <> n <> "' is not declared;"
+  <> " a type-var may appear only in a def-shell whose type_params declares it"
 
 typeLabel :: Type -> Text
 typeLabel TInt            = "int"
@@ -197,6 +260,7 @@ typeLabel TDelegationError = "DelegationError"
 typeLabel (TVar n)        = n
 typeLabel (TCustom n)     = n
 typeLabel (TSumType ctors) = T.intercalate " | " (map fst ctors)
+typeLabel (TParam n _)    = n
 
 -- | Internal constructor name for disambiguation in diagnostics.
 -- Used when typeLabel produces identical strings for different Type values.
@@ -219,6 +283,7 @@ typeConstructorName TDelegationError   = "built-in"
 typeConstructorName (TVar _)           = "type-var"
 typeConstructorName (TCustom _)        = "named"
 typeConstructorName TSumType{}         = "sum"
+typeConstructorName (TParam _ _)       = "type-var"
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
@@ -729,6 +794,11 @@ data Statement
                                    -- measure list (k=1 discharged in v1); [] = absent.
                                    -- Phase 1 is verification-inert: parsed + round-tripped
                                    -- only, no obligation emitted.
+    , defShellTypeParams :: [(Name, Maybe TyConstraint)]
+                                   -- ^ GENERICS-1: the @:type-params@ clause in
+                                   -- declared order; [] = not generic. Every
+                                   -- occurrence in the definition is already a
+                                   -- 'TParam' ('bindTypeParams').
     }
   -- | v0.12.1: module-level invariant predicate, promoted out of 'SDefLogic'.
   -- Carries identical verification semantics to 'SDefShell'/'SDefLogic' (a
@@ -818,9 +888,70 @@ data Statement
 normalizeDefStmt :: Statement -> Maybe (Name, [(Name, Type)], Maybe Type, Contract, Expr)
 normalizeDefStmt (SDefLogic     n p r c b) = Just (n, p, r, c, b)
 normalizeDefStmt (SDef          n p r c b) = Just (n, p, r, c, b)
-normalizeDefStmt (SDefShell     n p r c b _) = Just (n, p, r, c, b)
+normalizeDefStmt (SDefShell     n p r c b _ _) = Just (n, p, r, c, b)
 normalizeDefStmt (SDefInvariant n p r c b) = Just (n, p, r, c, b)
 normalizeDefStmt _                         = Nothing
+
+-- | GENERICS-1: bind a generic @def-shell@'s declared type parameters.
+--
+-- Both front ends read a lowercase type name as @TCustom n@ (the JSON-AST
+-- @type-var@ kind too), and both call this on every @def-shell@ they build, so
+-- the two share one scoping rule. Each @TCustom n@ whose @n@ is declared in
+-- 'defShellTypeParams' becomes @TParam n c@ in the value-parameter types, the
+-- return type, @pre@, @post@, @decreases@ and every annotation in the body
+-- (lambda parameters, typed @let@, a refinement inside a type, a delegate's
+-- return type). The identity on every other statement and on a @def-shell@
+-- with no @:type-params@, so programs without the clause are untouched.
+--
+-- Total by design: the one failure the JSON-AST reader can see, a @type-var@
+-- whose name is not declared (@unknown-type-var@), is refused in the reader,
+-- where the @type-var@ spelling is still visible; here it is a plain name.
+bindTypeParams :: Statement -> Statement
+bindTypeParams st@(SDefShell n ps r c b ds tps)
+  | null tps  = st
+  | otherwise =
+      SDefShell n [ (p, bt t) | (p, t) <- ps ] (fmap bt r) (bc c) (be b) (map be ds) tps
+  where
+    bt :: Type -> Type
+    bt t = case t of
+      TCustom v | Just k <- lookup v tps -> TParam v k
+      TParam v _ | Just k <- lookup v tps -> TParam v k
+      TList a          -> TList (bt a)
+      TMap k v         -> TMap (bt k) (bt v)
+      TResult a e      -> TResult (bt a) (bt e)
+      TPair a e        -> TPair (bt a) (bt e)
+      TFn as ret       -> TFn (map bt as) (bt ret)
+      TPromise a       -> TPromise (bt a)
+      TDependent v a p -> TDependent v (bt a) (be p)
+      TSumType ctors   -> TSumType [ (k, fmap bt mp) | (k, mp) <- ctors ]
+      _                -> t
+    bc ct = ct { contractPre  = fmap be (contractPre ct)
+               , contractPost = fmap be (contractPost ct)
+               , contractPreClauses  = map bpc (contractPreClauses ct)
+               , contractPostClauses = map bpc (contractPostClauses ct) }
+    bpc pc = pc { pcExpr = be (pcExpr pc) }
+    be :: Expr -> Expr
+    be e = case e of
+      ELet binds body  -> ELet [ (p, fmap bt mt, be x) | (p, mt, x) <- binds ] (be body)
+      EIf x y z        -> EIf (be x) (be y) (be z)
+      EMatch x arms    -> EMatch (be x) [ (p, be a) | (p, a) <- arms ]
+      EApp f args      -> EApp f (map be args)
+      EOp o args       -> EOp o (map be args)
+      EPair x y        -> EPair (be x) (be y)
+      EHole h          -> EHole (bh h)
+      EAwait x         -> EAwait (be x)
+      ELambda lps body -> ELambda [ (p, bt t) | (p, t) <- lps ] (be body)
+      EDo steps        -> EDo [ s { dsExpr = be (dsExpr s) } | s <- steps ]
+      _                -> e
+    bh h = case h of
+      HDelegate sp        -> HDelegate (bd sp)
+      HDelegateAsync sp   -> HDelegateAsync (bd sp)
+      HDelegatePending t  -> HDelegatePending (bt t)
+      HProofRequired w mp -> HProofRequired w (fmap be mp)
+      _                   -> h
+    bd sp = sp { delegateReturnType = bt (delegateReturnType sp)
+               , delegateOnFailure  = fmap be (delegateOnFailure sp) }
+bindTypeParams st = st
 
 -- | REC-HASH-FORM (b0 of REC-BODY-VC): the def-form tag folded into the
 -- ADMIT-VERIFIED evidence hash preimage ('PBT.canonicalDefEvidenceHash'), so a
@@ -1238,7 +1369,26 @@ data ModuleEnv = ModuleEnv
     -- source. 'Nothing' means the sidecar predates the disclosure and the sets
     -- are UNKNOWN, which a reader must render as unrecorded rather than as
     -- "assumes nothing"; see 'LLMLL.VerifiedCache.axiomDisclosureVersion'.
+  , meGenericSites   :: GenericSites
+    -- ^ GENERICS-1: this module's generic instantiation sites, as recorded by
+    -- the type checker when the module was loaded. An importer needs them to
+    -- specialize an imported generic whose body calls other generics: the
+    -- importer's own check never sees that body's calls. Empty for a module
+    -- with no generic call.
   } deriving (Show)
+
+-- | GENERICS-1: one generic call site, as @(enclosing, callee, args)@. The
+-- enclosing component is the top-level definition that contains the call, or
+-- the RFC 6901 pointer @"/statements/N"@ of any other top-level statement (a
+-- check, a def-main). @args@ is 'LLMLL.PBT.canonicalExpr' of each argument.
+-- Keyed by argument text because the checker elaborates no tree (plan F2).
+type SiteKey = (Name, Name, [Text])
+
+-- | GENERICS-1: the site table. The value is the callee's type arguments in
+-- its declared @:type-params@ order. A type argument may mention the
+-- enclosing definition's own 'TParam's; @TVar "?unfixed"@ marks a type the
+-- call never fixes (AMBIG-TVAR-1), which specialization takes at @int@.
+type GenericSites = Map SiteKey [Type]
 
 -- | In-memory module cache: populated by post-order DFS load, read by
 -- type-checker and codegen.  Empty for single-file inputs (full backward compat).

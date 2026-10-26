@@ -1,0 +1,8 @@
+;; GENERICS-1 cross-module fixture (plan S5 step 5): a generic whose body
+;; calls this module's own helper, which adds one and is not exported.
+(module glib
+  (export bump-first)
+  (def-shell helper [n: int] -> int (post (= result (+ n 1))) (+ n 1))
+  (def-shell bump-first :type-params [a] [n: int x: a] -> (int, a)
+    (post (= (first result) (+ n 1)))
+    (pair (helper n) x)))

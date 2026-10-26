@@ -1,0 +1,28 @@
+;; GENERICS-1 build-and-run fixture: P3's group-by and show-groups as
+;; docs/design/generics-proposal.md "P3" writes them, with (k key). The
+;; generated signatures carry (Ord tp_k, Show tp_k) (edge case 16: map-get
+;; needs Show k, witness G1). Instances at k = int and k = string. The run
+;; prints "1: 2 2: 2 |a: 2 b: 1 " (newlines shown as spaces by the caller).
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell group-by :type-params [a (k key)] [xs: list[a] key: (fn [a] -> k)] -> map[k, list[a]]
+  (list-fold xs (map-empty)
+    (fn [m: map[k, list[a]] r: a]
+      (let [(kv (key r))]
+        (map-put m kv (if (map-has m kv) (list-append (map-get m kv) r) [r]))))))
+
+(def-shell show-groups :type-params [a (k key)] [show-key: (fn [k] -> string) g: map[k, list[a]]] -> string
+  (string-concat-many
+    (list-map (map-entries g)
+      (fn [e: (k, list[a])]
+        (string-concat-many [(show-key (first e)) ": " (int-to-string (list-length (second e))) "\n"])))))
+
+(def-shell by-length [xs: list[string]] -> string
+  (show-groups (fn [k: int] (int-to-string k)) (group-by xs (fn [s: string] (string-length s)))))
+(def-shell by-initial [xs: list[string]] -> string
+  (show-groups (fn [k: string] k) (group-by xs (fn [s: string] (string-slice s 0 1)))))
+
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (string-concat-many
+          [(by-length ["a" "bb" "cc" "d"]) "|" (by-initial ["ab" "ac" "b"])])))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

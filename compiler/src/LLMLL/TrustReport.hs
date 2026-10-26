@@ -10,6 +10,7 @@
 module LLMLL.TrustReport
   ( TrustReport(..)
   , TrustEntry(..)
+  , genericNotInstantiatedLabel
   , TrustDependency(..)
   , TrustSummary(..)
   , TierProfile(..)
@@ -176,7 +177,18 @@ data TrustEntry = TrustEntry
   -- report path. Additive JSON key 'ffi_assumptions', only-when-present, no
   -- 'trust_report_version' change (the 'harness_assumptions' precedent).
   , teFfiAssumptions     :: [FfiAssumption]
+  -- GENERICS-1 (verification step 8): set on the entry of a generic def-shell
+  -- that no root instantiates, to 'genericNotInstantiatedLabel'. Such a
+  -- generic gets no evidence of its own: only its copies (f@[T...]) are
+  -- verified, and each is its own entry. Additive JSON key 'generic',
+  -- only-when-present, no 'trust_report_version' change. Informational: it
+  -- feeds no tier and no admission.
+  , teGenericNote        :: Maybe Text
   } deriving (Show, Eq)
+
+-- | GENERICS-1 (verification step 8): the label of an uninstantiated generic.
+genericNotInstantiatedLabel :: Text
+genericNotInstantiatedLabel = "unverified (generic, not instantiated)"
 
 -- | FFI-TIER1-1 (D9): one row. 'faOrigin' is the function that calls the
 -- Hackage export directly: the entry itself for its own call, or the callee
@@ -1202,7 +1214,7 @@ collectAllContractStatus cache entryStmts =
     extractCS (SLetrec name _ mRet c _ _)  = mkCS name mRet c
     -- LT-INV (v0.11)
     extractCS (SDef      name _ mRet c _)  = mkCS name mRet c
-    extractCS (SDefShell name _ mRet c _ _)  = mkCS name mRet c
+    extractCS (SDefShell name _ mRet c _ _ _)  = mkCS name mRet c
     extractCS _                            = Nothing
     -- DEF-RET Unit 2: fold the return refinement into the effective post so a
     -- bare `-> RetType` function (no explicit `post`) gets a csPost slot for the
@@ -1333,7 +1345,7 @@ collectDeclaredRequires cache entryStmts =
     contractOf (SDefLogic     name _ _ c _) = Just (name, c)
     contractOf (SLetrec       name _ _ c _ _) = Just (name, c)
     contractOf (SDef          name _ _ c _) = Just (name, c)
-    contractOf (SDefShell     name _ _ c _ _) = Just (name, c)
+    contractOf (SDefShell     name _ _ c _ _ _) = Just (name, c)
     contractOf (SDefInvariant name _ _ c _) = Just (name, c)
     contractOf _                            = Nothing
 
@@ -1361,7 +1373,16 @@ buildEntry prefix allCS stmt = case stmt of
   SDef      name ps _ contract body ->
     let qname = prefix <> name
     in Just (mkEntry qname (map fst ps) contract body allCS)
-  SDefShell name ps _ contract body _ ->
+  -- GENERICS-1 (verification step 8): a generic source reaches a report only
+  -- when nothing instantiates it (the verify and render paths keep exactly
+  -- those), or as an imported module's statement. It is labelled when no copy
+  -- of it (a key qname@[...]) is in the report's evidence.
+  SDefShell name ps _ contract body _ (_ : _) ->
+    let qname = prefix <> name
+        hasCopy = any ((qname <> "@[") `T.isPrefixOf`) (Map.keys allCS)
+        e = mkEntry qname (map fst ps) contract body allCS
+    in Just (if hasCopy then e else e { teGenericNote = Just genericNotInstantiatedLabel })
+  SDefShell name ps _ contract body _ _ ->
     let qname = prefix <> name
     in Just (mkEntry qname (map fst ps) contract body allCS)
   -- v0.12.1: def-invariant contributes to trust report identically to SDefLogic.
@@ -1403,6 +1424,7 @@ mkEntry qname params contract body allCS =
        , teInheritedAxioms    = []       -- TRUST-AXIOM: filled by markInheritedAxioms post-emit
        , teGroundFacts        = []       -- TRUST-AXIOM family C: filled by markGroundFacts post-emit
        , teFfiAssumptions     = []       -- FFI-TIER1-1 (D9): filled by markFfiAssumptions
+       , teGenericNote        = Nothing  -- GENERICS-1: set by 'buildEntry' on a generic source
        }
 
 -- | FFI-TIER1-1 (D9): stamp each entry with the Hackage functions its verdict
@@ -2175,6 +2197,8 @@ formatEntry bodyFallback e =
             <> (if null lbls then "" else "; " <> T.intercalate ", " lbls)
             <> "]"
       line2   = "    pre:  " <> preLbl <> "  |  post: " <> postLbl <> fallbackNote
+      -- GENERICS-1 (verification step 8): an uninstantiated generic.
+      genericLines = maybe [] (\g -> ["    generic: " <> g]) (teGenericNote e)
       sourceLines = catMaybes
         [ (tePre e >>= erSource) >>= \s -> Just ("    source (pre):  " <> s)
         , (tePost e >>= erSource) >>= \s -> Just ("    source (post): " <> s)
@@ -2239,7 +2263,7 @@ formatEntry bodyFallback e =
         | otherwise =
             "    ≈ inherits haskell." <> faPackage a <> " export " <> faExport a
               <> " via " <> faOrigin a <> ffiNote
-  in [line1, line2] ++ sourceLines ++ depLines ++ driftLines ++ assumedLines
+  in [line1, line2] ++ genericLines ++ sourceLines ++ depLines ++ driftLines ++ assumedLines
        ++ axiomLines ++ inheritedLines ++ groundLine ++ ffiLines
 
 formatSummary :: TrustSummary -> [Text]
@@ -2398,6 +2422,8 @@ formatTrustReportJsonWith discarded report =
       -- Orthogonal to 'refuted'/'overflow_tainted' — a refuted recursive fn shows
       -- both. Informational; does not touch 'effective_level'.
       [ "termination_unverified" .= True | Set.member (teName e) (trPartialFns report) ] ++
+      -- GENERICS-1 (verification step 8): only-when-present.
+      [ "generic" .= g | Just g <- [teGenericNote e] ] ++
       -- HEADLINE-TERM-1 (1.7.0): only-on-true, the same shape.
       [ "termination_assumed" .= True | Map.member (teName e) (trTermAssumed report) ] ++
       -- TRUST-CC-1: per-entry body-fallback marker, only-when-present so an

@@ -44,8 +44,8 @@ import qualified Data.Set as Set
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue)
 import LLMLL.AstEmit (emitJsonAST)
-import LLMLL.Syntax (Statement(..), Import(..), Span(..), ModuleCache, ModulePath, ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, raiseLowDP, resolveSpecEntropy)
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckWithCacheRet, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
+import LLMLL.Syntax (Statement(..), Import(..), Span(..), ModuleCache, ModulePath, ModuleEnv(..), typeLabel, Type(..), Contract(..), ProvClause(..), ContractStatus(..), DisplayLevel(..), EvidenceRecord(..), Name, Expr(..), HoleKind(..), GrammarMode(..), EntryMode(..), normalizeDefStmt, Property(..), raiseLowDP, resolveSpecEntropy)
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckStrictWithCache, typeCheckStrictWithCacheAndStatus, typeCheckStrictWithCacheAndStatusRet, typeCheckStrictWithCacheAndStatusRetSites, typeCheckWithCacheRet, typeCheckWithCacheRetSites, emptyEnv, builtinEnv, seedCacheEnv, runSketch, SketchResult(..), HoleStatus(..), SketchHole(..), ScopeBinding(..))
 import LLMLL.Module (topoSortedEnvs)
 import LLMLL.LoadClosure (loadImportClosure)
 import LLMLL.Hub (hubFetchLocal, resolveScaffold)
@@ -57,7 +57,7 @@ import LLMLL.HoleAnalysis
   , formatHoleReport, formatHoleReportSExp
   , formatHoleReportJson, holeDensityWarnings, isNonLinear)
 import LLMLL.Ffi (ffiEntriesOf)
-import LLMLL.PBT (runPropertyTestsWithSeed, assembleTestStatements, pbtTrustWriteback, PBTResult(..), PBTRun(..), PBTStatus(..))
+import LLMLL.PBT (runPropertyTestsWithSeed, assembleTestStatements, pbtTrustWritebackWith, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Module (mergeCS)
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, CodegenResult(..), sanitizePkgName, staleCabalFiles, staleExecutables)
 import LLMLL.Diagnostic
@@ -80,6 +80,8 @@ import LLMLL.DivergenceCheck
 import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode, buildFuncEnv)
 import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, saveVerifiedWithAxioms, loadVerified, verifiedPath, demotePositiveRecords)
 import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
+-- GENERICS-1 (S5): the verifier reads the specialized program.
+import LLMLL.Specialize (specializeWithRet, GenericStats(..), gsDefinitions, gsInstances)
 import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(..), runCapturingExit)
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
@@ -656,8 +658,40 @@ doTest json gm fp emitOnly mSeed = do
           -- sidecar ('PBT.buildQualMap'), and its key comes from its own
           -- module's 'moduleKeyEnv'. Lazy: a run that lifts nothing never
           -- forces the type-check.
-          let (_, testRetTypes) = typeCheckWithCacheRet gm cache emptyEnv stmts
-              entryKeys = evidenceKeys (buildKeyEnv cache testRetTypes stmts) False stmts
+          --
+          -- GENERICS-1 (edge case 15): keys are read off the SPECIALIZED
+          -- program, and a property whose subject is a generic f lands its
+          -- record on the copy it calls, f@[T...], whose key is the copy's.
+          -- The evaluator above ran the original program (erasure parity).
+          let (_, testRetTypes0, testSites) = typeCheckWithCacheRetSites gm cache emptyEnv stmts
+              (specStmts, genStats, copyRets) = specializeWithRet testRetTypes0 cache testSites stmts
+              testRetTypes = Map.union copyRets testRetTypes0
+              entryKeys = evidenceKeys (buildKeyEnv cache testRetTypes specStmts) False specStmts
+              genericNames = Set.fromList $
+                [ n | SDefShell{defShellName = n, defShellTypeParams = (_ : _)} <- stmts ]
+                ++ [ n | menv <- Map.elems cache
+                       , SDefShell{defShellName = n, defShellTypeParams = (_ : _)} <- meStatements menv ]
+              ownersOf desc = [ "/statements/" <> tshow i
+                              | (i, SCheck p) <- zip [0 :: Int ..] stmts, propDescription p == desc ]
+              localPlain = Set.fromList [ n | s <- stmts, Just (n, _, _, _, _) <- [normalizeDefStmt s]
+                                            , n `notElem` [ g | SDefShell{defShellName = g, defShellTypeParams = (_ : _)} <- stmts ] ]
+              renameSubject desc f
+                | Set.member f localPlain = Right f
+                | not (Set.member (lastSeg f) genericNames) = Right f
+                | otherwise =
+                    case nubOrd [ c | ((o, callee, _), c) <- Map.toList (gsSiteCopies genStats)
+                                    , o `elem` ownersOf desc
+                                    , callee == f || lastSeg callee == f ] of
+                      [c] -> Right c
+                      []  -> Left ("property \"" <> desc <> "\" subject \"" <> f
+                                   <> "\" is a generic def-shell, and no instantiation of it was"
+                                   <> " found in the property; no trust evidence recorded")
+                      cs  -> Left ("property \"" <> desc <> "\" calls the generic \"" <> f
+                                   <> "\" at more than one instantiation (" <> T.intercalate ", " cs
+                                   <> "); no trust evidence recorded. Split the property, one"
+                                   <> " instantiation each")
+              lastSeg = last . T.splitOn "."
+              nubOrd = Set.toList . Set.fromList
               subjectKeyOf k = case Map.lookup k entryKeys of
                 Just h  -> Just h
                 Nothing -> listToMaybe
@@ -667,7 +701,7 @@ doTest json gm fp emitOnly mSeed = do
           -- OBLIG-PBT-3: write back PBTPassed evidence to .verified.json.
           -- Singleton head-position contracted callee lifts to DLTested n;
           -- multi-subject / skipped / failed produce diagnostics, no lift.
-          let (pbtCS, pbtDiags) = pbtTrustWriteback subjectKeyOf stmts cache result
+          let (pbtCS, pbtDiags) = pbtTrustWritebackWith renameSubject subjectKeyOf stmts cache result
           unless (Map.null pbtCS) $ do
             existing <- loadVerified fp
             -- pbtCS on the sidecar side so DLTested upgrades any DLAsserted;
@@ -1316,7 +1350,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
   mResult <- loadStatementsMulti json gm fp
   case mResult of
     Left () -> exitFailure
-    Right (stmts, _cache, _) -> do
+    Right (srcStmts, _cache, _) -> do
       -- ADMIT-VERIFIED (Option 2, seam 6): load the entry file's OWN
       -- '.verified.json' BEFORE the strict-core type-check gate and validate it
       -- against the live def bodies+contracts ('downgradeStaleVerifiedSidecar'),
@@ -1331,18 +1365,41 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- strict check below takes this sidecar as input, so the key's return types
       -- come from a non-strict check here. It is lazy: a module whose defs all
       -- declare a return type never forces it.
-      let (_, preRetTypes) = typeCheckWithCacheRet gm _cache emptyEnv stmts
-          preKe = buildKeyEnv _cache preRetTypes stmts
-          (entrySidecar, _staleDiags) = downgradeStaleVerifiedSidecarIn _cache preKe stmts entrySidecarRaw
+      --
+      -- GENERICS-1: the pre-check key reads the SPECIALIZED program, as every
+      -- key below does, so a copy's record (f@[T...]) is checked against the
+      -- copy it describes. The pass is the identity on a program with no
+      -- generic definition and no generic or compare call.
+      let (_, preRetTypes0, preSites) = typeCheckWithCacheRetSites gm _cache emptyEnv srcStmts
+          (preStmts, _, preCopyRets) = specializeWithRet preRetTypes0 _cache preSites srcStmts
+          preRetTypes = Map.union preCopyRets preRetTypes0
+          preKe = buildKeyEnv _cache preRetTypes preStmts
+          (entrySidecar, _staleDiags) = downgradeStaleVerifiedSidecarIn _cache preKe preStmts entrySidecarRaw
       -- v0.6.3: typecheck gate (BUG-4)
       -- FQ-RESULT-SORT-1: the same typecheck now also yields tau_ret per definition,
       -- consumed by the emit calls below so the 'result' binder is sorted from the
       -- checker's answer rather than defaulted to FQInt when '-> RetType' is absent.
-      let (tcReport, retTypes) =
-            typeCheckStrictWithCacheAndStatusRet gm _cache entrySidecar emptyEnv stmts
+      -- GENERICS-1: and the generic site table the specialization pass reads.
+      let (tcReport, retTypes0, genSites) =
+            typeCheckStrictWithCacheAndStatusRetSites gm _cache entrySidecar emptyEnv srcStmts
       unless (reportSuccess tcReport) $ do
         printTypeCheckFailure json tcReport
         exitFailure
+      -- GENERICS-1 (S5): specialize, then verify. From here on 'stmts' is the
+      -- program the verifier reads: each reached instantiation of a generic
+      -- def-shell is an ordinary def-shell copy named f@[T...], every generic
+      -- call is renamed to its copy, a compare at int or bool is renamed to its
+      -- unfolding, and the generic sources are gone. The KeyEnv, the emitter,
+      -- the sidecar write and every report below read it, so the one-KeyEnv
+      -- invariant (HASH-PRE-ASYM) holds for the copies too.
+      let (stmts, genStats, copyRets) = specializeWithRet retTypes0 _cache genSites srcStmts
+          retTypes = Map.union copyRets retTypes0
+          -- GENERICS-1 (verification step 8): a generic with no instance stays
+          -- in the trust report's statements, where it renders as
+          -- "unverified (generic, not instantiated)". It never reaches the
+          -- emitter.
+          trStmts = stmts ++ [ s | s@SDefShell{defShellName = n, defShellTypeParams = (_ : _)} <- srcStmts
+                                 , lookup n (gsPerDefinition genStats) == Just 0 ]
       -- HASH-PRE-ASYM: the KeyEnv the emitter reads in this run; every record
       -- this run writes or re-reads is keyed with it.
       let verifyKe = buildKeyEnv _cache retTypes stmts
@@ -1410,6 +1467,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         -- v0.8.0: report body-faithful and fallback functions
         unless (null (erBodyFaithfulFns emitR)) $
           TIO.putStrLn $ "   body-faithful: " <> T.intercalate ", " (erBodyFaithfulFns emitR)
+        -- GENERICS-1 (verification step 7): the instantiation count, only for
+        -- a program that declares or reaches a generic.
+        when (gsDefinitions genStats > 0) $
+          TIO.putStrLn $ "   generics: " <> tshow (gsDefinitions genStats) <> " definitions, "
+            <> tshow (gsInstances genStats) <> " instances"
         unless (null (erBodyFallback emitR)) $
           TIO.putStrLn $ "   body-fallback: " <> T.intercalate ", " (erBodyFallback emitR)
         -- v0.8.0: surface diagnostics (path-limit warnings etc.)
@@ -1538,7 +1600,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- the more specific status. The render must still not show a tier
             -- the live source no longer supports.
             (sidecar, _stale, _contra) <- loadCheckedSidecar _cache verifyKe fp stmts Map.empty
-            let trustRpt = buildTrustReport _cache stmts sidecar
+            let trustRpt = buildTrustReport _cache trStmts sidecar
                 reportText = assembleReport fp stmts _cache emitR Nothing trustRpt
             if json then nest "obligation_report" reportText else TIO.putStrLn reportText
           finishVerify (ExitFailure 3)   -- distinct: solver unavailable (proof did not run)
@@ -1671,6 +1733,15 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                     FQUnsafe _ -> "refuted"
                     FQError _  -> "error")
                 ]
+                -- GENERICS-1 (verification step 7): the JSON twin of the
+                -- count line, only when a generic is declared or reached, so
+                -- every other program's verdict object is unchanged.
+                ++ [ "generics" .= object
+                       [ "definitions"    .= gsDefinitions genStats
+                       , "instances"      .= gsInstances genStats
+                       , "per_definition" .= object [ K.fromText n .= c | (n, c) <- gsPerDefinition genStats ]
+                       ]
+                   | gsDefinitions genStats > 0 ]
                 -- VERIFY-HEADLINE-1: what the SAFE verdict proved. Emitted on
                 -- SAFE only: the proved set is defined over a solver pass, and
                 -- a refuted or crashed run proved nothing it could name.
@@ -1694,7 +1765,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
             (oblSidecar, _stale, oblContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
-            let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts oblSidecar)))))))
+            let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache trStmts oblSidecar)))))))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             if json then nest "obligation_report" reportText else TIO.putStrLn reportText
             -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
@@ -1719,7 +1790,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               (paSidecar, _stale, paContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
-              let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache stmts paSidecar)))))))
+              let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache trStmts paSidecar)))))))
               case buildProofArtifact fp srcHash meta fqResult emitR paTrust of
                 -- SIDECAR-ADMIT-1: the kernel is now the LAST defence, not the
                 -- only one. 'loadCheckedSidecar' has already demoted a tier this
@@ -1749,7 +1820,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 -- v0.4: --obligations mode
                 when obligations $ do
                   oblSidecar <- loadVerified fp
-                  let trustRpt = buildTrustReport _cache stmts oblSidecar
+                  let trustRpt = buildTrustReport _cache trStmts oblSidecar
                       oblSugs  = mineObligations table fqResult trustRpt stmts
                   TIO.putStr (formatObligations oblSugs)
               FQError e ->
@@ -1760,7 +1831,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           when (json && obligations) $ case fqResult of
             FQUnsafe _ -> do
               oblSidecar <- loadVerified fp
-              let trustRpt = buildTrustReport _cache stmts oblSidecar
+              let trustRpt = buildTrustReport _cache trStmts oblSidecar
               nest "obligation_suggestions" (formatObligationsJson (mineObligations table fqResult trustRpt stmts))
             _ -> pure ()
 
@@ -1830,7 +1901,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               let validTested    = carryForwardTested _cache verifyKe stmts entrySidecarRaw
                   written        = upgradeLeanstralPosts liveOblHashes wLeanCache
                                      (Map.unionWith mergeCS provenCS validTested)
-                  obReport       = buildTrustReport _cache stmts written
+                  obReport       = buildTrustReport _cache trStmts written
                   obligationJson = concatMap (map callerObligationJson . teCallerObligations)
                                              (trEntries obReport)
               saveVerifiedWithAxioms fp written obligationJson builtinAxiomMap
@@ -1967,7 +2038,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 -- prior 'Map.empty' (every function 'asserted').
                 covSidecarRaw <- loadVerified fp
                 let (covSidecar, _) = downgradeStaleVerifiedSidecarIn _cache verifyKe stmts covSidecarRaw
-                    covTrust = buildTrustReport _cache stmts covSidecar
+                    covTrust = buildTrustReport _cache trStmts covSidecar
                     covLevels = Map.fromList [ (teName e, l)
                                              | e <- trEntries covTrust
                                              , Just l <- [entryHeadlineLevel e] ]
@@ -2004,7 +2075,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               leanCache <- loadProofCache fp
               let upgraded = upgradeLeanstralPosts liveOblHashes leanCache writtenCS
               unless (upgraded == writtenCS) $ do
-                let obReport'       = buildTrustReport _cache stmts upgraded
+                let obReport'       = buildTrustReport _cache trStmts upgraded
                     obligationJson' = concatMap (map callerObligationJson . teCallerObligations)
                                                 (trEntries obReport')
                 saveVerifiedWithAxioms fp upgraded obligationJson' builtinAxiomMap
@@ -2035,7 +2106,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                            (markDescentDischarged descentDischargedSet
                              (markMeasureNotDecreasing measureNotDecreasingSet
                                (markRefuted refutedSet
-                                 (buildTrustReportWithCDP _cache stmts sidecar cdpResults)))))))
+                                 (buildTrustReportWithCDP _cache trStmts sidecar cdpResults)))))))
             if json
               then nest "trust_report" (formatTrustReportJson report)
               else TIO.putStr (formatTrustReport report)
@@ -2066,7 +2137,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- even pre-existing/untouched functions. The sibling non-strict
             -- branch above (not strictCore) already threads 'cdpResults'
             -- correctly; this branch just never did.
-            let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache stmts stSidecar cdpResults)))))))
+            let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache trStmts stSidecar cdpResults)))))))
                 refusal  = refutedClosure refutedSet stReport
             when (trustReport && not obligationReport) $
               if json
@@ -2114,12 +2185,21 @@ loadForRender json gm fp = do
   mResult <- loadStatementsMulti json gm fp
   case mResult of
     Left () -> exitFailure
-    Right (stmts, cache, _) -> do
+    Right (srcStmts, cache, _) -> do
       raw <- loadVerified fp
-      let (_, preRetTypes) = typeCheckWithCacheRet gm cache emptyEnv stmts
-          preKe = buildKeyEnv cache preRetTypes stmts
-          (sidecar, staleDiags) = downgradeStaleVerifiedSidecarIn cache preKe stmts raw
-          (tcReport, _) = typeCheckStrictWithCacheAndStatusRet gm cache sidecar emptyEnv stmts
+      -- GENERICS-1: the render reads the specialized program, as 'doVerify'
+      -- writes it, so a copy's record (f@[T...]) is checked against the copy.
+      -- A generic with no instance is kept, and renders as
+      -- "unverified (generic, not instantiated)"; the identity on a program
+      -- with no generic definition and no generic or compare call.
+      let (_, preRetTypes0, sites) = typeCheckWithCacheRetSites gm cache emptyEnv srcStmts
+          (specStmts, genStats, copyRets) = specializeWithRet preRetTypes0 cache sites srcStmts
+          preRetTypes = Map.union copyRets preRetTypes0
+          stmts = specStmts ++ [ s | s@SDefShell{defShellName = n, defShellTypeParams = (_ : _)} <- srcStmts
+                                   , lookup n (gsPerDefinition genStats) == Just 0 ]
+          preKe = buildKeyEnv cache preRetTypes specStmts
+          (sidecar, staleDiags) = downgradeStaleVerifiedSidecarIn cache preKe specStmts raw
+          (tcReport, _) = typeCheckStrictWithCacheAndStatusRet gm cache sidecar emptyEnv srcStmts
       unless (reportSuccess tcReport) $ do
         printTypeCheckFailure json tcReport
         exitFailure
@@ -2761,7 +2841,7 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
       -- bound (never a manufactured witness); R5 hole-fns are `def-shell` by
       -- convention, so the modular path is the common one.
       synthetic = case filter (defNamed fname) sharedStmts of
-                    (SDefShell{} : _) -> SDefShell fname params mRet contract body []
+                    (SDefShell{defShellTypeParams = tps} : _) -> SDefShell fname params mRet contract body [] tps
                     _                 -> SDef      fname params mRet contract body
       context   = [ s | s <- sharedStmts, keepAsContext s ]
       program   = context ++ [synthetic]
@@ -3179,7 +3259,7 @@ extractContract :: Statement -> Maybe (Name, Contract)
 extractContract (SDefLogic name _ _ c _)  = Just (name, c)
 extractContract (SLetrec name _ _ c _ _)  = Just (name, c)
 extractContract (SDef      name _ _ c _)  = Just (name, c)
-extractContract (SDefShell name _ _ c _ _)  = Just (name, c)
+extractContract (SDefShell name _ _ c _ _ _)  = Just (name, c)
 extractContract _                         = Nothing
 
 -- ---------------------------------------------------------------------------
@@ -3320,7 +3400,7 @@ fnKindMap :: [Statement] -> Map.Map T.Text T.Text
 fnKindMap stmts = Map.fromList $ concatMap one stmts
   where
     one (SDef n _ _ _ _)         = [(n, "def")]
-    one (SDefShell n _ _ _ _ _)  = [(n, "def-shell")]
+    one (SDefShell n _ _ _ _ _ _)  = [(n, "def-shell")]
     one (SDefLogic n _ _ _ _)    = [(n, "def-logic")]
     one (SDefInvariant n _ _ _ _) = [(n, "def-invariant")]
     one (SLetrec n _ _ _ _ _)    = [(n, "letrec")]

@@ -74,7 +74,7 @@ def test_float_pattern_round_trips_through_json_ast_and_builds(tmp_path):
     assert p.returncode == 0, p.stdout + p.stderr
     (ast,) = list(tmp_path.glob("generated/pat/pat.ast.json"))
     doc = json.loads(ast.read_text(encoding="utf-8"))
-    assert doc["schemaVersion"] == "0.14.0"
+    assert doc["schemaVersion"] == "0.15.0"
     assert '"literal_kind": "float"' in ast.read_text(encoding="utf-8")
     c = _run(["check", str(ast)], tmp_path)
     assert c.returncode == 0, c.stdout + c.stderr

@@ -193,7 +193,7 @@ generateForStmt gm allStmts catalog (SLetrec name params mRet contract _dec _bod
 generateForStmt gm allStmts catalog (SDef name params mRet contract _body)
   | hasContracts contract =
       mapMaybe (tryCandidate gm allStmts name params mRet contract) (catalog params mRet)
-generateForStmt gm allStmts catalog (SDefShell name params mRet contract _body _)
+generateForStmt gm allStmts catalog (SDefShell name params mRet contract _body _ _)
   | hasContracts contract =
       mapMaybe (tryCandidate gm allStmts name params mRet contract) (catalog params mRet)
 generateForStmt _ _ _ _ = []
@@ -290,6 +290,10 @@ compatibleTypes TBool TBool = True
 compatibleTypes TFloat TFloat = True
 compatibleTypes TUnit TUnit = True
 compatibleTypes (TList _) (TList _) = True
+-- GENERICS-1: a rigid type parameter matches only itself, never as a wildcard.
+compatibleTypes (TParam a _) (TParam b _) = a == b
+compatibleTypes (TParam _ _) _ = False
+compatibleTypes _ (TParam _ _) = False
 compatibleTypes (TVar _) _ = True
 compatibleTypes _ (TVar _) = True
 compatibleTypes a b = a == b

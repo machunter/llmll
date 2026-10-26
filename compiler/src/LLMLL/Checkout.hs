@@ -943,6 +943,9 @@ extractConcreteBindings acc _ = acc
 
 isTVar :: Type -> Bool
 isTVar (TVar _) = True
+-- GENERICS-1: a rigid parameter is not a concrete type to monomorphize
+-- against, so it counts as a variable here and binds nothing.
+isTVar (TParam _ _) = True
 isTVar _        = False
 
 -- | Apply a monomorphization substitution to a type.

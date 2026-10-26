@@ -89,7 +89,7 @@ stmtToJson (SDef name params ret (Contract mPre _preSource mPost _postSource mEn
     clauseSideJson "post" "post_source" "post_clauses" mPost _postSource postCls ++
     maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy
 
-stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSource mEntropy preCls postCls) body decreases) =
+stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSource mEntropy preCls postCls) body decreases tps) =
   object $
     [ "kind"   .= ("def-shell" :: Text)
     , "name"   .= name
@@ -102,7 +102,13 @@ stmtToJson (SDefShell name params ret (Contract mPre _preSource mPost _postSourc
     maybe [] (\e -> ["spec_entropy" .= specEntropyLabel e]) mEntropy ++
     -- REC-DESCENT (v0.14.24): emit the measure list only when present, so a
     -- decreases-free def-shell is byte-identical to pre-0.8.0 output.
-    (if null decreases then [] else ["decreases" .= map exprToJson decreases])
+    (if null decreases then [] else ["decreases" .= map exprToJson decreases]) ++
+    -- GENERICS-1 (schema 0.15.0): emit the type parameters only when present,
+    -- so a def-shell without them is byte-identical to 0.14.0 output.
+    (if null tps then [] else ["type_params" .= map typeParamToJson tps])
+  where
+    typeParamToJson (n, mc) =
+      object (("name" .= n) : maybe [] (\c -> ["constraint" .= tyConstraintLabel c]) mc)
 
 stmtToJson (SLetrec name params _ret (Contract mPre _preSource mPost _postSource mEntropy preCls postCls) dec body) =
   object $
@@ -256,6 +262,8 @@ typeToJson (TDependent bindName base constraint) = object
   ]
 typeToJson TDelegationError  = object ["kind" .= ("named" :: Text), "name" .= ("DelegationError" :: Text)]
 typeToJson (TVar n)          = object ["kind" .= ("named" :: Text), "name" .= n]
+-- GENERICS-1: a rigid type parameter round-trips as the type-var kind.
+typeToJson (TParam n _)      = object ["kind" .= ("type-var" :: Text), "name" .= n]
 typeToJson (TCustom "Command") = object ["kind" .= ("command" :: Text)]
 typeToJson (TCustom "hs-text") = object ["kind" .= ("hs-text" :: Text)]
 typeToJson (TCustom "hs-int")  = object ["kind" .= ("hs-int" :: Text)]

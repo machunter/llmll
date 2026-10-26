@@ -1,0 +1,9 @@
+;; GENERICS-1 contract-plan refuting body (docs/design/generics-1-engineer-plan.md
+;; "Contract plan"): pick-min's post with the body x. At int, x = 1 and y = 0
+;; give compare 1 0 = 1, so the post fails. Predicted: pick-min-bad@[int] is
+;; refuted and verify exits 1.
+(def-shell pick-min-bad :type-params [(a ord)] [x: a y: a] -> a
+  (post (and (<= (compare result x) 0) (<= (compare result y) 0)))
+  x)
+
+(def-shell use-bad [x: int y: int] -> int (pick-min-bad x y))

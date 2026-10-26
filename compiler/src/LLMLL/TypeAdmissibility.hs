@@ -198,6 +198,7 @@ module LLMLL.TypeAdmissibility
   , mentionsNoEq
   , noEqWitness
   , noOrdWitness
+  , noKeyWitness
     -- * Normalization
   , resolveAliasTy
   , normalizeTy
@@ -361,6 +362,11 @@ noEqWitness am = go Set.empty
       TFn _ _               -> Just t
       TPromise _            -> Just t
       TCustom "Command"     -> Just t
+      -- GENERICS-1: a rigid parameter has equality exactly when its declared
+      -- constraint entails eq; never leniently, as 'TVar' is.
+      TParam _ c
+        | maybe False (`entails` TCEq) c -> Nothing
+        | otherwise                      -> Just t
       TCustom n
         | n `Set.member` seen -> Nothing                     -- Norm-Stuck
         | otherwise           -> lookupAlias n >>= go (Set.insert n seen)
@@ -405,6 +411,11 @@ noOrdWitness am = go Set.empty
       TString          -> Nothing
       TBool            -> Nothing
       TVar _           -> Nothing
+      -- GENERICS-1: a rigid parameter is ordered exactly when its declared
+      -- constraint entails ord (key entails ord).
+      TParam _ c
+        | maybe False (`entails` TCOrd) c -> Nothing
+        | otherwise                       -> Just t
       TPair a b        -> maybe (go seen b) Just (go seen a)
       TDependent _ b _ -> go seen b
       TCustom n
@@ -414,6 +425,34 @@ noOrdWitness am = go Set.empty
             Just b            -> go (Set.insert n seen) b
             Nothing           -> Just t
       _                -> Just t
+
+-- | GENERICS-1: the map-key class of §13.12, as a witness walk: 'Nothing' when
+-- the type may key a map, else the offending type. One predicate for the map
+-- gate in 'LLMLL.TypeCheck.inferArrayOp' and for the @key@ constraint, so
+-- @key@ is "the map-key class, whatever it is" (generics-proposal "Surface").
+--
+-- Today the class is @{int, string}@ after alias expansion. An unresolved
+-- 'TVar' is accepted, as the gate always accepted it (the key argument then
+-- carries the test, and AMBIG-TVAR-1 covers an unfixed one). A refinement
+-- ('TDependent') is NOT stripped: the gate never stripped it, and widening
+-- the class here would move an existing verdict. A rigid parameter is in the
+-- class exactly when its declared constraint is @key@.
+noKeyWitness :: AliasMap -> Type -> Maybe Type
+noKeyWitness am = go Set.empty
+  where
+    go seen t = case t of
+      TInt    -> Nothing
+      TString -> Nothing
+      TVar _  -> Nothing
+      TParam _ c
+        | maybe False (`entails` TCKey) c -> Nothing
+        | otherwise                       -> Just t
+      TCustom n
+        | n `Set.member` seen -> Just t
+        -- Exact lookup, as 'LLMLL.TypeCheck.expandAlias' does, so the map
+        -- gate's verdict on an already-expanded key type is unchanged.
+        | otherwise -> maybe (Just t) (go (Set.insert n seen)) (Map.lookup n am)
+      _       -> Just t
 
 -- ---------------------------------------------------------------------------
 -- Normalization

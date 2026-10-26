@@ -18,12 +18,18 @@ module LLMLL.GuardClassifier
   , lookupArithOp
     -- * SIGMA-CONST-ARITH-1: shared emission of admitted constant-linear forms
   , constArithTerm
+    -- * GENERIC-COMPARE-1: the reflected compare terms, shared with the body channel
+  , intBuiltinTag
+  , reflectCompare
+  , reflectedCompareNames
   ) where
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust, catMaybes)
 import Control.Monad.State.Strict (State)
+import Data.Text (Text)
+import qualified Data.Text as T
 
 import LLMLL.Syntax (Name, Expr(..), Literal(..), ConstArith(..), groundInt, constArith)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), strlitConst)
@@ -71,6 +77,17 @@ classifyGuardM _ _ (ELit (LitInt n))      = return (Just (FQLit n))
 -- hoisted to a Str-sorted var first). Distinctness/length facts ride the
 -- addConst passes (constraint-derived, position-independent).
 classifyGuardM _ _ (ELit (LitString s))   = return (Just (FQApp (strlitConst s) []))
+
+-- GENERIC-COMPARE-1: a reflected `compare` at int or bool (written by the
+-- specialization pass, tagged by FixpointEmit.markIntBuiltins) unfolds to the
+-- same definitional term the body channel uses ('reflectCompare'), so
+-- `(if (<= (compare x y) 0) x y)` keeps its guard. Only these two names:
+-- `min`, `max` and `abs` in a guard still fall back (a separate gap).
+classifyGuardM env se (EApp op args)
+  | Just b <- T.stripPrefix intBuiltinTag op
+  , b `elem` reflectedCompareNames = do
+      ps <- mapM (classifyGuardM env se) args
+      return (sequence ps >>= reflectCompare b)
 
 -- Comparison operators (including Unicode aliases)
 classifyGuardM env se (EApp op [l, r])
@@ -134,6 +151,35 @@ classifyGuardM env se (EOp name args) = classifyGuardM env se (EApp name args)
 
 -- Everything else in guard position: ELet, EIf, etc. → fallback
 classifyGuardM _ _ _ = return Nothing
+
+-- ---------------------------------------------------------------------------
+-- GENERIC-COMPARE-1: reflected compare (one definition for both channels)
+-- ---------------------------------------------------------------------------
+
+-- | MINMAX-FRAG-1: the prefix of the internal name a reflected builtin call
+-- takes. `%` cannot appear in an LLMLL identifier, so no user name carries it.
+-- Defined here so the guard channel and FixpointEmit read the same tag.
+intBuiltinTag :: Text
+intBuiltinTag = "builtin%"
+
+-- | The specialized compare names that unfold definitionally.
+reflectedCompareNames :: [Name]
+reflectedCompareNames = ["compare%int", "compare%bool"]
+
+-- | `compare` at int and at bool, after specialization, as the definition
+-- `llmll_compare` computes (`compare` on Integer and on Bool, false < true,
+-- mapped to -1, 0, 1). Definitional terms: no assumed post and no axiom. -1
+-- is written 0 - 1, as `abs` writes its negation. Read by both
+-- FixpointEmit.reflectIntBuiltin (body and contract) and 'classifyGuardM'.
+reflectCompare :: Name -> [FQPred] -> Maybe FQPred
+reflectCompare "compare%int" [a, b] =
+  Just (FQIte (FQBinPred FQLt a b) minusOne (FQIte (FQBinPred FQEq a b) (FQLit 0) (FQLit 1)))
+reflectCompare "compare%bool" [a, b] =
+  Just (FQIte (FQBinPred FQEq a b) (FQLit 0) (FQIte a (FQLit 1) minusOne))
+reflectCompare _ _ = Nothing
+
+minusOne :: FQPred
+minusOne = FQBinArith FQSub (FQLit 0) (FQLit 1)
 
 -- ---------------------------------------------------------------------------
 -- Operator lookup tables (moved from FixpointEmit, v0.8.0)

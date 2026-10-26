@@ -55,6 +55,7 @@ library
       LLMLL.TrustReport
       LLMLL.ProgramGraph
       LLMLL.EvidenceKey
+      LLMLL.Specialize
       LLMLL.CallGraph
       LLMLL.ProofArtifact
       LLMLL.VerifyEnvelope

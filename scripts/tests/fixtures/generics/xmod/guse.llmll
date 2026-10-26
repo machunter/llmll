@@ -1,0 +1,9 @@
+;; GENERICS-1 cross-module fixture (plan S5 step 5): the copy
+;; glib.bump-first@[bool] is made and verified in this run, and its body calls
+;; glib.helper (qualified), whose post proves the copy's. XMOD-SCOPE R1 refuses
+;; an importer definition named helper, so capture cannot be written in source;
+;; Spec.hs pins the qualification on specialize directly.
+(import glib)
+(def-shell use-bump [n: int b: bool] -> (int, bool)
+  (post (= (first result) (+ n 1)))
+  (glib.bump-first n b))

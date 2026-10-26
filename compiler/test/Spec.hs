@@ -14,7 +14,7 @@ import qualified Data.Text.Encoding as TE
 import LLMLL.Lexer (tokenize, Token(..), TokenKind(..))
 import LLMLL.Parser (parseStatements, parseExpr, parseTopLevel)
 import LLMLL.Syntax
-import LLMLL.TypeCheck (typeCheck, typeCheckStrict, typeCheckWithCache, typeCheckWithCacheRet, typeCheckStrictWithCacheAndStatus, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
+import LLMLL.TypeCheck (typeCheck, typeCheckStrict, typeCheckWithCache, typeCheckWithCacheRet, typeCheckWithCacheRetSites, typeCheckStrictWithCacheSites, typeCheckStrictWithCacheAndStatus, emptyEnv, builtinEnv, runSketch, SketchResult(..), SketchHole(..), HoleStatus(..), InvariantSuggestion(..))
 import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern(..))
 -- EFFECT-RESP: the type half of the sealed Response, paired with the value half
 -- in builtinEnv above.
@@ -64,7 +64,7 @@ import LLMLL.VerifyEnvelope (VerifyEnvelope(..), renderEnvelope, envelopeFields,
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
-import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp)
+import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, reflectCompare, intBuiltinTag)
 import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
@@ -101,12 +101,15 @@ import LLMLL.CDP
   , DecompQuality(..), UnvouchedMeet(..), cdpQuality, dqMeet )
 import LLMLL.SpecCoverage (CoverageReport(..), FunctionClass(..), FunctionEntry(..), CoverageSummary(..), LawEntry(..), runCoverage, runCoverageWithLevels, formatCoverageJson, formatCoverageJsonWith, formatCoverageText)
 import LLMLL.TypeCheck (ScopeSource(..), ScopeBinding(..), structuralUnify, runTC, runTCWithAliases, expandAlias, occursIn, TC, typeCheckStrict)
-import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson, noOrdWitness)
+import LLMLL.TypeAdmissibility (admits, wildAssumeRejects, normalizeTy, mentionsJson, noOrdWitness, noEqWitness, noKeyWitness)
 import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime, getCurrentTime, diffUTCTime)
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
 import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
+import LLMLL.Specialize (specialize, specializeWithRet, GenericStats(..), emptyGenericStats, gsDefinitions, gsInstances, copyTypeArgsSuffix)  -- GENERICS-1 S5
+import LLMLL.CodegenHs (typeParamContext, constraintHsClasses)  -- GENERICS-1 S6
+import LLMLL.TrustReport (genericNotInstantiatedLabel)  -- GENERICS-1 S5
 -- PBT-EVAL-PARITY-1
 import LLMLL.Contracts (evalExprStaticWithCtors, modeledBuiltins, builtinCtorNames)
 import LLMLL.PBT (unreducedReason, ctorNamesOf)
@@ -182,7 +185,7 @@ main = hspec $ do
         Right stmts -> do
           length stmts `shouldBe` 1
           case head stmts of
-            SDefShell name params _ contract _ _ -> do
+            SDefShell name params _ contract _ _ _ -> do
               name `shouldBe` "withdraw"
               length params `shouldBe` 2
               contractPre contract `shouldNotBe` Nothing
@@ -1230,7 +1233,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired r _)) _ ->
+            SDefShell _ _ _ _ (EHole (HProofRequired r _)) _ _ ->
               r `shouldBe` "manual"
             _ -> expectationFailure "Expected EHole (HProofRequired \"manual\")"
 
@@ -1297,7 +1300,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired r mp)) _ -> do
+            SDefShell _ _ _ _ (EHole (HProofRequired r mp)) _ _ -> do
               r  `shouldBe` "manual"
               mp `shouldBe` Nothing
             _ -> expectationFailure "Expected SDefLogic with HProofRequired"
@@ -1309,7 +1312,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) _ ->
+            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) _ _ ->
               r `shouldBe` "manual"
             _ -> expectationFailure "Expected predicate-carrying HProofRequired"
 
@@ -1320,7 +1323,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) _ ->
+            SDefShell _ _ _ _ (EHole (HProofRequired r (Just _))) _ _ ->
               r `shouldBe` "custom"
             _ -> expectationFailure "Expected custom reason in HProofRequired"
 
@@ -1336,7 +1339,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts ->
           case head stmts of
-            SDefShell _ _ _ _ (EHole (HProofRequired _ (Just _))) _ -> pure ()
+            SDefShell _ _ _ _ (EHole (HProofRequired _ (Just _))) _ _ -> pure ()
             _ -> expectationFailure "Expected predicate-carrying HProofRequired from JSON"
 
     -- PPR-T1: valid bool predicate passes typecheck
@@ -1392,7 +1395,7 @@ main = hspec $ do
     -- PPR-A1: leaf form holeToJson emits no predicate field
     it "PPR-A1 leaf HProofRequired holeToJson has no predicate key" $ do
       let stmt = SDefShell "f" [] Nothing (Contract Nothing Nothing Nothing Nothing Nothing [] [])
-                            (EHole (HProofRequired "manual" Nothing)) []
+                            (EHole (HProofRequired "manual" Nothing)) [] []
           json = TE.decodeUtf8 (BL.toStrict (emitJsonAST [stmt]))
       T.isInfixOf "predicate" json `shouldBe` False
 
@@ -1400,7 +1403,7 @@ main = hspec $ do
     it "PPR-A2 predicate-carrying HProofRequired holeToJson includes predicate key" $ do
       let pred = EApp ">" [EVar "n", ELit (LitInt 0)]
           stmt = SDefShell "f" [("n", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing [] [])
-                            (EHole (HProofRequired "manual" (Just pred))) []
+                            (EHole (HProofRequired "manual" (Just pred))) [] []
           json = TE.decodeUtf8 (BL.toStrict (emitJsonAST [stmt]))
       T.isInfixOf "predicate" json `shouldBe` True
 
@@ -1643,7 +1646,7 @@ main = hspec $ do
       let src = "(def-shell f [acc: (int, string)] (first acc))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
-        Right [SDefShell _ params _ _ _ _] ->
+        Right [SDefShell _ params _ _ _ _ _] ->
           snd (head params) `shouldBe` TPair TInt TString
         Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
 
@@ -1681,7 +1684,7 @@ main = hspec $ do
             ]
       case parseJSONAST GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
-        Right [SDefShell _ params _ _ _ _] ->
+        Right [SDefShell _ params _ _ _ _ _] ->
           snd (head params) `shouldBe` TPair TInt TString
         Right other -> expectationFailure $ "Expected SDefLogic, got " ++ show (length other) ++ " stmts"
 
@@ -1977,10 +1980,10 @@ main = hspec $ do
       let src = T.pack "(def-shell f [x: int] -> int (pre (>= x 0)) (post (= result x)) (decreases x) (f x))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
-        Right stmts@[SDefShell _ _ _ _ _ dec] -> do
+        Right stmts@[SDefShell _ _ _ _ _ dec _] -> do
           dec `shouldBe` [EVar "x"]
           case parseJSONAST GrammarCoreInversion "<test>" (emitJsonAST stmts) of
-            Right [SDefShell _ _ _ _ _ dec2] -> dec2 `shouldBe` [EVar "x"]
+            Right [SDefShell _ _ _ _ _ dec2 _] -> dec2 `shouldBe` [EVar "x"]
             other -> expectationFailure ("JSON round-trip lost the measure: " ++ show other)
         Right _ -> expectationFailure "expected a single SDefShell with a decreases clause"
 
@@ -1988,10 +1991,10 @@ main = hspec $ do
       let src = T.pack "(def-shell f [m: int n: int p: int] -> int (decreases m n p) (f m n p))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
-        Right stmts@[SDefShell _ _ _ _ _ dec] -> do
+        Right stmts@[SDefShell _ _ _ _ _ dec _] -> do
           dec `shouldBe` [EVar "m", EVar "n", EVar "p"]
           case parseJSONAST GrammarCoreInversion "<test>" (emitJsonAST stmts) of
-            Right [SDefShell _ _ _ _ _ dec2] -> dec2 `shouldBe` [EVar "m", EVar "n", EVar "p"]
+            Right [SDefShell _ _ _ _ _ dec2 _] -> dec2 `shouldBe` [EVar "m", EVar "n", EVar "p"]
             other -> expectationFailure ("k=3 JSON round-trip failed: " ++ show other)
         Right _ -> expectationFailure "expected a single SDefShell"
 
@@ -2013,18 +2016,19 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts -> Set.member "f" (trPartialFns (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` True
 
-    it "RD1-5: emitted AST stamps schemaVersion 0.14.0; a 0.7.0 doc still parses (backward-compat)" $ do
+    it "RD1-5: emitted AST stamps schemaVersion 0.15.0; a 0.7.0 doc still parses (backward-compat)" $ do
       -- SRC-CONJ-1: stamp retargeted 0.8.0 -> 0.9.0 (pre_clauses/post_clauses).
       -- DISCARD-1: retargeted 0.9.0 -> 0.10.0 (do-step discard; def-main read removed).
       -- PROC-BOUNDARY-1: retargeted 0.10.0 -> 0.11.0 (optional def-main status).
       -- MODE-CLI-1 + MODE-HTTP-1: retargeted 0.11.0 -> 0.12.0 (def-main mode enum).
       -- AST-TYPE-ALIAS-1 + FFI-CONV-1: retargeted 0.12.0 -> 0.13.0 (alias bodies, boundary types).
       -- FLOAT-LIT-1: retargeted 0.13.0 -> 0.14.0 (literal_kind on literal patterns).
+      -- GENERICS-1: retargeted 0.14.0 -> 0.15.0 (type_params, the type-var kind).
       let src = T.pack "(def-shell f [x: int] -> int (decreases x) (f x))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
-          T.isInfixOf "0.14.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
+          T.isInfixOf "0.15.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
       let doc07 = BLC.pack "{\"schemaVersion\":\"0.7.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[{\"name\":\"x\",\"type\":\"int\"}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}]}"
       case parseJSONAST GrammarCoreInversion "<test>" doc07 of
         Left e  -> expectationFailure ("a 0.7.0 doc must still parse: " ++ show e)
@@ -2048,7 +2052,7 @@ main = hspec $ do
       let parseSC src = case parseStatements GrammarCoreInversion "<test>" (T.pack src) of
             Left e -> error (show e); Right ss -> ss
           contractSC stmts = case stmts of
-            [SDefShell _ _ _ c _ _] -> c
+            [SDefShell _ _ _ c _ _ _] -> c
             [SDef _ _ _ c _]        -> c
             other                   -> error ("unexpected shape: " ++ show other)
           twoPreSrc = "(def-shell f [m: int] -> int (pre (>= m 0) :source \"RFC 1350 s5\") (pre (<= m 65535) :source \"RFC 1350 s4\") m)"
@@ -2394,7 +2398,7 @@ main = hspec $ do
                            , defShellReturn = Just TInt
                            , defShellContract = Contract (Just (EOp ">=" [EVar "x", ELit (LitInt 0)])) Nothing (Just (EOp "=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] []
                            , defShellBody = EIf (EOp "=" [EVar "x", ELit (LitInt 0)]) (ELit (LitInt 0)) (EApp "rec-g" [EOp "-" [EVar "x", ELit (LitInt 1)]])
-                           , defShellDecreases = [EVar "x"] }
+                           , defShellDecreases = [EVar "x"], defShellTypeParams = [] }
           caller = SDef { defName = "caller", defParams = [("n", TInt)], defReturn = Just TInt
                         , defContract = Contract (Just (EOp ">=" [EVar "n", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing [] []
                         , defBody = EApp "rec-g" [EVar "n"] }
@@ -2409,7 +2413,7 @@ main = hspec $ do
                            , defShellReturn = Just TInt
                            , defShellContract = Contract (Just (EOp ">=" [EVar "x", ELit (LitInt 0)])) Nothing (Just (EOp "=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] []
                            , defShellBody = EIf (EOp "=" [EVar "x", ELit (LitInt 0)]) (ELit (LitInt 0)) (EApp "rec-g" [EOp "-" [EVar "x", ELit (LitInt 1)]])
-                           , defShellDecreases = [] }
+                           , defShellDecreases = [], defShellTypeParams = [] }
           caller = SDef { defName = "caller", defParams = [("n", TInt)], defReturn = Just TInt
                         , defContract = Contract (Just (EOp ">=" [EVar "n", ELit (LitInt 0)])) Nothing Nothing Nothing Nothing [] []
                         , defBody = EApp "rec-g" [EVar "n"] }
@@ -4494,7 +4498,7 @@ main = hspec $ do
     let gPost   = Just (EOp ">" [EVar "result", EVar "x"])
         gStmt k = SDefShell "g" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing gPost Nothing Nothing [] [])
-                    (EOp "+" [EVar "x", ELit (LitInt k)]) []
+                    (EOp "+" [EVar "x", ELit (LitInt k)]) [] []
         gProp   = Property "g-grows" [("x", TInt)]
                     (EOp ">" [EApp "g" [EVar "x"], EVar "x"]) []
         gHash   = canonicalPropBodyHash (propBody gProp)
@@ -4614,7 +4618,7 @@ main = hspec $ do
     it "GT-18 a qualified tested record is checked against its defining module's key" $ do
       let gStmt k = SDefShell "g" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing (Just (EOp ">" [EVar "result", EVar "x"])) Nothing Nothing [] [])
-                      (EOp "+" [EVar "x", ELit (LitInt k)]) []
+                      (EOp "+" [EVar "x", ELit (LitInt k)]) [] []
           libAt k = buildModuleEnv ["lib"] [gStmt k] Map.empty emptyEnv
           cacheAt k = Map.fromList [(["lib"], libAt k)]
           keyAt k = Map.lookup "g" (evidenceKeys (moduleKeyEnv (cacheAt k) (libAt k)) False [gStmt k])
@@ -4631,7 +4635,7 @@ main = hspec $ do
   describe "TRUST-REPORT-GATE-1 C3: discarded_records on the solver-less renders" $ do
     let dStmt = SDefShell "d" [("x", TInt)] (Just TInt)
                   (Contract Nothing Nothing (Just (EOp ">=" [EVar "result", EVar "x"])) Nothing Nothing [] [])
-                  (EVar "x") []
+                  (EVar "x") [] []
         dReport = buildTrustReport Map.empty [dStmt] Map.empty
         dCov    = runCoverageWithLevels [dStmt] Map.empty Map.empty
         keysOf t = case decode (BLC.pack (T.unpack t)) of
@@ -4824,26 +4828,26 @@ main = hspec $ do
 
     it "wrapPre-instrumented def-shell gates the body behind EIf, not an unused let" $ do
       let stmt = SDefShell "f" [("x", TInt)] Nothing
-                   (Contract (Just preE) Nothing Nothing Nothing Nothing [] []) body []
+                   (Contract (Just preE) Nothing Nothing Nothing Nothing [] []) body [] []
           result = instrumentStatement ContractsFull noCS stmt
       case result of
-        SDefShell _ _ _ _ (EIf _ _ elseBranch) _ -> elseBranch `shouldBe` body
+        SDefShell _ _ _ _ (EIf _ _ elseBranch) _ _ -> elseBranch `shouldBe` body
         other -> expectationFailure $
           "expected precondition check to strictly gate the body via EIf, got: " ++ show other
 
     it "wrapPost-instrumented def-shell gates 'result' behind EIf, not an unused let" $ do
       let stmt = SDefShell "f" [("x", TInt)] Nothing
-                   (Contract Nothing Nothing (Just postE) Nothing Nothing [] []) body []
+                   (Contract Nothing Nothing (Just postE) Nothing Nothing [] []) body [] []
           result = instrumentStatement ContractsFull noCS stmt
       case result of
-        SDefShell _ _ _ _ (ELet [(PVar "result", _, boundBody)] (EIf _ _ (EVar "result"))) _ ->
+        SDefShell _ _ _ _ (ELet [(PVar "result", _, boundBody)] (EIf _ _ (EVar "result"))) _ _ ->
           boundBody `shouldBe` body
         other -> expectationFailure $
           "expected postcondition check to strictly gate 'result' via EIf, got: " ++ show other
 
     it "generated Haskell for a violated def-shell precondition has no dead _pre_check binding" $ do
       let stmt = SDefShell "check-me" [("x", TInt)] Nothing
-                   (Contract (Just preE) Nothing Nothing Nothing Nothing [] []) body []
+                   (Contract (Just preE) Nothing Nothing Nothing Nothing [] []) body [] []
           instrumented = instrumentStatement ContractsFull noCS stmt
           src = cgHsSource (generateHaskell "test" [instrumented])
       -- regression: the old codegen bound `_pre_check` in a `let` the body
@@ -4856,7 +4860,7 @@ main = hspec $ do
 
     it "generated Haskell for a violated def-shell postcondition has no dead _post_check binding" $ do
       let stmt = SDefShell "double-it" [("x", TInt)] Nothing
-                   (Contract Nothing Nothing (Just postE) Nothing Nothing [] []) body []
+                   (Contract Nothing Nothing (Just postE) Nothing Nothing [] []) body [] []
           instrumented = instrumentStatement ContractsFull noCS stmt
           src = cgHsSource (generateHaskell "test" [instrumented])
       T.isInfixOf "_post_check" src `shouldBe` False
@@ -4930,28 +4934,28 @@ main = hspec $ do
   describe "contract :source annotation (v0.6)" $ do
     it "parses (pre expr :source \"...\") with source" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (pre (>= x 0) :source \"ERC-20 §6.1\") x)" of
-        Right [SDefShell _ _ _ contract _ _] -> do
+        Right [SDefShell _ _ _ contract _ _ _] -> do
           contractPreSource contract `shouldBe` Just "ERC-20 §6.1"
           contractPostSource contract `shouldBe` Nothing
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses (post expr :source \"...\") with source" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (post (>= result 0) :source \"safety invariant\") x)" of
-        Right [SDefShell _ _ _ contract _ _] -> do
+        Right [SDefShell _ _ _ contract _ _ _] -> do
           contractPreSource contract `shouldBe` Nothing
           contractPostSource contract `shouldBe` Just "safety invariant"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "parses both pre and post with :source" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (pre (> x 0) :source \"precond\") (post (>= result 0) :source \"postcond\") x)" of
-        Right [SDefShell _ _ _ contract _ _] -> do
+        Right [SDefShell _ _ _ contract _ _ _] -> do
           contractPreSource contract `shouldBe` Just "precond"
           contractPostSource contract `shouldBe` Just "postcond"
         other -> expectationFailure $ "unexpected: " ++ show other
 
     it "backward compat: pre/post without :source still parse" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [x: int] (pre (>= x 0)) (post (>= result 0)) x)" of
-        Right [SDefShell _ _ _ contract _ _] -> do
+        Right [SDefShell _ _ _ contract _ _ _] -> do
           contractPreSource contract `shouldBe` Nothing
           contractPostSource contract `shouldBe` Nothing
         other -> expectationFailure $ "unexpected: " ++ show other
@@ -5054,7 +5058,7 @@ main = hspec $ do
               [("safe-add", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])]
           , meContracts = DM.empty
           , meRetTypes = DM.empty
-          , meBuiltinAxioms = Nothing
+          , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
           }
         cache = DM.fromList [(modPath, modEnv)]
         -- XMOD-SIB-RESOLVE-1: a caller reaches math only by importing it.
@@ -5106,7 +5110,7 @@ main = hspec $ do
                , meContractStatus = DM.fromList [(name, contractStatus)]
                , meContracts      = DM.empty
                , meRetTypes      = DM.empty
-               , meBuiltinAxioms = Nothing
+               , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
                }
 
         -- Module A: "auth.verify" with configurable contract status
@@ -5225,7 +5229,7 @@ main = hspec $ do
                 [("safe-add", ContractStatus (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) (Just (EvidenceRecord (DLVerified "z3") False Nothing [] False Nothing Nothing False Nothing False [])) [])]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
-            , meBuiltinAxioms = Nothing
+            , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
             }
           cryptoEnv = ModuleEnv
             { meExports        = DM.fromList [("hash", TFn [TString] TString)]
@@ -5237,7 +5241,7 @@ main = hspec $ do
                 [("hash", ContractStatus (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) Nothing [])]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
-            , meBuiltinAxioms = Nothing
+            , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
             }
           cache = DM.fromList [( ["math"], mathEnv), (["crypto"], cryptoEnv)]
           callerStmts =
@@ -5276,7 +5280,7 @@ main = hspec $ do
             , meContractStatus = DM.fromList [(name, cs)]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
-            , meBuiltinAxioms = Nothing
+            , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
             }
 
     -- Test 1: Report includes entry function with its contract levels
@@ -5642,6 +5646,7 @@ main = hspec $ do
             , teInheritedAxioms    = []       -- TRUST-AXIOM: not exercised in TP-* tests
             , teGroundFacts        = []       -- TRUST-AXIOM family C: not exercised here
             , teFfiAssumptions     = []       -- FFI-TIER1-1: not exercised here
+            , teGenericNote        = Nothing  -- GENERICS-1: not exercised here
             }
 
     -- TP-1: Empty obligation set yields zero vector
@@ -5845,7 +5850,7 @@ main = hspec $ do
     -- Parser roundtrip (1)
     it "(await expr) parses to EAwait" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (await (+ 1 2)))" of
-        Right [SDefShell _ _ _ _ (EAwait _) _] -> pure ()
+        Right [SDefShell _ _ _ _ (EAwait _) _ _] -> pure ()
         other -> expectationFailure $ "unexpected: " ++ show other
 
   -- =========================================================================
@@ -5875,7 +5880,7 @@ main = hspec $ do
     -- Parser (2)
     it "(?scaffold todo-app) parses to EHole (HScaffold ...)" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (?scaffold todo-app))" of
-        Right [SDefShell _ _ _ _ (EHole (HScaffold spec)) _] ->
+        Right [SDefShell _ _ _ _ (EHole (HScaffold spec)) _ _] ->
           scaffoldTemplate spec `shouldBe` "todo-app"
         other -> expectationFailure $ "unexpected: " ++ show other
 
@@ -5889,7 +5894,7 @@ main = hspec $ do
             , "}"
             ]
       case parseJSONAST GrammarCoreInversion "<test>" jsonSrc of
-        Right [SDefShell _ _ _ _ (EHole (HScaffold spec)) _] ->
+        Right [SDefShell _ _ _ _ (EHole (HScaffold spec)) _ _] ->
           scaffoldTemplate spec `shouldBe` "rest-api"
         other -> expectationFailure $ "unexpected: " ++ show other
 
@@ -6076,10 +6081,10 @@ main = hspec $ do
       let post   = Just (EOp ">=" [EVar "result", ELit (LitInt 0)])
           square = SDefShell "square" [("n", TInt)] (Just TInt)
                      (Contract Nothing Nothing post Nothing Nothing [] [])
-                     (EOp "*" [EVar "n", EVar "n"]) []      -- nonlinear
+                     (EOp "*" [EVar "n", EVar "n"]) [] []      -- nonlinear
           inc    = SDefShell "inc" [("n", TInt)] (Just TInt)
                      (Contract Nothing Nothing post Nothing Nothing [] [])
-                     (EOp "+" [EVar "n", ELit (LitInt 1)]) []  -- linear
+                     (EOp "+" [EVar "n", ELit (LitInt 1)]) [] []  -- linear
           stmts         = [square, inc]
           fallbackNames = Set.fromList ["square"]  -- erBodyFallback: only the nonlinear body
           -- Mirrors runLeanstralPipeline's nonlinearFallback comprehension.
@@ -6592,7 +6597,7 @@ verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
                       (Contract Nothing Nothing
                          (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
                          Nothing Nothing [] [])
-                      (EOp "*" [EVar "n", EVar "n"]) []
+                      (EOp "*" [EVar "n", EVar "n"]) [] []
                   ]
           fallbackNames = Set.fromList ["square"]   -- as reported in erBodyFallback
           worklist = [ (n, p, r, c, b)
@@ -6933,7 +6938,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "pAgentRef (S-expression parser) keeps the '@' prefix on the parsed agent name" $ do
       case parseStatements GrammarCoreInversion "<test>" "(def-shell f [] (?delegate @crypto-agent \"task\" -> int))" of
-        Right [SDefShell _ _ _ _ (EHole (HDelegate spec)) _] ->
+        Right [SDefShell _ _ _ _ (EHole (HDelegate spec)) _ _] ->
           delegateAgent spec `shouldBe` "@crypto-agent"
         other -> expectationFailure $ "Unexpected parse result: " ++ show other
 
@@ -7397,7 +7402,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = DM.empty
             , meContracts = DM.empty
             , meRetTypes = DM.empty
-            , meBuiltinAxioms = Nothing
+            , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
             }
           cache = DM.fromList [( ["helpers"], modAEnv)]
           -- Module B imports helpers, calls wasi.io.stdout directly without own import
@@ -11294,7 +11299,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let src = "(def-shell identity [x: int] (post (= result x)) x)"
         case parseStatements GrammarCoreInversion "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
-          Right [SDefShell _ _ _ contract _ _] -> do
+          Right [SDefShell _ _ _ contract _ _ _] -> do
             let Just postExpr = contractPost contract
             -- The critical check: exprToPred must handle this
             let result = exprToPred postExpr
@@ -11305,7 +11310,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let src = "(def-shell nonzero [x: int] (post (!= result 0)) x)"
         case parseStatements GrammarCoreInversion "test" src of
           Left err -> expectationFailure $ "parse failed: " <> show err
-          Right [SDefShell _ _ _ contract _ _] -> do
+          Right [SDefShell _ _ _ contract _ _ _] -> do
             let Just postExpr = contractPost contract
             let result = exprToPred postExpr
             result `shouldBe` Just (FQBinPred FQNeq (FQVar "result") (FQLit 0))
@@ -12731,7 +12736,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- fix; 'teEffectiveLevel' is pinned to the same value for symmetry). Lets
         -- us pin a callee's tier and prove that the consumed_guarantees record
         -- SOURCES it (never hardcodes "verified").
-        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] [] [] [] [] []
+        mkTE nm lvl = TrustEntry nm Nothing Nothing [] [] (Just lvl) Nothing (Just lvl) False [] [] [] [] [] [] Nothing
         objLookup k (Object o) = KM.lookup k o
         objLookup _ _          = Nothing
         objStr k v = case objLookup k v of Just (String s) -> Just s; _ -> Nothing
@@ -13428,31 +13433,31 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       effOf stmts "add" `shouldBe` Just (Caps Set.empty)
 
     it "B0-2: a direct wasi.io.stdout call yields {stdout}" $ do
-      let stmts = [SDefShell "emit" [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"]) []]
+      let stmts = [SDefShell "emit" [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"]) [] []]
       effOf stmts "emit" `shouldBe` bnd [EStdout]
 
     it "B0-3: an effect reached only via a callee is surfaced transitively" $ do
-      let stmts = [ SDefShell "emit"   [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"]) []
-                  , SDefShell "caller" [("s", TString)] Nothing noC (EApp "emit" [EVar "s"]) [] ]
+      let stmts = [ SDefShell "emit"   [("s", TString)] Nothing noC (EApp "wasi.io.stdout" [EVar "s"]) [] []
+                  , SDefShell "caller" [("s", TString)] Nothing noC (EApp "emit" [EVar "s"]) [] [] ]
       effOf stmts "caller" `shouldBe` bnd [EStdout]
 
     it "B0-4: a function reaching a ?delegate hole is unbounded (top), not empty" $ do
-      let stmts = [SDefShell "d" [] Nothing noC (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing))) []]
+      let stmts = [SDefShell "d" [] Nothing noC (EHole (HDelegate (DelegateSpec "agent" "task" TInt Nothing))) [] []]
       effOf stmts "d" `shouldBe` Just Unbounded
 
     it "B0-5: a haskell.* FFI call is unbounded (top)" $ do
-      let stmts = [SDefShell "ffi" [("x", TInt)] Nothing noC (EApp "haskell.unsafeIO" [EVar "x"]) []]
+      let stmts = [SDefShell "ffi" [("x", TInt)] Nothing noC (EApp "haskell.unsafeIO" [EVar "x"]) [] []]
       effOf stmts "ffi" `shouldBe` Just Unbounded
 
     it "B0-6: a mutually-recursive SCC terminates and shares the join" $ do
-      let stmts = [ SDefShell "p" [("n", TInt)] Nothing noC (EApp "q" [EVar "n"]) []
+      let stmts = [ SDefShell "p" [("n", TInt)] Nothing noC (EApp "q" [EVar "n"]) [] []
                   , SDefShell "q" [("n", TInt)] Nothing noC
-                      (EPair (EApp "wasi.fs.write" [EVar "n", EVar "n"]) (EApp "p" [EVar "n"])) [] ]
+                      (EPair (EApp "wasi.fs.write" [EVar "n", EVar "n"]) (EApp "p" [EVar "n"])) [] [] ]
       effOf stmts "p" `shouldBe` bnd [EFsWrite]
       effOf stmts "q" `shouldBe` bnd [EFsWrite]
 
     it "B0-7: per-function and orthogonal — delegate is top, pure is empty (no bleed)" $ do
-      let stmts = [ SDefShell "deleg" [] Nothing noC (EHole (HDelegate (DelegateSpec "a" "t" TInt Nothing))) []
+      let stmts = [ SDefShell "deleg" [] Nothing noC (EHole (HDelegate (DelegateSpec "a" "t" TInt Nothing))) [] []
                   , SDef      "pure2" [("x", TInt)] Nothing noC (EOp "+" [EVar "x", EVar "x"]) ]
       effOf stmts "deleg" `shouldBe` Just Unbounded
       effOf stmts "pure2" `shouldBe` Just (Caps Set.empty)
@@ -13544,33 +13549,33 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , meAliasMap = Map.empty, mePath = ["lib"]
           , meContractStatus = Map.empty, meContracts = Map.empty
           , meRetTypes = Map.empty
-          , meBuiltinAxioms = Nothing }
+          , meBuiltinAxioms = Nothing, meGenericSites = DM.empty }
         cacheWith ss = Map.fromList [(["lib"], mkEnv ss)]
         effOfC cache stmts nm = lookup nm (computeEffectSummary cache stmts)
 
     it "CM-1: an imported function's effect propagates to the importer" $ do
       let lib   = [SDefShell "remote-write" [("p", TString), ("c", TString)] Nothing noC
-                     (EApp "wasi.fs.write" [EVar "p", EVar "c"]) []]
+                     (EApp "wasi.fs.write" [EVar "p", EVar "c"]) [] []]
           local = [SDefShell "use-remote" [("p", TString), ("c", TString)] Nothing noC
-                     (EApp "remote-write" [EVar "p", EVar "c"]) []]
+                     (EApp "remote-write" [EVar "p", EVar "c"]) [] []]
       effOfC (cacheWith lib) local "use-remote"
         `shouldBe` Just (Caps (Set.singleton EFsWrite))
 
     it "CM-2: a transitively-opaque imported callee tops the importer to ⊤" $ do
       let lib   = [SDefShell "remote-ffi" [("x", TInt)] Nothing noC
-                     (EApp "haskell.unsafeIO" [EVar "x"]) []]
+                     (EApp "haskell.unsafeIO" [EVar "x"]) [] []]
           local = [SDefShell "caller" [("x", TInt)] Nothing noC
-                     (EApp "remote-ffi" [EVar "x"]) []]
+                     (EApp "remote-ffi" [EVar "x"]) [] []]
       effOfC (cacheWith lib) local "caller" `shouldBe` Just Unbounded
 
     it "CM-3: empty cache (single-file) matches the local-only walk" $
       computeEffectSummary Map.empty
-        [SDefShell "rd" [("p", TString)] Nothing noC (EApp "wasi.fs.read" [EVar "p"]) []]
+        [SDefShell "rd" [("p", TString)] Nothing noC (EApp "wasi.fs.read" [EVar "p"]) [] []]
         `shouldBe` [("rd", Caps (Set.singleton EFsRead))]
 
     it "CM-4: an unresolved callee (not local/imported/builtin/prim) joins ⊤" $ do
       let local = [SDefShell "f" [("x", TInt)] Nothing noC
-                     (EApp "mystery-unresolved" [EVar "x"]) []]
+                     (EApp "mystery-unresolved" [EVar "x"]) [] []]
       effOfC Map.empty local "f" `shouldBe` Just Unbounded
 
   -- XMOD-ALIAS regression: a module that imports a refinement-type alias and
@@ -13593,7 +13598,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , meContractStatus = Map.empty
           , meContracts      = Map.empty
           , meRetTypes      = Map.empty
-          , meBuiltinAxioms = Nothing
+          , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
           }
         coreCache = Map.fromList [(["core"], coreEnv)]
         -- The importer body, parsed so '>='/'-' are exercised against the imported
@@ -13644,7 +13649,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = Map.empty
             , meContracts      = Map.empty
             , meRetTypes      = Map.empty
-            , meBuiltinAxioms = Nothing
+            , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
             }
           strCache = Map.fromList [(["core"], strEnv)]
           badSrc = T.unlines
@@ -14819,7 +14824,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                        , meContractStatus = Map.empty
                        , meContracts      = Map.empty
                        , meRetTypes      = Map.empty
-                       , meBuiltinAxioms = Nothing
+                       , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
                        }
             cache  = Map.singleton ["lib"] libEnv
             -- Local file: (open lib) + (check ...) covering f. No local
@@ -15734,19 +15739,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               ]
         case parseStatements GrammarCoreInversion "<test>" src of
           Right stmts ->
-            map (\(SDefShell _ _ _ c _ _) -> contractSpecEntropy c) stmts
+            map (\(SDefShell _ _ _ c _ _ _) -> contractSpecEntropy c) stmts
               `shouldBe` [Just SpecEntropyStrict, Just SpecEntropyIntentional, Just SpecEntropyUnknown]
           Left e -> expectationFailure (show e)
 
       it "C13 absent annotation defaults to Nothing on Contract" $ do
         case parseStatements GrammarCoreInversion "<test>" "(def-shell f [n: int] (post (>= result 0)) n)" of
-          Right [SDefShell _ _ _ c _ _] -> contractSpecEntropy c `shouldBe` Nothing
+          Right [SDefShell _ _ _ c _ _ _] -> contractSpecEntropy c `shouldBe` Nothing
           other -> expectationFailure (show other)
 
       it "C14 JSON-AST accepts spec_entropy string" $ do
         let ast = "{\"schemaVersion\":\"0.6.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":[{\"name\":\"n\",\"type\":\"int\"}],\"post\":{\"kind\":\"op\",\"op\":\">=\",\"args\":[{\"kind\":\"var\",\"name\":\"result\"},{\"kind\":\"lit-int\",\"value\":0}]},\"spec_entropy\":\"intentional\",\"body\":{\"kind\":\"var\",\"name\":\"n\"}}]}"
         case parseJSONAST GrammarCoreInversion "<test>" (BL.fromStrict (TE.encodeUtf8 ast)) of
-          Right [SDefShell _ _ _ c _ _] -> contractSpecEntropy c `shouldBe` Just SpecEntropyIntentional
+          Right [SDefShell _ _ _ c _ _ _] -> contractSpecEntropy c `shouldBe` Just SpecEntropyIntentional
           other -> expectationFailure (show other)
 
       it "C15 JSON-AST rejects unknown spec_entropy value" $ do
@@ -15807,7 +15812,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefShell "f" [("x", TInt)] (Just TInt)
                       (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                                 (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing [] [])
-                      (EApp "f" [EVar "x"]) []]
+                      (EApp "f" [EVar "x"]) [] []]
             jsonTxt = formatTrustReportJson (buildTrustReport Map.empty stmts Map.empty)
         T.isInfixOf "\"termination_unverified\":true" jsonTxt `shouldBe` True
         T.isInfixOf "\"partial_fns\":[\"f\"]" jsonTxt `shouldBe` True
@@ -15825,7 +15830,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let mk name callee = SDefShell name [("x", TInt)] (Just TInt)
                                (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                                          (Just (EApp "=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
-                               (EApp callee [EVar "x"]) []
+                               (EApp callee [EVar "x"]) [] []
             report  = buildTrustReport Map.empty [mk "ping" "pong", mk "pong" "ping"] Map.empty
             jsonTxt = formatTrustReportJson report
         Set.member "ping" (trPartialFns report) `shouldBe` True
@@ -15836,7 +15841,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefShell "f" [("x", TInt)] (Just TInt)
                       (Contract Nothing Nothing
                                 (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing [] [])
-                      (EApp "f" [EVar "x"]) []]
+                      (EApp "f" [EVar "x"]) [] []]
             jsonTxt = formatTrustReportJson (buildTrustReport Map.empty stmts Map.empty)
         -- derived marker present without any solver verdict...
         T.isInfixOf "\"partial_fns\":[\"f\"]" jsonTxt `shouldBe` True
@@ -15847,7 +15852,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [SDefShell "f" [("x", TInt)] (Just TInt)
                       (Contract (Just (EApp ">=" [EVar "x", ELit (LitInt 0)])) Nothing
                                 (Just (EApp "=" [EVar "result", EVar "x"])) Nothing Nothing [] [])
-                      (EApp "f" [EVar "x"]) []]
+                      (EApp "f" [EVar "x"]) [] []]
             report  = markRefuted (Set.fromList ["f"]) (buildTrustReport Map.empty stmts Map.empty)
             jsonTxt = formatTrustReportJson report
         T.isInfixOf "\"termination_unverified\":true" jsonTxt `shouldBe` True
@@ -16276,7 +16281,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               [ SDefShell "s" [("n", TInt)] Nothing
                   (Contract Nothing Nothing
                     (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [])
-                  (EVar "n") []
+                  (EVar "n") [] []
               ]
             stubPass _wc = pure (Just True)
         results <- computeCDPFor GrammarCoreInversion CDPScopeCoreOnly stubPass Map.empty stmts
@@ -16640,7 +16645,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [ SDefShell { defShellName = "f", defShellParams = [("n", TInt)]
                                 , defShellReturn = Nothing
                                 , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
-                                , defShellBody = ELambda [("x", TInt)] (EVar "x"), defShellDecreases = [] } ]
+                                , defShellBody = ELambda [("x", TInt)] (EVar "x"), defShellDecreases = [], defShellTypeParams = [] } ]
             report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-grammar-violation"]
@@ -16675,7 +16680,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     , SDefShell { defShellName = "caller", defShellParams = [("n", TInt)]
                                 , defShellReturn = Nothing
                                 , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
-                                , defShellBody = EApp "helper" [EVar "n"], defShellDecreases = [] } ]
+                                , defShellBody = EApp "helper" [EVar "n"], defShellDecreases = [], defShellTypeParams = [] } ]
             report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldNotContain` ["core-membership-violation"]
@@ -16770,7 +16775,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let stmts = [ SDefShell { defShellName = "sh", defShellParams = [("x", TInt)]
                                 , defShellReturn = Just TInt
                                 , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
-                                , defShellBody = EVar "x", defShellDecreases = [] }
+                                , defShellBody = EVar "x", defShellDecreases = [], defShellTypeParams = [] }
                     , SDef { defName = "caller", defParams = [("n", TInt)]
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
@@ -16850,7 +16855,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = DM.fromList [("double", cs)]
             , meContracts      = DM.empty
             , meRetTypes      = DM.empty
-            , meBuiltinAxioms = Nothing
+            , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
             }
           importerStmts =
             [ SImport (Import "core" Nothing Nothing)
@@ -17255,7 +17260,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           postExpr = EHole (HProofRequired "non-linear-contract" Nothing)
           contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing [] []
           shellStmt = SDefShell "my-fn" [("x", TString)] Nothing contract
-                        (EHole (HDelegate ds)) []
+                        (EHole (HDelegate ds)) [] []
           prop = Property
             { propDescription = "check-my-fn"
             , propBindings    = [("x", TString)]
@@ -17282,7 +17287,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let postExpr = EOp "=" [EVar "result", ELit (LitBool True)]
           contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing [] []
           shellStmt = SDefShell "concrete-fn" [("x", TInt)] Nothing contract
-                        (ELit (LitBool True)) []
+                        (ELit (LitBool True)) [] []
           prop = Property
             { propDescription = "check-concrete-fn"
             , propBindings    = [("x", TInt)]
@@ -17307,7 +17312,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           postExpr = EHole (HProofRequired "non-linear-contract" Nothing)
           contract = Contract Nothing Nothing (Just postExpr) Nothing Nothing [] []
           shellStmt = SDefShell "async-fn" [("x", TString)] Nothing contract
-                        (EHole (HDelegateAsync ds)) []
+                        (EHole (HDelegateAsync ds)) [] []
           prop = Property
             { propDescription = "check-async-fn"
             , propBindings    = [("x", TString)]
@@ -17663,7 +17668,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let j dsc = T.pack $ BLC.unpack $ encode $ stmtToJson $
                     SDefShell "f" [] Nothing
                       (Contract Nothing Nothing Nothing Nothing Nothing [] [])
-                      (EDo (mkSteps dsc)) []
+                      (EDo (mkSteps dsc)) [] []
       T.isInfixOf "discard" (j False) `shouldBe` False
       T.isInfixOf "\"discard\":true" (T.filter (/= ' ') (j True)) `shouldBe` True
 
@@ -18284,7 +18289,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- 125 -> 126 with REGEX-REPLACE-1's regex-replace-all, generic: 94 -> 95.
       -- 126 -> 127 with FS-SIZE-1's wasi.fs.size: a hand-written preamble body
       -- (in posixFsPreamble), so it lands in needsBinding: 95 -> 96.
-      Map.size builtinEnv      `shouldBe` 127
+      -- 127 -> 128 with GENERIC-COMPARE-1's compare. It lowers through a
+      -- hand-written emitApp equation to llmll_compare (the fallthrough would
+      -- bind Prelude's compare, which returns Ordering), so it lands in the
+      -- hand-written class below (7 -> 8), not in needsBinding: 96 stays 96,
+      -- and resolvedElsewhere stays 9.
+      Map.size builtinEnv      `shouldBe` 128
       length needsBinding      `shouldBe` 96
       length resolvedElsewhere `shouldBe` 9
 
@@ -18318,10 +18328,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- INT-INDEX-WRAP-1: bytes-get, bytes-set, list-nth, string-slice and
     -- string-char-at lost their `fromIntegral _ :: Int` argument wrapper, so
     -- their equations now emit exactly the generic form and leave this set.
-    it "seven builtins lower through a hand-written emitApp equation" $
+    -- GENERIC-COMPARE-1: compare joins (7 -> 8); scripts/build-smoke/smoke.llmll
+    -- calls it (smoke-compare), as the next example requires.
+    it "eight builtins lower through a hand-written emitApp equation" $
       sort handWritten `shouldBe` sort
         [ "first", "second", "pair", "list-length", "string-length"
-        , "bytes-length", "sha1" ]
+        , "bytes-length", "sha1", "compare" ]
 
     it "every hand-written emitApp equation is called by a build-smoke fixture" $ do
       let dir = "../scripts/build-smoke"
@@ -19470,7 +19482,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         shellWith body = SDefShell
           { defShellName = "f", defShellParams = [("k", TString)]
           , defShellReturn = Nothing, defShellContract = noContract
-          , defShellBody = body, defShellDecreases = [] }
+          , defShellBody = body, defShellDecreases = [], defShellTypeParams = [] }
         kindsOf stmts =
           mapMaybe diagKind (reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts))
         getLit s = shellWith (EApp "wasi.env.get" [ELit (LitString s)])
@@ -19686,10 +19698,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- MODE-CLI-1 + MODE-HTTP-1 moved the emitted stamp to 0.12.0; 0.11.0, the
     -- PROC-BOUNDARY-1 stamp, must still be read. AST-TYPE-ALIAS-1 + FFI-CONV-1
     -- moved it to 0.13.0, and 0.12.0 must still be read. FLOAT-LIT-1 moved it
-    -- to 0.14.0, and 0.13.0 must still be read.
+    -- to 0.14.0, and 0.13.0 must still be read. GENERICS-1 moved it to 0.15.0,
+    -- and 0.14.0 must still be read.
     it "PB-11: the 0.11.0 stamp is in acceptedSchemaVersions, and 0.10.0 still is" $ do
-      expectedSchemaVersion `shouldBe` "0.14.0"
+      expectedSchemaVersion `shouldBe` "0.15.0"
       acceptedSchemaVersions `shouldContain` [expectedSchemaVersion]
+      acceptedSchemaVersions `shouldContain` ["0.14.0"]
       acceptedSchemaVersions `shouldContain` ["0.13.0"]
       acceptedSchemaVersions `shouldContain` ["0.12.0"]
       acceptedSchemaVersions `shouldContain` ["0.11.0"]
@@ -20777,7 +20791,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           { defShellName = "s", defShellParams = [("x", TCustom "E")]
           , defShellReturn = Just TInt
           , defShellContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
-          , defShellBody = EMatch (EVar "x") arms, defShellDecreases = [] }
+          , defShellBody = EMatch (EVar "x") arms, defShellDecreases = [], defShellTypeParams = [] }
         withTy stmts = STypeDef "E" enumTy : stmts
         check stmts  = typeCheck GrammarCoreInversion emptyEnv (withTy stmts)
 
@@ -20823,7 +20837,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                         , defShellBody = EMatch (EVar "v")
                             [ (PVar "Success", ELit (LitInt 1))
                             , (PConstructor "Error" [PWildcard], ELit (LitInt 0)) ]
-                        , defShellDecreases = [] } ]
+                        , defShellDecreases = [], defShellTypeParams = [] } ]
       reportSuccess report `shouldBe` False
 
   -- -----------------------------------------------------------------------
@@ -22837,7 +22851,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         shell body = SDefShell
           { defShellName = "f", defShellParams = [("s", TString)]
           , defShellReturn = Just TString, defShellContract = noContract
-          , defShellBody = body, defShellDecreases = [] }
+          , defShellBody = body, defShellDecreases = [], defShellTypeParams = [] }
         lit     = ELit . LitString
         repl p r = shell (EApp "regex-replace-all" [p, EVar "s", r])
         diagsOf stmts = reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts)
@@ -23037,7 +23051,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = Map.empty
             , meContracts      = Map.empty
             , meRetTypes       = Map.empty
-            , meBuiltinAxioms  = Nothing
+            , meBuiltinAxioms  = Nothing, meGenericSites = DM.empty
             }
           entry = [ STypeDef "Wrap" (TSumType [("Wrap", Just (TCustom "Ops"))])
                   , STypeDef "QWrap" (TSumType [("QWrap", Just (TCustom "lib.Ops"))])
@@ -23207,7 +23221,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let pathsStmts = parsed [fp1, "(def-shell ext-of [p: string] -> string (take-extension p))"]
           cache = Map.fromList [(["paths"], buildModuleEnv ["paths"] pathsStmts Map.empty emptyEnv)]
           entry = [SImport (Import "paths" Nothing Nothing), SDefShell "run" [("p", TString)] (Just TString)
-                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "paths.ext-of" [EVar "p"]) []]
+                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "paths.ext-of" [EVar "p"]) [] []]
           rows n = [ teFfiAssumptions e | e <- trEntries (buildTrustReport cache entry Map.empty), teName e == n ]
       rows "run" `shouldBe` [[FfiAssumption "paths.ext-of" "filepath" "takeExtension"]]
     it "ffi_assumptions renders only when present" $ do
@@ -23236,7 +23250,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let pathsStmts = parsed [fp1, "(def-shell ext-of [p: string] -> string (take-extension p))"]
           cache = Map.fromList [(["paths"], buildModuleEnv ["paths"] pathsStmts Map.empty emptyEnv)]
           entry = [SImport (Import "paths" Nothing Nothing), SDefShell "run" [("p", TString)] (Just TString)
-                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "paths.ext-of" [EVar "p"]) []]
+                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "paths.ext-of" [EVar "p"]) [] []]
       filter isFfiLine (blockOf "run" (formatTrustReport (buildTrustReport cache entry Map.empty)))
         `shouldBe` ["    ≈ inherits haskell.filepath export takeExtension via paths.ext-of" <> ffiNoteT]
     it "FFI-TRUST-TEXT-1 a program with no haskell.* interface renders no FFI line" $ do
@@ -23357,7 +23371,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ]
           -- A let annotation has no S-expression spelling (JSON-AST only).
           letAnn = [SDefShell "g" [("x", TInt)] (Just TInt) (Contract Nothing Nothing Nothing Nothing Nothing [] [])
-                      (ELet [(PVar "y", Just (TCustom "hs-int"), EVar "x")] (EVar "y")) []]
+                      (ELet [(PVar "y", Just (TCustom "hs-int"), EVar "x")] (EVar "y")) [] []]
           lists = map parsed corpus ++ [letAnn]
       ffiBoundaryMisuse letAnn `shouldBe` ["hs-int"]
       forM_ lists $ \ss ->
@@ -23532,10 +23546,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "where and sum bodies still read as before" $
       roundTrip ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"]
         `shouldBe` Right (parsed ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"])
-    it "a 0.12.0 document still reads, and the stamp is 0.14.0" $ do
+    it "a 0.12.0 document still reads, and the stamp is 0.15.0" $ do
       let doc12 = BLC.pack "{\"schemaVersion\":\"0.12.0\",\"statements\":[{\"kind\":\"type-decl\",\"name\":\"Name\",\"body\":{\"kind\":\"primitive\",\"name\":\"string\"}}]}"
       parseJSONAST GrammarCoreInversion "<test>" doc12 `shouldBe` Right [STypeDef "Name" TString]
-      BLC.unpack (emitJsonAST (parsed ["(type Name string)"])) `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.14.0\""
+      BLC.unpack (emitJsonAST (parsed ["(type Name string)"])) `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.15.0\""
 
   -- -----------------------------------------------------------------------
   -- FLOAT-LIT-1 (decimal-numbers-proposal Rev 1, R1-1..R1-4): signed float
@@ -23649,10 +23663,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meInterfaces = DM.empty, meAliasMap = DM.empty, mePath = ["math"]
             , meContractStatus = DM.fromList
                 [("safe-add", ContractStatus Nothing (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) [])]
-            , meContracts = DM.empty, meRetTypes = DM.empty, meBuiltinAxioms = Nothing }
+            , meContracts = DM.empty, meRetTypes = DM.empty, meBuiltinAxioms = Nothing, meGenericSites = DM.empty }
           cache = DM.fromList [(["math"], modEnv)]
           caller = SDefShell "caller" [("math.safe-add", TFn [TInt] TInt)] (Just TInt)
-                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "math.safe-add" [ELit (LitInt 5)]) []
+                     (Contract Nothing Nothing Nothing Nothing Nothing [] []) (EApp "math.safe-add" [ELit (LitInt 5)]) [] []
           report = typeCheckWithCache GrammarCoreInversion cache emptyEnv [SImport (Import "math" Nothing Nothing), caller]
       filter (\d -> diagKind d == Just "trust-gap") (reportDiagnostics report) `shouldBe` []
 
@@ -24532,7 +24546,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         shellWith body = SDefShell
           { defShellName = "fetch", defShellParams = [("u", TString), ("d", TString)]
           , defShellReturn = Nothing, defShellContract = noContract
-          , defShellBody = body, defShellDecreases = [] }
+          , defShellBody = body, defShellDecreases = [], defShellTypeParams = [] }
         kindsOf stmts =
           mapMaybe diagKind (reportDiagnostics (typeCheck GrammarCoreInversion builtinEnv stmts))
         getLit u    = shellWith (EApp "wasi.http.get" [ELit (LitString u), EVar "d"])
@@ -24627,7 +24641,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , meContractStatus = Map.empty
             , meContracts      = Map.empty
             , meRetTypes       = Map.empty
-            , meBuiltinAxioms = Nothing
+            , meBuiltinAxioms = Nothing, meGenericSites = DM.empty
             }
           y = cgPackageYaml (generateHaskellMulti "m" [imported] [plain])
       mapM_ (\d -> (d `elem` emittedDeps y, d) `shouldBe` (True, d)) httpGetDeps
@@ -24726,7 +24740,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       emitExpr (EApp "m.Red" []) `shouldNotSatisfy` T.isInfixOf "()"
 
     it "ES-7: a zero-parameter definition is a function of (), and so is its type" $ do
-      let out = emitStmt (SDefShell "k" [] (Just TInt) noC (int 16) [])
+      let out = emitStmt (SDefShell "k" [] (Just TInt) noC (int 16) [] [])
       out `shouldSatisfy` T.isInfixOf "k :: () -> Integer"
       out `shouldSatisfy` T.isInfixOf "k () ="
       toHsType (TFn [] TInt) `shouldBe` "(() -> Integer)"
@@ -24806,7 +24820,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         shellNamed n ps body = SDefShell
           { defShellName = n, defShellParams = ps
           , defShellReturn = Nothing, defShellContract = noContract
-          , defShellBody = body, defShellDecreases = [] }
+          , defShellBody = body, defShellDecreases = [], defShellTypeParams = [] }
         callWith fn pat = shellNamed "f" [("s", TString)] (EApp fn [pat, EVar "s"])
         lit = ELit . LitString
         kindsOf stmts =
@@ -25126,6 +25140,580 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "FS-8: wasi_fs_size is reserved against user identifiers" $
       isReservedHsName "wasi_fs_size" `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- GENERICS-1 (docs/design/generics-1-engineer-plan.md, phase A: S1-S4).
+  -- Edge-case numbers are those of docs/design/generics-proposal.md Rev 1.
+  -- -----------------------------------------------------------------------
+  describe "GENERICS-1 S1: :type-params syntax and both front ends" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<g1>" (T.unlines src) of
+          Left err -> error ("GENERICS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        sexpKind mode src = case parseStatements mode "<g1>" (T.pack src) of
+          Left err -> diagKind (megaparsecToDiagnostic "<g1>" err)
+          Right _  -> Nothing
+        jsonKind mode d = either diagKind (const Nothing) (parseJSONAST mode "<g1>" (BLC.pack d))
+        jsonStmts d = either (error . show) id (parseJSONAST GrammarCoreInversion "<g1>" (BLC.pack d))
+        doc v body = "{\"schemaVersion\":\"" ++ v ++ "\",\"statements\":[" ++ body ++ "]}"
+        tv n = "{\"kind\":\"type-var\",\"name\":\"" ++ n ++ "\"}"
+        genShell = "{\"kind\":\"def-shell\",\"name\":\"idk\",\"type_params\":[{\"name\":\"a\"},{\"name\":\"k\",\"constraint\":\"key\"}],"
+                   ++ "\"params\":[{\"name\":\"x\",\"param_type\":" ++ tv "a" ++ "},{\"name\":\"y\",\"param_type\":" ++ tv "k" ++ "}],"
+                   ++ "\"return_type\":" ++ tv "a" ++ ",\"body\":{\"kind\":\"var\",\"name\":\"x\"}}"
+        a0 = TParam "a" Nothing
+        kOrd = TParam "k" (Just TCOrd)
+    it "G1-S1-1 an S-expression :type-params clause binds every occurrence in the signature" $
+      case parsedG ["(def-shell ap :type-params [a (k ord)] [key: (fn [a] -> k) x: a] -> k (key x))"] of
+        [SDefShell _ ps r _ _ _ tps] -> do
+          tps `shouldBe` [("a", Nothing), ("k", Just TCOrd)]
+          map snd ps `shouldBe` [TFn [a0] kOrd, a0]
+          r `shouldBe` Just kOrd
+        other -> expectationFailure ("unexpected parse: " ++ show other)
+    it "G1-S1-2 each constraint eq, ord and key parses; an unknown one is a parse error" $ do
+      [ tps | SDefShell{defShellTypeParams = tps} <- parsedG
+          [ "(def-shell f :type-params [(a eq) (b ord) (c key)] [x: a y: b z: c] -> a x)" ] ]
+        `shouldBe` [[("a", Just TCEq), ("b", Just TCOrd), ("c", Just TCKey)]]
+      isLeft (parseStatements GrammarCoreInversion "<g1>" (T.pack "(def-shell f :type-params [(a num)] [x: a] -> a x)"))
+        `shouldBe` True
+    it "G1-S1-3 the scope covers pre, post, decreases and a lambda annotation in the body" $
+      case parsedG [ "(def-shell f :type-params [a] [x: a xs: list[a]] -> int"
+                   , "  (pre (= (list-length (list-map xs (fn [p: a] p))) 0))"
+                   , "  (post (= result (list-length (list-map xs (fn [q: a] q)))))"
+                   , "  (decreases (list-length (list-map xs (fn [d: a] d))))"
+                   , "  (list-length (list-map xs (fn [z: a] z))))" ] of
+        [SDefShell _ _ _ c b ds _] -> do
+          let lamTys e = case e of
+                ELambda lps body -> map snd lps ++ lamTys body
+                EApp _ as        -> concatMap lamTys as
+                EOp _ as         -> concatMap lamTys as
+                _                -> []
+          concatMap lamTys (maybe [] pure (contractPre c) ++ maybe [] pure (contractPost c) ++ ds ++ [b])
+            `shouldBe` [a0, a0, a0, a0]
+        other -> expectationFailure ("unexpected parse: " ++ show other)
+    it "G1-S1-4 without :type-params a lowercase name stays a plain type name (no change)" $
+      [ ps | SDefShell{defShellParams = ps} <- parsedG ["(def-shell g [x: a] -> a x)"] ]
+        `shouldBe` [[("x", TCustom "a")]]
+    it "G1-S1-5 type-params-not-supported on def, type and def-interface (S-expression)" $ do
+      let tpn = Just "type-params-not-supported"
+      sexpKind GrammarCoreInversion "(def f :type-params [a] [x: a] -> a x)" `shouldBe` tpn
+      sexpKind GrammarCoreInversion "(type Opt :type-params [a] (| Some a) (| None))" `shouldBe` tpn
+      sexpKind GrammarCoreInversion "(def-interface Box :type-params [a] [get (fn [x: a] -> a)])" `shouldBe` tpn
+    it "G1-S1-6 type-params-not-supported on letrec (S-expression, legacy grammar)" $
+      sexpKind GrammarLegacy "(letrec f :type-params [a] [x: int] :decreases x x)"
+        `shouldBe` Just "type-params-not-supported"
+    it "G1-S1-7 a JSON-AST type_params list and type-var kind bind like the S-expression form" $
+      case jsonStmts (doc "0.15.0" genShell) of
+        [SDefShell _ ps r _ _ _ tps] -> do
+          tps `shouldBe` [("a", Nothing), ("k", Just TCKey)]
+          map snd ps `shouldBe` [a0, TParam "k" (Just TCKey)]
+          r `shouldBe` Just a0
+        other -> expectationFailure ("unexpected parse: " ++ show other)
+    it "G1-S1-8 type-params-not-supported on def, type-decl, def-interface and letrec (JSON-AST)" $ do
+      let tpn = Just "type-params-not-supported"
+          tps = "\"type_params\":[{\"name\":\"a\"}]"
+      jsonKind GrammarCoreInversion (doc "0.15.0" ("{\"kind\":\"def\",\"name\":\"f\"," ++ tps
+        ++ ",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}")) `shouldBe` tpn
+      jsonKind GrammarCoreInversion (doc "0.15.0" ("{\"kind\":\"type-decl\",\"name\":\"T\"," ++ tps
+        ++ ",\"body\":{\"kind\":\"primitive\",\"name\":\"int\"}}")) `shouldBe` tpn
+      jsonKind GrammarCoreInversion (doc "0.15.0" ("{\"kind\":\"def-interface\",\"name\":\"I\"," ++ tps
+        ++ ",\"methods\":[]}")) `shouldBe` tpn
+      jsonKind GrammarLegacy (doc "0.15.0" ("{\"kind\":\"letrec\",\"name\":\"f\"," ++ tps
+        ++ ",\"params\":[],\"decreases\":{\"kind\":\"lit-int\",\"value\":1},\"body\":{\"kind\":\"lit-int\",\"value\":1}}"))
+        `shouldBe` tpn
+    it "G1-S1-9 a JSON-AST type-var that no type_params declares is unknown-type-var" $ do
+      let uv = Just "unknown-type-var"
+      jsonKind GrammarCoreInversion (doc "0.15.0" ("{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":[{\"name\":\"x\",\"param_type\":"
+        ++ tv "b" ++ "}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}")) `shouldBe` uv
+      jsonKind GrammarCoreInversion (doc "0.15.0" ("{\"kind\":\"def\",\"name\":\"f\",\"params\":[{\"name\":\"x\",\"param_type\":"
+        ++ tv "a" ++ "}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}")) `shouldBe` uv
+    it "G1-S1-10 AstEmit round-trips a generic def-shell through the JSON-AST reader" $ do
+      let stmts = parsedG [ "(def-shell ap :type-params [a (k ord)] [key: (fn [a] -> k) x: a] -> k"
+                          , "  (post (= (list-length (list-map [x] (fn [y: a] y))) 1)) (key x))" ]
+          out   = emitJsonAST stmts
+      BLC.unpack out `shouldSatisfy` isInfixOf "\"type_params\""
+      BLC.unpack out `shouldSatisfy` isInfixOf "\"type-var\""
+      parseJSONAST GrammarCoreInversion "<g1>" out `shouldBe` Right stmts
+    it "G1-S1-11 a program with no :type-params emits no type_params or type-var, and binding is the identity" $ do
+      let stmts = parsedG [ "(def-shell f [x: int] -> int (decreases x) (f x))", "(def g [y: a] -> a y)" ]
+          out   = BLC.unpack (emitJsonAST stmts)
+      out `shouldNotSatisfy` isInfixOf "type_params"
+      out `shouldNotSatisfy` isInfixOf "type-var"
+      map bindTypeParams stmts `shouldBe` stmts
+    it "G1-S1-12 schema 0.15.0 is emitted and read, and a 0.14.0 document still reads" $ do
+      expectedSchemaVersion `shouldBe` "0.15.0"
+      acceptedSchemaVersions `shouldContain` ["0.15.0", "0.14.0"]
+      isRight (parseJSONAST GrammarCoreInversion "<g1>" (BLC.pack (doc "0.14.0"
+        "{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}")))
+        `shouldBe` True
+    it "G1-S1-13 the schema declares type_params on DefShell and the type-var kind" $ do
+      raw <- BL.readFile (".." </> "docs" </> "llmll-ast.schema.json")
+      let look k (Just (Object m)) = KM.lookup (K.fromString k) m
+          look _ _                 = Nothing
+          at ks = foldl (flip look) (decode raw :: Maybe Value) ks
+      isJust (at ["$defs", "DefShell", "properties", "type_params"]) `shouldBe` True
+      isJust (at ["$defs", "TypeVar"]) `shouldBe` True
+      case at ["$defs", "Type", "properties", "kind", "enum"] of
+        Just (Array a) -> [ t | String t <- foldr (:) [] a ] `shouldContain` ["type-var"]
+        other          -> expectationFailure ("no Type kind enum: " ++ show other)
+
+  describe "GENERICS-1 S2: rigid checking of a generic definition" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<g1>" (T.unlines src) of
+          Left err -> error ("GENERICS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsG src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedG src))
+                    , diagSeverity d == SevError ]
+        kindsG = map fst . errsG
+        cm = Just "constraint-missing"
+    it "G1-S2-1 edge 1: list-contains at a bare parameter is constraint-missing, naming (a eq)" $
+      errsG ["(def-shell mem :type-params [a] [x: a xs: list[a]] -> bool (list-contains xs x))"]
+        `shouldBe` [(cm, "'list-contains' needs equality at type 'a', and type parameter 'a' does not declare it; declare it as (a eq) in :type-params")]
+    it "G1-S2-2 edge 1b: = on the post of a bare parameter is constraint-missing" $
+      kindsG ["(def-shell same :type-params [a] [x: a] -> a (post (= result x)) x)"] `shouldBe` [cm]
+    it "G1-S2-3 the same definitions check once the constraint is declared (eq, or ord, or key)" $ do
+      errsG ["(def-shell mem :type-params [(a eq)] [x: a xs: list[a]] -> bool (list-contains xs x))"] `shouldBe` []
+      errsG ["(def-shell same :type-params [(a ord)] [x: a] -> a (post (= result x)) x)"] `shouldBe` []
+      errsG ["(def-shell srt :type-params [(a key)] [xs: list[a]] -> list[a] (list-sort xs))"] `shouldBe` []
+    it "G1-S2-4 edge 5: (+ x 1) at x: a is a type mismatch, expected int, got a" $
+      errsG ["(def-shell inc :type-params [a] [x: a] -> int (+ x 1))"]
+        `shouldBe` [(Just "type-mismatch", "type mismatch in '+': expected int, got a")]
+    it "G1-S2-5 rigid a against rigid b is a mismatch" $
+      kindsG ["(def-shell ab :type-params [a b] [x: a y: b] -> a y)"] `shouldBe` [Just "type-mismatch"]
+    it "G1-S2-6 edge 8: a parameter named like a primitive or a user type is type-param-shadow" $ do
+      kindsG ["(def-shell sh :type-params [int] [x: int] -> int x)"] `shouldBe` [Just "type-param-shadow"]
+      kindsG ["(type Box (| Box int))", "(def-shell sh :type-params [Box] [x: Box] -> Box x)"]
+        `shouldBe` [Just "type-param-shadow"]
+    it "G1-S2-7 edge 3: a parameter in no parameter type is type-param-not-determined at the definition" $
+      kindsG ["(def-shell empty-q :type-params [a] [] -> list[a] (list-empty))"]
+        `shouldBe` [Just "type-param-not-determined"]
+    it "G1-S2-8 rule 5, first half: an untyped parameter of a generic is untyped-param-in-generic" $
+      kindsG ["(def-shell un :type-params [a] [x: a y] -> a x)"] `shouldBe` [Just "untyped-param-in-generic"]
+    it "G1-S2-9 noEqWitness and noOrdWitness read a rigid parameter by its constraint, never leniently" $ do
+      let p c = TParam "a" c
+      [ isNothing (noEqWitness Map.empty (p c)) | c <- [Nothing, Just TCEq, Just TCOrd, Just TCKey] ]
+        `shouldBe` [False, True, True, True]
+      [ isNothing (noOrdWitness Map.empty (p c)) | c <- [Nothing, Just TCEq, Just TCOrd, Just TCKey] ]
+        `shouldBe` [False, False, True, True]
+      noEqWitness Map.empty (TList (p Nothing)) `shouldBe` Just (p Nothing)
+    it "G1-S2-10 noKeyWitness is the map-key class: int and string, a key parameter, nothing else" $ do
+      [ isNothing (noKeyWitness Map.empty (TParam "k" c)) | c <- [Nothing, Just TCEq, Just TCOrd, Just TCKey] ]
+        `shouldBe` [False, False, False, True]
+      map (isNothing . noKeyWitness Map.empty) [TInt, TString, TBool, TPair TInt TInt, TVar "k"]
+        `shouldBe` [True, True, False, False, True]
+    it "G1-S2-11 the existing map-key gate now carries the kind map-key-undefined, message unchanged" $
+      errsG ["(def-shell f [m: map[bool, int]] -> bool (map-has m true))"]
+        `shouldBe` [ (Just "map-key-undefined", "map operation 'map-has' requires int or string keys (got map[bool,...]); other key sorts are deferred (Lever A §3)")
+                   , (Nothing, "map operation 'map-has' requires an int or string key, got bool") ]
+    it "G1-S2-12 a map keyed by a parameter needs key: (k key) checks, a bare k is constraint-missing" $ do
+      errsG ["(def-shell look :type-params [(k key) v] [m: map[k, v] x: k] -> bool (map-has m x))"] `shouldBe` []
+      kindsG ["(def-shell look :type-params [k v] [m: map[k, v] x: k] -> bool (map-has m x))"] `shouldBe` [cm]
+
+  describe "GENERICS-1 S3: instantiation at a call and the site table" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<g1>" (T.unlines src) of
+          Left err -> error ("GENERICS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsG src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedG src))
+                    , diagSeverity d == SevError ]
+        kindsG = map fst . errsG
+        sitesG src = let (_, _, s) = typeCheckWithCacheRetSites GrammarCoreInversion Map.empty emptyEnv (parsedG src) in s
+        lib = [ "(def-shell pq-from-list :type-params [a (k ord)] [key: (fn [a] -> k) xs: list[a]] -> list[a] xs)"
+              , "(def-shell pq-sorted? :type-params [a (k ord)] [key: (fn [a] -> k) q: list[a]] -> bool true)"
+              , "(def-shell pq-insert :type-params [a (k ord)] [key: (fn [a] -> k) x: a q: list[a]] -> list[a] q)"
+              , "(def-shell pq-show :type-params [a] [show: (fn [a] -> string) q: list[a]] -> string \"\")"
+              , "(def-shell group-by :type-params [a (k key)] [xs: list[a] key: (fn [a] -> k)] -> map[k, list[a]] (map-empty))"
+              , "(def-shell pick :type-params [(a ord)] [x: a y: a] -> a x)"
+              , "(def-shell len :type-params [a] [xs: list[a]] -> int (list-length xs))"
+              , "(type Level (| Lo) (| Hi))" ]
+    it "G1-S3-1 edge 2: a key into a sum type is order-undefined, naming the instantiation (k ord)" $
+      errsG (lib ++ ["(def-shell e2 [recs: list[int] f: (fn [int] -> Level)] -> list[int] (pq-from-list f recs))"])
+        `shouldSatisfy` \es -> map fst es == [Just "order-undefined"]
+                               && all (T.isInfixOf "'pq-from-list' instantiates (k ord)" . snd) es
+    it "G1-S3-2 edge 3b: an unannotated lambda whose parameter nothing fixes is type-param-not-determined at the call" $
+      errsG (lib ++ ["(def-shell e3b [u: int] -> list[int] (pq-from-list (fn [x] x) (list-empty)))"])
+        `shouldSatisfy` \es -> map fst es == [Just "type-param-not-determined"]
+                               && all (\(_, m) -> T.isInfixOf "type parameter 'a'" m && T.isInfixOf "'x'" m) es
+    it "G1-S3-3 edge 10: a key function returning bool is map-key-undefined for (k key)" $
+      errsG (lib ++ ["(def-shell e10 [xs: list[int]] -> map[bool, list[int]] (group-by xs (fn [x: int] (> x 0))))"])
+        `shouldSatisfy` \es -> map fst es == [Just "map-key-undefined"]
+                               && all (T.isInfixOf "(k key)" . snd) es
+    it "G1-S3-4 edge 11: an annotated lambda fixes a; inside a generic caller a stays the caller's parameter" $ do
+      errsG (lib ++ ["(def-shell e11 [u: int] -> bool (pq-sorted? (fn [x: int] x) (list-empty)))"]) `shouldBe` []
+      let src = lib ++ ["(def-shell e11b :type-params [b (j key)] [key: (fn [b] -> j) q: list[b]] -> bool (pq-sorted? key q))"]
+      errsG src `shouldBe` []
+      Map.lookup ("e11b", "pq-sorted?", ["(var key)", "(var q)"]) (sitesG src)
+        `shouldBe` Just [TParam "b" Nothing, TParam "j" (Just TCKey)]
+    it "G1-S3-5 a rigid parameter satisfies ord through key, and not through eq" $ do
+      errsG (lib ++ ["(def-shell kv :type-params [(k key)] [x: k y: k] -> k (pick x y))"]) `shouldBe` []
+      kindsG (lib ++ ["(def-shell ev :type-params [(k eq)] [x: k y: k] -> k (pick x y))"])
+        `shouldBe` [Just "constraint-missing"]
+    it "G1-S3-6 the step-3 fixpoint: k, fixed only by the lambda's result, is recorded" $ do
+      let src = lib ++ ["(def-shell ins [xs: list[int]] -> list[int] (pq-insert (fn [x: int] (int-to-string x)) 1 xs))"]
+      errsG src `shouldBe` []
+      Map.elems (Map.filterWithKey (\(o, f, _) _ -> o == "ins" && f == "pq-insert") (sitesG src))
+        `shouldBe` [[TInt, TString]]
+    it "G1-S3-7 an unannotated lambda parameter takes the type the call fixes for it" $ do
+      let src = lib ++ ["(def-shell sh [xs: list[int]] -> string (pq-show (fn [x] (int-to-string x)) xs))"]
+      errsG src `shouldBe` []
+      Map.elems (Map.filterWithKey (\(o, f, _) _ -> o == "sh" && f == "pq-show") (sitesG src)) `shouldBe` [[TInt]]
+    it "G1-S3-8 a lambda annotation that disagrees with the fixed type is a mismatch" $
+      kindsG (lib ++ ["(def-shell bad [xs: list[int]] -> list[int] (pq-from-list (fn [x: string] x) xs))"])
+        `shouldSatisfy` \ks -> not (null ks) && all (== Just "type-mismatch") ks
+    it "G1-S3-9 an instantiation nothing fixes is recorded as ?unfixed" $
+      Map.lookup ("u", "len", ["(app list-empty)"]) (sitesG (lib ++ ["(def-shell u [n: int] -> int (len (list-empty)))"]))
+        `shouldBe` Just [TVar "?unfixed"]
+    it "G1-S3-10 edge 17: an argument from an untyped parameter is untyped-arg-to-generic" $
+      kindsG (lib ++ ["(def-shell e17 [q] -> string (pq-show (fn [x: int] (int-to-string x)) q))"])
+        `shouldBe` [Just "untyped-arg-to-generic"]
+    it "G1-S3-11 one call text instantiated at two types through shadowing is generic-site-ambiguous" $
+      kindsG (lib ++ [ "(def-shell amb [u: int] -> int"
+                     , "  (let [(x 1)] (let [(y (pick x x))] (let [(x \"s\")] (let [(z (pick x x))] y)))))" ])
+        `shouldBe` [Just "generic-site-ambiguous"]
+    it "G1-S3-12 regression pin: a lambda at a non-generic call keeps synthesis (its untyped parameter stays a wildcard)" $
+      errsG ["(def-shell nong [xs: list[int]] -> list[int] (list-map xs (fn [x] (string-length x))))"] `shouldBe` []
+    it "G1-S3-13 a call in a check statement is keyed by the statement's pointer" $
+      Map.keys (Map.filterWithKey (\(_, f, _) _ -> f == "pick")
+        (sitesG (lib ++ ["(check \"c\" (for-all [n: int] (= (pick n n) n)))"])))
+        `shouldBe` [("/statements/8", "pick", ["(var n)", "(var n)"])]
+    it "G1-S3-14 the strict entry point records the same site table" $ do
+      let stmts = parsedG (lib ++ ["(def-shell ins [xs: list[int]] -> list[int] (pq-insert (fn [x: int] x) 1 xs))"])
+          (_, _, s1) = typeCheckWithCacheRetSites GrammarCoreInversion Map.empty emptyEnv stmts
+          (r2, s2)   = typeCheckStrictWithCacheSites GrammarCoreInversion Map.empty emptyEnv stmts
+      reportSuccess r2 `shouldBe` True
+      s2 `shouldBe` s1
+      Map.null s2 `shouldBe` False
+
+  describe "GENERICS-1 S4: rules 2 to 4 and a generic callee in a def" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<g1>" (T.unlines src) of
+          Left err -> error ("GENERICS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        kindsG src = [ diagKind d
+                     | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedG src))
+                     , diagSeverity d == SevError ]
+    it "G1-S4-1 edge 4: f passes list[a] around the cycle {f, g}, which is polymorphic-recursion" $
+      kindsG [ "(def-shell f :type-params [a] [x: a] -> int (g (list-prepend x (list-empty))))"
+             , "(def-shell g :type-params [b] [y: b] -> int (f y))" ]
+        `shouldBe` [Just "polymorphic-recursion"]
+    it "G1-S4-2 a cycle f [a] <-> g [b] passing bare parameters is accepted, as is self-recursion at a" $ do
+      kindsG [ "(def-shell f :type-params [a] [x: a] -> int (g x))"
+             , "(def-shell g :type-params [b] [y: b] -> int (f y))" ] `shouldBe` []
+      kindsG [ "(def-shell walk :type-params [a] [xs: list[a]] -> int (decreases (list-length xs))"
+             , "  (match (list-tail xs) ((Success t) (+ 1 (walk t))) ((Error e) 0)))" ] `shouldBe` []
+    it "G1-S4-3 edge 6: a for-all binder typed with a type parameter is for-all-type-param" $
+      kindsG [ "(def-shell idt :type-params [a] [x: a] -> a x)"
+             , "(check \"fa\" (for-all [x: a] (= 1 1)))" ] `shouldBe` [Just "for-all-type-param"]
+    it "G1-S4-4 edge 7: a generic body passing x: a to a Tier 1 import is ffi-type-param" $
+      kindsG [ "(import haskell.filepath (interface [[take-extension (fn [p: string] -> string)]]))"
+             , "(def-shell ext :type-params [a] [p: a] -> string (take-extension p))" ]
+        `shouldBe` [Just "ffi-type-param"]
+    it "G1-S4-5 a strict-core def that calls a generic def-shell is generic-callee-in-def" $
+      kindsG [ "(def-shell pick :type-params [(a ord)] [x: a y: a] -> a x)"
+             , "(def callsg [x: int y: int] -> int (pick x y))" ] `shouldBe` [Just "generic-callee-in-def"]
+    it "G1-S4-6 a def-shell may call the same generic (positive control)" $
+      kindsG [ "(def-shell pick :type-params [(a ord)] [x: a y: a] -> a x)"
+             , "(def-shell callsg [x: int y: int] -> int (pick x y))" ] `shouldBe` []
+
+  -- GENERICS-1 phase B (S5-S7) and the phase A wildcard fix.
+  describe "GENERICS-1 wildcard: an argument whose type is not known cannot instantiate" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<g1>" (T.unlines src) of
+          Left err -> error ("GENERICS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsG src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedG src))
+                    , diagSeverity d == SevError ]
+        sitesG src = let (_, _, s) = typeCheckWithCacheRetSites GrammarCoreInversion Map.empty emptyEnv (parsedG src) in s
+        lenG = "(def-shell len :type-params [a] [xs: list[a]] -> int (list-length xs))"
+    it "G1-W-1 an argument from an unannotated function whose body is a hole is untyped-arg-to-generic" $
+      errsG [lenG, "(def-shell g [n: int] ?todo)", "(def-shell u [n: int] -> int (len (g n)))"]
+        `shouldSatisfy` \es -> map fst es == [Just "untyped-arg-to-generic"]
+                               && all (\(_, m) -> T.isInfixOf "not known" m && T.isInfixOf "return annotation" m) es
+    it "G1-W-2 a type argument that only mentions a wildcard is refused the same way" $
+      map fst (errsG [ "(def-shell idg :type-params [a] [x: a] -> int 0)"
+                     , "(def-shell g [n: int] (list-head (list-empty)))"
+                     , "(def-shell u [n: int] -> int (idg (g n)))" ])
+        `shouldBe` [Just "untyped-arg-to-generic"]
+    it "G1-W-3 an unconstrained parameter nothing fixes stays ?unfixed (no error)" $ do
+      let src = [lenG, "(def-shell u [n: int] -> int (len (list-empty)))"]
+      errsG src `shouldBe` []
+      Map.lookup ("u", "len", ["(app list-empty)"]) (sitesG src) `shouldBe` Just [TVar "?unfixed"]
+    it "G1-W-4 a refinement alias argument binds the type parameter to the alias, not its base" $ do
+      let src = [ "(type PositiveInt (where [n: int] (> n 0)))"
+                , "(def-shell pick :type-params [(a ord)] [x: a y: a] -> a x)"
+                , "(def-shell use-pos [p: PositiveInt q: PositiveInt] -> PositiveInt (pick p q))" ]
+      errsG src `shouldBe` []
+      Map.lookup ("use-pos", "pick", ["(var p)", "(var q)"]) (sitesG src) `shouldBe` Just [TCustom "PositiveInt"]
+
+  describe "GENERICS-1 S5: specialization before verification" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<g1>" (T.unlines src) of
+          Left err -> error ("GENERICS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        sitesOf ss = let (_, _, s) = typeCheckWithCacheRetSites GrammarCoreInversion Map.empty emptyEnv ss in s
+        specG src = let ss = parsedG src in specialize Map.empty (sitesOf ss) ss
+        defNames ss = [ n | SDefShell{defShellName = n} <- ss ]
+        bodyOf n ss = case [ canonicalExpr b | SDefShell{defShellName = m, defShellBody = b} <- ss, m == n ] of
+          (t : _) -> t
+          []      -> error ("no definition " ++ T.unpack n ++ " in " ++ show (defNames ss))
+        keysOf ss = evidenceKeys (buildKeyEnv Map.empty Map.empty ss) False ss
+        pickG = "(def-shell pick :type-params [(a ord)] [x: a y: a] -> a (post (<= (compare result y) 0)) (if (<= (compare x y) 0) x y))"
+        idG   = "(def-shell idg :type-params [a] [x: a] -> a x)"
+        posT p = "(type PositiveInt (where [n: int] " <> p <> "))"
+    it "G1-S5-1 the identity on every non-generic fixture program" $ do
+      let root = "../scripts/tests/fixtures"
+          walk d = do
+            es <- listDirectory d
+            fmap concat $ flip mapM (sort es) $ \e -> do
+              let p = d </> e
+              isDir <- doesDirectoryExist p
+              if isDir then (if e == "generics" then pure [] else walk p)
+                       else pure [ p | ".llmll" `isSuffixOf` e ]
+      files <- walk root
+      length files `shouldSatisfy` (> 20)
+      forM_ files $ \f -> do
+        src <- TIO.readFile f
+        case parseStatements GrammarCoreInversion f src of
+          Left _   -> pure ()
+          Right ss -> do
+            let sites = sitesOf ss
+            (f, Map.null sites) `shouldBe` (f, True)
+            (f, specialize Map.empty sites ss) `shouldBe` (f, (ss, emptyGenericStats))
+    it "G1-S5-2 one copy per instantiation, named f@[T]; the generic source is dropped" $ do
+      let (out, _) = specG [ posT "(> n 0)", pickG
+                           , "(def-shell ui [x: int y: int] -> int (pick x y))"
+                           , "(def-shell us [x: string y: string] -> string (pick x y))"
+                           , "(def-shell up [p: PositiveInt q: PositiveInt] -> PositiveInt (pick p q))"
+                           , "(def-shell ui2 [x: int] -> int (pick x x))" ]
+      sort (defNames out) `shouldBe` sort ["ui", "us", "up", "ui2", "pick@[int]", "pick@[string]", "pick@[PositiveInt]"]
+      bodyOf "ui" out `shouldSatisfy` T.isInfixOf "pick@[int]"
+      bodyOf "up" out `shouldSatisfy` T.isInfixOf "pick@[PositiveInt]"
+      [ ps | SDefShell{defShellName = "pick@[PositiveInt]", defShellParams = ps, defShellTypeParams = []} <- out ]
+        `shouldBe` [[("x", TCustom "PositiveInt"), ("y", TCustom "PositiveInt")]]
+    it "G1-S5-3 a transparent alias is expanded in the copy name; a refinement alias stays named" $ do
+      let (out, _) = specG [ "(type Ints list[int])", posT "(> n 0)", idG
+                           , "(def-shell ua [xs: Ints] -> Ints (idg xs))"
+                           , "(def-shell up [p: PositiveInt] -> PositiveInt (idg p))" ]
+      sort (filter (T.isPrefixOf "idg@") (defNames out)) `shouldBe` ["idg@[PositiveInt]", "idg@[list[int]]"]
+    it "G1-S5-4 an unfixed type argument is specialized at int" $ do
+      let (out, _) = specG [ "(def-shell len :type-params [a] [xs: list[a]] -> int (list-length xs))"
+                           , "(def-shell u [n: int] -> int (len (list-empty)))" ]
+      defNames out `shouldBe` ["u", "len@[int]"]
+    it "G1-S5-5 the type-args fragment is folded into a copy's key only; existing keys are unchanged (pinned)" $ do
+      copyTypeArgsSuffix "pick@[int]" `shouldBe` Just "[int]"
+      copyTypeArgsSuffix "glib.f@[(int,bool)]" `shouldBe` Just "[(int,bool)]"
+      copyTypeArgsSuffix "plus1" `shouldBe` Nothing
+      let (out, _) = specG [ "(def-shell plus1 [x: int] -> int (post (> result x)) (+ x 1))"
+                           , "(def-shell twice [x: int] -> int (post (> result (+ x 1))) (plus1 (plus1 x)))" ]
+      -- The keys v0.32.0 writes for this program (measured with the v0.32.0 binary).
+      keysOf out `shouldBe` Map.fromList
+        [ ("plus1", "sha256:77036fd0e06235eab9ca12878de0fc560a3372081641880c81241927a300958b")
+        , ("twice", "sha256:7c3b781615dfc54548c39b32b1aac906c0641812cbb2ec5b024a16071ebd27ea") ]
+    it "G1-S5-6 pick@[int] and pick@[bool] have different keys" $ do
+      let (out, _) = specG [ pickG
+                           , "(def-shell ui [x: int y: int] -> int (pick x y))"
+                           , "(def-shell ub [x: bool y: bool] -> bool (pick x y))" ]
+          ks = keysOf out
+      Map.member "pick@[int]" ks `shouldBe` True
+      Map.member "pick@[bool]" ks `shouldBe` True
+      Map.lookup "pick@[int]" ks `shouldNotBe` Map.lookup "pick@[bool]" ks
+    it "G1-S5-7 edge 14: editing the refinement predicate changes the copy's key" $ do
+      let prog p = fst (specG [ posT p, pickG
+                              , "(def-shell up [p: PositiveInt q: PositiveInt] -> PositiveInt (pick p q))" ])
+          k p = Map.lookup "pick@[PositiveInt]" (keysOf (prog p))
+      k "(> n 0)" `shouldSatisfy` isJust
+      k "(> n 0)" `shouldNotBe` k "(> n 1)"
+    it "G1-S5-8 an imported generic's copy qualifies its module's names, so an entry definition cannot capture them" $ do
+      let glibSrc = [ "(def-shell helper [n: int] -> int (post (= result (+ n 1))) (+ n 1))"
+                    , "(def-shell bump-first :type-params [a] [n: int x: a] -> (int, a) (post (= (first result) (+ n 1))) (pair (helper n) x))" ]
+          glibEnv = (buildModuleEnv ["glib"] (parsedG glibSrc) Map.empty emptyEnv) { meGenericSites = Map.empty }
+          cache   = Map.singleton ["glib"] glibEnv
+          entry   = parsedG [ "(import glib)"
+                            , "(def-shell helper [n: int] -> int 0)"
+                            , "(def-shell use-bump [n: int b: bool] -> (int, bool) (glib.bump-first n b))" ]
+          sites   = Map.singleton ("use-bump", "glib.bump-first", ["(var n)", "(var b)"]) [TBool]
+          (out, st) = specialize cache sites entry
+      defNames out `shouldBe` ["helper", "use-bump", "glib.bump-first@[bool]"]
+      bodyOf "glib.bump-first@[bool]" out `shouldSatisfy` T.isInfixOf "glib.helper"
+      bodyOf "use-bump" out `shouldSatisfy` T.isInfixOf "glib.bump-first@[bool]"
+      gsPerDefinition st `shouldBe` [("glib.bump-first", 1)]
+    it "G1-S5-9 GenericStats counts definitions (an uninstantiated one counts 0) and instances" $ do
+      let (_, st) = specG [ pickG, idG
+                          , "(def-shell ui [x: int y: int] -> int (pick x y))"
+                          , "(def-shell us [x: string y: string] -> string (pick x y))"
+                          , "(def-shell ub [x: bool y: bool] -> bool (pick x y))" ]
+      gsPerDefinition st `shouldBe` [("pick", 3), ("idg", 0)]
+      gsDefinitions st `shouldBe` 2
+      gsInstances st `shouldBe` 3
+      sort (Map.elems (gsSiteCopies st)) `shouldBe` ["pick@[bool]", "pick@[int]", "pick@[string]"]
+    it "G1-S5-10 a generic source that reaches the emitter is an internal error" $ do
+      let ss = parsedG [pickG]
+      (emitFixpoint "<g1>.llmll" ss >>= \r -> CE.evaluate (T.length (erFQText r)))
+        `shouldThrow` anyErrorCall
+    it "G1-S5-11 buildContractEnv skips a generic source" $ do
+      let env = buildContractEnv (parsedG [pickG, "(def-shell plain [x: int] -> int (post (> result 0)) 1)"])
+      Map.member "pick" env `shouldBe` False
+      Map.member "plain" env `shouldBe` True
+    it "G1-S5-12 compare is renamed by its operand's base scalar; a string operand or a local binder is not" $ do
+      let (out, _) = specG [ posT "(> n 0)"
+                           , "(def-shell ci [x: int y: int] -> int (compare x y))"
+                           , "(def-shell cp [x: PositiveInt y: PositiveInt] -> int (compare x y))"
+                           , "(def-shell cb [x: bool y: bool] -> int (compare x y))"
+                           , "(def-shell cs [x: string y: string] -> int (compare x y))"
+                           , "(def-shell cl [x: int] -> int (let [(compare (fn [a: int b: int] 7))] (compare x x)))" ]
+      bodyOf "ci" out `shouldSatisfy` T.isInfixOf "compare%int"
+      bodyOf "cp" out `shouldSatisfy` T.isInfixOf "compare%int"
+      bodyOf "cb" out `shouldSatisfy` T.isInfixOf "compare%bool"
+      bodyOf "cs" out `shouldSatisfy` (\t -> T.isInfixOf "compare" t && not (T.isInfixOf "compare%" t))
+      bodyOf "cl" out `shouldSatisfy` (not . T.isInfixOf "compare%")
+    it "G1-S5-13 compare inside a copy is renamed at the copy's type argument" $ do
+      let (out, _) = specG [ pickG
+                           , "(def-shell ui [x: int y: int] -> int (pick x y))"
+                           , "(def-shell us [x: string y: string] -> string (pick x y))" ]
+      bodyOf "pick@[int]" out `shouldSatisfy` T.isInfixOf "compare%int"
+      bodyOf "pick@[string]" out `shouldSatisfy` (not . T.isInfixOf "compare%")
+    it "G1-S5-14 specializeWithRet gives an unannotated copy its tau_ret at the type argument" $ do
+      let ss = parsedG [ "(def-shell idn :type-params [a] [x: a] x)"
+                       , "(def-shell ub [b: bool] -> bool (idn b))" ]
+          (_, rets, sites) = typeCheckWithCacheRetSites GrammarCoreInversion Map.empty emptyEnv ss
+          (_, _, copyRets) = specializeWithRet rets Map.empty sites ss
+      Map.lookup "idn@[bool]" copyRets `shouldBe` Just TBool
+    it "G1-S5-15 a check statement is kept as written; its instances are still made" $ do
+      let ss  = parsedG [idG, "(check \"c\" (for-all [n: int] (= (idg n) n)))"]
+          chk = [ s | s@SCheck{} <- ss ]
+          (out, st) = specialize Map.empty (sitesOf ss) ss
+      [ s | s@SCheck{} <- out ] `shouldBe` chk
+      defNames out `shouldBe` ["idg@[int]"]
+      Map.elems (gsSiteCopies st) `shouldBe` ["idg@[int]"]
+    it "G1-S5-16 the trust report lists an uninstantiated generic as unverified (generic, not instantiated)" $ do
+      let tr = buildTrustReport Map.empty (parsedG [idG, "(def-shell plain [x: int] -> int (post (> result 0)) 1)"]) Map.empty
+          noteOf n = [ teGenericNote e | e <- trEntries tr, teName e == n ]
+      noteOf "idg" `shouldBe` [Just genericNotInstantiatedLabel]
+      noteOf "plain" `shouldBe` [Nothing]
+      genericNotInstantiatedLabel `shouldBe` "unverified (generic, not instantiated)"
+      formatTrustReport tr `shouldSatisfy` T.isInfixOf "generic: unverified (generic, not instantiated)"
+
+  describe "GENERICS-1 S6: codegen signatures carry the declared constraints" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<g1>" (T.unlines src) of
+          Left err -> error ("GENERICS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+    it "G1-S6-1 the context per constraint, in declared order; a bare parameter adds none" $ do
+      typeParamContext [("a", Nothing)] `shouldBe` ""
+      typeParamContext [("k", Just TCEq)] `shouldBe` "Eq tp_k => "
+      typeParamContext [("a", Nothing), ("k", Just TCOrd)] `shouldBe` "Ord tp_k => "
+      typeParamContext [("a", Nothing), ("k", Just TCKey)] `shouldBe` "(Ord tp_k, Show tp_k) => "
+      typeParamContext [("a", Just TCEq), ("b", Just TCOrd)] `shouldBe` "(Eq tp_a, Ord tp_b) => "
+    it "G1-S6-2 edge 16: group-by with (k key) is emitted with (Ord tp_k, Show tp_k)" $ do
+      let hs = cgHsSource (generateHaskell "g1" (parsedG
+                 [ "(def-shell group-by :type-params [a (k key)] [xs: list[a] key: (fn [a] -> k)] -> map[k, list[a]]"
+                 , "  (list-fold xs (map-empty) (fn [m: map[k, list[a]] r: a]"
+                 , "    (let [(kv (key r))] (map-put m kv (if (map-has m kv) (list-append (map-get m kv) r) [r]))))))"
+                 , "(def-shell pick :type-params [a] [x: a y: a] -> a x)" ]))
+      hs `shouldSatisfy` T.isInfixOf "group_by :: (Ord tp_k, Show tp_k) => "
+      hs `shouldSatisfy` T.isInfixOf "pick :: tp_a -> tp_a -> tp_a"
+    it "G1-S6-3 preamble coverage pin: every class context in the runtime preamble is covered by its gate's constraint" $ do
+      -- The constraint the type checker's gate demands at the argument each
+      -- contexted preamble function is reached through (S2/S3 gates).
+      let gate = Map.fromList
+            [ ("list_contains", TCEq), ("list_sort", TCOrd), ("list_sort_by", TCOrd)
+            , ("map_has", TCKey), ("map_get", TCKey), ("map_put", TCKey), ("llmll_compare", TCOrd) ]
+          -- Contexts no type parameter can reach: the argument is int-typed in builtinEnv.
+          notReached = ["wasi_http_response"]
+          sigs = [ (fn, ctx)
+                 | l <- runtimePreamble
+                 , let (fn, rest) = T.breakOn " :: " l
+                 , not (T.null rest), T.all (\c -> isAlphaNum c || c == '_') fn, not (T.null fn)
+                 , let afterSig = T.drop 4 rest
+                 , T.isInfixOf "=>" afterSig
+                 , let ctx = fst (T.breakOn "=>" afterSig) ]
+          classesIn ctx = [ w | w <- T.words (T.map (\c -> if c `elem` ("(),"::String) then ' ' else c) ctx)
+                              , Just (c0, _) <- [T.uncons w], c0 >= 'A', c0 <= 'Z' ]
+      sort (map fst sigs) `shouldBe` sort (Map.keys gate ++ notReached)
+      forM_ sigs $ \(fn, ctx) -> case Map.lookup fn gate of
+        Nothing -> fn `shouldSatisfy` (`elem` notReached)
+        Just c  -> (fn, filter (`notElem` constraintHsClasses (Just c)) (classesIn ctx)) `shouldBe` (fn, [])
+
+  describe "GENERIC-COMPARE-1 S7: the compare builtin" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<g1>" (T.unlines src) of
+          Left err -> error ("GENERICS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        kindsG src = [ diagKind d
+                     | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedG src))
+                     , diagSeverity d == SevError ]
+        sitesOf ss = let (_, _, s) = typeCheckWithCacheRetSites GrammarCoreInversion Map.empty emptyEnv ss in s
+        li = ELit . LitInt
+        ls = ELit . LitString
+        lb = ELit . LitBool
+        ev a b = evalExprStatic Map.empty (EApp "compare" [a, b])
+    it "G1-S7-1 compare : a -> a -> int in builtinEnv" $
+      Map.lookup "compare" builtinEnv `shouldBe` Just (TFn [TVar "a", TVar "a"] TInt)
+    it "G1-S7-2 compare at a sum type is order-undefined; at a bare parameter it is constraint-missing" $ do
+      kindsG [ "(type Level (| Lo) (| Hi))", "(def-shell c [x: Level y: Level] -> int (compare x y))" ]
+        `shouldBe` [Just "order-undefined"]
+      kindsG [ "(def-shell c :type-params [a] [x: a y: a] -> int (compare x y))" ]
+        `shouldBe` [Just "constraint-missing"]
+      kindsG [ "(def-shell c :type-params [(a ord)] [x: a y: a] -> int (compare x y))" ] `shouldBe` []
+      kindsG [ "(def-shell c [x: int y: int] -> int (compare (pair x \"a\") (pair y \"b\")))" ] `shouldBe` []
+    it "G1-S7-3 a top-level definition named compare is builtin-redefinition" $
+      kindsG [ "(def-shell compare [x: int y: int] -> int 0)" ] `shouldBe` [Just "builtin-redefinition"]
+    it "G1-S7-4 the evaluator agrees with the runtime at int, bool, string and pairs" $ do
+      forM_ [(-3, 2), (2, 2), (5, -1)] $ \(a, b) ->
+        ev (li a) (li b) `shouldBe` Just (li (RP.llmll_compare a b))
+      forM_ [(x, y) | x <- [False, True], y <- [False, True]] $ \(a, b) ->
+        ev (lb a) (lb b) `shouldBe` Just (li (RP.llmll_compare a b))
+      forM_ [("a", "b"), ("b", "b"), ("ba", "b")] $ \(a, b) ->
+        ev (ls a) (ls b) `shouldBe` Just (li (RP.llmll_compare (a :: T.Text) b))
+      forM_ [((1, "b"), (1, "a")), ((0, "z"), (1, "a")), ((1, "a"), (1, "a"))] $ \((a1, a2), (b1, b2)) ->
+        ev (EPair (li a1) (ls a2)) (EPair (li b1) (ls b2))
+          `shouldBe` Just (li (RP.llmll_compare (a1 :: Integer, a2 :: T.Text) (b1, b2)))
+    it "G1-S7-5 codegen lowers compare and both renamed forms to llmll_compare" $
+      forM_ ["compare", "compare%int", "compare%bool"] $ \f ->
+        emitApp f [EVar "a", EVar "b"] `shouldSatisfy` T.isInfixOf "llmll_compare"
+    it "G1-S7-6 compare%int and compare%bool unfold in the VC; a string operand falls back" $ do
+      let ss = parsedG [ "(def-shell ci [x: int y: int] -> int (post (and (and (>= result (- 0 1)) (<= result 1)) (= (= result 0) (= x y)))) (compare x y))"
+                       , "(def-shell cb [x: bool y: bool] -> int (post (= (= result 0) (= x y))) (compare x y))"
+                       , "(def-shell cs [x: string y: string] -> int (post (<= result 1)) (compare x y))" ]
+          (out, _) = specialize Map.empty (sitesOf ss) ss
+      r <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<g1>.llmll" out
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> "ci" `elem` fs && "cb" `elem` fs)
+      erBodyFallback r `shouldSatisfy` ("cs" `elem`)
+
+  describe "GENERIC-COMPARE-1 guard: a reflected compare unfolds in an if-guard" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<g1>" (T.unlines src) of
+          Left err -> error ("GENERICS-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        sitesOf ss = let (_, _, s) = typeCheckWithCacheRetSites GrammarCoreInversion Map.empty emptyEnv ss in s
+        guardOf se e = evalState (classifyGuardM Map.empty se e) 0
+        m1 = FQBinArith FQSub (FQLit 0) (FQLit 1)
+        x = FQVar "x"
+        y = FQVar "y"
+        leZero f = EApp "<=" [EApp f [EVar "x", EVar "y"], ELit (LitInt 0)]
+        sorts s = Map.fromList [("x", s), ("y", s)]
+    it "G1-G-1 compare%int: the guard term is reflectCompare's, which is the llmll_compare definition" $ do
+      let term = FQIte (FQBinPred FQLt x y) m1 (FQIte (FQBinPred FQEq x y) (FQLit 0) (FQLit 1))
+      reflectCompare "compare%int" [x, y] `shouldBe` Just term
+      guardOf (sorts FQInt) (leZero (intBuiltinTag <> "compare%int"))
+        `shouldBe` Just (FQBinPred FQLe term (FQLit 0))
+    it "G1-G-2 compare%bool: false < true, as the same term in guard and body" $ do
+      let term = FQIte (FQBinPred FQEq x y) (FQLit 0) (FQIte x (FQLit 1) m1)
+      reflectCompare "compare%bool" [x, y] `shouldBe` Just term
+      guardOf (sorts FQBool) (leZero (intBuiltinTag <> "compare%bool"))
+        `shouldBe` Just (FQBinPred FQLe term (FQLit 0))
+    it "G1-G-3 regression pin: plain compare (string), and min/max/abs, still fall back in a guard" $ do
+      guardOf (sorts FQStr) (leZero "compare") `shouldBe` Nothing
+      guardOf (sorts FQInt) (leZero "compare") `shouldBe` Nothing
+      forM_ ["min", "max"] $ \f -> do
+        guardOf (sorts FQInt) (leZero f) `shouldBe` Nothing
+        guardOf (sorts FQInt) (leZero (intBuiltinTag <> f)) `shouldBe` Nothing
+      guardOf (sorts FQInt) (EApp "<=" [EApp (intBuiltinTag <> "abs") [EVar "x"], ELit (LitInt 0)]) `shouldBe` Nothing
+      reflectCompare "min" [x, y] `shouldBe` Nothing
+    it "G1-G-4 end to end: a compare guard keeps pick@[int] and pick@[bool] body-faithful; string and a min guard fall back" $ do
+      let ss = parsedG
+            [ "(def-shell pick :type-params [(a ord)] [x: a y: a] -> a (post (<= (compare result y) 0)) (if (<= (compare x y) 0) x y))"
+            , "(def-shell ui [x: int y: int] -> int (pick x y))"
+            , "(def-shell ub [x: bool y: bool] -> bool (pick x y))"
+            , "(def-shell us [x: string y: string] -> string (pick x y))"
+            , "(def-shell mg [x: int y: int] -> int (post (<= result y)) (if (<= (min x y) x) (min x y) y))" ]
+          (out, _) = specialize Map.empty (sitesOf ss) ss
+      r <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<g1>.llmll" out
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> "pick@[int]" `elem` fs && "pick@[bool]" `elem` fs)
+      erBodyFallback r `shouldSatisfy` (\fs -> "pick@[string]" `elem` fs && "mg" `elem` fs)
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

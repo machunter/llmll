@@ -141,6 +141,7 @@ renderType (TPromise t)    = "Promise[" <> renderType t <> "]"
 renderType (TDependent _ b _) = renderType b
 renderType TDelegationError = "DelegationError"
 renderType (TVar n)        = n
+renderType (TParam n _)    = n  -- GENERICS-1: a rigid type parameter, by name
 renderType (TCustom n)     = n
 renderType (TSumType ctors) = T.intercalate " | " (map fst ctors)
 

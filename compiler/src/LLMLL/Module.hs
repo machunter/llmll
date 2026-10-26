@@ -36,7 +36,7 @@ import qualified Data.ByteString as BS
 
 import LLMLL.Syntax
 import LLMLL.Diagnostic
-import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRet, emptyEnv, TypeEnv, collectConstructors)
+import LLMLL.TypeCheck (typeCheck, typeCheckWithCache, typeCheckWithCacheRetSites, emptyEnv, TypeEnv, collectConstructors)
 import qualified LLMLL.Parser    as P
 import qualified LLMLL.ParserJSON as PJ
 import LLMLL.VerifiedCache (loadVerified, loadBuiltinAxioms)
@@ -196,8 +196,9 @@ loadFromFile gm _jsonMode srcRoot extraRoots cache0 visitedStack modPath fp = do
               -- FQ-RESULT-SORT-1 stage (b): the SAME typecheck now also yields
               -- tau_ret, which was previously discarded one line before the
               -- ModuleEnv was built from 'stmts' alone.
-              (report, retTypes) = typeCheckWithCacheRet gm cache1 emptyEnv stmts
-              env0    = buildModuleEnv modPath stmts retTypes baseEnv
+              -- GENERICS-1: the same check also yields the site table.
+              (report, retTypes, sites) = typeCheckWithCacheRetSites gm cache1 emptyEnv stmts
+              env0    = (buildModuleEnv modPath stmts retTypes baseEnv) { meGenericSites = sites }
           -- v0.3: merge sidecar .verified.json to upgrade contract statuses
           sidecar <- loadVerified fp
           -- TRUST-AXIOM: read the axiom sets from the SAME sidecar, so a caller
@@ -319,6 +320,8 @@ buildModuleEnv path stmts retTypes _env =
        -- TRUST-AXIOM: this builder reads no sidecar, so it cannot know the
        -- axiom sets. The loader below fills them in from the sidecar.
        , meBuiltinAxioms  = Nothing
+       -- GENERICS-1: filled by the loader from the same type check.
+       , meGenericSites   = Map.empty
        }
   where
     toExport (SDefLogic name params mRet _ _) =
@@ -331,7 +334,7 @@ buildModuleEnv path stmts retTypes _env =
     toExport (SDef name params mRet _ _) =
       let retType = fromMaybe (TVar "?") mRet
       in Just (name, TFn (map snd params) retType)
-    toExport (SDefShell name params mRet _ _ _) =
+    toExport (SDefShell name params mRet _ _ _ _) =
       let retType = fromMaybe (TVar "?") mRet
       in Just (name, TFn (map snd params) retType)
     -- v0.12.1: def-invariant exports identically to its prior SDefLogic form.
@@ -348,7 +351,7 @@ buildModuleEnv path stmts retTypes _env =
     extractContractStatus (SLetrec name _ _ contract _ _) = mkCS name contract
     -- LT-INV (v0.11)
     extractContractStatus (SDef      name _ _ contract _) = mkCS name contract
-    extractContractStatus (SDefShell name _ _ contract _ _) = mkCS name contract
+    extractContractStatus (SDefShell name _ _ contract _ _ _) = mkCS name contract
     extractContractStatus _ = Nothing
 
     mkCS name contract
@@ -370,7 +373,7 @@ buildModuleEnv path stmts retTypes _env =
     -- LT-INV (v0.11)
     extractContracts (SDef      name params mRet contract _) =
       Just (name, (params, contract, effR name mRet))
-    extractContracts (SDefShell name params mRet contract _ _) =
+    extractContracts (SDefShell name params mRet contract _ _ _) =
       Just (name, (params, contract, effR name mRet))
     -- v0.12.1
     extractContracts (SDefInvariant name params mRet contract _) =
@@ -450,6 +453,11 @@ checkInterfaceMismatch importerPath ifaceName expected implEnv =
 
 -- | Structural type compatibility (mirrors TypeCheck.compatibleWith).
 compatibleTy :: Type -> Type -> Bool
+-- GENERICS-1: a rigid type parameter matches only itself, ahead of the
+-- wildcard arms below.
+compatibleTy (TParam a _) (TParam b _) = a == b
+compatibleTy (TParam _ _) _            = False
+compatibleTy _ (TParam _ _)            = False
 compatibleTy (TVar _) _                = True
 compatibleTy _ (TVar _)                = True
 compatibleTy (TCustom "_") _           = True

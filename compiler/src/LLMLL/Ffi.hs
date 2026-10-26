@@ -244,7 +244,7 @@ traverseNonFfiTypes f st = case st of
                 <$> traverse binding ps <*> traverse f r <*> expr b
   SDef n ps r c b -> (\ps' r' b' -> SDef n ps' r' c b')
                 <$> traverse binding ps <*> traverse f r <*> expr b
-  SDefShell n ps r c b ds -> (\ps' r' b' -> SDefShell n ps' r' c b' ds)
+  SDefShell n ps r c b ds tps -> (\ps' r' b' -> SDefShell n ps' r' c b' ds tps)
                 <$> traverse binding ps <*> traverse f r <*> expr b
   SDefInvariant n ps r c b -> (\ps' r' b' -> SDefInvariant n ps' r' c b')
                 <$> traverse binding ps <*> traverse f r <*> expr b

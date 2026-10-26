@@ -1,0 +1,26 @@
+;; GENERICS-1 + GENERIC-COMPARE-1 contract-plan fixture
+;; (docs/design/generics-1-engineer-plan.md "Contract plan"; proposal edge
+;; cases 12 and 13). Each generic is specialized per instantiation before
+;; verification. Predicted: pick-min@[int] and pick-min@[bool] prove (compare
+;; unfolds at int and bool), pick-min@[string] falls back (app:compare), and
+;; pick-min@[PositiveInt] states the obligation result > 0 and proves it.
+(type PositiveInt (where [n: int] (> n 0)))
+
+;; Edge case 12, strengthened: the post needs compare to be reflexive, which
+;; holds only once compare is interpreted.
+(def-shell pick-min :type-params [(a ord)] [x: a y: a] -> a
+  (post (and (<= (compare result x) 0) (<= (compare result y) 0)))
+  (if (<= (compare x y) 0) x y))
+
+;; Edge case 12 as the proposal writes it (one clause).
+(def-shell pick-min-1 :type-params [(a ord)] [x: a y: a] -> a
+  (post (<= (compare result y) 0))
+  (if (<= (compare x y) 0) x y))
+
+(def-shell use-int [x: int y: int] -> int (pick-min x y))
+(def-shell use-string [x: string y: string] -> string (pick-min x y))
+(def-shell use-bool [x: bool y: bool] -> bool (pick-min x y))
+;; Edge case 13: a refinement alias as the type argument.
+(def-shell use-pos [p: PositiveInt q: PositiveInt] -> PositiveInt (pick-min p q))
+(def-shell use-int-1 [x: int y: int] -> int (pick-min-1 x y))
+(def-shell use-string-1 [x: string y: string] -> string (pick-min-1 x y))

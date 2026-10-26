@@ -998,14 +998,18 @@ megaparsecToDiagnostic fp bundle =
                      ErrorFail m -> pre `T.isPrefixOf` T.pack m
                      _           -> False) (Set.toList fs)
       hasFailPrefix _ _ = False
+      -- GENERICS-1: a :type-params clause on a form other than def-shell.
+      isTypeParamsRefused = any (hasFailPrefix "type-params-not-supported:") (NE.toList (bundleErrors bundle))
       suggestion
         | isHttpRetired = Nothing
         | isFloatRange  = Just "write a float literal whose value is finite and, unless it is zero, at least about 4.9e-324 in magnitude"
         | isBytesRange  = Just "declare a bytes[n] length between 0 and 9223372036854775807"
+        | isTypeParamsRefused = Just "declare the type parameters on a def-shell: (def-shell f :type-params [a] [x: a] -> a x)"
         | otherwise     = Just "use def, def-shell, type, import, or check at the top level"
       kind
         | isFloatRange = Just "float-literal-range"
         | isBytesRange = Just "bytes-length-range"
+        | isTypeParamsRefused = Just "type-params-not-supported"
         | otherwise    = Nothing
   in (Diagnostic SevError mSpan cleanMsg suggestion (Just "E001") Nothing Nothing Nothing False Nothing Nothing Nothing) { diagKind = kind }
   where

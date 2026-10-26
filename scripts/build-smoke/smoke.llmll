@@ -295,6 +295,12 @@
   (def-shell smoke-json-of-bool   [b: bool]   -> Json (json-of-bool b))
   (def-shell smoke-json-of-list   [xs: list[Json]] -> Json (json-of-list xs))
 
+  ;; GENERIC-COMPARE-1: `compare` lowers through a hand-written emitApp
+  ;; equation to the preamble's llmll_compare (an Integer, not Prelude's
+  ;; Ordering), so only a build grades the call. One at int, one at string.
+  (def-shell smoke-compare [a: int b: int s: string t: string] -> int
+    (+ (compare a b) (compare s t)))
+
   (def-shell smoke-done? [s: int] -> bool (>= s 3))
 
   (def-main

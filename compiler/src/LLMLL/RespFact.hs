@@ -193,7 +193,7 @@ defsOf stmts =
 defLike :: Statement -> Maybe (Name, [(Name, Type)], Maybe Type, Contract, Expr)
 defLike (SDefLogic     n p r c b)   = Just (n, p, r, c, b)
 defLike (SDef          n p r c b)   = Just (n, p, r, c, b)
-defLike (SDefShell     n p r c b _) = Just (n, p, r, c, b)
+defLike (SDefShell     n p r c b _ _) = Just (n, p, r, c, b)
 defLike (SLetrec       n p r c _ b) = Just (n, p, r, c, b)
 defLike (SDefInvariant n p r c b)   = Just (n, p, r, c, b)
 defLike _                           = Nothing
