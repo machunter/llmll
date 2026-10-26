@@ -2,7 +2,9 @@
 
 ---
 
-## Unreleased (on `main` after v0.32.0)
+<a id="Latest"></a>
+
+## v0.33.0: Type parameters on `def-shell` and the `compare` builtin (2026-10-25)
 
 ### `GENERICS-1`: type parameters on `def-shell`
 
@@ -54,8 +56,6 @@ Design: [`docs/design/generics-proposal.md`](docs/design/generics-proposal.md) R
   this repository defines one.
 
 **Tests:** hspec 2765 → 2843, 0 failures; Python 605 → 622 passed, 5 skipped.
-
-<a id="Latest"></a>
 
 ## v0.32.0: Float literals, soundness fixes for bytes lengths and function shadowing, opaque calls through function parameters, constant arithmetic, int narrowing, and ambiguous type variables (2026-10-24)
 
