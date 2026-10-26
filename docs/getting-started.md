@@ -1690,60 +1690,6 @@ The array class of `Σ_auto` (`LLMLL.md §5.3.3`) discharges `bytes[n]` memory s
 
 **Construction and keys.** `(map-empty)` is type-directed — the element sort is inferred from the first put value, so `(map-put (map-empty) k "active")` builds a `map[int,string]` in a function that declares `-> map[int,string]`. The key sort comes only from context: under a head with no return type the key stays a type variable even for `k: int`, and the function is `body-fallback`. Declare the return type. `bytes-zero` takes its length from the declared return type. Keys in `{int, string}` and values in `{int, bool, string}` are in-fragment. **Falls back** (contract-only, whole): non-`{int,string}` key sorts, direct reads on a bare `(map-empty)`, and whole-structure `=` over two maps or two `bytes` values (`LLMLL.md §5.3.5`).
 
-### 4.16 A `bytes[n]` Argument Needs a Declared Return Type Upstream
-
-A value reaching a `bytes[n]` parameter must come from a function that **declares** its return type. An intermediate function with no `-> bytes[n]` annotation is rejected:
-
-```lisp
-(def mk32 [] -> bytes[32] (bytes-zero))
-(def-shell mid []            (mk32))     ;; no declared return
-(def-shell use [b: bytes[64]] -> int (pre (and (>= 0 0) (< 0 64))) (bytes-get b 0))
-;; (use (mid))  →  type mismatch in 'use': expected bytes[64], got ?
-;;                 (an unannotated return type) … annotate the callee's return type.
-```
-
-❌ **Rejected since v0.14.73.** The fix is one token: annotate `mid`.
-
-```lisp
-(def-shell mid [] -> bytes[32] (mk32))   ;; now the length is checkable
-```
-
-The restriction exists because the verifier asserts a `bytes[n]` binder's length as a ground fact taken from its declared type, and discharges index-in-bounds obligations against it. An unannotated hop would let a `bytes[32]` satisfy a `bytes[64]` parameter, after which that false length proves an out-of-bounds read safe (`LLMLL.md §3.4.6`, WILD-ASSUME). Scalars, named holes, and `(map-empty)` are unaffected.
-
-### 4.17 A Nullary Command Constructor Is a Value, Not a Call
-
-`wasi.clock.monotonic` is the only command constructor that takes no arguments. Write it bare:
-
-```lisp
-(def-shell now [] -> Command
-  wasi.clock.monotonic)
-```
-
-The parenthesised form `(wasi.clock.monotonic)` is **also accepted** and emits the same code, so
-neither spelling is an error. Prefer the bare one: it matches how the nullary `Response` constructor
-`RNone` binds, and it does not read as an application of a zero-argument function, which LLMLL does
-not have.
-
-The reading arrives on the response channel as `RCode`, in nanoseconds:
-
-```lisp
-(def-shell step [s: int input: string r: Response] -> (int, Command)
-  (match r
-    ((RCode ns) (pair (+ s 1) (wasi.io.stdout (int-to-string ns))))
-    ((RNone)    (pair (+ s 1) wasi.clock.monotonic))
-    ((RText t)  (pair (+ s 1) (wasi.io.stdout t)))
-    ((RErr e)   (pair (+ s 1) (wasi.io.stderr e)))
-    ((RList xs) (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length xs)))))))
-```
-
-> [!IMPORTANT]
-> **Only differences taken within one process run are meaningful.** The epoch is unspecified. If you
-> persist a reading with `wasi.fs.write` and read it back later, it returns as a string and is
-> re-parsed, so nothing in the type system can tell you the two readings share an origin. A duration
-> computed across a restart is meaningless and the compiler will not say so.
-
----
-
 ### §4.27 Control-Tag Facts on a `Response` (`RESP-FACT-1`)
 
 A step that preconditions on the program's own control tag receives the compiler's declared fact for the builtin that tag is bound to, on the `Response` arm binder (`LLMLL.md` §9.7). The program below is `compiler/test/fixtures/resp-fact/witness.llmll` and verifies SAFE at v0.17.0; without the `(pre (= p Ran))` request the `RCode` binder is unconstrained and `ran-step` is refuted.
@@ -1837,123 +1783,7 @@ type error for the same underlying reason: an age reads the wall clock.
 `wasi.fs.exists` declares no fact — its kind is `RText` and fact predicates are integer-only — so a
 tag bound to it warns `W-RESP-FACT-NONE` and receives nothing.
 
-## Part 5 — Core Language Quick Reference
-
-```lisp
-;; Dependent type (runtime-checked constraint)
-(type Name (where [var: basetype] constraint-expr))
-
-;; Pure function with contracts
-(def name [param: type ...]
-  (pre  precondition-expr)      ;; optional
-  (post postcondition-expr)     ;; optional — can reference `result`
-  body-expr)
-
-;; Let binding (sequential)
-(let [(x expr1) (y expr2)] body)
-
-;; If expression
-(if cond then-expr else-expr)
-
-;; Named hole
-?my_hole_name
-
-;; Property-based test
-(check "description"
-  (for-all [param: type ...]
-    property-expr))
-
-;; Entry point
-(def-main :mode console :init (start-game) :step game-loop)
-```
-
-> Unicode aliases are supported: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ`
-
-### 4.18 JSON Is `def-shell`-Only
-
-Every `json-*` operation is rejected inside a `def`:
-
-```
-error: def 'read-cid': callee 'json-get-string' is a def-shell-only builtin;
-JSON values are an opaque carrier, so a body touching one cannot produce a
-body-faithful VC
-  suggestion: Replace (def read-cid ...) with (def-shell read-cid ...)
-```
-
-The fix is always to change `def` to `def-shell`, never to verify the callee: a sealed builtin has no LLMLL body to verify. The same diagnostic covers every `wasi.*` effect and every `ProcSpec` builder (`proc-spec`, `proc-env` and the rest, `LLMLL.md` §13.9).
-
-Accessors return `Result`, so match or use `unwrap-or`:
-
-```lisp
-(def-shell read-cid [j: Json] -> string
-  (unwrap-or (json-get-string j "cid") ""))
-```
-
-**An element of an array is read with `json-as-*`, not `json-get-*`.** The `json-get-*` family takes a **key** and reads a member of an object; a scalar sitting in an array has no key, so it needs the projection family, which is the same list of types minus the key argument:
-
-```lisp
-(def-shell flags-of [c: Json] -> list[string]
-  (list-map (unwrap-or (json-array (unwrap-or (json-get c "flags") json-object))
-                       (list-empty))
-            (fn [x: Json] (unwrap-or (json-as-string x) "<non-string-flag>"))))
-```
-
-Note the default on the last line. `(unwrap-or ... "")` is a natural habit for a **missing field**, and on a **mis-typed value** it converts a type error into a plausible one: that exact substitution is how a real gate ran its whole corpus with every flag silently dropped. When the `err` means "this document is malformed" rather than "this field is absent", pick a default that fails loudly or match on the `Result` instead.
-
-Building a document is functional; `json-set` returns a new value rather than mutating:
-
-```lisp
-(def-shell make-row [n: int] -> Json
-  (unwrap-or (json-set json-object "n" (json-of-int n)) json-object))
-```
-
-`=` on two `Json` values is a type error, because structural equality would make member order observable. Compare `(json-serialize a)` with `(json-serialize b)`.
-
-**The shape that keeps verification:** extract scalars in a `def-shell`, then decide in a `def`. The extraction cannot be body-faithful, but the decision can. [`tools/llmll-driver/spine.llmll`](../tools/llmll-driver/spine.llmll) is a worked example: the JSON projections are shell, and `stage-e-passes` is a strict-core `def` whose contracts pin the values it must reproduce.
-
-### §4.23 Fetching a URL to a File (`wasi.http.get`)
-
-`wasi.http.get` (v0.21.0) fetches a URL and writes the response body to a file as bytes. It never
-decodes, so the file's digest is the server's digest, which is what a provenance pin needs:
-
-```lisp
-(module intake
-  (import wasi.io   (capability stdout))
-  (import wasi.fs   (capability read-write "00-source"))
-  (import wasi.http (capability get "https://www.rfc-editor.org/"))
-
-  ;; Turn one: issue the fetch. Turn two: read its arm. RNone means the COMPLETE body
-  ;; is at dest; RErr means dest is unchanged, and the text names why.
-  (def-shell step [s: int input: string r: Response] -> (int, Command)
-    (match r
-      ((RNone)  (pair (+ s 1) (wasi.fs.sha256 "00-source/rfc4648.txt")))
-      ((RErr e) (pair (+ s 1) (wasi.io.stdout (string-concat "fetch failed: " e))))
-      ((RText digest) (pair (+ s 1) (wasi.io.stdout digest)))
-      ((RList _) (pair (+ s 1) (wasi.io.stdout "unexpected")))
-      ((RCode _) (pair (+ s 1) (wasi.io.stdout "unexpected"))))))
-```
-
-Three things to know before writing one:
-
-- **The URL comes first, and a literal that cannot be fetched is a type error.** Both parameters are
-  `string`, so `(wasi.http.get "00-source/rfc.txt" url)` would type-check; the checker refuses a
-  literal first argument that does not begin with `http://` or `https://` (`http-url-malformed`), so
-  the reversed call fails at `check`. A computed URL with another scheme answers `RErr` at run time
-  before any request is made.
-- **`dest` is atomic, and its parent must exist.** The body streams into a temporary beside `dest`
-  and is renamed only when it arrived whole under a 2xx. Every other outcome (a 404, a refused
-  connection, a certificate the host's store rejects, a body cut short, the 60-second budget) leaves
-  `dest` exactly as it was, so a resume that finds `dest` present may trust it. Create the directory
-  first with `wasi.fs.mkdir`; the builtin does not.
-- **Only a program that calls it pays for it.** The generated project of a fetching program depends
-  on `http-client` and `http-client-tls` (41 more packages, a 40-second cold build on a laptop, then
-  cached). A program that does not call `wasi.http.get` is generated exactly as before, byte for
-  byte. The trust report of a fetching module carries a `harness_assumptions` entry naming what the
-  transfer rests on: the pinned library, the host's certificate store, and the budget, assumed and
-  not proved.
-
-The capability check matches the namespace, not the verb, so any `wasi.http` import grants the call
-today (`CAP-1-REAL`); write `(capability get URL)` anyway, because the header is what a reader audits.
+---
 
 ### §4.28 One Function at Several Types: `:type-params` (`GENERICS-1`)
 
@@ -1999,3 +1829,181 @@ Mistakes the checker names:
   whose type comes from a function with no `->` return annotation is `untyped-arg-to-generic`.
 - **A generic `def`.** `(def f :type-params …)` is `type-params-not-supported`; write a `def-shell`.
   A `def` cannot call a generic `def-shell` either (`generic-callee-in-def`).
+
+---
+
+### §4.29 A `bytes[n]` Argument Needs a Declared Return Type Upstream
+
+A value reaching a `bytes[n]` parameter must come from a function that **declares** its return type. An intermediate function with no `-> bytes[n]` annotation is rejected:
+
+```lisp
+(def mk32 [] -> bytes[32] (bytes-zero))
+(def-shell mid []            (mk32))     ;; no declared return
+(def-shell use [b: bytes[64]] -> int (pre (and (>= 0 0) (< 0 64))) (bytes-get b 0))
+;; (use (mid))  →  type mismatch in 'use': expected bytes[64], got ?
+;;                 (an unannotated return type) … annotate the callee's return type.
+```
+
+❌ **Rejected since v0.14.73.** The fix is one token: annotate `mid`.
+
+```lisp
+(def-shell mid [] -> bytes[32] (mk32))   ;; now the length is checkable
+```
+
+The restriction exists because the verifier asserts a `bytes[n]` binder's length as a ground fact taken from its declared type, and discharges index-in-bounds obligations against it. An unannotated hop would let a `bytes[32]` satisfy a `bytes[64]` parameter, after which that false length proves an out-of-bounds read safe (`LLMLL.md §3.4.6`, WILD-ASSUME). Scalars, named holes, and `(map-empty)` are unaffected.
+
+### §4.30 A Nullary Command Constructor Is a Value, Not a Call
+
+`wasi.clock.monotonic` is the only command constructor that takes no arguments. Write it bare:
+
+```lisp
+(def-shell now [] -> Command
+  wasi.clock.monotonic)
+```
+
+The parenthesised form `(wasi.clock.monotonic)` is **also accepted** and emits the same code, so
+neither spelling is an error. Prefer the bare one: it matches how the nullary `Response` constructor
+`RNone` binds, and it does not read as an application of a zero-argument function, which LLMLL does
+not have.
+
+The reading arrives on the response channel as `RCode`, in nanoseconds:
+
+```lisp
+(def-shell step [s: int input: string r: Response] -> (int, Command)
+  (match r
+    ((RCode ns) (pair (+ s 1) (wasi.io.stdout (int-to-string ns))))
+    ((RNone)    (pair (+ s 1) wasi.clock.monotonic))
+    ((RText t)  (pair (+ s 1) (wasi.io.stdout t)))
+    ((RErr e)   (pair (+ s 1) (wasi.io.stderr e)))
+    ((RList xs) (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length xs)))))))
+```
+
+> [!IMPORTANT]
+> **Only differences taken within one process run are meaningful.** The epoch is unspecified. If you
+> persist a reading with `wasi.fs.write` and read it back later, it returns as a string and is
+> re-parsed, so nothing in the type system can tell you the two readings share an origin. A duration
+> computed across a restart is meaningless and the compiler will not say so.
+
+---
+
+### §4.31 JSON Is `def-shell`-Only
+
+Every `json-*` operation is rejected inside a `def`:
+
+```
+error: def 'read-cid': callee 'json-get-string' is a def-shell-only builtin;
+JSON values are an opaque carrier, so a body touching one cannot produce a
+body-faithful VC
+  suggestion: Replace (def read-cid ...) with (def-shell read-cid ...)
+```
+
+The fix is always to change `def` to `def-shell`, never to verify the callee: a sealed builtin has no LLMLL body to verify. The same diagnostic covers every `wasi.*` effect and every `ProcSpec` builder (`proc-spec`, `proc-env` and the rest, `LLMLL.md` §13.9).
+
+Accessors return `Result`, so match or use `unwrap-or`:
+
+```lisp
+(def-shell read-cid [j: Json] -> string
+  (unwrap-or (json-get-string j "cid") ""))
+```
+
+**An element of an array is read with `json-as-*`, not `json-get-*`.** The `json-get-*` family takes a **key** and reads a member of an object; a scalar sitting in an array has no key, so it needs the projection family, which is the same list of types minus the key argument:
+
+```lisp
+(def-shell flags-of [c: Json] -> list[string]
+  (list-map (unwrap-or (json-array (unwrap-or (json-get c "flags") json-object))
+                       (list-empty))
+            (fn [x: Json] (unwrap-or (json-as-string x) "<non-string-flag>"))))
+```
+
+Note the default on the last line. `(unwrap-or ... "")` is a natural habit for a **missing field**, and on a **mis-typed value** it converts a type error into a plausible one: that exact substitution is how a real gate ran its whole corpus with every flag silently dropped. When the `err` means "this document is malformed" rather than "this field is absent", pick a default that fails loudly or match on the `Result` instead.
+
+Building a document is functional; `json-set` returns a new value rather than mutating:
+
+```lisp
+(def-shell make-row [n: int] -> Json
+  (unwrap-or (json-set json-object "n" (json-of-int n)) json-object))
+```
+
+`=` on two `Json` values is a type error, because structural equality would make member order observable. Compare `(json-serialize a)` with `(json-serialize b)`.
+
+**The shape that keeps verification:** extract scalars in a `def-shell`, then decide in a `def`. The extraction cannot be body-faithful, but the decision can. [`tools/llmll-driver/spine.llmll`](../tools/llmll-driver/spine.llmll) is a worked example: the JSON projections are shell, and `stage-e-passes` is a strict-core `def` whose contracts pin the values it must reproduce.
+
+---
+
+### §4.32 Fetching a URL to a File (`wasi.http.get`)
+
+`wasi.http.get` (v0.21.0) fetches a URL and writes the response body to a file as bytes. It never
+decodes, so the file's digest is the server's digest, which is what a provenance pin needs:
+
+```lisp
+(module intake
+  (import wasi.io   (capability stdout))
+  (import wasi.fs   (capability read-write "00-source"))
+  (import wasi.http (capability get "https://www.rfc-editor.org/"))
+
+  ;; Turn one: issue the fetch. Turn two: read its arm. RNone means the COMPLETE body
+  ;; is at dest; RErr means dest is unchanged, and the text names why.
+  (def-shell step [s: int input: string r: Response] -> (int, Command)
+    (match r
+      ((RNone)  (pair (+ s 1) (wasi.fs.sha256 "00-source/rfc4648.txt")))
+      ((RErr e) (pair (+ s 1) (wasi.io.stdout (string-concat "fetch failed: " e))))
+      ((RText digest) (pair (+ s 1) (wasi.io.stdout digest)))
+      ((RList _) (pair (+ s 1) (wasi.io.stdout "unexpected")))
+      ((RCode _) (pair (+ s 1) (wasi.io.stdout "unexpected"))))))
+```
+
+Three things to know before writing one:
+
+- **The URL comes first, and a literal that cannot be fetched is a type error.** Both parameters are
+  `string`, so `(wasi.http.get "00-source/rfc.txt" url)` would type-check; the checker refuses a
+  literal first argument that does not begin with `http://` or `https://` (`http-url-malformed`), so
+  the reversed call fails at `check`. A computed URL with another scheme answers `RErr` at run time
+  before any request is made.
+- **`dest` is atomic, and its parent must exist.** The body streams into a temporary beside `dest`
+  and is renamed only when it arrived whole under a 2xx. Every other outcome (a 404, a refused
+  connection, a certificate the host's store rejects, a body cut short, the 60-second budget) leaves
+  `dest` exactly as it was, so a resume that finds `dest` present may trust it. Create the directory
+  first with `wasi.fs.mkdir`; the builtin does not.
+- **Only a program that calls it pays for it.** The generated project of a fetching program depends
+  on `http-client` and `http-client-tls` (41 more packages, a 40-second cold build on a laptop, then
+  cached). A program that does not call `wasi.http.get` is generated exactly as before, byte for
+  byte. The trust report of a fetching module carries a `harness_assumptions` entry naming what the
+  transfer rests on: the pinned library, the host's certificate store, and the budget, assumed and
+  not proved.
+
+The capability check matches the namespace, not the verb, so any `wasi.http` import grants the call
+today (`CAP-1-REAL`); write `(capability get URL)` anyway, because the header is what a reader audits.
+
+---
+
+## Part 5 — Core Language Quick Reference
+
+```lisp
+;; Dependent type (runtime-checked constraint)
+(type Name (where [var: basetype] constraint-expr))
+
+;; Pure function with contracts
+(def name [param: type ...]
+  (pre  precondition-expr)      ;; optional
+  (post postcondition-expr)     ;; optional — can reference `result`
+  body-expr)
+
+;; Let binding (sequential)
+(let [(x expr1) (y expr2)] body)
+
+;; If expression
+(if cond then-expr else-expr)
+
+;; Named hole
+?my_hole_name
+
+;; Property-based test
+(check "description"
+  (for-all [param: type ...]
+    property-expr))
+
+;; Entry point
+(def-main :mode console :init (start-game) :step game-loop)
+```
+
+> Unicode aliases are supported: `→` `≥` `≤` `≠` `∧` `∨` `¬` `∀` `λ`

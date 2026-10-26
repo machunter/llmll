@@ -1,6 +1,6 @@
 ---
 title: GENERICS — user type parameters on def-shell (v1), with generic def and generic types deferred
-status: Rev 1 SETTLED, 2026-10-24. The user decided: (1) v1 scope accepted, `:type-params` on def-shell only, no generic types, no generic def; (2) S0 stays an unsettled draft, and GENERICS-1 lands with the local guard of rule 5, with no dependency on S0; (3) FN-PARAM-UF-1 lands before GENERICS-1.
+status: Rev 1 SETTLED, 2026-10-24. The user decided: (1) v1 scope accepted, `:type-params` on def-shell only, no generic types, no generic def; (2) S0 stays an unsettled draft, and GENERICS-1 lands with the local guard of rule 5, with no dependency on S0; (3) FN-PARAM-UF-1 lands before GENERICS-1. Errata E1–E3 added 2026-10-25 from the GENERICS-1 implementation (shipped v0.33.0); no decision changed.
 rows: GENERICS-1 and GENERIC-COMPARE-1 (G7, PLAN), GENERICS-2 (G7, DECIDE), GENERIC-TYPES-1 (Trigger-gated Parking Lot); filed by the doc-lead from "Hand-off"
 review: docs/design/generics-review.md (professor, of Rev 0); standalone, folded by the doc-lead at settlement
 ---
@@ -15,6 +15,18 @@ The user settled Rev 1 on 2026-10-24. No design changed at settlement.
 2. **S0 is not settled and stays a draft.** GENERICS-1 lands with the local guard of rule 5, and it has no dependency on S0. The guard is: every parameter of a generic `def-shell` is typed, and an untyped argument at a generic call is the error `untyped-arg-to-generic`. If S0 lands later, the guard becomes redundant, and it can stay or be removed.
 3. **FN-PARAM-UF-1 lands before GENERICS-1.** The key-function idiom therefore loses no reflection when generics ship. This record depends only on that ordering, not on the details of the FN-PARAM-UF-1 design record, which is still in progress.
 
+## Errata (2026-10-25, from the GENERICS-1 implementation)
+
+The GENERICS-1 implementation (shipped in v0.33.0) found three places where this text does not match what was built. No decision above changes. The source is `docs/design/generics-1-engineer-plan.md`, findings F1, F3 and F4. Each corrected passage below carries a pointer to its erratum.
+
+- **E1: the codegen context is declared, not derived (plan F1).** "Codegen" under Summary and the "Codegen" section say each Haskell context is the union of classes reached by the body's preamble calls. What was built maps the declared constraint instead: `eq` gives `Eq`, `ord` gives `Ord`, `key` gives `(Ord, Show)`.
+  - **Why:** deriving from reached calls needs the binding of each builtin's own type variables at every call in a generic body. The checker does not keep that binding past one call (`TypeCheck.hs:3816-3821`), and there is no table from builtin names to Haskell signatures (`CodegenHs.hs:2353`).
+  - **What still holds:** all three `nc-038` facts. Fact 3, that the contexts cover every class reached, is enforced by a pinned test over the preamble.
+  - **Visible difference:** P3's `show-groups` gets `(Ord tp_k, Show tp_k)` where derivation would give no context. GHC accepts a redundant context.
+  - **The "internal error" requirement:** with a declared signature, a body that reaches a class its constraint does not entail is rejected by GHC. The defect fails closed at build time instead of in a compiler check.
+- **E2: the evidence key is one level deep, not transitive (plan F3).** Verification step 4, last bullet ("transitively, the same for every specialized callee"), is wrong. The key hashes callee contracts one level deep (`EvidenceKey.hs`, HASH-PRE-ASYM), which is assume-guarantee. A specialized callee's contract already contains its expanded type arguments, so an edit to those arguments changes the callee's own key. A transitive key would invalidate more evidence and protect nothing more. The first two bullets of step 4 hold as written.
+- **E3: rule 2 uses the plain call-graph component (plan F4).** Rule 2 says the component is "the one that the trust report already computes for termination". The trust report's component subtracts discharged cycles (`CallGraph.hs:183-189`), so it is the wrong one. Rule 2 uses the strongly connected components of `HoleAnalysis.buildCallGraph`, with no cycles subtracted.
+
 ## Summary
 
 **v1 (`GENERICS-1` and `GENERIC-COMPARE-1`).**
@@ -25,7 +37,7 @@ The user settled Rev 1 on 2026-10-24. No design changed at settlement.
 - **Local instantiation.** Type arguments are synthesized at each call, in a stated order (local type inference with the colored extension for lambda results).
 - **One new builtin, `compare`.**
 - **Verification.** It specializes each used instantiation and then verifies the copy (SPARK discipline). Evidence is keyed on the content hash of the copy *with its type arguments expanded*.
-- **Codegen.** It stays polymorphic. Each Haskell context is derived from the preamble signatures that the body reaches.
+- **Codegen.** It stays polymorphic. Each Haskell context is derived from the preamble signatures that the body reaches. *(Corrected by Erratum E1: the context comes from the declared constraint.)*
 
 **Deferred.**
 - **v2 (`GENERICS-2`):** generic `def`, with a check-time admission gate per instance, and the hybrid that tries a generic proof first.
@@ -140,7 +152,7 @@ A bare name allows only passing, storing and returning.
 ### Rules
 
 1. **Determined.** Every type parameter occurs in at least one value-parameter type (`type-param-not-determined`). There is no syntax for explicit instantiation.
-2. **Regular recursion, per strongly connected component.** In each strongly connected component of the call graph, every call between members passes the component's type parameters unchanged (`polymorphic-recursion`). The component is the one that the trust report already computes for termination. This bounds the instantiation set. The rule follows ECMA-335 Partition II, which forbids expansive generic cycles, and Rust's recursion limit reports the same case.
+2. **Regular recursion, per strongly connected component.** In each strongly connected component of the call graph, every call between members passes the component's type parameters unchanged (`polymorphic-recursion`). The component is the one that the trust report already computes for termination. *(Corrected by Erratum E3: the plain `HoleAnalysis.buildCallGraph` component, no cycles subtracted.)* This bounds the instantiation set. The rule follows ECMA-335 Partition II, which forbids expansive generic cycles, and Rust's recursion limit reports the same case.
 3. **`for-all`.** No type parameter in a `for-all` binding (`for-all-type-param`).
 4. **FFI.** No type parameter in a value passed to or from a Tier 1 import (`ffi-type-param`).
 5. **Untyped parameters.** Every parameter of a generic `def-shell` carries a type. No argument to a generic call may synthesize to the untyped wildcard (`untyped-arg-to-generic`). See "Dependency on S0".
@@ -191,7 +203,7 @@ The predicate enters the evidence hash (step 4 below).
 4. **The evidence key** is the content hash of the copy, covering:
    - the copy's body and effective contract after substitution;
    - the **expanded type arguments**: each user type declaration the arguments name, each alias expansion, and each refinement predicate, transitively;
-   - transitively, the same for every specialized callee.
+   - transitively, the same for every specialized callee. *(Corrected by Erratum E2: callees are hashed one level deep.)*
 
    An edit to `(type Task …)` or to an alias predicate changes the key.
 5. **Reporting.** The trust report lists `f@[T…]` under the source definition. TRUST-AXIOM rows name the copy, and the sealed-builtin axiom set does not change.
@@ -208,7 +220,7 @@ The predicate enters the evidence hash (step 4 below).
 
 ### Codegen
 
-**Polymorphic Haskell.** A type parameter becomes a Haskell type variable. **The context is derived, not declared.** It is the union of the classes that the preamble signatures reached by the body and contract demand at that parameter:
+**Polymorphic Haskell.** A type parameter becomes a Haskell type variable. *(Corrected by Erratum E1: the context is declared from the constraint; the derivation below was not built.)* **The context is derived, not declared.** It is the union of the classes that the preamble signatures reached by the body and contract demand at that parameter:
 - `=` gives `Eq`;
 - `list-sort` and `compare` give `Ord`;
 - `map-get` gives `Ord` and `Show`;
