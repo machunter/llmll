@@ -399,7 +399,7 @@ descentDischargedFns stmts measured bodyFaithful isSafe
           , uniformArity scc
           , n <- scc ]
   where
-    measureArity nm = case [ length dec | SDefShell nm' _ _ _ _ dec <- stmts, nm' == nm ] of
+    measureArity nm = case [ length dec | SDefShell nm' _ _ _ _ dec _ <- stmts, nm' == nm ] of
                         (k:_) -> k
                         []    -> 0
     uniformArity scc = case map measureArity scc of
@@ -680,7 +680,7 @@ computeEffectSummary cache stmts =
   where
     fnBodies = mapMaybe $ \s -> case s of
       SDef      n _ _ _ b   -> Just (n, b)
-      SDefShell n _ _ _ b _   -> Just (n, b)
+      SDefShell n _ _ _ b _ _   -> Just (n, b)
       SDefLogic n _ _ _ b   -> Just (n, b)
       SLetrec   n _ _ _ _ b -> Just (n, b)
       -- v0.12.1
@@ -899,6 +899,10 @@ findMatchBranches fnName params contract parentObl table mFqResult suppressed re
 isTypeCompatible :: AliasMap -> Type -> Type -> Bool
 isTypeCompatible _      _ (TVar _)                  = True
 isTypeCompatible _      (TVar _) _                  = True
+-- GENERICS-1: a rigid type parameter is compatible only with itself.
+isTypeCompatible _      (TParam a _) (TParam b _)   = a == b
+isTypeCompatible _      (TParam _ _) _              = False
+isTypeCompatible _      _ (TParam _ _)              = False
 isTypeCompatible aliases expected actual@(TResult ok _) =
   typeLabel expected == typeLabel actual
   || isTypeCompatible aliases expected ok
@@ -1301,8 +1305,11 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
         { tcExpectedType = maybe (Map.findWithDefault "unknown" (holePointer he) sketchTypeMap)
                                  typeLabel (holeInferredType he)
         , tcPolymorphic  = case holeInferredType he of
-            Just (TVar _) -> True
-            _             -> False
+            Just (TVar _)     -> True
+            -- GENERICS-1: a rigid parameter is one fixed (if unknown) type,
+            -- not a placeholder the hole may fill at any type.
+            Just (TParam _ _) -> False
+            _                 -> False
         , tcInScope      = map paramToScope params
         }
 
@@ -1568,7 +1575,7 @@ findFunctionInfo name stmts = case filter (matchesName name) stmts of
   (SLetrec _ params _mRet contract _ body : _) -> (Just contract, Just params, Just body)
   -- LT-INV (v0.11)
   (SDef      _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
-  (SDefShell _ params _mRet contract body _ : _) -> (Just contract, Just params, Just body)
+  (SDefShell _ params _mRet contract body _ _ : _) -> (Just contract, Just params, Just body)
   -- v0.12.1
   (SDefInvariant _ params _mRet contract body : _) -> (Just contract, Just params, Just body)
   _ -> (Nothing, Nothing, Nothing)
@@ -1577,7 +1584,7 @@ findFunctionInfo name stmts = case filter (matchesName name) stmts of
     matchesName n (SLetrec nm _ _ _ _ _)    = nm == n
     -- LT-INV (v0.11)
     matchesName n (SDef      nm _ _ _ _)    = nm == n
-    matchesName n (SDefShell nm _ _ _ _ _)    = nm == n
+    matchesName n (SDefShell nm _ _ _ _ _ _)    = nm == n
     -- v0.12.1
     matchesName n (SDefInvariant nm _ _ _ _) = nm == n
     matchesName _ _                         = False

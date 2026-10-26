@@ -190,6 +190,7 @@ pLetrec :: Parser Statement
 pLetrec = do
   _ <- try (symbol "(" *> symbol "letrec")
   name    <- pIdent
+  pTypeParamsRefused "letrec" name
   params  <- brackets (many pDefParam)
   preClauses <- many (try pPreClause)
   -- SRC-CONJ-1: post accepts multiple clauses, symmetric with pre.
@@ -210,6 +211,7 @@ pDef = do
   _ <- try (symbol "(" *>
             lexeme' (string "def" <* notFollowedBy (char '-' <|> alphaNumChar <|> char '_')))
   name <- pIdent
+  pTypeParamsRefused "def" name
   params <- brackets (many pDefParam)
   -- DEF-RET (v0.13.x): optional return-type annotation after the param brackets,
   -- before contract clauses. Absent → Nothing (inferred), byte-identical to pre-DEF-RET.
@@ -225,10 +227,13 @@ pDef = do
   pure $ SDef name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) body
 
 -- | LT-INV (v0.11): Parse (def-shell name [params] (pre ...) (post ...) body) — permissive.
+-- GENERICS-1: an optional @:type-params [entry…]@ clause sits between the name
+-- and the param brackets; 'bindTypeParams' then scopes it over the definition.
 pDefShell :: Parser Statement
 pDefShell = do
   _ <- try (symbol "(" *> symbol "def-shell")
   name <- pIdent
+  tps <- option [] pTypeParamsClause
   params <- brackets (many pDefParam)
   -- DEF-RET (v0.13.x): optional return-type annotation (see pDef).
   mRet <- optional (try (pArrowSym *> pType))
@@ -242,7 +247,35 @@ pDefShell = do
   _ <- symbol ")"
   let (mPre, mPreSrc, preCls) = foldClauses preClauses
       (mPost, mPostSrc, postCls) = foldClauses postClauses
-  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) body (maybe [] id mDecreases)
+  pure $ bindTypeParams $
+    SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) body (maybe [] id mDecreases) tps
+
+-- | GENERICS-1: @:type-params [a (k ord) …]@. An entry is a bare name or
+-- @(name eq|ord|key)@.
+pTypeParamsClause :: Parser [(Name, Maybe TyConstraint)]
+pTypeParamsClause = do
+  _ <- try (symbol ":type-params")
+  brackets (many pEntry)
+  where
+    pEntry = (parens $ do
+                n <- pIdent
+                c <- pIdent
+                case parseTyConstraint c of
+                  Just k  -> pure (n, Just k)
+                  Nothing -> fail $ "type parameter '" ++ T.unpack n
+                                 ++ "': unknown constraint '" ++ T.unpack c
+                                 ++ "' (expected eq, ord or key)")
+             <|> ((\n -> (n, Nothing)) <$> pIdent)
+
+-- | GENERICS-1: a @:type-params@ clause on any form but @def-shell@ is refused
+-- with @type-params-not-supported@, as 'pDefLogicRemoved' refuses def-logic:
+-- recognised only to say why, instead of a generic parse error.
+pTypeParamsRefused :: Text -> Name -> Parser ()
+pTypeParamsRefused form name = do
+  found <- optional (try (lookAhead (symbol ":type-params")))
+  case found of
+    Nothing -> pure ()
+    Just _  -> fail (T.unpack (typeParamsNotSupportedMessage form name))
 
 -- | A def-logic param is either a typed binding (name: type) or a bare name.
 -- Bare names are given a wildcard type to unblock parsing; type inference is v0.2.
@@ -258,6 +291,7 @@ pDefInterface :: Parser Statement
 pDefInterface = do
   _ <- try (symbol "(" *> symbol "def-interface")
   name <- pIdent
+  pTypeParamsRefused "def-interface" name
   fns <- many (try pInterfaceFn)
   laws <- option [] pLawsClause
   _ <- symbol ")"
@@ -306,6 +340,7 @@ pTypeDef :: Parser Statement
 pTypeDef = do
   _ <- try (symbol "(" *> symbol "type")
   name <- pIdent
+  pTypeParamsRefused "type" name
   body <- pTypeBody
   _ <- symbol ")"
   pure $ STypeDef name body

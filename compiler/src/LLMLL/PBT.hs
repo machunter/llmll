@@ -38,6 +38,7 @@ module LLMLL.PBT
   , canonicalDefEvidenceHash
   , canonicalDefEvidenceHashWith
   , pbtTrustWriteback
+  , pbtTrustWritebackWith
 
     -- * Results
   , PBTResult(..)
@@ -240,7 +241,7 @@ testDefRefs :: Statement -> [Name]
 testDefRefs s = case s of
   SDefLogic _ ps _ c b   -> refs ps c [b]
   SDef _ ps _ c b        -> refs ps c [b]
-  SDefShell _ ps _ c b _ -> refs ps c [b]
+  SDefShell _ ps _ c b _ _ -> refs ps c [b]
   SLetrec _ ps _ c d b   -> refs ps c [d, b]
   _                      -> []
   where
@@ -1069,7 +1070,21 @@ pbtTrustWriteback :: (Name -> Maybe Text)
                   -> ModuleCache
                   -> PBTResult
                   -> (Map Name ContractStatus, [Text])
-pbtTrustWriteback subjectKeyOf localStmts cache result =
+pbtTrustWriteback = pbtTrustWritebackWith (\_ f -> Right f)
+
+-- | GENERICS-1: 'pbtTrustWriteback' with a subject rename. Given the
+-- property's description and a subject name, it answers the name the record
+-- lands on: for a generic subject, the specialized copy the property calls
+-- (@f\@[int]@), so @tested@ lifts to that instance only, never to the generic
+-- or another instance (edge case 15); 'Left' is a diagnostic and no record.
+-- The identity rename is 'pbtTrustWriteback'.
+pbtTrustWritebackWith :: (Text -> Name -> Either Text Name)
+                      -> (Name -> Maybe Text)
+                      -> [Statement]
+                      -> ModuleCache
+                      -> PBTResult
+                      -> (Map Name ContractStatus, [Text])
+pbtTrustWritebackWith renameSubject subjectKeyOf localStmts cache result =
   let -- Local names: only those defined in the local file. SOpen-forwarded
       -- imports do not appear here even after 'assembleTestStatements'
       -- because we work off 'localStmts' directly.
@@ -1124,11 +1139,11 @@ pbtTrustWriteback subjectKeyOf localStmts cache result =
       -- delegation hole inside def makes the return value opaque regardless
       -- of grammar form.
       delegateBodies = Set.fromList $
-        [ n | SDefShell n _ _ _ (EHole (HDelegate _)) _        <- mergedStmts ]
-        ++ [ n | SDefShell n _ _ _ (EHole (HDelegateAsync _)) _ <- mergedStmts ]
+        [ n | SDefShell n _ _ _ (EHole (HDelegate _)) _ _        <- mergedStmts ]
+        ++ [ n | SDefShell n _ _ _ (EHole (HDelegateAsync _)) _ _ <- mergedStmts ]
         ++ [ n | SDef      n _ _ _ (EHole (HDelegate _))        <- mergedStmts ]
         ++ [ n | SDef      n _ _ _ (EHole (HDelegateAsync _)) <- mergedStmts ]
-      processed = map (processRun subjectKeyOf contractByName qualMap propsByDesc delegateBodies) (pbtResults result)
+      processed = map (processRun renameSubject subjectKeyOf contractByName qualMap propsByDesc delegateBodies) (pbtResults result)
       (mapsList, diagsList) = unzip processed
       mergedMap = foldl' (Map.unionWith mergePbtWriteback) Map.empty mapsList
   in (mergedMap, concat diagsList)
@@ -1142,14 +1157,15 @@ pbtTrustWriteback subjectKeyOf localStmts cache result =
 -- 'pbt_witnesses' hash (per proposal §11.1 inference rule, 2026-05-14). On
 -- absence of the annotation, the v0.10.5 singleton-head-position semantics
 -- continue to apply unchanged.
-processRun :: (Name -> Maybe Text)  -- ^ TRUST-REPORT-GATE-1: sidecar key → live evidence key
+processRun :: (Text -> Name -> Either Text Name)  -- ^ GENERICS-1: subject → record name
+           -> (Name -> Maybe Text)  -- ^ TRUST-REPORT-GATE-1: sidecar key → live evidence key
            -> Map Name Contract
            -> Map Name Name      -- ^ bare → qualified sidecar key
            -> Map Name LLMLL.Syntax.Property
            -> Set Name           -- ^ F-GATE-8: names with hole-delegate bodies
            -> PBTRun
            -> (Map Name ContractStatus, [Text])
-processRun subjectKeyOf contractByName qualMap propsByDesc delegateBodies run =
+processRun renameSubject subjectKeyOf contractByName qualMap propsByDesc delegateBodies run =
   case pbtStatus run of
     PBTPassed ->
       case Map.lookup (pbtDescription run) propsByDesc of
@@ -1168,6 +1184,11 @@ processRun subjectKeyOf contractByName qualMap propsByDesc delegateBodies run =
                     er  = EvidenceRecord (DLTested n) False Nothing [w] False Nothing Nothing False Nothing False []
                     cs  = ContractStatus { csPre = Nothing, csPost = Just er, csAssumptions = [] }
                 in (key, cs)
+              -- GENERICS-1: the record lands on the name the rename gives
+              -- (a generic subject's copy), or nowhere, with a diagnostic.
+              liftOne f = case renameSubject desc f of
+                Left d   -> (Map.empty, [d])
+                Right f' -> let (k, cs) = mkEntry f' in (Map.singleton k cs, [])
               -- F-GATE-8: Guard a candidate subject against delegation holes.
               -- The static evaluator observes only delegateOnFailure, not the
               -- real implementation, so PBTPassed carries no evidence about the
@@ -1191,9 +1212,7 @@ processRun subjectKeyOf contractByName qualMap propsByDesc delegateBodies run =
                  let go f (accMap, accDiags) =
                        case Map.lookup f contractByName of
                          Just c | contractPost c /= Nothing ->
-                           let (blockMap, blockDiags) = guardDelegate f $
-                                 let (k, cs) = mkEntry f
-                                 in (Map.singleton k cs, [])
+                           let (blockMap, blockDiags) = guardDelegate f (liftOne f)
                            in (Map.union blockMap accMap, blockDiags ++ accDiags)
                          Just _ ->
                            let d = "property \"" <> desc
@@ -1210,9 +1229,7 @@ processRun subjectKeyOf contractByName qualMap propsByDesc delegateBodies run =
                      hits            = Set.toList (Set.intersection mentioned contractedNames)
                  in case hits of
                       [] -> (Map.empty, [])
-                      [f] -> guardDelegate f $
-                               let (key, cs) = mkEntry f
-                               in (Map.singleton key cs, [])
+                      [f] -> guardDelegate f (liftOne f)
                       fs ->
                         let diag = "property \"" <> desc
                                  <> "\" covers multiple contracted callees ("

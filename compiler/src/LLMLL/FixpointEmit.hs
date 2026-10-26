@@ -151,7 +151,7 @@ import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkBodyFallbackWarning, mkDecreasesUndischarged)
 import LLMLL.HoleAnalysis (buildCallGraph)
-import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm)
+import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, reflectedCompareNames)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
 -- def, premise sites, warnings). Pure; the checker already raised every error.
 import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), PremiseSite(..), PremiseCase(..), RespFact(..), FactCategory(..), factCategoryName)
@@ -462,7 +462,12 @@ buildContractEnvWith am stmts = Map.fromList $ mapMaybe go stmts
     go (SLetrec name params mRet contract _dec body) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
     -- LT-INV (v0.11)
     go (SDef      name params mRet contract body) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
-    go (SDefShell name params mRet contract body _dec) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
+    -- GENERICS-1: a generic source never enters the VC env. The
+    -- specialization pass rewrites every call to a copy; a call it missed
+    -- then falls back as an unknown callee instead of being read at the
+    -- source's type parameters, which 'typeToSort' would sort as int.
+    go (SDefShell _ _ _ _ _ _ (_ : _)) = Nothing
+    go (SDefShell name params mRet contract body _dec _) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
     -- v0.12.1: def-invariant registers in the VC env identically to SDefLogic.
     go (SDefInvariant name params mRet contract body) = Just (name, (params, aug params mRet contract, synthRet mRet contract body))
     go _ = Nothing
@@ -501,7 +506,7 @@ isBoolHead _               = False
 buildMeasureMap :: [Statement] -> Map Name ([Name], [Expr])
 buildMeasureMap stmts = Map.fromList
   [ (n, (map fst params, dec))
-  | SDefShell n params _ _ _ dec <- stmts, not (null dec) ]
+  | SDefShell n params _ _ _ dec _ <- stmts, not (null dec) ]
 
 -- | xmod-ag: build the imported half of a cross-module ContractEnv. For each
 -- cached module, re-derive its contracts from its own statements THROUGH the
@@ -832,7 +837,15 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       -- per-call-site strict descent is emitted from 'measureMap' in the body
       -- block. k>1 (lexicographic) is accepted but not discharged (W-DECREASES-LEX);
       -- a measure on a non-recursive def-shell is unused (W-DECREASES-UNUSED).
-      SDefShell name params mRet contract body dec -> do
+      -- GENERICS-1: a generic source never reaches the emitter; the
+      -- specialization pass replaces it with its copies first. Reaching here
+      -- is a compiler defect, refused rather than emitted with its type
+      -- parameters mis-sorted as int ('typeToSort').
+      SDefShell name _ _ _ _ _ tps@(_ : _) ->
+        error $ "internal error (GENERICS-1): the generic def-shell '" <> T.unpack name
+          <> "' :type-params " <> show (map fst tps)
+          <> " reached the verifier unspecialized"
+      SDefShell name params mRet contract body dec _ -> do
         -- REC-DESCENT lexicographic (k≥1): the FULL measure tuple is threaded via
         -- 'measureMap' and drives BOTH well-foundedness (≥0 per component) and the
         -- per-call-site lexicographic descent. 'mDec' is now letrec-only (Nothing here).
@@ -996,7 +1009,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       -- the function stays termination_unverified (descentDischargedFns reads
       -- the body-faithful set).
       measuredIdx = Map.fromList
-        [ (n, i) | (i, SDefShell n _ _ _ _ dec) <- zip [0 :: Int ..] stmts, not (null dec) ]
+        [ (n, i) | (i, SDefShell n _ _ _ _ dec _) <- zip [0 :: Int ..] stmts, not (null dec) ]
       undischargedDiags =
         [ mkDecreasesUndischarged n (renderFallbackCause cause) i
         | (n, cause) <- bfallback'
@@ -3097,7 +3110,7 @@ moduleUsesPairs am = any stmtUsesPairs
     sigOf s = case s of
       SDefLogic _ p r c b     -> Just (p, r, c, Just b)
       SDef _ p r c b          -> Just (p, r, c, Just b)
-      SDefShell _ p r c b _     -> Just (p, r, c, Just b)
+      SDefShell _ p r c b _ _     -> Just (p, r, c, Just b)
       SDefInvariant _ p r c b -> Just (p, r, c, Just b)
       SLetrec _ p r c _ b     -> Just (p, r, c, Just b)
       _                       -> Nothing
@@ -3165,7 +3178,7 @@ moduleConstructsResult am = any stmtConstructs
     sigOf s = case s of
       SDefLogic _ p r c b     -> Just (p, r, c, Just b)
       SDef _ p r c b          -> Just (p, r, c, Just b)
-      SDefShell _ p r c b _     -> Just (p, r, c, Just b)
+      SDefShell _ p r c b _ _     -> Just (p, r, c, Just b)
       SDefInvariant _ p r c b -> Just (p, r, c, Just b)
       SLetrec _ p r c _ b     -> Just (p, r, c, Just b)
       _                       -> Nothing
@@ -6204,10 +6217,9 @@ buildSortEnv aliases params = Map.fromList
 -- Compositional verification helpers (v0.9.0 COMP-1)
 -- ---------------------------------------------------------------------------
 
--- | MINMAX-FRAG-1: the prefix of the internal name a reflected builtin call takes.
--- `%` cannot appear in an LLMLL identifier, so no user name carries it.
-intBuiltinTag :: Text
-intBuiltinTag = "builtin%"
+-- MINMAX-FRAG-1: the prefix of the internal name a reflected builtin call
+-- takes ('intBuiltinTag'). GENERIC-COMPARE-1: it moved to LLMLL.GuardClassifier, so the
+-- guard channel matches the same tag the body channel writes.
 
 -- | MINMAX-FRAG-1: rename each application of `min`, `max` or `abs` to its
 -- 'intBuiltinTag' name when the name means the builtin. It does not when the
@@ -6220,7 +6232,11 @@ markIntBuiltins :: Set.Set Name -> Expr -> Expr
 markIntBuiltins declared body = go body
   where
     shadowed = declared `Set.union` exprBinders body
-    live f   = f `elem` ["min", "max", "abs"] && f `Set.notMember` shadowed
+    -- GENERIC-COMPARE-1: compare%int and compare%bool are written only by
+    -- the specialization pass, and `%` cannot appear in a user name, so no
+    -- binder can shadow them.
+    live f   = (f `elem` ["min", "max", "abs"] && f `Set.notMember` shadowed)
+               || f `elem` ["compare%int", "compare%bool"]
     go e = case e of
       EApp f as | live f -> EApp (intBuiltinTag <> f) (map go as)
       EOp  f as | live f -> EApp (intBuiltinTag <> f) (map go as)
@@ -6267,6 +6283,11 @@ reflectIntBuiltin :: Name -> [FQPred] -> Maybe FQPred
 reflectIntBuiltin "min" [a, b] = Just (FQIte (FQBinPred FQLe a b) a b)
 reflectIntBuiltin "max" [a, b] = Just (FQIte (FQBinPred FQLe a b) b a)
 reflectIntBuiltin "abs" [a]    = Just (FQIte (FQBinPred FQLt a (FQLit 0)) (FQBinArith FQSub (FQLit 0) a) a)
+-- GENERIC-COMPARE-1: `compare` at int and at bool, after specialization. The
+-- terms live in LLMLL.GuardClassifier.reflectCompare, which the guard channel
+-- also reads, so the body and guard unfoldings cannot drift.
+reflectIntBuiltin b ps
+  | b `elem` reflectedCompareNames = reflectCompare b ps
 reflectIntBuiltin _ _          = Nothing
 
 -- | Capture-free predicate substitution.

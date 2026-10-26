@@ -2,6 +2,59 @@
 
 ---
 
+## Unreleased (on `main` after v0.32.0)
+
+### `GENERICS-1`: type parameters on `def-shell`
+
+Design: [`docs/design/generics-proposal.md`](docs/design/generics-proposal.md) Rev 1; plan:
+[`docs/design/generics-1-engineer-plan.md`](docs/design/generics-1-engineer-plan.md).
+
+- **`(def-shell f :type-params [a (k ord)] …)`.** A type parameter carries at most one
+  constraint: `eq`, `ord` or `key` (`key` ⇒ `ord` ⇒ `eq`; `key` is the §13.12 map-key class).
+  The body and `pre`, `post` and `decreases` are checked once with each parameter rigid, and an
+  operation the constraint does not allow is `constraint-missing`:
+  `(def-shell same :type-params [a] [x: a] -> a (post (= result x)) x)` is refused with "'=' needs
+  equality at type 'a', and type parameter 'a' does not declare it; declare it as (a eq)".
+  `:type-params` on `def`, `letrec`, `def-interface` or `type` is `type-params-not-supported`.
+- **Type arguments are found at each call.** Non-lambda arguments are matched one way, then each
+  lambda whose parameter types are known is checked against them, which fixes a parameter that
+  occurs only in a lambda's result. New kinds: `type-param-not-determined`, `type-param-shadow`,
+  `untyped-param-in-generic`, `untyped-arg-to-generic` (also an argument whose type comes from an
+  unannotated return), `polymorphic-recursion`, `for-all-type-param`, `ffi-type-param`,
+  `generic-site-ambiguous`, `generic-callee-in-def` and `unknown-type-var`. The existing map-key
+  refusal now carries the kind `map-key-undefined`, with its message unchanged.
+- **`verify` specializes, then verifies.** Each instantiation reached from a non-generic
+  definition becomes a copy `f@[T…]`, verified as a hand-written definition would be; a type
+  argument that nothing fixes is specialized at `int`. `verify` prints
+  `generics: N definitions, M instances`, and `--json` adds a `generics` object with
+  `per_definition` counts. A generic with no instance is `unverified (generic, not instantiated)`
+  in the trust report. A copy's evidence key adds a `(type-args …)` fragment; keys of non-generic
+  definitions are byte-identical, and `checker_soundness_version` stays `"4"`. A property's
+  `tested` record lands on the copy it calls, never on the other copies.
+- **Codegen stays polymorphic.** The signature context comes from the declared constraint
+  (`eq`→`Eq`, `ord`→`Ord`, `key`→`(Ord, Show)`), and a test pins it against the preamble's own
+  contexts: `group_by :: (Ord tp_k, Show tp_k) => [tp_a] -> (tp_a -> tp_k) -> (Map.Map tp_k [tp_a])`.
+- A strict `def` cannot call a generic `def-shell` in this release (`generic-callee-in-def`;
+  per-instance admission is `GENERICS-2`).
+- **JSON-AST `schemaVersion` 0.14.0 → 0.15.0, additive:** `type_params` on `def-shell`, and the
+  Type kind `{"kind": "type-var", "name": "a"}`. The reader still accepts 0.14.0.
+
+### `GENERIC-COMPARE-1`: the `compare` builtin
+
+- **`(compare a b)`** is `-1`, `0` or `1` at an ordered type (§13.5), and `0` exactly when
+  `(= a b)`; generated code calls `llmll_compare`, not the Prelude's `compare`. The verifier
+  unfolds it at `int` and `bool` in bodies, contracts and `if` guards, so
+  `(if (<= (compare x y) 0) x y)` stays body-faithful. At `string` and at pairs it is
+  uninterpreted and the caller falls back (`GENERIC-COMPARE-PAIR-1`). `min`, `max` and `abs` in an
+  `if` guard still fall back (`MINMAX-GUARD-1`).
+- Measured on `scripts/tests/fixtures/generics/pick.llmll`: `pick-min@[int]`, `@[bool]` and
+  `@[PositiveInt]` are body-faithful and proved, and the `@[PositiveInt]` copy proves `result > 0`;
+  `pick-min@[string]` falls back ("5 of 7 contracted functions proved").
+- **Breaking:** a user definition named `compare` is now a builtin redefinition. No program in
+  this repository defines one.
+
+**Tests:** hspec 2765 → 2843, 0 failures; Python 605 → 622 passed, 5 skipped.
+
 <a id="Latest"></a>
 
 ## v0.32.0: Float literals, soundness fixes for bytes lengths and function shadowing, opaque calls through function parameters, constant arithmetic, int narrowing, and ambiguous type variables (2026-10-24)

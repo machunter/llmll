@@ -1,0 +1,11 @@
+;; GENERICS-1 edge case 15: a property calling a generic at int. The tested
+;; record lands on the copy it calls, pick-min@[int], whose subject_key is the
+;; copy's evidence key; it does not lift to pick-min or to another instance.
+(def-shell pick-min :type-params [(a ord)] [x: a y: a] -> a
+  (post (and (<= (compare result x) 0) (<= (compare result y) 0)))
+  (if (<= (compare x y) 0) x y))
+
+(def-shell use-string [x: string y: string] -> string (pick-min x y))
+
+(check "pick-min is at most both"
+  (for-all [x: int y: int] (and (<= (pick-min x y) x) (<= (pick-min x y) y))))

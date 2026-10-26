@@ -115,7 +115,7 @@ analyzeContracts stmts =
     extractContract (SDef      name _ _ contract _)
       | contractPre contract /= Nothing || contractPost contract /= Nothing
       = Just (name, contract)
-    extractContract (SDefShell name _ _ contract _ _)
+    extractContract (SDefShell name _ _ contract _ _ _)
       | contractPre contract /= Nothing || contractPost contract /= Nothing
       = Just (name, contract)
     extractContract _ = Nothing
@@ -162,7 +162,7 @@ instrumentContracts mode statusMap = map go
     lookupStatus (SLetrec n _ _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     -- LT-INV (v0.11)
     lookupStatus (SDef      n _ _ _ _) = Map.findWithDefault defaultCS n statusMap
-    lookupStatus (SDefShell n _ _ _ _ _) = Map.findWithDefault defaultCS n statusMap
+    lookupStatus (SDefShell n _ _ _ _ _ _) = Map.findWithDefault defaultCS n statusMap
     lookupStatus _                     = defaultCS
     defaultCS = ContractStatus Nothing Nothing []
 
@@ -182,9 +182,9 @@ instrumentStatement ContractsFull _ (SLetrec name params mRet contract dec body)
 instrumentStatement ContractsFull _ (SDef name params mRet contract body) =
   let newBody = wrapWithContracts name contract body
   in SDef name params mRet noContract newBody
-instrumentStatement ContractsFull _ (SDefShell name params mRet contract body dec) =
+instrumentStatement ContractsFull _ (SDefShell name params mRet contract body dec tps) =
   let newBody = wrapWithContracts name contract body
-  in SDefShell name params mRet noContract newBody dec
+  in SDefShell name params mRet noContract newBody dec tps
 -- Unproven: strip proven contracts, keep unproven (SDefLogic)
 instrumentStatement ContractsUnproven cs (SDefLogic name params mRet contract body) =
   let stripped = filterContracts cs contract
@@ -200,10 +200,10 @@ instrumentStatement ContractsUnproven cs (SDef name params mRet contract body) =
   let stripped = filterContracts cs contract
       newBody  = wrapWithContracts name stripped body
   in SDef name params mRet noContract newBody
-instrumentStatement ContractsUnproven cs (SDefShell name params mRet contract body dec) =
+instrumentStatement ContractsUnproven cs (SDefShell name params mRet contract body dec tps) =
   let stripped = filterContracts cs contract
       newBody  = wrapWithContracts name stripped body
-  in SDefShell name params mRet noContract newBody dec
+  in SDefShell name params mRet noContract newBody dec tps
 -- Everything else: pass through
 instrumentStatement _ _ stmt = stmt
 
@@ -258,9 +258,9 @@ applyContractsMode ContractsUnproven statusMap stmts = map stripProven stmts
     stripProven (SDef      n p r c b) =
       let cs = Map.findWithDefault (ContractStatus Nothing Nothing []) n statusMap
       in SDef n p r (filterContracts cs c) b
-    stripProven (SDefShell n p r c b dec) =
+    stripProven (SDefShell n p r c b dec tps) =
       let cs = Map.findWithDefault (ContractStatus Nothing Nothing []) n statusMap
-      in SDefShell n p r (filterContracts cs c) b dec
+      in SDefShell n p r (filterContracts cs c) b dec tps
     stripProven s = s
 
 -- | Clear all contract clauses from a statement.
@@ -269,7 +269,7 @@ clearContracts (SDefLogic n p r _ b) = SDefLogic n p r noContract b
 clearContracts (SLetrec n p r _ d b) = SLetrec n p r noContract d b
 -- LT-INV (v0.11)
 clearContracts (SDef      n p r _ b) = SDef n p r noContract b
-clearContracts (SDefShell n p r _ b dec) = SDefShell n p r noContract b dec
+clearContracts (SDefShell n p r _ b dec tps) = SDefShell n p r noContract b dec tps
 clearContracts s = s
 
 -- | Wrap a function body with pre/post contract assertions.
@@ -712,6 +712,13 @@ evalBuiltinApp _ _ _ "path-normalize" [s] = strE . RP.path_normalize <$> strV s
 -- STR-ORDER-1.
 evalBuiltinApp _ _ _ "string-compare" [a, b] =
   ELit . LitInt <$> (RP.string_compare <$> strV a <*> strV b)
+-- GENERIC-COMPARE-1. The runtime's llmll_compare over 'OrdK', whose derived
+-- Ord is the generated program's Ord at each type in O (see LIST-SORT-1
+-- below). An operand outside O, or not yet a value, does not reduce.
+evalBuiltinApp _ _ _ "compare" [a, b] = do
+  ka <- ordKeyOf a
+  kb <- ordKeyOf b
+  pure (ELit (LitInt (RP.llmll_compare ka kb)))
 evalBuiltinApp _ _ _ "string-to-int" [s] =
   eitherE (ELit . LitInt) . RP.string_to_int <$> strV s
 evalBuiltinApp _ _ _ "regex-match" [p, s] =
@@ -780,7 +787,7 @@ modeledBuiltins = Set.fromList
   , "string-split", "string-trim", "string-concat-many", "regex-match", "regex-find"
   , "regex-find-all", "regex-spans", "string-lower", "string-upper", "path-normalize"
   , "string-empty?", "int-to-string", "string-to-int", "abs", "min", "max"
-  , "string-compare", "list-sort", "list-sort-by", "list-reverse"
+  , "string-compare", "list-sort", "list-sort-by", "list-reverse", "compare"
   , "map-keys", "map-entries", "regex-replace-all"
   , "ok", "err", "is-ok", "unwrap", "unwrap-or"
   , "bytes-length", "bytes-get", "bytes-set", "bytes-zero"

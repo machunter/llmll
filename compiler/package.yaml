@@ -123,6 +123,9 @@ library:
     # HEADLINE-TERM-1 + STRICT-XMOD-1: qualified whole-program call graph + caller closures
     - LLMLL.ProgramGraph
     - LLMLL.EvidenceKey
+    # GENERICS-1 (S5): specialize each reached generic instantiation into a
+    # def-shell copy before verification. Over Syntax, PBT, TypeAdmissibility.
+    - LLMLL.Specialize
     # PARTIAL-FNS-GRAPH-1: the qualified call graph, importable by TrustReport
     - LLMLL.CallGraph
     # PROOF-ARTIFACT: unified reproducible verification record

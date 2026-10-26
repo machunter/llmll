@@ -240,6 +240,12 @@ string_compare a b = case compare a b of
   EQ -> 0
   GT -> 1
 
+llmll_compare :: Ord a => a -> a -> Integer
+llmll_compare a b = case compare a b of
+  LT -> -1
+  EQ -> 0
+  GT -> 1
+
 path_normalize :: String -> String
 path_normalize "" = "."
 path_normalize p =

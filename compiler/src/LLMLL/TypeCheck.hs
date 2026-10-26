@@ -22,6 +22,10 @@ module LLMLL.TypeCheck
     -- FQ-RESULT-SORT-1: report + tau_ret (effective return type per definition)
   , typeCheckStrictWithCacheAndStatusRet
   , typeCheckWithCacheRet
+    -- GENERICS-1: the same checks, plus the generic site table.
+  , typeCheckStrictWithCacheSites
+  , typeCheckStrictWithCacheAndStatusRetSites
+  , typeCheckWithCacheRetSites
     -- RET-RESOLVE: the Kleene pass over the recorded return-type map, and the
     -- two pure helpers it needs. Exported for the RR-*, SC*-*, CYC-* and
     -- KLEENE-* tests, which assert the pass's own output rather than the
@@ -71,7 +75,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Maybe (mapMaybe, fromMaybe, isJust, isNothing, listToMaybe)
-import Data.List (nub, (\\))
+import Data.List (nub, partition, (\\))
 import Data.Char (isDigit)
 import qualified Data.Set as Set
 import Control.Monad (forM_, forM, foldM, when, unless, void, join, (>=>))
@@ -85,13 +89,14 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, noOrdWitness, procSpecTypeName)
+import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, noOrdWitness, noKeyWitness, procSpecTypeName)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 -- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
 import LLMLL.RespFact (analyzeRespFacts, RespFactPlan(..))
 import LLMLL.RegexPattern (validatePattern)
 import LLMLL.Ffi (ffiImportErrors, ffiEntriesOf, ffiEntryNames, FfiEntry(..), lowerFfiType, ffiBoundaryMisuse, lowerBoundaryMisuse)
+import LLMLL.PBT (canonicalExpr)
 import LLMLL.BuildScope (closureOf, checkBuildScope, unresolvedQualifiedTypes, foreignQualifiedRefs, closureDecls, importsOf, longestModulePrefix, Decl(..), Namespace(..))
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -154,6 +159,13 @@ builtinEnv = Map.fromList $
   , ("list-sort",     TFn [TList (TVar "a")] (TList (TVar "a")))
   , ("list-sort-by",  TFn [TList (TVar "a"), TFn [TVar "a"] (TVar "k")] (TList (TVar "a")))
   , ("list-reverse",  TFn [TList (TVar "a")] (TList (TVar "a")))
+  -- GENERIC-COMPARE-1 (docs/design/generics-proposal.md). -1, 0 or 1 by the
+  -- order on O: numeric at int, false < true at bool, string-compare at
+  -- string, lexicographic at a pair. The operand type is in O or the call is
+  -- order-undefined ('checkOrdDefined'); at a rigid type parameter it needs
+  -- `ord`. The verifier unfolds it at int and bool after specialization
+  -- (compare%int, compare%bool); elsewhere a caller falls back.
+  , ("compare",       TFn [TVar "a", TVar "a"] TInt)
   -- §13.6 String operations
   , ("string-length",   TFn [TString] TInt)
   , ("string-contains", TFn [TString, TString] TBool)
@@ -717,6 +729,16 @@ data TCState = TCState
   -- 'tcDirectImports' is the modules this module's own (import ...) statements
   -- name, restricted to the closure (R3: M.f resolves only for a direct import).
   , tcDirectImports  :: Set.Set ModulePath
+  -- GENERICS-1: appended at the END for the reason 'tcRetTypes' gives.
+  --
+  -- 'tcGenericSites' is the site table ('GenericSites'): one entry per generic
+  -- call, written by 'inferGenericApp'. The specialization pass reads it
+  -- instead of inferring types again (plan F2).
+  , tcGenericSites   :: GenericSites
+  -- 'tcGenericDecls' maps each generic callee visible here (local names bare,
+  -- closure modules' names qualified, opened names bare) to its declared type
+  -- parameters, so a site records its type arguments in declared order.
+  , tcGenericDecls   :: Map Name [(Name, Maybe TyConstraint)]
   } deriving (Show)
 
 type TC a = State TCState a
@@ -1071,7 +1093,7 @@ resolveRetTypes gm strict env aliases cs xmodSeed stmts m0
                       (TCState envSeeded [] aliases Nothing False False [] [] cs
                                Map.empty Map.empty [] strict gm False 0
                                Map.empty [] Map.empty seeded sccs Map.empty
-                               Map.empty Set.empty)
+                               Map.empty Set.empty Map.empty Map.empty)
       in Map.mapWithKey (keep (tcRetTypes st)) m
     -- SC1 again, on the read side: a round may only replace a wildcard, and only
     -- with something that is not itself a wildcard. A freshened wildcard
@@ -1397,6 +1419,8 @@ checkEqDefined name subst =
     unless (any (mentionsJson am) tys) $
       case [ (ty, w) | ty <- tys, Just w <- [noEqWitness am ty] ] of
         []          -> pure ()
+        -- GENERICS-1: the missing equality is a type parameter's constraint.
+        ((ty, TParam p _):_) -> tcConstraintMissing name ty p TCEq
         ((ty, w):_) ->
           tcErrorK "equality-undefined" $
             "'" <> name <> "' is not defined at type '" <> typeLabel ty
@@ -1408,6 +1432,22 @@ checkEqDefined name subst =
       TCustom "Command" -> "a Command"
       TPromise _        -> "a Promise (" <> typeLabel w <> ")"
       _                 -> "a function (" <> typeLabel w <> ")"
+
+-- | GENERICS-1: an operation inside a generic definition needs a class that a
+-- rigid type parameter's declared constraint does not entail. Reported as
+-- @constraint-missing@ rather than @equality-undefined@ / @order-undefined@ /
+-- @map-key-undefined@, because the fix is to the declaration, not the call:
+-- the message names the parameter and the constraint to declare.
+tcConstraintMissing :: Name -> Type -> Name -> TyConstraint -> TC ()
+tcConstraintMissing op ty p want =
+  tcErrorK "constraint-missing" $
+    "'" <> op <> "' needs " <> what want <> " at type '" <> typeLabel ty
+    <> "', and type parameter '" <> p <> "' does not declare it; "
+    <> "declare it as (" <> p <> " " <> tyConstraintLabel want <> ") in :type-params"
+  where
+    what TCEq  = "equality"
+    what TCOrd = "an order"
+    what TCKey = "a map key"
 
 -- | LIST-SORT-1: the sorted type of @list-sort@ (its element type) and of
 -- @list-sort-by@ (its key's result type) must be in the ordered types O
@@ -1421,12 +1461,17 @@ checkOrdDefined name paramTypes subst =
   case (name, map (applySubst subst) paramTypes) of
     ("list-sort",    TList e : _)         -> refuse "type" e sortHint
     ("list-sort-by", _ : TFn _ k : _)     -> refuse "key type" k keyHint
+    -- GENERIC-COMPARE-1: an unresolved operand type passes (AMBIG-TVAR-1),
+    -- as every walk accepts a 'TVar'; a rigid parameter needs `ord`.
+    ("compare",      a : _)               -> refuse "type" a compareHint
     _                                     -> pure ()
   where
     refuse what ty hint = do
       am <- gets tcAliasMap
       case noOrdWitness am ty of
         Nothing -> pure ()
+        -- GENERICS-1: the missing order is a type parameter's constraint.
+        Just (TParam p _) -> tcConstraintMissing name ty p TCOrd
         Just w  ->
           tcErrorK "order-undefined" $
             "'" <> name <> "' is not defined at " <> what <> " '" <> typeLabel ty <> "'"
@@ -1435,6 +1480,7 @@ checkOrdDefined name paramTypes subst =
     sortHint = "Sort by a key in that set: (list-sort-by xs (fn [x: T] key))."
     keyHint  = "Return a key of type int, string, bool or a pair of them, "
                <> "for example (pair (- 0 n) name)."
+    compareHint = "Compare a key in that set instead, for example (compare (key x) (key y))."
 
 -- | COMP-4 (a): True iff @func@ is a constructor of an admissible (acyclic-
 -- closure) sum type. A recursive datatype (Tree = Node Tree Tree) is excluded so
@@ -1524,7 +1570,7 @@ initialTCState :: GrammarMode -> TypeEnv -> AliasMap -> Bool -> Bool -> TCState
 initialTCState gm env am sketch strict =
   TCState env [] (Map.union am builtinAliases) Nothing False sketch [] [] Map.empty Map.empty Map.empty []
           strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty Map.empty
-          Map.empty Set.empty
+          Map.empty Set.empty Map.empty Map.empty
 
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
@@ -1718,6 +1764,39 @@ typeCheckWithCacheModeRet'
   :: GrammarMode -> Bool -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement]
   -> (DiagnosticReport, Map Name Type)
 typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
+  let (r, rts, _) = typeCheckWithCacheModeSites' gm strict cache entryCS baseEnv stmts
+  in (r, rts)
+
+-- | GENERICS-1: strict typecheck with module cache, plus the generic site
+-- table that the specialization pass reads.
+typeCheckStrictWithCacheSites
+  :: GrammarMode -> ModuleCache -> TypeEnv -> [Statement] -> (DiagnosticReport, GenericSites)
+typeCheckStrictWithCacheSites gm cache baseEnv stmts =
+  let (r, _, sites) = typeCheckWithCacheModeSites' gm True cache Map.empty baseEnv stmts
+  in (r, sites)
+
+-- | GENERICS-1: 'typeCheckStrictWithCacheAndStatusRet' plus the site table,
+-- for the verify path, which seeds the entry sidecar, reads tau_ret and hands
+-- the site table to the specialization pass from one check.
+typeCheckStrictWithCacheAndStatusRetSites
+  :: GrammarMode -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement]
+  -> (DiagnosticReport, Map Name Type, GenericSites)
+typeCheckStrictWithCacheAndStatusRetSites gm = typeCheckWithCacheModeSites' gm True
+
+-- | GENERICS-1: 'typeCheckWithCacheRet' plus the site table, for the module
+-- loader, which stores it in 'meGenericSites'.
+typeCheckWithCacheRetSites
+  :: GrammarMode -> ModuleCache -> TypeEnv -> [Statement]
+  -> (DiagnosticReport, Map Name Type, GenericSites)
+typeCheckWithCacheRetSites gm cache = typeCheckWithCacheModeSites' gm False cache Map.empty
+
+-- | GENERICS-1: the single shared implementation, now returning the site
+-- table beside the report and tau_ret. The wrappers above drop what their
+-- callers do not read, so every pre-existing signature is unchanged.
+typeCheckWithCacheModeSites'
+  :: GrammarMode -> Bool -> ModuleCache -> Map Name ContractStatus -> TypeEnv -> [Statement]
+  -> (DiagnosticReport, Map Name Type, GenericSites)
+typeCheckWithCacheModeSites' gm strict cache entryCS baseEnv stmts =
   let -- XMOD-SIB-RESOLVE-1: every seed below reads this module's own build
       -- closure ('cl'), never the whole cache. The loader checks a dependency
       -- against every module loaded SO FAR (Module.loadFromFile), so seeding
@@ -1748,7 +1827,9 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
         (TCState seededEnv [] seededAliases Nothing False False [] [] seededCS Map.empty Map.empty [] strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty
                  (fnResolveMap cl seededCS stmts)
                  (closureDecls cl)
-                 (Set.fromList [ p | p <- importsOf stmts, Map.member p cl ]))
+                 (Set.fromList [ p | p <- importsOf stmts, Map.member p cl ])
+                 Map.empty
+                 (genericDeclsOf cl))
       -- XMOD-SCOPE R1: one declaration for each top-level name in this
       -- module's build closure. The closure is this module's own imports,
       -- transitively ('closureOf'), not the whole cache, so a collision inside
@@ -1778,6 +1859,7 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
          , reportSuccess     = not hasErrors
          }
      , resolvedRet
+     , tcGenericSites st
      )
   where
     -- RET-RESOLVE (cross-module): a cached module's 'meRetTypes' is ALREADY
@@ -1803,6 +1885,15 @@ typeCheckWithCacheModeRet' gm strict cache entryCS baseEnv stmts =
     -- over the cache fold makes the first module a colliding name appears in win
     -- (deterministic; same bias as the qualified-name/status seeds above).
     seedAliases acc menv = Map.union (meAliasMap menv) acc
+
+-- | GENERICS-1: the declared type parameters of every generic def-shell in a
+-- closure, under its qualified name (the key 'seedModule' gives its type).
+genericDeclsOf :: ModuleCache -> Map Name [(Name, Maybe TyConstraint)]
+genericDeclsOf cl = Map.fromList
+  [ (T.intercalate "." path <> "." <> n, tps)
+  | (path, menv) <- Map.toList cl
+  , SDefShell{defShellName = n, defShellTypeParams = tps} <- meStatements menv
+  , not (null tps) ]
 
 -- ---------------------------------------------------------------------------
 -- Statement Checking
@@ -1838,6 +1929,12 @@ checkStatements rawStmts = do
   -- empty 'tcAliasMap', so this is a no-op union there.
   -- v0.4 CAP-1: store top-level statements for capability checks in inferExpr
   modify $ \s -> s { tcAliasMap = Map.union aliasMap (tcAliasMap s), tcTrusts = Map.union trustMap (tcTrusts s), tcModuleStmts = stmts }
+  -- GENERICS-1: this module's own generic definitions, bare-keyed, over the
+  -- qualified closure seed.
+  modify $ \s -> s { tcGenericDecls = Map.union
+      (Map.fromList [ (n, tps) | SDefShell{defShellName = n, defShellTypeParams = tps} <- stmts
+                               , not (null tps) ])
+      (tcGenericDecls s) }
   -- Fix 3: detect type alias cycles and emit diagnostics.
   -- Self-reference inside TSumType payloads is legitimate recursive-ADT structure,
   -- not an alias cycle (e.g. (type Tree (| Leaf unit | Node Tree)) is valid).
@@ -1955,6 +2052,8 @@ checkStatements rawStmts = do
       -- Each segment is one RFC 6901 token: "statements" and "N" are separate.
       forM_ (zip [0 :: Int ..] stmts) $ \(i, stmt) ->
         withSegment "statements" $ withSegment (tshow i) (checkStatement stmt)
+      -- GENERICS-1 rule 2: read off the complete site table.
+      checkPolymorphicRecursion stmts
       -- RESP-FACT-1 (resp-fact-proposal.md §5.1 to §5.3): the control-tag fact
       -- analyses, run once per module over the merged alias map (local ∪ imported
       -- ∪ builtin, so a tag type an importer merely opens is seen and refused by
@@ -2012,7 +2111,7 @@ checkDuplicateTopLevel stmts = do
       <> " in this module; a module has at most one entry point"
   where
     fnNameOf (SDef n _ _ _ _)          = Just n
-    fnNameOf (SDefShell n _ _ _ _ _)   = Just n
+    fnNameOf (SDefShell n _ _ _ _ _ _)   = Just n
     fnNameOf (SDefLogic n _ _ _ _)     = Just n
     fnNameOf (SLetrec n _ _ _ _ _)     = Just n
     fnNameOf (SDefInvariant n _ _ _ _) = Just n
@@ -2033,7 +2132,7 @@ collectTopLevel (SDef name params mRet _contract _body) =
   let argTypes = map snd params
       retType  = fromMaybe (TVar "?") mRet
   in Just (name, TFn argTypes retType)
-collectTopLevel (SDefShell name params mRet _contract _body _) =
+collectTopLevel (SDefShell name params mRet _contract _body _ _) =
   let argTypes = map snd params
       retType  = fromMaybe (TVar "?") mRet
   in Just (name, TFn argTypes retType)
@@ -2194,9 +2293,10 @@ checkStatement (SDef name params mRet contract body) = do
 
 -- | LT-INV (v0.11): permissive-shell definition.
 -- Same type-checking rules as SDefLogic; no structural or callee-admissibility restrictions.
-checkStatement (SDefShell name params mRet contract body decreases) = do
+checkStatement (SDefShell name params mRet contract body decreases tps) = do
   lintContractReads name params contract          -- CONTRACT-READ-LINT
   warnWildcardPayload name contract body          -- SHELL-FALLBACK-SILENT-1
+  checkTypeParamDecls name params tps             -- GENERICS-1
   withFunctionContext name False $ do
     withTaggedEnv SrcParam params $ do
       bodyType <- case (mRet, body) of
@@ -2288,6 +2388,8 @@ checkStatement (STypeDef name body) = do
     _ -> pure ()
 
 checkStatement (SCheck prop) = do
+  -- GENERICS-1 rule 3: a for-all sits outside every type-parameter scope.
+  checkForAllTypeParams (propBindings prop)
   -- Property bindings become forall quantifiers
   withEnv (propBindings prop) $ do
     bodyType <- inferExpr (propBody prop)
@@ -2363,6 +2465,10 @@ checkStatement (SOpen openPath_ mNames) = do
     tcInsert bareName ty
     -- v0.3.5 (Phase C): tag open-imported bindings for checkout context
     modify $ \s -> s { tcProvenance = Map.insert bareName SrcOpenImport (tcProvenance s) }
+    -- GENERICS-1: an opened generic keeps its declared type parameters.
+    modify $ \s -> case Map.lookup (prefix <> bareName) (tcGenericDecls s) of
+      Just tps -> s { tcGenericDecls = Map.insert bareName tps (tcGenericDecls s) }
+      Nothing  -> s
   -- ADMIT-VERIFIED (Option 2, seam 5): the qualified-seeded ContractStatus
   -- (typeCheckWithCacheMode seeds 'tcContractStatus' under '<path>.<name>'
   -- keys) is invisible to the bare-name admissibility lookup in
@@ -2807,7 +2913,7 @@ regexPatternSource stmts (EApp f []) =
     defShape s = case s of
       SDefLogic n ps _ _ b   -> Just (n, ps, b)
       SDef n ps _ _ b        -> Just (n, ps, b)
-      SDefShell n ps _ _ b _ -> Just (n, ps, b)
+      SDefShell n ps _ _ b _ _ -> Just (n, ps, b)
       _                      -> Nothing
 regexPatternSource _ _ = Nothing
 
@@ -3059,13 +3165,31 @@ inferExpr (EApp func args) = do
   -- the same name. It is never admitted on that function's evidence; under
   -- strict core it is refused and named as a binder.
   localHead <- isLocalBinder func
+  -- GENERICS-1: a call to a generic def-shell (its registered type mentions a
+  -- rigid parameter). A binder is never one: a parameter typed with the
+  -- enclosing definition's own parameters, as `key: (fn [a] -> k)`, is
+  -- applied rigidly by the ordinary path below.
+  mFuncTyRaw <- tcLookup func
+  let genericCallee = not localHead && maybe False mentionsTParam mFuncTyRaw
   if localHead
     then do
       inCore <- gets tcCoreMode
       when inCore $ do
         enclosing <- gets (maybe "<unknown>" id . tcCurrentFn)
         modify $ \s -> s { tcErrors = tcErrors s ++ [mkCoreBinderCallee enclosing func] }
-    else checkCalleeAdmissibility func
+    else if genericCallee
+      then do
+        -- GENERICS-1: strict core admits no generic callee in v1. Said here,
+        -- by name, instead of the admission gate's "no evidence" message.
+        inCore <- gets tcCoreMode
+        when inCore $ do
+          enclosing <- gets (maybe "<unknown>" id . tcCurrentFn)
+          tcErrorK "generic-callee-in-def" $
+            "def '" <> enclosing <> "' calls the generic def-shell '" <> func
+            <> "': a strict-core def cannot call a generic in v1 (per-instance "
+            <> "admission is GENERICS-2). Call it from a def-shell, or write a "
+            <> "non-generic def-shell at the type you need"
+      else checkCalleeAdmissibility func
   -- XMOD-SCOPE R3: was the S4 dotted-name warning. A qualified call to a module
   -- in the closure now resolves or is an error; the S4 text stays only for a
   -- dotted name no closure module matches (see 'qualifiedValueCheck').
@@ -3074,10 +3198,11 @@ inferExpr (EApp func args) = do
   -- polymorphic builtin's own placeholder names (e.g. "a"/"b" in `second`)
   -- can never collide with an unrelated leaked TVar or another call's
   -- instantiation of the same signature. See freshenFnType.
-  mFuncTyRaw <- tcLookup func
   -- ALIAS-FN-APPLY-1: a value whose type is an alias of a function type is
   -- applied through the alias (LLMLL.md §3: aliases expand at call sites).
-  mFuncTy    <- traverse (expandFnHead >=> freshenFnType) mFuncTyRaw
+  -- GENERICS-1: a generic callee is instantiated by 'inferGenericApp' instead.
+  mFuncTy    <- if genericCallee then pure Nothing
+                else traverse (expandFnHead >=> freshenFnType) mFuncTyRaw
   let nArgs = length args
   -- D2: warn when a def-logic calls itself recursively without :decreases (GrammarLegacy only).
   -- Under GrammarCoreInversion: def-shell self-calls are correct (no warning); def self-calls
@@ -3105,7 +3230,10 @@ inferExpr (EApp func args) = do
   -- map ops carry the {int,string} key gate, neither expressible as a
   -- polymorphic signature. map-empty is NOT intercepted: its
   -- TFn [] (TMap k v) entry types fully generically (list-empty precedent).
-  if func `elem` arrayOpNames
+  case mFuncTyRaw of
+   Just rawTy | genericCallee -> inferGenericApp func rawTy args
+   _ ->
+    if func `elem` arrayOpNames
     then inferArrayOp func args
     else case mFuncTy of
     Nothing -> do
@@ -3119,6 +3247,8 @@ inferExpr (EApp func args) = do
                      else ""
         tcError $ "function '" <> func <> "' expects " <> tshow (length paramTypes)
                   <> " args, got " <> tshow nArgs <> hint
+      -- GENERICS-1 rule 4: a Tier 1 import never takes a type parameter.
+      ffiCallee <- gets ((func `elem`) . ffiEntryNames . tcModuleStmts)
       -- v0.4 U-Lite: per-call-site substitution.
       -- Each call gets its own substitution map. When a polymorphic parameter
       -- (TVar "a") first encounters a concrete type, it binds a → T.
@@ -3134,11 +3264,30 @@ inferExpr (EApp func args) = do
               actual <- inferExpr arg
               expected' <- expandAlias expected
               actual'   <- expandAlias actual
-              structuralUnify func subst (stripDep expected') (stripDep actual')
+              -- GENERICS-1 rule 4: the mismatch this would report is named
+              -- for what it is. A rigid parameter never unifies with a
+              -- boundary type, so the rule holds by construction.
+              if ffiCallee && mentionsTParam actual'
+                then do
+                  tcErrorK "ffi-type-param" $
+                    "argument " <> tshow (j + 1) <> " of the Tier 1 import '" <> func
+                    <> "' has type '" <> typeLabel actual <> "', which mentions a type"
+                    <> " parameter; a value of a type parameter cannot cross the FFI"
+                    <> " boundary. Instantiate at a concrete type in a non-generic def-shell"
+                  pure subst
+                else structuralUnify func subst (stripDep expected') (stripDep actual')
         ) Map.empty (zip3' [0 :: Int ..] paramTypes args)
       checkJsonNoEq func finalSubst   -- JSON-NOEQ: list-contains
       checkEqDefined func finalSubst  -- CTOR-FN-FIELD-1
       checkOrdDefined func paramTypes finalSubst  -- LIST-SORT-1
+      -- GENERIC-COMPARE-1: a `compare` site records its operand type, so the
+      -- specialization pass can name the unfolding (compare%int, compare%bool).
+      -- A local binder named `compare` is not the builtin; a top-level
+      -- `compare` is a builtin redefinition, refused elsewhere.
+      when (func == "compare" && not localHead) $
+        case paramTypes of
+          (a : _) -> recordGenericSite func args [zonk finalSubst a]
+          _       -> pure ()
       pure (applySubst finalSubst retType)
     Just (TCustom n)
       -- COMP-4: a nullary constructor applied with no args — `(Empty)` — is a
@@ -3523,6 +3672,7 @@ applySubst subst (TFn ps r)       = TFn (map (applySubst subst) ps) (applySubst 
 applySubst subst (TPromise t)     = TPromise (applySubst subst t)
 applySubst subst (TMap k v)       = TMap (applySubst subst k) (applySubst subst v)
 applySubst subst (TDependent n b e) = TDependent n (applySubst subst b) e
+applySubst _     t@(TParam _ _)    = t  -- GENERICS-1: rigid, never substituted
 applySubst _     t                = t  -- TInt, TString, TBool, TUnit, TBytes, TCustom, TSumType, TFloat
 
 -- | Strip TDependent to its base type (ignores the constraint).
@@ -3542,6 +3692,7 @@ occursIn a (TPromise t)       = occursIn a t
 occursIn a (TMap k v)         = occursIn a k || occursIn a v
 occursIn a (TDependent _ b _) = occursIn a b
 occursIn a (TSumType ctors)   = any (\(_, mT) -> maybe False (occursIn a) mT) ctors
+occursIn _ (TParam _ _)       = False  -- GENERICS-1: a rigid parameter is not a TVar
 occursIn _ _                  = False  -- TInt, TString, TBool, TUnit, TBytes, TCustom, TFloat, TDelegationError
 
 -- | Collect every distinct TVar name occurring (structurally) in a type.
@@ -3557,6 +3708,7 @@ freeTVarNames (TPromise t)       = freeTVarNames t
 freeTVarNames (TMap k v)         = Set.union (freeTVarNames k) (freeTVarNames v)
 freeTVarNames (TDependent _ b _) = freeTVarNames b
 freeTVarNames (TSumType ctors)   = Set.unions [ maybe Set.empty freeTVarNames mT | (_, mT) <- ctors ]
+freeTVarNames (TParam _ _)       = Set.empty  -- GENERICS-1: see 'instantiateGeneric'
 freeTVarNames _                  = Set.empty  -- TInt, TString, TBool, TUnit, TBytes, TCustom, TFloat, TDelegationError
 
 -- | BUG-3 (v0.14.3): instantiate a (possibly polymorphic) function type with
@@ -3701,12 +3853,18 @@ inferArrayOp func args = case func of
       case t of
         TMap kt vt -> do
           ktE <- expandAlias kt
-          case ktE of
-            TInt    -> pure ()
-            TString -> pure ()  -- A2.2-string keys
-            TVar _  -> pure ()  -- unresolved key sort: gate lands on the key arg
-            other  -> tcError $ "map operation '" <> func <> "' requires int or string keys "
-                                <> "(got map[" <> typeLabel other <> ",...]); "
+          -- GENERICS-1: the map-key class is one predicate ('noKeyWitness'),
+          -- shared with the @key@ constraint. int, string and an unresolved
+          -- key sort (the gate then lands on the key arg) pass, as before;
+          -- the refusal now carries the kind map-key-undefined, message
+          -- unchanged. A rigid parameter passes when it is declared @key@.
+          am <- gets tcAliasMap
+          case noKeyWitness am ktE of
+            Nothing           -> pure ()
+            Just (TParam p _) -> tcConstraintMissing func ktE p TCKey
+            Just _            ->
+              tcErrorK "map-key-undefined" $ "map operation '" <> func <> "' requires int or string keys "
+                                <> "(got map[" <> typeLabel ktE <> ",...]); "
                                 <> "other key sorts are deferred (Lever A §3)"
           pure (ktE, vt)
         TVar _ -> pure (TVar "?", TVar "?")  -- unresolved map (hole/unknown): lenient
@@ -3728,6 +3886,13 @@ inferArrayOp func args = case func of
           unless kOk $
             tcError $ "map operation '" <> func <> "' requires a string key for this map, got "
                       <> typeLabel kArgTy
+        -- GENERICS-1: a map keyed by a rigid parameter takes a key of exactly
+        -- that parameter (the class test already ran on the map, above).
+        TParam p _ -> do
+          kOk <- compatibleExpanded kArgTy kt
+          unless kOk $
+            tcError $ "map operation '" <> func <> "' requires a key of type " <> p
+                      <> " for this map, got " <> typeLabel kArgTy
         -- unresolved map/key sort: the key argument itself must land in the class
         _ -> do
           kInt <- compatibleExpanded kArgTy TInt
@@ -3757,6 +3922,485 @@ freshenFnType t =
       modify $ \s -> s { tcTVarCounter = n + 1 }
       let rename = Map.fromList [ (v, TVar (v <> "$" <> tshow n)) | v <- vs ]
       pure (applySubst rename t)
+
+-- ---------------------------------------------------------------------------
+-- GENERICS-1: definition-site rules, instantiation at a call, the site table
+-- ---------------------------------------------------------------------------
+
+-- | True when a type mentions a rigid type parameter.
+mentionsTParam :: Type -> Bool
+mentionsTParam = not . null . typeParamsIn
+
+-- | The rigid type parameters a type mentions, in first-occurrence order.
+typeParamsIn :: Type -> [(Name, Maybe TyConstraint)]
+typeParamsIn = dedup . go
+  where
+    go t = case t of
+      TParam n c       -> [(n, c)]
+      TList a          -> go a
+      TMap k v         -> go k ++ go v
+      TResult a b      -> go a ++ go b
+      TPair a b        -> go a ++ go b
+      TFn as r         -> concatMap go as ++ go r
+      TPromise a       -> go a
+      TDependent _ b _ -> go b
+      TSumType cs      -> concat [ go p | (_, Just p) <- cs ]
+      _                -> []
+    dedup = foldr (\x acc -> x : filter ((/= fst x) . fst) acc) []
+
+-- | True when a type mentions the untyped-parameter wildcard @TCustom "_"@.
+mentionsUntyped :: Type -> Bool
+mentionsUntyped t = case t of
+  TCustom "_"      -> True
+  TList a          -> mentionsUntyped a
+  TMap k v         -> mentionsUntyped k || mentionsUntyped v
+  TResult a b      -> mentionsUntyped a || mentionsUntyped b
+  TPair a b        -> mentionsUntyped a || mentionsUntyped b
+  TFn as r         -> any mentionsUntyped as || mentionsUntyped r
+  TPromise a       -> mentionsUntyped a
+  TDependent _ b _ -> mentionsUntyped b
+  _                -> False
+
+-- | Replace each rigid parameter named in the map.
+substTParams :: Map Name Type -> Type -> Type
+substTParams m t = case t of
+  TParam n _       -> Map.findWithDefault t n m
+  TList a          -> TList (substTParams m a)
+  TMap k v         -> TMap (substTParams m k) (substTParams m v)
+  TResult a b      -> TResult (substTParams m a) (substTParams m b)
+  TPair a b        -> TPair (substTParams m a) (substTParams m b)
+  TFn as r         -> TFn (map (substTParams m) as) (substTParams m r)
+  TPromise a       -> TPromise (substTParams m a)
+  TDependent n b e -> TDependent n (substTParams m b) e
+  TSumType cs      -> TSumType [ (c, fmap (substTParams m) p) | (c, p) <- cs ]
+  _                -> t
+
+-- | Apply a call's substitution until it settles, so a chain a -> b -> int
+-- reads as int. Bounded: the occurs check keeps the map acyclic, and the
+-- bound only stops a defect from looping.
+zonk :: Map Name Type -> Type -> Type
+zonk subst = go (50 :: Int)
+  where
+    go 0 t = t
+    go k t = let t' = applySubst subst t in if t' == t then t else go (k - 1) t'
+
+-- | GENERICS-1, the one point where a rigid parameter becomes a placeholder.
+-- Each @TParam n@ of a generic callee becomes a fresh @TVar@, and every other
+-- TVar in the type is freshened as 'freshenFnType' freshens it (one counter
+-- tick for the whole call). Returns the instantiated type and each type
+-- parameter's fresh variable.
+--
+-- A sibling of 'freshenFnType', not a change to it: 'freshenFnType' runs on
+-- every callee, including a parameter whose function type mentions the
+-- ENCLOSING definition's parameters (@key: (fn [a] -> k)@), and there they
+-- must stay rigid, or @(key 5)@ would check.
+instantiateGeneric :: Type -> TC (Type, Map Name Name)
+instantiateGeneric t = do
+  n <- gets tcTVarCounter
+  modify $ \s -> s { tcTVarCounter = n + 1 }
+  let sfx v  = v <> "$" <> tshow n
+      inst   = Map.fromList [ (p, sfx p) | (p, _) <- typeParamsIn t ]
+      rename = Map.fromList [ (v, TVar (sfx v)) | v <- Set.toList (freeTVarNames t) ]
+  pure (substTParams (Map.map TVar inst) (applySubst rename t), inst)
+
+-- | GENERICS-1: the definition-site rules, checked before the body.
+--
+--   * @type-param-shadow@: a parameter named like a primitive or a user type;
+--   * @type-param-not-determined@ (rule 1): a parameter that occurs in no
+--     value-parameter type, so no call could fix it;
+--   * @untyped-param-in-generic@ (rule 5, first half): an untyped parameter,
+--     whose wildcard would meet a rigid parameter or a constraint test.
+checkTypeParamDecls :: Name -> [(Name, Type)] -> [(Name, Maybe TyConstraint)] -> TC ()
+checkTypeParamDecls name params tps = unless (null tps) $ do
+  am    <- gets tcAliasMap
+  stmts <- gets tcModuleStmts
+  let prims     = ["int", "float", string', "bool", "unit"]
+      string'   = "string"
+      userTypes = Set.fromList ([ n | STypeDef n _ <- stmts ] ++ [ n | SDefInterface n _ _ <- stmts ])
+                  `Set.union` Map.keysSet am
+      shadows p = p `elem` prims || p `Set.member` userTypes
+      occurring = Set.fromList [ p | (_, t) <- params, (p, _) <- typeParamsIn t ]
+  forM_ tps $ \(p, _) ->
+    if shadows p
+      then tcErrorK "type-param-shadow" $
+        "def-shell '" <> name <> "': type parameter '" <> p <> "' has the name of "
+        <> (if p `elem` prims then "a primitive type" else "a type in scope")
+        <> "; rename the parameter"
+      else unless (p `Set.member` occurring) $
+        tcErrorK "type-param-not-determined" $
+          "def-shell '" <> name <> "': type parameter '" <> p <> "' occurs in no parameter"
+          <> " type, so no call can fix it (there is no explicit instantiation); use it in"
+          <> " a parameter type, or drop it"
+  forM_ params $ \(x, t) ->
+    when (t == TCustom "_") $
+      tcErrorK "untyped-param-in-generic" $
+        "def-shell '" <> name <> "' declares :type-params, so every parameter needs a type;"
+        <> " '" <> x <> "' has none. Annotate it, for example [" <> x <> ": a]"
+
+-- | GENERICS-1 rule 3: a @for-all@ binder typed with a name that is no type in
+-- scope but is a type parameter of a generic definition. A @for-all@ sits
+-- outside every type-parameter scope, so the name is unknown there; it is
+-- named as the rule it breaks.
+checkForAllTypeParams :: [(Name, Type)] -> TC ()
+checkForAllTypeParams binds = do
+  am    <- gets tcAliasMap
+  decls <- gets tcGenericDecls
+  stmts <- gets tcModuleStmts
+  let paramNames = Set.fromList [ p | tps <- Map.elems decls, (p, _) <- tps ]
+      known n    = Map.member n am
+                   || n `elem` ([ m | STypeDef m _ <- stmts ] ++ [ m | SDefInterface m _ _ <- stmts ])
+      customs t  = case t of
+        TCustom n        -> [n]
+        TList a          -> customs a
+        TMap k v         -> customs k ++ customs v
+        TResult a b      -> customs a ++ customs b
+        TPair a b        -> customs a ++ customs b
+        TFn as r         -> concatMap customs as ++ customs r
+        TPromise a       -> customs a
+        TDependent _ b _ -> customs b
+        _                -> []
+  forM_ binds $ \(x, t) ->
+    forM_ (nub [ n | n <- customs t, not (known n), n `Set.member` paramNames ]) $ \n ->
+      tcErrorK "for-all-type-param" $
+        "for-all binder '" <> x <> "' has type '" <> typeLabel t <> "', which names the type"
+        <> " parameter '" <> n <> "'; a for-all is outside every type-parameter scope."
+        <> " Instantiate at a concrete type, for example [" <> x <> ": int]"
+
+-- | GENERICS-1 rule 2: in each strongly connected component of the call graph,
+-- a call from a generic member to a member passes the caller's own type
+-- parameters unchanged, so the instantiation set is finite. The component is
+-- the plain one ('sccOf' over 'HoleAnalysis.buildCallGraph'), not the trust
+-- report's, which subtracts discharged cycles (plan F4).
+checkPolymorphicRecursion :: [Statement] -> TC ()
+checkPolymorphicRecursion stmts = do
+  sites <- gets tcGenericSites
+  let generic = Map.fromList [ (n, map fst tps) | SDefShell{defShellName = n, defShellTypeParams = tps} <- stmts
+                                                , not (null tps) ]
+      comps   = sccOf stmts
+      bare ps t = case t of
+        TParam q _ -> q `elem` ps
+        _          -> False
+  unless (Map.null generic) $
+    forM_ (Map.toList sites) $ \((caller, callee, _), tys) ->
+      case (Map.lookup caller generic, Map.lookup caller comps) of
+        (Just ps, Just comp)
+          | callee `Set.member` comp
+          , not (all (bare ps) tys) ->
+              tcErrorK "polymorphic-recursion" $
+                "'" <> caller <> "' calls '" <> callee <> "' at ["
+                <> T.intercalate ", " (map typeLabel tys) <> "] inside the recursive group {"
+                <> T.intercalate ", " (Set.toList comp) <> "}; a call within a recursive group"
+                <> " must pass the caller's type parameters unchanged, or specialization"
+                <> " would not terminate"
+        _ -> pure ()
+
+-- | GENERICS-1: type a call to a generic def-shell (synthesis steps 1 to 6).
+--
+--   1. Synthesize every argument that is not a lambda and match it one way
+--      against the instantiated parameter type ('structuralUnify').
+--   2-3. Check each lambda whose parameter types are all known, in argument
+--      order, with 'checkLambdaAgainst'; its result type can fix a parameter
+--      that occurs only in a function's result (@k@ in @pq-insert@). Repeat
+--      until no lambda is ready.
+--   4. A lambda never ready is @type-param-not-determined@, at the call.
+--   5. Rule 5, second half: @untyped-arg-to-generic@.
+--   6. Each declared constraint is tested on its type argument.
+--   7. The type arguments are recorded in the site table, an unfixed one as
+--      @TVar "?unfixed"@.
+--
+-- Lambdas at builtin and non-generic calls keep the synthesis path, so no
+-- existing verdict moves.
+inferGenericApp :: Name -> Type -> [Expr] -> TC Type
+inferGenericApp func rawTy args = do
+  mDecl <- gets (Map.lookup func . tcGenericDecls)
+  let declared = fromMaybe (typeParamsIn rawTy) mDecl
+  (instTy, inst) <- instantiateGeneric rawTy
+  case (instTy, rawTy) of
+    (TFn paramTypes retType, TFn declParams _) -> do
+      let nArgs = length args
+      when (nArgs /= length paramTypes) $
+        tcError $ "function '" <> func <> "' expects " <> tshow (length paramTypes)
+                  <> " args, got " <> tshow nArgs
+      let triples        = zip3 [0 :: Int ..] (zip paramTypes declParams) args
+          isLam (_, _, ELambda _ _) = True
+          isLam _                   = False
+          (lams, others) = partition isLam triples
+          atArg j        = withSegment "args" . withSegment (tshow j)
+      -- Step 1: every argument that is not a lambda.
+      let instVars = Set.fromList (Map.elems inst)
+      amR <- gets tcAliasMap
+      (subst1, wildArgs, rawPairs) <- foldM (\(subst, wilds, raws) (j, (expected, declTy), arg) -> atArg j $
+        case arg of
+          EHole hk -> do
+            checkExpr (EHole hk) (zonk subst expected)
+            pure (subst, wilds, raws)
+          _ -> do
+            actual    <- inferExpr arg
+            expected' <- expandAlias expected
+            actual'   <- expandAlias actual
+            let raws' = raws ++ rawAtParam amR expected actual
+            -- Rule 5, second half: the wildcard never meets a type parameter.
+            if mentionsTParam declTy && mentionsUntyped actual'
+              then do
+                tcErrorK "untyped-arg-to-generic" $
+                  "argument " <> tshow (j + 1) <> " of the generic '" <> func
+                  <> "' has no type (it comes from an untyped parameter or binding),"
+                  <> " so it cannot instantiate a type parameter; annotate where it is bound"
+                pure (subst, wilds, raws)
+              -- GENERICS-1 (soundness): an argument whose type, at a position
+              -- that instantiates a type parameter, is the unknown-return
+              -- wildcard (an unannotated return, a named hole). Its real type
+              -- is not known, so it cannot instantiate a parameter: taking it
+              -- as unfixed would specialize at int whatever the value is.
+              else if wildcardAtParam instVars (stripDep expected') (stripDep actual')
+                then do
+                  untypedArgUnknown func (j + 1)
+                  pure (subst, j : wilds, raws)
+                else do
+                  s' <- structuralUnify func subst (stripDep expected') (stripDep actual')
+                  pure (s', wilds, raws')
+        ) (Map.empty, [], []) others
+      -- Steps 2 and 3: lambdas, as they become ready.
+      let ready subst (_, (expected, _), ELambda ps _) =
+            case zonk subst expected of
+              TFn eps _ | length eps == length ps ->
+                and [ t /= TCustom "_" || Set.null (freeTVarNames e) | ((_, t), e) <- zip ps eps ]
+              _ -> all ((/= TCustom "_") . snd) ps
+          ready _ _ = True
+          expectedParams subst expected = case zonk subst expected of
+            TFn eps _ -> eps
+            _         -> []
+          loop subst pending = case break (ready subst) pending of
+            (_, [])                            -> pure (subst, pending)
+            (before, (j, (expected, _), lam) : after) -> do
+              subst' <- atArg j $ do
+                expected' <- expandAlias (zonk subst expected)
+                t <- checkLambdaAgainst (expectedParams subst expected') lam
+                structuralUnify func subst (stripDep expected') t
+              loop subst' (before ++ after)
+      (subst2a, stuck) <- loop subst1 lams
+      -- Step 4: a lambda that never became ready.
+      forM_ stuck $ \(j, (expected, declTy), lam) -> atArg j $ do
+        let eps     = expectedParams subst2a expected
+            lamPs   = case lam of { ELambda ps _ -> ps; _ -> [] }
+            unknown = [ x | ((x, t), e) <- zip lamPs (map Just eps ++ repeat Nothing)
+                          , t == TCustom "_", maybe True (not . Set.null . freeTVarNames) e ]
+            argPos  = case declTy of { TFn das _ -> das; _ -> [] }
+            unfixed = [ p | (p, _) <- concatMap typeParamsIn argPos
+                          , Just v <- [Map.lookup p inst]
+                          , not (Set.null (freeTVarNames (zonk subst2a (TVar v)))) ]
+        tcErrorK "type-param-not-determined" $
+          "in the call to '" <> func <> "', type parameter"
+          <> (if null unfixed then "" else " '" <> T.intercalate "', '" (nub unfixed) <> "'")
+          <> " is not fixed by the other arguments, and the lambda at argument "
+          <> tshow (j + 1) <> " leaves its parameter"
+          <> (if null unknown then "" else " '" <> T.intercalate "', '" unknown <> "'")
+          <> " unannotated; annotate it, for example (fn ["
+          <> (case unknown of { (x : _) -> x; [] -> "x" }) <> ": int] ...)"
+        -- The body is still checked, so an error inside it is not hidden.
+        void (checkLambdaAgainst eps lam)
+      -- Matching reads alias-expanded types, so a parameter bound by an
+      -- argument of type PositiveInt (or Task) binds to its expansion. When
+      -- every argument at the parameter's positions has the SAME named type
+      -- and it expands to the bound type, the parameter is that named type
+      -- (proposal, "Refinement aliases as type arguments": a := PositiveInt).
+      -- The specialized copy then states the alias's obligations, and a sum
+      -- type keeps its name. Arguments that disagree keep the expansion.
+      subst2 <- foldM (\sb v -> case nub [ r | (v', r) <- rawPairs, v' == v ] of
+                          [r] | r /= zonk sb (TVar v), not (mentionsUntyped r), not (mentionsWildcard r) -> do
+                                  rE <- expandAlias r
+                                  bE <- expandAlias (zonk sb (TVar v))
+                                  pure (if stripDep rE == stripDep bE then Map.insert v r sb else sb)
+                          _ -> pure sb)
+                 subst2a (Map.elems inst)
+      let tyArgOf p = maybe (TVar "?unfixed") (zonk subst2 . TVar) (Map.lookup p inst)
+          tyArgs    = [ (p, c, tyArgOf p) | (p, c) <- declared ]
+      -- Rule 5, second half, on the type arguments themselves.
+      forM_ tyArgs $ \(p, _, t) -> when (mentionsUntyped t) $
+        tcErrorK "untyped-arg-to-generic" $
+          "the call to the generic '" <> func <> "' instantiates type parameter '" <> p
+          <> "' at '" <> typeLabel t <> "', which has no type; annotate the untyped binding"
+      -- GENERICS-1 (soundness): a type argument that still mentions the
+      -- unknown-return wildcard (reached through a lambda's result, say).
+      -- Only an argument already refused above is not reported twice.
+      when (null wildArgs) $
+        forM_ tyArgs $ \(p, _, t) -> when (mentionsWildcard t) $
+          tcErrorK "untyped-arg-to-generic" $
+            "the call to the generic '" <> func <> "' instantiates type parameter '" <> p
+            <> "' at a type that is not known (it comes from a function with no return"
+            <> " annotation, or from a hole); add a return annotation to the function"
+            <> " that produces it"
+      -- Step 6: the declared constraints.
+      forM_ tyArgs $ \(p, mc, t) -> forM_ mc $ \c -> checkTypeArgConstraint func p c t
+      -- Step 7: the site table.
+      recordGenericSite func args [ unfixedVars t | (_, _, t) <- tyArgs ]
+      pure (zonk subst2 retType)
+    _ -> do
+      -- A registered generic is always a function type; this is a defect.
+      tcError $ "internal: generic '" <> func <> "' has non-function type " <> typeLabel rawTy
+      pure (TVar "?")
+  where
+    unfixedVars t = applySubst (Map.fromList [ (v, TVar "?unfixed") | v <- Set.toList (freeTVarNames t) ]) t
+
+-- | GENERICS-1: the argument's unexpanded type at each position where the
+-- instantiated parameter type is a bare type-parameter variable. A structural
+-- parameter type looks through the argument's head aliases and refinements to
+-- match; a variable position records the argument's type as written.
+rawAtParam :: Map.Map Name Type -> Type -> Type -> [(Name, Type)]
+rawAtParam am = go (32 :: Int)
+  where
+    go 0 _ _ = []
+    go k e a = case e of
+      TVar v -> [(v, a)]
+      _ -> case (e, headOf k a) of
+        (TList x, TList y)         -> go (k - 1) x y
+        (TMap x y, TMap x' y')     -> go (k - 1) x x' ++ go (k - 1) y y'
+        (TResult x y, TResult x' y') -> go (k - 1) x x' ++ go (k - 1) y y'
+        (TPair x y, TPair x' y')   -> go (k - 1) x x' ++ go (k - 1) y y'
+        (TPromise x, TPromise y)   -> go (k - 1) x y
+        (TFn xs r, TFn ys r')
+          | length xs == length ys -> concat (zipWith (go (k - 1)) xs ys) ++ go (k - 1) r r'
+        _                          -> []
+    headOf 0 t = t
+    headOf k t = case t of
+      TCustom n | Just b <- Map.lookup n am -> headOf (k - 1) b
+      TDependent _ b _                      -> headOf (k - 1) b
+      _                                     -> t
+
+-- | GENERICS-1 (soundness): the @?@-wildcard of an unannotated return or a
+-- named hole (@TVar "?"@, @"?$n"@, @"?name"@ and their freshenings). Not the
+-- site table's own @"?unfixed"@ marker, and not a builtin's placeholder
+-- (@"a$n"@), which is an unconstrained type, not an unknown one.
+isUnknownWildcard :: Type -> Bool
+isUnknownWildcard (TVar n) = "?" `T.isPrefixOf` n && n /= "?unfixed"
+isUnknownWildcard _        = False
+
+-- | True when a type mentions the unknown-return wildcard ('isUnknownWildcard').
+mentionsWildcard :: Type -> Bool
+mentionsWildcard t = case t of
+  TVar _           -> isUnknownWildcard t
+  TList a          -> mentionsWildcard a
+  TMap k v         -> mentionsWildcard k || mentionsWildcard v
+  TResult a b      -> mentionsWildcard a || mentionsWildcard b
+  TPair a b        -> mentionsWildcard a || mentionsWildcard b
+  TFn as r         -> any mentionsWildcard as || mentionsWildcard r
+  TPromise a       -> mentionsWildcard a
+  TDependent _ b _ -> mentionsWildcard b
+  _                -> False
+
+-- | GENERICS-1 (soundness): does the actual argument type carry the unknown
+-- wildcard at a position where the instantiated parameter type mentions one
+-- of the call's type-parameter variables? The walk is structural on both
+-- sides, so a wildcard elsewhere in the argument (a function result the
+-- parameter fixes to a concrete type, say) is not refused.
+wildcardAtParam :: Set.Set Name -> Type -> Type -> Bool
+wildcardAtParam vs expected actual
+  | isUnknownWildcard actual = touches expected
+  | otherwise = case (expected, actual) of
+      (TList a, TList b)         -> wildcardAtParam vs a b
+      (TMap k v, TMap k' v')     -> wildcardAtParam vs k k' || wildcardAtParam vs v v'
+      (TResult a b, TResult c d) -> wildcardAtParam vs a c || wildcardAtParam vs b d
+      (TPair a b, TPair c d)     -> wildcardAtParam vs a c || wildcardAtParam vs b d
+      (TPromise a, TPromise b)   -> wildcardAtParam vs a b
+      (TFn as r, TFn bs r')
+        | length as == length bs -> or (zipWith (wildcardAtParam vs) as bs) || wildcardAtParam vs r r'
+      _                          -> False
+  where
+    touches t = not (Set.null (Set.intersection vs (freeTVarNames t)))
+
+-- | GENERICS-1 (soundness): the refusal of an argument whose type is the
+-- unknown-return wildcard. Same kind as rule 5's argument half.
+untypedArgUnknown :: Name -> Int -> TC ()
+untypedArgUnknown func j =
+  tcErrorK "untyped-arg-to-generic" $
+    "argument " <> tshow j <> " of the generic '" <> func <> "' has a type that is not"
+    <> " known (it comes from a function with no return annotation, or from a hole),"
+    <> " so it cannot instantiate a type parameter; add a return annotation to the"
+    <> " function that produces it"
+
+-- | GENERICS-1 (synthesis step 3): check a lambda against the parameter types
+-- a generic call expects. An unannotated parameter takes the expected type; an
+-- annotated one must agree with an expected type that is already known; the
+-- body is inferred under those bindings. Returns the lambda's function type,
+-- which the caller matches against the expected type to fix the result.
+-- Runs only at generic calls; every other lambda keeps 'inferExpr' synthesis.
+checkLambdaAgainst :: [Type] -> Expr -> TC Type
+checkLambdaAgainst eps (ELambda ps body) = do
+  ps' <- forM (zip ps (map Just eps ++ repeat Nothing)) $ \((x, t), me) ->
+    case (t, me) of
+      (TCustom "_", Just e) -> pure (x, e)
+      (_, Just e) | Set.null (freeTVarNames e) -> do
+        ok <- compatibleExpanded e t
+        unless ok $ tcTypeMismatch ("lambda parameter " <> x) e t
+        pure (x, t)
+      _ -> pure (x, t)
+  bodyTy <- withTaggedEnv SrcParam ps' (inferExpr body)
+  pure (TFn (map snd ps') bodyTy)
+checkLambdaAgainst _ e = inferExpr e
+
+-- | GENERICS-1 (synthesis step 6): a declared constraint on one type argument.
+-- A concrete type uses the existing walks, and the message names the
+-- instantiation; a rigid parameter of the enclosing definition satisfies it
+-- when its own constraint entails it ('constraint-missing' otherwise). An
+-- unfixed type passes (AMBIG-TVAR-1): every walk accepts a 'TVar'.
+checkTypeArgConstraint :: Name -> Name -> TyConstraint -> Type -> TC ()
+checkTypeArgConstraint func p c t = do
+  am <- gets tcAliasMap
+  t' <- expandAlias t
+  let inst = "'" <> func <> "' instantiates (" <> p <> " " <> tyConstraintLabel c
+             <> ") at '" <> typeLabel t <> "'"
+      refuse kind why = tcErrorK kind (inst <> why)
+      contains w = if w == t' || w == t then "" else ": it contains '" <> typeLabel w <> "'"
+  case c of
+    TCEq
+      | mentionsJson am t' ->
+          refuse "equality-undefined" (", which has no equality: equality on a sealed JSON value is denied")
+      | otherwise -> case noEqWitness am t' of
+          Nothing           -> pure ()
+          Just (TParam q _) -> tcConstraintMissing func t q TCEq
+          Just w            -> refuse "equality-undefined" (", which has no equality" <> contains w
+                                 <> "; functions, Command and Promise values have no equality")
+    TCOrd -> case noOrdWitness am t' of
+      Nothing           -> pure ()
+      Just (TParam q _) -> tcConstraintMissing func t q TCOrd
+      Just w            -> refuse "order-undefined" (", which is not ordered" <> contains w
+                             <> ". Only int, string, bool and pairs of them are ordered")
+    TCKey -> case noKeyWitness am t' of
+      Nothing           -> pure ()
+      Just (TParam q _) -> tcConstraintMissing func t q TCKey
+      Just w            -> refuse "map-key-undefined" (", which is not a map key" <> contains w
+                             <> ". Map keys are int or string")
+
+-- | GENERICS-1: record one generic call in the site table. The key is the
+-- enclosing component, the callee and the argument text ('SiteKey'). Two
+-- calls with the same text in one component that instantiate differently
+-- (only shadowing can do that) are refused, never resolved silently (plan F2).
+--
+-- GENERIC-COMPARE-1: a @compare@ call is recorded here too, with its operand
+-- type as the one "type argument", in every definition (generic or not), so
+-- the specialization pass can rewrite it to @compare%int@ / @compare%bool@.
+recordGenericSite :: Name -> [Expr] -> [Type] -> TC ()
+recordGenericSite func args tys = do
+  owner <- siteOwner
+  let key = (owner, func, map canonicalExpr args)
+  old <- gets (Map.lookup key . tcGenericSites)
+  case old of
+    Just prev | prev /= tys ->
+      tcErrorK "generic-site-ambiguous" $
+        "the call (" <> func <> " ...) with the same arguments appears more than once in '"
+        <> owner <> "' and instantiates '" <> func <> "' at ["
+        <> T.intercalate ", " (map typeLabel prev) <> "] and at ["
+        <> T.intercalate ", " (map typeLabel tys) <> "]; a name is shadowed between the two."
+        <> " Rename one of the bindings"
+    _ -> modify $ \s -> s { tcGenericSites = Map.insert key tys (tcGenericSites s) }
+  where
+    siteOwner = do
+      mFn <- gets tcCurrentFn
+      ptr <- gets tcPointerStack
+      pure $ case (mFn, ptr) of
+        (Just f, _)                    -> f
+        (Nothing, "statements" : i : _) -> "/statements/" <> i
+        (Nothing, _)                    -> "/"
 
 -- | Structural unification with substitution tracking.
 -- When a TVar in the expected type first encounters a concrete actual type,
@@ -3876,6 +4520,14 @@ structuralUnify func subst expected actual =
     (TCustom "_", _) -> pure subst
     (_, TCustom "_") -> pure subst
 
+    -- GENERICS-1: a rigid type parameter unifies only with itself. An
+    -- expected 'TVar' still binds to it (first arm), which is how a generic
+    -- call made inside a generic body instantiates at the caller's parameter.
+    (TParam a _, TParam b _)
+      | a == b    -> pure subst
+    (TParam _ _, _) -> tcTypeMismatch func expected actual >> pure subst
+    (_, TParam _ _) -> tcTypeMismatch func expected actual >> pure subst
+
     -- Fallback: structural equality via compatibleWith
     _ -> do
       am <- gets tcAliasMap
@@ -3927,6 +4579,12 @@ compatibleWith _  _ (TCustom "_")    = True
 compatibleWith _  (TCustom a) (TCustom b) = a == b
 compatibleWith am (TDependent _ a _) b   = compatibleWith am a b
 compatibleWith am a (TDependent _ b _)   = compatibleWith am a b
+-- GENERICS-1: a rigid type parameter is compatible only with itself. The
+-- 'TVar' and @TCustom "_"@ wildcards above still match it, as they match
+-- every type; rule 5 keeps the untyped wildcard out of generic definitions.
+compatibleWith _  (TParam a _) (TParam b _) = a == b
+compatibleWith _  (TParam _ _) _         = False
+compatibleWith _  _ (TParam _ _)         = False
 compatibleWith am (TList a) (TList b)  = compatibleWith am a b
 compatibleWith am (TMap k1 v1) (TMap k2 v2) = compatibleWith am k1 k2 && compatibleWith am v1 v2
 compatibleWith am (TResult a b) (TResult c d) = compatibleWith am a c && compatibleWith am b d

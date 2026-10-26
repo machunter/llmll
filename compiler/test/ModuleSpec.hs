@@ -613,13 +613,13 @@ moduleSpec = describe "Module System" $ do
             body  = EMatch (EVar "lib.Ran")
                       [ (PConstructor "lib.Ran" [], EApp "lib.sub.g" [EVar "x"])
                       , (PWildcard, EApp "wasi.io.stdout" [ELambda [("y", TInt)] (EApp "lib.f" [EVar "y"])]) ]
-            stmt  = SDefShell "k" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing [] []) body []
+            stmt  = SDefShell "k" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing [] []) body [] []
         stripModuleQualifiers paths [stmt] `shouldBe`
           [ SDefShell "k" [("x", TInt)] Nothing (Contract Nothing Nothing Nothing Nothing Nothing [] [])
               (EMatch (EVar "Ran")
                  [ (PConstructor "Ran" [], EApp "g" [EVar "x"])
                  , (PWildcard, EApp "wasi.io.stdout" [ELambda [("y", TInt)] (EApp "f" [EVar "y"])]) ])
-              [] ]
+              [] [] ]
       it "codegen (r3main): Lib.hs carries the bare names, never lib_f, lib_Ran or lib_Ctl" $ do
         Right (ss, c) <- xsLoad "r3main"
         r <- xsCheck True "r3main"
@@ -820,9 +820,9 @@ moduleSpec = describe "Module System" $ do
         -- realistic verify-time state once it has discharged withdraw's pre and
         -- proved its own post). The hash is recovered from the live def-shell.
         composeOwnSidecar composeEnv =
-          case find (\s -> case s of SDefShell "safe-withdraw" _ _ _ _ _ -> True; _ -> False)
+          case find (\s -> case s of SDefShell "safe-withdraw" _ _ _ _ _ _ -> True; _ -> False)
                     (meStatements composeEnv) of
-            Just (SDefShell _ _ _ c b _) ->
+            Just (SDefShell _ _ _ c b _ _) ->
               let h = canonicalDefEvidenceHash "def-shell" b (contractPre c) (contractPost c) []
                   v = mkER (DLVerified "liquid-fixpoint") True (Just h)
               in Map.fromList [("safe-withdraw", ContractStatus (Just v) (Just v) [])]

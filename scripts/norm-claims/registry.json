@@ -329,7 +329,7 @@
     {
       "id": "NC-038",
       "section": "0.1",
-      "text": "`CodegenHs` and the codegen preamble produce that program, so the verification conditions describe what they emit rather than the source text a reader sees.",
+      "text": "`CodegenHs` and the codegen preamble produce that program, so the verification conditions describe what they emit rather than the source text a reader sees, up to dictionary elaboration: a function polymorphic in a type parameter (§3.5), or a polymorphic preamble function, runs with GHC's dictionary for the instantiating type, and each type has exactly one instance, the derived one, whose behaviour this specification defines; under that condition the dictionary-passing program is equivalent to the specialized program that the verifier checks (Wadler and Blott, *How to Make Ad-hoc Polymorphism Less Ad Hoc*, POPL 1989; Jones, *Coherence for Qualified Types*, Yale RR-989, 1993).",
       "disposition": "informative"
     },
     {

@@ -1,0 +1,57 @@
+;; GENERICS-1 build-and-run fixture: P1 (the priority queue) as
+;; docs/design/generics-proposal.md "P1" writes it, one queue section for int,
+;; string and Task keys. Instances: [int, int], [string, string], [Task, int].
+;; The run prints each queue in key order: "1 2 3 |a b c |job1 job2 ".
+(import wasi.io (capability stdout :deterministic false))
+
+(type Task (| Job int))
+
+(def-shell pq-insert :type-params [a (k ord)]
+    [key: (fn [a] -> k) x: a q: list[a]] -> list[a]
+  (post (= (list-length result) (+ (list-length q) 1)))
+  (decreases (list-length q))
+  (match (list-head q)
+    ((Success h)
+      (if (<= (compare (key x) (key h)) 0)
+          (list-prepend x q)
+          (match (list-tail q)
+            ((Success t) (list-prepend h (pq-insert key x t)))
+            ((Error e) (list-prepend x q)))))
+    ((Error e) (list-prepend x q))))
+
+(def-shell pq-from-list :type-params [a (k ord)] [key: (fn [a] -> k) xs: list[a]] -> list[a]
+  (list-fold xs (list-empty) (fn [acc: list[a] x: a] (pq-insert key x acc))))
+
+(def-shell pq-sorted? :type-params [a (k ord)] [key: (fn [a] -> k) q: list[a]] -> bool
+  (decreases (list-length q))
+  (match (list-tail q)
+    ((Success t)
+      (match (list-head q)
+        ((Success x)
+          (match (list-head t)
+            ((Success y) (and (<= (compare (key x) (key y)) 0) (pq-sorted? key t)))
+            ((Error e) true)))
+        ((Error e) true)))
+    ((Error e) true)))
+
+(def-shell pq-show :type-params [a] [show: (fn [a] -> string) q: list[a]] -> string
+  (string-concat-many (list-map q (fn [x: a] (string-concat (show x) " ")))))
+
+(def-shell task-prio [t: Task] -> int (match t ((Job p) p)))
+(def-shell task-show [t: Task] -> string (match t ((Job p) (string-concat "job" (int-to-string p)))))
+(def-shell show-int [x: int] -> string (int-to-string x))
+(def-shell same-s [s: string] -> string s)
+
+(def-shell int-q [xs: list[int]] -> string
+  (pq-show show-int (pq-from-list (fn [x: int] x) xs)))
+(def-shell str-q [xs: list[string]] -> string
+  (pq-show same-s (pq-from-list same-s xs)))
+(def-shell task-q [ts: list[Task]] -> string
+  (pq-show task-show (pq-from-list task-prio ts)))
+(def-shell int-q-sorted? [xs: list[int]] -> bool
+  (pq-sorted? (fn [x: int] x) (pq-from-list (fn [x: int] x) xs)))
+
+(def-main :mode console
+  :init (pair 0 (wasi.io.stdout (string-concat-many
+          [(int-q [3 1 2]) "|" (str-q ["b" "c" "a"]) "|" (task-q [(Job 2) (Job 1)])])))
+  :step (fn [s: int line: string _r: Response] (pair s (wasi.io.stdout ""))))

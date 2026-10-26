@@ -178,7 +178,7 @@ collectHolesStmtIdx idx (SDef name _params ret contract body) =
       postHoles = maybe [] (collectHolesExprPath (base <> "/post") (ctx <> " [post]")) (contractPost contract)
   in bodyHoles ++ preHoles ++ postHoles
 
-collectHolesStmtIdx idx (SDefShell name _params ret contract body _) =
+collectHolesStmtIdx idx (SDefShell name _params ret contract body _ _) =
   let base = "statements/" <> tshow idx
       ctx  = "def-shell " <> name
       -- DEF-RET: bare named-hole body under a declared return carries that type.
@@ -571,7 +571,7 @@ holeDensityWarnings = concatMap checkStmt
             "def '" <> name <> "' body is entirely a single named hole (?" <> holeName_ <> "). "
             <> "Prefer targeted holes over wholesale stubs."]
         _ -> []
-    checkStmt (SDefShell name _params _ret _contract body _) =
+    checkStmt (SDefShell name _params _ret _contract body _ _) =
       case body of
         EHole (HNamed holeName_) ->
           [mkWarning Nothing $
@@ -651,7 +651,7 @@ buildCallGraph stmts = Map.fromList $ mapMaybe go stmts
     go (SLetrec name ps _ _ _ body)  = Just (name, nub $ extractCallsScoped (map fst ps) body)
     -- LT-INV (v0.11)
     go (SDef      name ps _ _ body)  = Just (name, nub $ extractCallsScoped (map fst ps) body)
-    go (SDefShell name ps _ _ body _)  = Just (name, nub $ extractCallsScoped (map fst ps) body)
+    go (SDefShell name ps _ _ body _ _)  = Just (name, nub $ extractCallsScoped (map fst ps) body)
     -- v0.12.1
     go (SDefInvariant name ps _ _ body) = Just (name, nub $ extractCallsScoped (map fst ps) body)
     go _                            = Nothing
@@ -689,7 +689,7 @@ enclosingFunc pointer stmts =
     stmtName (SLetrec name _ _ _ _ _)    = Just name
     -- LT-INV (v0.11)
     stmtName (SDef      name _ _ _ _)    = Just name
-    stmtName (SDefShell name _ _ _ _ _)    = Just name
+    stmtName (SDefShell name _ _ _ _ _ _)    = Just name
     -- v0.12.1
     stmtName (SDefInvariant name _ _ _ _) = Just name
     stmtName _                           = Nothing

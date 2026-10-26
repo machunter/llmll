@@ -248,21 +248,21 @@ def v8(tree):
 
 @cell("V9", "C3 the schema enum does not list ParserJSON's version")
 def v9(tree):
-    edit(tree, "docs/llmll-ast.schema.json", '"enum": ["0.14.0", ',
+    edit(tree, "docs/llmll-ast.schema.json", '"enum": ["0.15.0", ',
          '"enum": [')
 
 
 @cell("V10", "C3 ParserJSON's expectedSchemaVersion disagrees with the schema")
 def v10(tree):
     edit(tree, "compiler/src/LLMLL/ParserJSON.hs",
-         'expectedSchemaVersion = "0.14.0"',
-         'expectedSchemaVersion = "0.15.0"')
+         'expectedSchemaVersion = "0.15.0"',
+         'expectedSchemaVersion = "0.16.0"')
 
 
 @cell("V11", "C4 the schema $id names a different minor than schemaVersion")
 def v11(tree):
-    edit(tree, "docs/llmll-ast.schema.json", "/schemas/v0.14/",
-         "/schemas/v0.13/")
+    edit(tree, "docs/llmll-ast.schema.json", "/schemas/v0.15/",
+         "/schemas/v0.14/")
 
 
 @cell("V12", "C3+C4 the schema is not readable as JSON")
@@ -274,8 +274,8 @@ def v12(tree):
 def v14(tree):
     # SCHEMA-TRUTH-1 replaced the const with an enum; a schema that loses the
     # enum must fail as an extraction error, not pass for want of a list.
-    edit(tree, "docs/llmll-ast.schema.json", '"enum": ["0.14.0", ',
-         '"enum_removed": ["0.14.0", ')
+    edit(tree, "docs/llmll-ast.schema.json", '"enum": ["0.15.0", ',
+         '"enum_removed": ["0.15.0", ')
 
 
 @cell("V13", "the whole banner moves together, and that is NOT a failure",

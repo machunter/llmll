@@ -65,6 +65,10 @@ structuralMatch :: Type -> Type -> Bool
 -- TVar is a wildcard in both positions
 structuralMatch (TVar _) _ = True
 structuralMatch _ (TVar _) = True
+-- GENERICS-1: a rigid type parameter is not a wildcard; it matches only itself.
+structuralMatch (TParam a _) (TParam b _) = a == b
+structuralMatch (TParam _ _) _ = False
+structuralMatch _ (TParam _ _) = False
 -- Strip TDependent from both sides
 structuralMatch (TDependent _ a _) b = structuralMatch a b
 structuralMatch a (TDependent _ b _) = structuralMatch a b
@@ -175,7 +179,7 @@ extractFunctions = mapMaybe go
           funcType  = TFn (map snd params) retType
           hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing
       in Just (name, funcType, hasCon)
-    go (SDefShell name params mRet contract _ _) =
+    go (SDefShell name params mRet contract _ _ _) =
       let retType   = maybe (TVar "?") id mRet
           funcType  = TFn (map snd params) retType
           hasCon    = contractPre contract /= Nothing || contractPost contract /= Nothing

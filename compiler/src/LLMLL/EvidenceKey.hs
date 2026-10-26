@@ -47,6 +47,7 @@ import qualified Data.Text as T
 import LLMLL.BuildScope (closureOf)
 import LLMLL.FixpointEmit (KeyEnv(..), augmentContractPost, augmentContractPre, buildKeyEnv)
 import LLMLL.PBT (canonicalDefEvidenceHashWith, canonicalExpr)
+import LLMLL.Specialize (copyTypeArgsSuffix)
 import LLMLL.Syntax
 
 -- | The evidence key of one definition. The flag says whether the record being
@@ -57,7 +58,7 @@ evidenceKey ke withTerm s = do
   (n, params, mRet, c, body) <- normalizeDefStmt s
   let am   = keAliases ke
       cEff = augmentContractPost am mRet (augmentContractPre am params c)
-      decs = case s of SDefShell _ _ _ _ _ d -> d; _ -> []
+      decs = case s of SDefShell _ _ _ _ _ d _ -> d; _ -> []
   pure ( n
        , canonicalDefEvidenceHashWith (depsFragment ke withTerm n params mRet body)
            (defFormTag s) body (contractPre cEff) (contractPost cEff) decs )
@@ -83,8 +84,14 @@ evidenceKeys ke withTerm = Map.fromList . mapMaybe (evidenceKey ke withTerm)
 
 depsFragment :: KeyEnv -> Bool -> Name -> [(Name, Type)] -> Maybe Type -> Expr -> Text
 depsFragment ke withTerm n params mRet body =
-  T.unwords (filter (not . T.null) [ownTypes, callees, resp, group])
+  T.unwords (filter (not . T.null) [typeArgs, ownTypes, callees, resp, group])
   where
+    -- GENERICS-1: a specialized copy (@f\@[T...]@) folds its expanded type
+    -- arguments in. Without it @f\@[int]@ and @f\@[bool]@ hash the same
+    -- preimage, since primitive parameter types and the name are not hashed.
+    -- Empty for every other definition, so every existing key is unchanged.
+    typeArgs = maybe "" (\a -> "(type-args " <> a <> ")") (copyTypeArgsSuffix n)
+
     am   = keAliases ke
     cenv = keCenv ke
 

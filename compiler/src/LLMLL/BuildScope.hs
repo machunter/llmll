@@ -126,7 +126,7 @@ moduleDecls path exported stmts =
   where
     mk ns n = Decl path n ns (exported n)
     fnNameOf (SDef n _ _ _ _)          = Just n
-    fnNameOf (SDefShell n _ _ _ _ _)   = Just n
+    fnNameOf (SDefShell n _ _ _ _ _ _)   = Just n
     fnNameOf (SDefLogic n _ _ _ _)     = Just n
     fnNameOf (SLetrec n _ _ _ _ _)     = Just n
     fnNameOf (SDefInvariant n _ _ _ _) = Just n
@@ -271,8 +271,8 @@ travStmtTypes :: Applicative f => (Type -> f Type) -> Statement -> f Statement
 travStmtTypes f s = case s of
   SDef n ps r c b ->
     SDef n <$> params ps <*> traverse f r <*> travContract ex c <*> ex b
-  SDefShell n ps r c b ds ->
-    SDefShell n <$> params ps <*> traverse f r <*> travContract ex c <*> ex b <*> traverse ex ds
+  SDefShell n ps r c b ds tps ->
+    SDefShell n <$> params ps <*> traverse f r <*> travContract ex c <*> ex b <*> traverse ex ds <*> pure tps
   SDefLogic n ps r c b ->
     SDefLogic n <$> params ps <*> traverse f r <*> travContract ex c <*> ex b
   SDefInvariant n ps r c b ->
@@ -371,7 +371,7 @@ stripModuleQualifiers paths
 travStmtExprs :: Applicative f => (Expr -> f Expr) -> Statement -> f Statement
 travStmtExprs ex s = case s of
   SDef n ps r c b              -> SDef n ps r <$> travContract ex c <*> ex b
-  SDefShell n ps r c b ds      -> SDefShell n ps r <$> travContract ex c <*> ex b <*> traverse ex ds
+  SDefShell n ps r c b ds tps    -> SDefShell n ps r <$> travContract ex c <*> ex b <*> traverse ex ds <*> pure tps
   SDefLogic n ps r c b         -> SDefLogic n ps r <$> travContract ex c <*> ex b
   SDefInvariant n ps r c b     -> SDefInvariant n ps r <$> travContract ex c <*> ex b
   SLetrec n ps r c d b         -> SLetrec n ps r <$> travContract ex c <*> ex d <*> ex b

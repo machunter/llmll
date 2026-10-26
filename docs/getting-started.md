@@ -642,7 +642,7 @@ The replay command:
 ```json
 // if_hole.ast.json
 {
-  "schemaVersion": "0.14.0",
+  "schemaVersion": "0.15.0",
   "statements": [
     { "kind": "def", "name": "greet",
       "params": [{ "name": "formal", "param_type": { "kind": "primitive", "name": "bool" } }],
@@ -838,7 +838,7 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.14.0",
+  "schemaVersion": "0.15.0",
   "llmll_version": "0.14.65",
   "statements": [ ... ]
 }
@@ -916,6 +916,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `regex-spans` | `string string → list[(int, int)]` | `[start, end)` span of each match, for `string-slice`. |
 | `regex-replace-all` | `string string string → string` | Pattern, subject, replacement. The replacement is literal text (no `\1`). |
 | `string-compare` | `string string → int` | `-1`, `0` or `1` by code point; `<` is `int` only. |
+| `compare` | `a a → int`, `a` ordered | `-1`, `0` or `1`; `0` exactly when `=`. Proved at `int` and `bool`, including in an `if` guard; uninterpreted at `string` and pairs (§4.28). |
 | `list-sort` / `list-sort-by` | `list[a] → list[a]` / `list[a] (fn [a] → k) → list[a]` | Ascending; `list-sort-by` takes a key function and is stable. The element or key type must be `int`, `string`, `bool` or a pair of them (`order-undefined`). |
 | `list-reverse` | `list[a] → list[a]` | O(n). Build a list with `list-prepend` in a fold, then reverse once; `list-append` is O(n) per call. |
 | `map-keys` / `map-entries` | `map[k,v] → list[k]` / `map[k,v] → list[(k, v)]` | Ascending key order. |
@@ -1673,7 +1674,7 @@ A **refinement-aliased return** (`-> PositiveInt`) discharges: the body-VC prove
 
 **Known restrictions:**
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
-- Schema `schemaVersion` is `0.14.0` (a literal pattern may carry `"literal_kind": "int"` or `"float"`, FLOAT-LIT-1: a JSON number does not keep the difference between `2` and `2.0`, so a float pattern must say `"float"`, and a kind that disagrees with the number, such as `"int"` on `-0.5`, is the parse error `literal-kind-mismatch`; `0.13.0` let a `type-decl` body be a plain alias, AST-TYPE-ALIAS-1, and gave `Type` the interface-only boundary kinds `hs-text`, `hs-int` and `hs-maybe`, FFI-CONV-1; `0.12.0` made `def-main` `mode` `"console"` or `"cli"`, MODE-HTTP-1; the reader also accepts `0.13.0`, `0.12.0`, `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility). New `.ast.json` files should carry `"schemaVersion": "0.14.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
+- Schema `schemaVersion` is `0.15.0` (`def-shell` may carry `"type_params"`, an array of `{"name": "a"}` or `{"name": "k", "constraint": "ord"}` with `constraint` one of `eq`, `ord` or `key`, and `Type` has the kind `{"kind": "type-var", "name": "a"}`, GENERICS-1; `0.14.0` let a literal pattern carry `"literal_kind": "int"` or `"float"`, FLOAT-LIT-1: a JSON number does not keep the difference between `2` and `2.0`, so a float pattern must say `"float"`, and a kind that disagrees with the number, such as `"int"` on `-0.5`, is the parse error `literal-kind-mismatch`; `0.13.0` let a `type-decl` body be a plain alias, AST-TYPE-ALIAS-1, and gave `Type` the interface-only boundary kinds `hs-text`, `hs-int` and `hs-maybe`, FFI-CONV-1; `0.12.0` made `def-main` `mode` `"console"` or `"cli"`, MODE-HTTP-1; the reader also accepts `0.14.0`, `0.13.0`, `0.12.0`, `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility). New `.ast.json` files should carry `"schemaVersion": "0.15.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
 
 ### §4.26 Bytes and Map Patterns (Array Class)
 
@@ -1953,3 +1954,48 @@ Three things to know before writing one:
 
 The capability check matches the namespace, not the verb, so any `wasi.http` import grants the call
 today (`CAP-1-REAL`); write `(capability get URL)` anyway, because the header is what a reader audits.
+
+### §4.28 One Function at Several Types: `:type-params` (`GENERICS-1`)
+
+A function over "any ordered thing" is written once, with a type parameter, instead of once per
+element type. Type parameters go on a `def-shell` only (`LLMLL.md` §3.5). The first idiom is an
+`(a ord)` parameter with `compare` applied directly, because the verifier unfolds `compare` at
+`int` and `bool` and so keeps the proof:
+
+```lisp
+(def-shell pick-min :type-params [(a ord)] [x: a y: a] -> a
+  (post (and (<= (compare result x) 0) (<= (compare result y) 0)))
+  (if (<= (compare x y) 0) x y))
+
+(def-shell use-int  [x: int y: int] -> int (pick-min x y))
+(def-shell use-pos  [p: PositiveInt q: PositiveInt] -> PositiveInt (pick-min p q))
+```
+
+`verify` checks one copy per type the program uses
+([`scripts/tests/fixtures/generics/pick.llmll`](../scripts/tests/fixtures/generics/pick.llmll)):
+
+```
+   body-faithful: use-pos, pick-min@[int], pick-min@[bool], pick-min@[PositiveInt], pick-min-1@[int]
+   generics: 2 definitions, 6 instances
+   body-fallback: use-int, use-bool, use-int-1, pick-min@[string], pick-min-1@[string]
+⚠️  pick.llmll — SAFE (liquid-fixpoint), partial: 5 of 7 contracted functions proved; 2 assumed, not proved: pick-min@[string], pick-min-1@[string]
+```
+
+The copy at `PositiveInt` also proves `result > 0`, because the alias's predicate is stated in
+the copy. At `string`, `compare` is uninterpreted and the copy falls back.
+
+The second idiom is a key function into an ordered type, used when the order is a projection,
+such as a task by priority: `(def-shell pq-insert :type-params [a (k ord)] [key: (fn [a] -> k) x: a q: list[a]] -> list[a] …)`.
+A lambda argument whose parameter is unannotated is fine when the other arguments fix its type;
+when nothing does, the call is `type-param-not-determined`, and the fix is an annotation such as
+`(fn [x: int] x)`.
+
+Mistakes the checker names:
+
+- **A missing constraint.** `(= result x)` at a bare `a`, in the body or in a `post`, is
+  `constraint-missing`: declare `(a eq)`. `list-sort` and `compare` need `(a ord)`; `map-get`
+  and `map-put` need `(k key)`.
+- **An untyped parameter.** Every parameter of a generic `def-shell` needs a type, and an argument
+  whose type comes from a function with no `->` return annotation is `untyped-arg-to-generic`.
+- **A generic `def`.** `(def f :type-params …)` is `type-params-not-supported`; write a `def-shell`.
+  A `def` cannot call a generic `def-shell` either (`generic-callee-in-def`).

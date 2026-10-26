@@ -83,8 +83,10 @@ import Data.Int (Int64)
 -- FLOAT-LIT-1 (decimal-numbers-proposal Rev 1, R1-2): bumped 0.13.0 → 0.14.0
 -- for the optional `literal_kind` key on a literal pattern. Additive: every
 -- 0.13.0 document is a valid 0.14.0 one, so the older versions stay accepted.
+-- GENERICS-1: bumped 0.14.0 → 0.15.0 for the optional `type_params` key on a
+-- def-shell and the `type-var` Type kind. Additive, so 0.14.0 stays accepted.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.14.0"
+expectedSchemaVersion = "0.15.0"
 
 -- | Versions the reader accepts. REC-DESCENT's decreases and DEF-RET's return_type are
 -- additive-optional, so a 0.7.0 / 0.6.0 document (those fields absent) is a valid 0.8.0
@@ -104,7 +106,7 @@ expectedSchemaVersion = "0.14.0"
 -- 0.10.0 fails, which is the intended split — the schema is the authority on
 -- what may be WRITTEN, this list on what can still be READ.
 acceptedSchemaVersions :: [Text]
-acceptedSchemaVersions = ["0.14.0", "0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+acceptedSchemaVersions = ["0.15.0", "0.14.0", "0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -152,6 +154,8 @@ parseJSONAST mode fp bs
                              then Just "Drop --grammar=legacy to parse v0.11 programs ({\"kind\":\"def\",...} / {\"kind\":\"def-shell\",...} are the current forms); def-logic was removed in v0.12.1, so under --grammar=legacy only {\"kind\":\"letrec\",...} remains available"
                            else if k == "unexpected-key"
                              then Just (unexpectedKeyHint (T.pack msg))
+                           else if k == "type-params-not-supported"
+                             then Just typeParamsHint
                            else if k == "removed-construct"
                              then Just "def-logic was removed in v0.12.1; replace {\"kind\":\"def-logic\",...} with {\"kind\":\"def\",...} (strict-core) or {\"kind\":\"def-shell\",...} (permissive)"
                            else Nothing
@@ -170,6 +174,9 @@ parseJSONAST mode fp bs
       -- BYTES-LEN-RANGE-1
       | "bytes-length-range:"      `T.isInfixOf` msg = "bytes-length-range"
       | "literal-kind-mismatch:"   `T.isInfixOf` msg = "literal-kind-mismatch"
+      -- GENERICS-1
+      | "type-params-not-supported:" `T.isInfixOf` msg = "type-params-not-supported"
+      | "unknown-type-var:"        `T.isInfixOf` msg = "unknown-type-var"
       | otherwise = "json-decode-error"
 
 -- | AST-RETURNS-KEY-1: the fix for a definition-head key the reader does not
@@ -182,6 +189,13 @@ unexpectedKeyHint msg
       "A \"decreases\" measure belongs on a def-shell; a def may not self-recurse"
   | otherwise =
       "Remove the key or correct its spelling; docs/llmll-ast.schema.json lists the declared keys"
+
+-- | GENERICS-1: the fix for a @type_params@ key on a form other than
+-- def-shell, modelled on the @decreases@ hint above.
+typeParamsHint :: Text
+typeParamsHint =
+  "A \"type_params\" list belongs on a def-shell; on def, letrec, def-interface"
+  <> " and type-decl it is deferred (GENERICS-2, GENERIC-TYPES-1)"
 
 -- | Parse a JSON Value (already decoded) into statements.
 -- Returns multi-error diagnostics for agent round-trip efficiency.
@@ -241,7 +255,35 @@ flattenStatement mode = withObject "Statement" $ \o -> do
     else (: []) <$> parseStatement mode (Object o)
 
 parseStatement :: GrammarMode -> Value -> Parser Statement
-parseStatement mode = withObject "Statement" $ \o -> do
+parseStatement mode v = do
+  st <- parseStatement' mode v
+  -- GENERICS-1: a type-var is scoped only by a def-shell's type_params
+  -- (checked in 'parseDefShellJSON'); anywhere else it names nothing.
+  case (st, typeVarNames v) of
+    (SDefShell{}, _) -> pure st
+    (_, n : _)       -> fail (T.unpack (unknownTypeVarMessage n))
+    (_, [])          -> pure st
+
+-- | GENERICS-1: every @{"kind":"type-var","name":n}@ under a statement, read
+-- off the raw JSON, where the spelling is still visible ('parseType' reads a
+-- type-var as a plain name for 'bindTypeParams').
+typeVarNames :: Value -> [Text]
+typeVarNames val = case val of
+  Object o -> (case (KM.lookup "kind" o, KM.lookup "name" o) of
+                 (Just (String "type-var"), Just (String n)) -> [n]
+                 _                                           -> [])
+              ++ concatMap typeVarNames (KM.elems o)
+  Array a  -> concatMap typeVarNames a
+  _        -> []
+
+-- | GENERICS-1: refuse a @type_params@ key on a form other than def-shell.
+refuseTypeParams :: Text -> Object -> Parser ()
+refuseTypeParams form o = when (KM.member "type_params" o) $ do
+  name <- o .:? "name" .!= ("(unknown)" :: Text)
+  fail (T.unpack (typeParamsNotSupportedMessage form name))
+
+parseStatement' :: GrammarMode -> Value -> Parser Statement
+parseStatement' mode = withObject "Statement" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
     "def-logic" -> do
@@ -355,7 +397,7 @@ defCoreKeys =
   , "pre", "pre_source", "pre_clauses"
   , "post", "post_source", "post_clauses"
   , "spec_entropy", "body" ]
-defShellKeys = defCoreKeys ++ ["decreases"]
+defShellKeys = defCoreKeys ++ ["decreases", "type_params"]
 
 -- | Fail on any key outside @allowed@. For nodes the schema declares
 -- additionalProperties: false (N3, AST-RETURNS-KEY-1).
@@ -373,6 +415,7 @@ rejectUnknownKeys what allowed o =
 parseDefCore :: Object -> Parser Statement
 parseDefCore o = do
   name     <- o .: "name"
+  refuseTypeParams "def" o
   rejectUnknownKeys ("unexpected-key: def '" ++ T.unpack name ++ "'") defCoreKeys o
   params   <- o .: "params" >>= mapM parseTypedParam
   (mPre, mPreSrc, preCls)    <- contractSide o "pre" "pre_source" "pre_clauses" "pre"
@@ -396,7 +439,26 @@ parseDefShellJSON o = do
   -- REC-DESCENT (v0.14.24): optional termination-measure list (schema 0.8.0).
   -- Absent → []; Phase 1 parses + round-trips only, no obligation.
   decreases <- o .:? "decreases" >>= maybe (pure []) (mapM parseExpr)
-  pure $ SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) body decreases
+  -- GENERICS-1 (schema 0.15.0): optional type parameters, in declared order.
+  tps <- o .:? "type_params" >>= maybe (pure []) (mapM parseTypeParam)
+  case filter (`notElem` map fst tps) (typeVarNames (Object o)) of
+    (n : _) -> fail (T.unpack (unknownTypeVarMessage n))
+    []      -> pure ()
+  pure $ bindTypeParams $
+    SDefShell name params mRet (Contract mPre mPreSrc mPost mPostSrc mEntropy preCls postCls) body decreases tps
+
+-- | GENERICS-1: one @type_params@ entry, @{"name":"a"}@ or
+-- @{"name":"k","constraint":"ord"}@.
+parseTypeParam :: Value -> Parser (Name, Maybe TyConstraint)
+parseTypeParam = withObject "TypeParam" $ \o -> do
+  n  <- o .: "name"
+  mc <- o .:? "constraint"
+  case mc of
+    Nothing -> pure (n, Nothing)
+    Just c  -> case parseTyConstraint c of
+      Just k  -> pure (n, Just k)
+      Nothing -> fail $ "type parameter '" ++ T.unpack n ++ "': unknown constraint '"
+                     ++ T.unpack c ++ "' (expected \"eq\", \"ord\" or \"key\")"
 
 -- | LT-CDP (v0.11): decode the optional `spec_entropy` field on a JSON-AST
 -- contract object. Strict — unknown labels are a parse error rather than a
@@ -410,6 +472,7 @@ parseSpecEntropyField = withText "SpecEntropy" $ \txt -> case parseSpecEntropy t
 parseDefInterface :: Object -> Parser Statement
 parseDefInterface o = do
   name    <- o .: "name"
+  refuseTypeParams "def-interface" o
   methods <- o .: "methods" >>= mapM parseIfaceMethod
   laws    <- o .:? "laws" .!= [] >>= mapM parseLawProperty
   pure $ SDefInterface name methods laws
@@ -442,12 +505,14 @@ parseDefInvariant o = do
 parseTypeDecl :: Object -> Parser Statement
 parseTypeDecl o = do
   name <- o .: "name"
+  refuseTypeParams "type" o
   body <- o .: "body" >>= parseTypeBody
   pure $ STypeDef name body
 
 parseLetrec :: Object -> Parser Statement
 parseLetrec o = do
   name     <- o .: "name"
+  refuseTypeParams "letrec" o
   params   <- o .: "params" >>= mapM parseTypedParam
   (mPre, mPreSrc, preCls)    <- contractSide o "pre" "pre_source" "pre_clauses" "pre"
   (mPost, mPostSrc, postCls) <- contractSide o "post" "post_source" "post_clauses" "post"
@@ -676,6 +741,10 @@ parseType = withObject "Type" $ \o -> do
     "named"     -> do
       n <- o .: "name" :: Parser Text
       pure $ resolveNamedType n
+    -- GENERICS-1 (schema 0.15.0): a type parameter, read as a plain name so
+    -- 'bindTypeParams' binds it exactly as the S-expression front end's
+    -- lowercase name; an undeclared one is refused by 'typeVarNames'.
+    "type-var"  -> TCustom <$> (o .: "name" :: Parser Text)
     _           -> fail $ "unknown Type kind: " ++ T.unpack kind
 
 -- | Resolve well-known type names to their built-in constructors.

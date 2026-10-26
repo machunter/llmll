@@ -31,6 +31,8 @@ module LLMLL.CodegenHs
   , emitExpr
   , emitLit
   , emitApp
+  , constraintHsClasses   -- GENERICS-1 (S6): pinned by the preamble coverage test
+  , typeParamContext
   , emitOp   -- BUILTIN-BODY-1: lets the test fold separate operator routing from hand-written equations exactly
   , wrap     -- BUILTIN-BODY-1: same purpose, for the generic fallthrough form
   , toHsType
@@ -785,6 +787,15 @@ runtimePreamble =
   -- Equal to UTF-8 byte order on text with no lone surrogate.
   , "string_compare :: String -> String -> Integer"
   , "string_compare a b = case compare a b of"
+  , "  LT -> -1"
+  , "  EQ -> 0"
+  , "  GT -> 1"
+  , ""
+  -- GENERIC-COMPARE-1 (docs/design/generics-proposal.md). The derived Ord at
+  -- each type in O is the spec's order (COLLECT-ORDER-1), mapped to the
+  -- Integer -1, 0 or 1, never Ordering.
+  , "llmll_compare :: Ord a => a -> a -> Integer"
+  , "llmll_compare a b = case compare a b of"
   , "  LT -> -1"
   , "  EQ -> 0"
   , "  GT -> 1"
@@ -2040,7 +2051,9 @@ emitStmt (SDefInterface name fns laws)      = emitInterface name fns laws
 emitStmt (SDefLogic name params mRet c b) = emitDefLogic name params mRet c b
 -- LT-INV (v0.11): SDef and SDefShell emit identically to SDefLogic.
 emitStmt (SDef      name params mRet c b) = emitDefLogic name params mRet c b
-emitStmt (SDefShell name params mRet c b _) = emitDefLogic name params mRet c b
+-- GENERICS-1 (S6): a generic def-shell keeps its type parameters, so its
+-- signature carries the class context of their declared constraints.
+emitStmt (SDefShell name params mRet c b _ tps) = emitDefLogicWith tps name params mRet c b
 -- v0.12.1: def-invariant codegen unchanged from its prior SDefLogic form.
 emitStmt (SDefInvariant name params mRet c b) = emitDefLogic name params mRet c b
 -- D2: SLetrec emits as a regular Haskell function.
@@ -2167,7 +2180,37 @@ emitFnType t = toHsType t
 
 -- | Emit a def-logic as a Haskell function.
 emitDefLogic :: Name -> [(Name, Type)] -> Maybe Type -> Contract -> Expr -> Text
-emitDefLogic name params mRet contract body = T.unlines $
+emitDefLogic = emitDefLogicWith []
+
+-- | GENERICS-1 (S6): the Haskell classes a declared constraint maps to:
+-- @eq@ to Eq, @ord@ to Ord, @key@ to Ord and Show (the preamble's map
+-- functions take @(Ord k, Show k)@, witness G1). A bare parameter maps to
+-- none. Codegen stays polymorphic; the context comes from the declared
+-- constraint, not from the reached preamble calls (plan F1), and a pinned
+-- test (Spec.hs, G1-S6) checks that every preamble context is covered by the
+-- class set of the constraint its argument's gate demands.
+constraintHsClasses :: Maybe TyConstraint -> [Text]
+constraintHsClasses c = case c of
+  Nothing    -> []
+  Just TCEq  -> ["Eq"]
+  Just TCOrd -> ["Ord"]
+  Just TCKey -> ["Ord", "Show"]
+
+-- | GENERICS-1 (S6): the signature context of a generic, in declared order:
+-- @(Ord tp_k, Show tp_k) => @, or empty when no parameter is constrained.
+typeParamContext :: [(Name, Maybe TyConstraint)] -> Text
+typeParamContext tps =
+  case [ cls <> " " <> toHsType (TParam p c) | (p, c) <- tps, cls <- constraintHsClasses c ] of
+    []  -> ""
+    [x] -> x <> " => "
+    xs  -> "(" <> T.intercalate ", " xs <> ") => "
+
+-- | 'emitDefLogic' with the type parameters of a generic def-shell. A generic
+-- always emits its signature when its return type is declared (rule 5 types
+-- every parameter), with 'typeParamContext' in front; with no declared
+-- return GHC infers the signature, context included.
+emitDefLogicWith :: [(Name, Maybe TyConstraint)] -> Name -> [(Name, Type)] -> Maybe Type -> Contract -> Expr -> Text
+emitDefLogicWith tps name params mRet contract body = T.unlines $
   sigLines ++
   [ toHsIdent name <> paramNames <> " ="
   , "  " <> bodyWithPre
@@ -2178,7 +2221,7 @@ emitDefLogic name params mRet contract body = T.unlines $
     -- Omitting the sig lets GHC infer the most general type without conflicts.
     sigLines
       | Just retT <- mRet, not (isPolyType retT) =
-        [ toHsIdent name <> " :: "
+        [ toHsIdent name <> " :: " <> typeParamContext tps
           <> T.intercalate " -> " (paramTys ++ [toHsType retT])
         ]
       | otherwise = []  -- omit sig; GHC infers
@@ -2350,6 +2393,14 @@ emitApp "string-char-at" [s,i]   = "(string_char_at " <> wrap s <> " " <> wrap i
 -- because hmac_sha1 IS the preamble's name for it. No coercion is needed
 -- here: bytes[20] lowers to [Word8], which is what sha1_hash takes.
 emitApp "sha1"          [b]      = "(sha1_hash " <> wrap b <> ")"
+-- GENERIC-COMPARE-1: `compare` lowers to the preamble's llmll_compare, which
+-- returns the Integer -1, 0 or 1. The fallthrough would bind Prelude's
+-- `compare`, which returns Ordering. compare%int and compare%bool are the
+-- specialization pass's names for the same call (the verifier's program
+-- only); they lower identically if they ever reach codegen.
+emitApp "compare"       [a, b]   = "(llmll_compare " <> wrap a <> " " <> wrap b <> ")"
+emitApp "compare%int"   [a, b]   = "(llmll_compare " <> wrap a <> " " <> wrap b <> ")"
+emitApp "compare%bool"  [a, b]   = "(llmll_compare " <> wrap a <> " " <> wrap b <> ")"
 emitApp func args =
   "(" <> toHsIdent func <> " " <> T.unwords (map wrap args) <> ")"
 
@@ -2528,6 +2579,9 @@ emitLit LitUnit       = "()"
 isPolyType :: Type -> Bool
 isPolyType (TVar _)     = True
 isPolyType (TCustom "_") = True
+-- GENERICS-1: a rigid parameter is declared, so the signature is emitted
+-- (with its class context, S6) rather than left to inference.
+isPolyType (TParam _ _) = False
 isPolyType _            = False
 
 toHsType :: Type -> Text
@@ -2548,6 +2602,9 @@ toHsType (TFn args ret)    =
 toHsType (TDependent _ b _)  = toHsType b
 toHsType TDelegationError  = "String"
 toHsType (TVar n)          = T.toLower n
+-- GENERICS-1: the prefix keeps a parameter clear of Haskell keywords and of
+-- the 'a' an untyped parameter emits (below).
+toHsType (TParam n _)      = "tp_" <> toHsIdent n
 toHsType (TCustom "Command") = "IO ()"
 toHsType (TCustom "_")     = "a"
 toHsType (TCustom n)       = toHsIdent n
@@ -3496,7 +3553,7 @@ userBoundNames stmts = Set.unions (map stmtNames stmts)
     stmtNames s = case s of
       SDefLogic n ps _ c b       -> defNames n ps c [b]
       SDef n ps _ c b            -> defNames n ps c [b]
-      SDefShell n ps _ c b ds    -> defNames n ps c (b : ds)
+      SDefShell n ps _ c b ds _    -> defNames n ps c (b : ds)
       SDefInvariant n ps _ c b   -> defNames n ps c [b]
       SLetrec n ps _ c d b       -> defNames n ps c [d, b]
       SDefInterface n fns laws   -> Set.insert n (Set.fromList (map fst fns))
@@ -3604,7 +3661,7 @@ renameStatements m stmts
     defNameOf s = case s of
       SDefLogic n _ _ _ _     -> Just n
       SDef n _ _ _ _          -> Just n
-      SDefShell n _ _ _ _ _   -> Just n
+      SDefShell n _ _ _ _ _ _   -> Just n
       SDefInvariant n _ _ _ _ -> Just n
       SLetrec n _ _ _ _ _     -> Just n
       _                       -> Nothing
@@ -3653,9 +3710,9 @@ renameStatements m stmts
       SDef n ps r c b ->
         let (n', ps', r', c', bs') = renDef n ps r c [b]
         in SDef n' ps' r' c' (head bs')
-      SDefShell n ps r c b ds ->
+      SDefShell n ps r c b ds tps ->
         let (n', ps', r', c', bs') = renDef n ps r c (b : ds)
-        in SDefShell n' ps' r' c' (head bs') (tail bs')
+        in SDefShell n' ps' r' c' (head bs') (tail bs') tps
       SDefInvariant n ps r c b ->
         let (n', ps', r', c', bs') = renDef n ps r c [b]
         in SDefInvariant n' ps' r' c' (head bs')
