@@ -1191,9 +1191,9 @@ The following matrix documents the verification status of each syntax construct.
 | Construct | Typechecked | Runtime assert | SMT contract | SMT body-faithful | QuickCheck | Fallback behavior |
 |---|---|---|---|---|---|---|
 | `ELit` (int, bool) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| `EVar` (int-typed) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| `EVar` (non-int) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
-| `EVar` (pair-typed parameter) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | refined pair alias → runtime (`PAIR-ALIAS-PARAM-1`) |
+| `EVar` (int- or bool-typed) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| `EVar` (`string`, `Result`, payload-sum or pair parameter) | ✅ | ✅ | ✅ | ✅ (`Str` sort / datatype theory, §5.3.3) | ✅ | refined pair alias → runtime (`PAIR-ALIAS-PARAM-1`) |
+| `EVar` (other types, such as `float`, `list` or a function) | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |
 | `EOp`/`EApp` (+, -, =, <, <=, >=, >, !=) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | `EOp`/`EApp` (*, /, mod) with a ground-constant operand (`*`) or a ground-constant divisor `> 0` (`/`, `mod`) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | `EOp`/`EApp` (*, /, mod) otherwise | ✅ | ✅ | ❌ | ❌ | ✅ | runtime + `?proof-required` (§5.3.3) |
