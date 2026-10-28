@@ -2395,12 +2395,13 @@ emitApp "string-char-at" [s,i]   = "(string_char_at " <> wrap s <> " " <> wrap i
 emitApp "sha1"          [b]      = "(sha1_hash " <> wrap b <> ")"
 -- GENERIC-COMPARE-1: `compare` lowers to the preamble's llmll_compare, which
 -- returns the Integer -1, 0 or 1. The fallthrough would bind Prelude's
--- `compare`, which returns Ordering. compare%int and compare%bool are the
--- specialization pass's names for the same call (the verifier's program
--- only); they lower identically if they ever reach codegen.
-emitApp "compare"       [a, b]   = "(llmll_compare " <> wrap a <> " " <> wrap b <> ")"
-emitApp "compare%int"   [a, b]   = "(llmll_compare " <> wrap a <> " " <> wrap b <> ")"
-emitApp "compare%bool"  [a, b]   = "(llmll_compare " <> wrap a <> " " <> wrap b <> ")"
+-- `compare`, which returns Ordering. compare%<shape> (compare%int,
+-- compare%(int,bool), ...) are the specialization pass's names for the same
+-- call (the verifier's program only); they lower identically if they ever
+-- reach codegen.
+emitApp f [a, b]
+  | f == "compare" || "compare%" `T.isPrefixOf` f
+  = "(llmll_compare " <> wrap a <> " " <> wrap b <> ")"
 emitApp func args =
   "(" <> toHsIdent func <> " " <> T.unwords (map wrap args) <> ")"
 

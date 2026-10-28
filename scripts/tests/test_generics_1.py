@@ -24,6 +24,10 @@ What a pass here means:
   "5 of 7 contracted functions proved" (the two string copies are assumed).
   A body that takes the wrong branch of that guard is refuted at int and at
   bool, so the unfolding is not vacuous.
+
+* GENERIC-COMPARE-PAIR-1: pair_cmp.llmll proves pick-min at (int,bool) and
+  ((int,bool),int) and the two order witnesses, and pick-min@[(int,string)]
+  stays assumed. pair_cmp_bad.llmll is refuted at every definition.
 """
 
 import json
@@ -263,3 +267,31 @@ def test_compare_unfolds_at_int_and_bool(tmp_path):
     assert _line(out, "body-faithful:") == ["ci", "cb"], out
     assert _line(out, "body-fallback:") == ["cs"], out
     assert "2 of 3 contracted functions proved" in out, out
+
+
+@needs_fixpoint
+def test_pair_compare_proves(tmp_path):
+    src = _copy(tmp_path, "pair_cmp.llmll")
+    p = _run(["verify", src.name], tmp_path)
+    out = p.stdout + p.stderr
+    assert p.returncode == 0, out
+    # _line splits on ",", which a pair copy name contains; read the raw line.
+    faithful = next(l for l in out.splitlines() if l.strip().startswith("body-faithful:"))
+    fallback = next(l for l in out.splitlines() if l.strip().startswith("body-fallback:"))
+    for fn in ["pick-min@[(int,bool)]", "pick-min@[((int,bool),int)]",
+               "order-first", "order-second"]:
+        assert fn in faithful, out
+    assert "pick-min@[(int,string)]" in fallback, out
+    assert "pick-min@[(int,string)]" not in faithful, out
+    assert ("4 of 5 contracted functions proved; 1 assumed, not proved: "
+            "pick-min@[(int,string)]") in out, out
+
+
+@needs_fixpoint
+def test_pair_compare_refutes(tmp_path):
+    src = _copy(tmp_path, "pair_cmp_bad.llmll")
+    p = _run(["verify", src.name], tmp_path)
+    out = p.stdout + p.stderr
+    assert p.returncode == 1, out
+    assert "body verification of 'pick-min-swapped@[(int,bool)]' failed" in out, out
+    assert "body verification of 'order-second-wrong' failed" in out, out

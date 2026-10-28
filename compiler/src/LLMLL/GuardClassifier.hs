@@ -21,7 +21,11 @@ module LLMLL.GuardClassifier
     -- * GENERIC-COMPARE-1: the reflected compare terms, shared with the body channel
   , intBuiltinTag
   , reflectCompare
-  , reflectedCompareNames
+  , isReflectedCompare
+    -- * GENERIC-COMPARE-PAIR-1: the order shape a compare name encodes
+  , OrdShape(..)
+  , compareShapeName
+  , parseCompareName
   ) where
 
 import Data.Map.Strict (Map)
@@ -81,12 +85,14 @@ classifyGuardM _ _ (ELit (LitString s))   = return (Just (FQApp (strlitConst s) 
 -- GENERIC-COMPARE-1: a reflected `compare` at int or bool (written by the
 -- specialization pass, tagged by FixpointEmit.markIntBuiltins) unfolds to the
 -- same definitional term the body channel uses ('reflectCompare'), so
--- `(if (<= (compare x y) 0) x y)` keeps its guard. Only these two names:
+-- `(if (<= (compare x y) 0) x y)` keeps its guard. Only the compare names:
 -- `min`, `max` and `abs` in a guard still fall back (a separate gap).
+-- GENERIC-COMPARE-PAIR-1: at a pair shape the operands may be pair-sorted,
+-- which 'compareOperandM' admits here and nowhere else.
 classifyGuardM env se (EApp op args)
   | Just b <- T.stripPrefix intBuiltinTag op
-  , b `elem` reflectedCompareNames = do
-      ps <- mapM (classifyGuardM env se) args
+  , isReflectedCompare b = do
+      ps <- mapM (compareOperandM env se) args
       return (sequence ps >>= reflectCompare b)
 
 -- Comparison operators (including Unicode aliases)
@@ -162,21 +168,99 @@ classifyGuardM _ _ _ = return Nothing
 intBuiltinTag :: Text
 intBuiltinTag = "builtin%"
 
+-- | GENERIC-COMPARE-PAIR-1: the order shape of a compare operand type, after
+-- aliases and refinements: int, bool, or a pair of shapes. The specialization
+-- pass writes it into the call name ('compareShapeName'), and the emitter and
+-- the guard channel read it back ('parseCompareName').
+data OrdShape = OSInt | OSBool | OSPair OrdShape OrdShape
+  deriving (Eq, Show)
+
+-- | `compare%int`, `compare%bool`, `compare%(int,bool)`, `compare%((int,bool),int)`.
+-- `%`, `(`, `,` and `)` cannot appear in an LLMLL identifier, so no user name
+-- or binder carries one of these names.
+compareShapeName :: OrdShape -> Name
+compareShapeName sh = "compare%" <> render sh
+  where
+    render OSInt        = "int"
+    render OSBool       = "bool"
+    render (OSPair a b) = "(" <> render a <> "," <> render b <> ")"
+
+-- | The inverse of 'compareShapeName'; 'Nothing' for any other name.
+parseCompareName :: Name -> Maybe OrdShape
+parseCompareName n = do
+  t <- T.stripPrefix "compare%" n
+  (sh, rest) <- shape t
+  if T.null rest then Just sh else Nothing
+  where
+    shape t
+      | Just r <- T.stripPrefix "int" t  = Just (OSInt, r)
+      | Just r <- T.stripPrefix "bool" t = Just (OSBool, r)
+      | Just r <- T.stripPrefix "(" t    = do
+          (a, r1) <- shape r
+          r2      <- T.stripPrefix "," r1
+          (b, r3) <- shape r2
+          r4      <- T.stripPrefix ")" r3
+          Just (OSPair a b, r4)
+      | otherwise = Nothing
+
 -- | The specialized compare names that unfold definitionally.
-reflectedCompareNames :: [Name]
-reflectedCompareNames = ["compare%int", "compare%bool"]
+isReflectedCompare :: Name -> Bool
+isReflectedCompare = isJust . parseCompareName
 
 -- | `compare` at int and at bool, after specialization, as the definition
 -- `llmll_compare` computes (`compare` on Integer and on Bool, false < true,
 -- mapped to -1, 0, 1). Definitional terms: no assumed post and no axiom. -1
 -- is written 0 - 1, as `abs` writes its negation. Read by both
 -- FixpointEmit.reflectIntBuiltin (body and contract) and 'classifyGuardM'.
+--
+-- GENERIC-COMPARE-PAIR-1: at a pair, the derived tuple order (first
+-- components, then second; LLMLL.md §13.5) through the Pair2 selectors, as
+-- `ite(lt, -1, ite(eq, 0, 1))`. 'shapeLt' and 'shapeEq' compare only at int
+-- and bool leaves, never at the datatype sort, and the term grows linearly
+-- with the nesting (a `c0 /= 0` form would repeat c0 at each level).
 reflectCompare :: Name -> [FQPred] -> Maybe FQPred
-reflectCompare "compare%int" [a, b] =
-  Just (FQIte (FQBinPred FQLt a b) minusOne (FQIte (FQBinPred FQEq a b) (FQLit 0) (FQLit 1)))
-reflectCompare "compare%bool" [a, b] =
-  Just (FQIte (FQBinPred FQEq a b) (FQLit 0) (FQIte a (FQLit 1) minusOne))
+reflectCompare n [a, b] = case parseCompareName n of
+  Just OSInt  ->
+    Just (FQIte (FQBinPred FQLt a b) minusOne (FQIte (FQBinPred FQEq a b) (FQLit 0) (FQLit 1)))
+  Just OSBool ->
+    Just (FQIte (FQBinPred FQEq a b) (FQLit 0) (FQIte a (FQLit 1) minusOne))
+  Just sh     ->
+    Just (FQIte (shapeLt sh a b) minusOne (FQIte (shapeEq sh a b) (FQLit 0) (FQLit 1)))
+  Nothing     -> Nothing
 reflectCompare _ _ = Nothing
+
+-- | GENERIC-COMPARE-PAIR-1: equality at a shape, leaf by leaf.
+shapeEq :: OrdShape -> FQPred -> FQPred -> FQPred
+shapeEq (OSPair s t) a b = FQAnd [shapeEq s (sel0 a) (sel0 b), shapeEq t (sel1 a) (sel1 b)]
+shapeEq _ a b            = FQBinPred FQEq a b
+
+-- | GENERIC-COMPARE-PAIR-1: strict order at a shape (false < true at bool).
+shapeLt :: OrdShape -> FQPred -> FQPred -> FQPred
+shapeLt OSInt a b        = FQBinPred FQLt a b
+shapeLt OSBool a b       = FQAnd [FQNot a, b]
+shapeLt (OSPair s t) a b =
+  FQOr [shapeLt s (sel0 a) (sel0 b), FQAnd [shapeEq s (sel0 a) (sel0 b), shapeLt t (sel1 a) (sel1 b)]]
+
+sel0, sel1 :: FQPred -> FQPred
+sel0 x = FQApp "pair2_0" [x]
+sel1 x = FQApp "pair2_1" [x]
+
+-- | GENERIC-COMPARE-PAIR-1: an operand of a reflected compare in a guard. A
+-- pair-sorted variable, a `pair` of operands and a `first` / `second` of one
+-- are admitted here only; a bare pair is still no guard atom. Everything else
+-- is 'classifyGuardM', so the int and bool operands are unchanged.
+compareOperandM :: Map Name Name -> SortEnv -> Expr -> State Int (Maybe FQPred)
+compareOperandM env se e = case e of
+  EVar v
+    | let r = fromMaybe v (Map.lookup v env)
+    , Just (FQDataApp "Pair2" _) <- Map.lookup r se -> return (Just (FQVar r))
+  EPair a b -> do
+    pa <- compareOperandM env se a
+    pb <- compareOperandM env se b
+    return ((\x y -> FQApp "pair2" [x, y]) <$> pa <*> pb)
+  EApp "first" [a]  -> fmap sel0 <$> compareOperandM env se a
+  EApp "second" [a] -> fmap sel1 <$> compareOperandM env se a
+  _ -> classifyGuardM env se e
 
 minusOne :: FQPred
 minusOne = FQBinArith FQSub (FQLit 0) (FQLit 1)

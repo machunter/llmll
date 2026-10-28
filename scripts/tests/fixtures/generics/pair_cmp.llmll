@@ -1,0 +1,21 @@
+;; GENERIC-COMPARE-PAIR-1 contract-plan fixture (positive). compare at a pair
+;; of int and bool unfolds lexicographically through the Pair2 selectors
+;; (first components, then second; LLMLL.md §13.5). Predicted:
+;; pick-min@[(int,bool)] and pick-min@[((int,bool),int)] prove, through the
+;; compare guard and a pair parameter returned as the result; pick-min@[(int,string)]
+;; falls back (compare at a string leaf is uninterpreted). order-first and
+;; order-second prove: the first component decides, then the second.
+(def-shell pick-min :type-params [(a ord)] [x: a y: a] -> a
+  (post (and (<= (compare result x) 0) (<= (compare result y) 0)))
+  (if (<= (compare x y) 0) x y))
+
+(def-shell use-ib [x: (int, bool) y: (int, bool)] -> (int, bool) (pick-min x y))
+(def-shell use-nested [x: ((int, bool), int) y: ((int, bool), int)] -> ((int, bool), int) (pick-min x y))
+(def-shell use-is [x: (int, string) y: (int, string)] -> (int, string) (pick-min x y))
+
+(def-shell order-first [u: int] -> int
+  (post (= result -1))
+  (compare (pair 1 true) (pair 2 false)))
+(def-shell order-second [u: int] -> int
+  (post (= result -1))
+  (compare (pair 3 false) (pair 3 true)))

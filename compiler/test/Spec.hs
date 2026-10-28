@@ -64,7 +64,7 @@ import LLMLL.VerifyEnvelope (VerifyEnvelope(..), renderEnvelope, envelopeFields,
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
-import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, reflectCompare, intBuiltinTag)
+import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, reflectCompare, intBuiltinTag, OrdShape(..), compareShapeName, parseCompareName, isReflectedCompare)
 import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
@@ -25715,7 +25715,99 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erBodyFaithfulFns r `shouldSatisfy` (\fs -> "pick@[int]" `elem` fs && "pick@[bool]" `elem` fs)
       erBodyFallback r `shouldSatisfy` (\fs -> "pick@[string]" `elem` fs && "mg" `elem` fs)
 
+  describe "GENERIC-COMPARE-PAIR-1: compare unfolds lexicographically at pairs of int and bool" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<gp>" (T.unlines src) of
+          Left err -> error ("GENERIC-COMPARE-PAIR-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        sitesOf ss = let (_, _, s') = typeCheckWithCacheRetSites GrammarCoreInversion Map.empty emptyEnv ss in s'
+        guardOf se e = evalState (classifyGuardM Map.empty se e) 0
+        ib = OSPair OSInt OSBool
+        nested = OSPair (OSPair OSInt OSBool) OSInt
+        -- A test-only evaluator over the unfolding's FQPred: int, bool and
+        -- Pair2 values, the selectors, and the connectives the unfolding uses.
+        evalP :: Map.Map T.Text GpV -> FQPred -> Maybe GpV
+        evalP env p = case p of
+          FQVar v -> Map.lookup v env
+          FQLit n -> Just (GpI n)
+          FQTrue  -> Just (GpB True)
+          FQFalse -> Just (GpB False)
+          FQBinPred FQLt a b -> do { GpI x <- evalP env a; GpI y <- evalP env b; Just (GpB (x < y)) }
+          FQBinPred FQEq a b -> do { x <- evalP env a; y <- evalP env b; Just (GpB (x == y)) }
+          FQBinPred FQLe a b -> do { GpI x <- evalP env a; GpI y <- evalP env b; Just (GpB (x <= y)) }
+          FQBinArith FQSub a b -> do { GpI x <- evalP env a; GpI y <- evalP env b; Just (GpI (x - y)) }
+          FQAnd ps -> GpB . and <$> mapM (\q -> do { GpB b <- evalP env q; Just b }) ps
+          FQOr ps  -> GpB . or  <$> mapM (\q -> do { GpB b <- evalP env q; Just b }) ps
+          FQNot q  -> do { GpB b <- evalP env q; Just (GpB (not b)) }
+          FQIte c a b -> do { GpB t <- evalP env c; if t then evalP env a else evalP env b }
+          FQApp "pair2_0" [q] -> do { GpP x _ <- evalP env q; Just x }
+          FQApp "pair2_1" [q] -> do { GpP _ y <- evalP env q; Just y }
+          FQApp "pair2" [a, b] -> GpP <$> evalP env a <*> evalP env b
+          _ -> Nothing
+        unfoldAt sh a b = reflectCompare (compareShapeName sh) [FQVar "a", FQVar "b"]
+                            >>= evalP (Map.fromList [("a", a), ("b", b)])
+    it "GP-1 the shape name round-trips, and no other name parses" $ do
+      forM_ [OSInt, OSBool, ib, nested, OSPair OSBool (OSPair OSInt OSInt)] $ \sh ->
+        parseCompareName (compareShapeName sh) `shouldBe` Just sh
+      compareShapeName ib `shouldBe` "compare%(int,bool)"
+      compareShapeName nested `shouldBe` "compare%((int,bool),int)"
+      forM_ ["compare", "compare%", "compare%string", "compare%(int)", "compare%(int,bool"
+            , "compare%intx", "compare%(int,bool))", "min"] $ \n ->
+        isReflectedCompare n `shouldBe` False
+    it "GP-2 at (int,bool) the unfolding is the derived tuple order (llmll_compare), on a sample" $
+      forM_ [ (a1, a2, b1, b2) | a1 <- [-1, 0, 2], a2 <- [False, True], b1 <- [-1, 0, 2], b2 <- [False, True] ] $
+        \(a1, a2, b1, b2) ->
+          unfoldAt ib (GpP (GpI a1) (GpB a2)) (GpP (GpI b1) (GpB b2))
+            `shouldBe` Just (GpI (RP.llmll_compare (a1 :: Integer, a2) (b1, b2)))
+    it "GP-3 at (bool,bool) the unfolding agrees with llmll_compare on all 16 pairs" $
+      forM_ [ (a1, a2, b1, b2) | a1 <- [False, True], a2 <- [False, True], b1 <- [False, True], b2 <- [False, True] ] $
+        \(a1, a2, b1, b2) ->
+          unfoldAt (OSPair OSBool OSBool) (GpP (GpB a1) (GpB a2)) (GpP (GpB b1) (GpB b2))
+            `shouldBe` Just (GpI (RP.llmll_compare (a1, a2) (b1, b2)))
+    it "GP-4 at ((int,bool),int) the unfolding agrees with llmll_compare on nested tuples" $
+      forM_ [ (a, b) | a <- gpVals, b <- gpVals ] $ \(((a1, a2), a3), ((b1, b2), b3)) ->
+        unfoldAt nested (GpP (GpP (GpI a1) (GpB a2)) (GpI a3)) (GpP (GpP (GpI b1) (GpB b2)) (GpI b3))
+          `shouldBe` Just (GpI (RP.llmll_compare ((a1, a2), a3) ((b1, b2), b3)))
+    it "GP-5 a guard admits a Pair2 operand only inside a reflected compare" $ do
+      let se = Map.fromList [("x", FQDataApp "Pair2" [FQInt, FQBool]), ("y", FQDataApp "Pair2" [FQInt, FQBool])]
+          cmp = EApp "<=" [EApp (intBuiltinTag <> "compare%(int,bool)") [EVar "x", EVar "y"], ELit (LitInt 0)]
+      guardOf se cmp `shouldSatisfy` isJust
+      guardOf se (EApp "=" [EVar "x", EVar "y"]) `shouldBe` Nothing
+      guardOf se (EVar "x") `shouldBe` Nothing
+      guardOf se (EApp "<=" [EApp "compare" [EVar "x", EVar "y"], ELit (LitInt 0)]) `shouldBe` Nothing
+    it "GP-6 codegen lowers a pair compare name to llmll_compare" $
+      emitApp "compare%(int,bool)" [EVar "a", EVar "b"] `shouldSatisfy` T.isInfixOf "llmll_compare"
+    it "GP-7 end to end: pick proves at (int,bool), ((int,bool),int) and (PositiveInt,bool); (int,string) falls back" $ do
+      let ss = parsedG
+            [ "(type PositiveInt (where [n: int] (> n 0)))"
+            , "(def-shell pick :type-params [(a ord)] [x: a y: a] -> a (post (and (<= (compare result x) 0) (<= (compare result y) 0))) (if (<= (compare x y) 0) x y))"
+            , "(def-shell u1 [x: (int, bool) y: (int, bool)] -> (int, bool) (pick x y))"
+            , "(def-shell u2 [x: ((int, bool), int) y: ((int, bool), int)] -> ((int, bool), int) (pick x y))"
+            , "(def-shell u3 [x: (PositiveInt, bool) y: (PositiveInt, bool)] -> (PositiveInt, bool) (pick x y))"
+            , "(def-shell u4 [x: (int, string) y: (int, string)] -> (int, string) (pick x y))" ]
+          (out, _) = specialize Map.empty (sitesOf ss) ss
+      r <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<gp>.llmll" out
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["pick@[(int,bool)]", "pick@[((int,bool),int)]", "pick@[(PositiveInt,bool)]"])
+      erBodyFallback r `shouldSatisfy` ("pick@[(int,string)]" `elem`)
+    it "GP-8 a pair parameter reflects as a body leaf; a refined pair alias still falls back" $ do
+      let ss = parsedG
+            [ "(def-shell r1 [x: (int, bool)] -> (int, bool) (post (= (first result) 0)) x)"
+            , "(def-shell r2 [b: bool x: (int, bool) y: (int, bool)] -> (int, bool) (post (or (= result x) (= result y))) (if b x y))"
+            , "(type Pt (where [p: (int, int)] (>= (first p) 0)))"
+            , "(def-shell r3 [x: Pt] -> Pt x)" ]
+      r <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<gp>.llmll" ss
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> "r1" `elem` fs && "r2" `elem` fs)
+      erBodyFallback r `shouldSatisfy` ("r3" `elem`)
+
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
   moduleSpec
+
+-- | GENERIC-COMPARE-PAIR-1 (GP-2..GP-4): a value of the test-only evaluator
+-- over the compare unfolding.
+data GpV = GpI Integer | GpB Bool | GpP GpV GpV
+  deriving (Eq, Show)
+
+-- | GENERIC-COMPARE-PAIR-1 (GP-4): a sample of ((int, bool), int) values.
+gpVals :: [((Integer, Bool), Integer)]
+gpVals = [ ((a, b), c) | a <- [0, 1], b <- [False, True], c <- [-1, 1] ]

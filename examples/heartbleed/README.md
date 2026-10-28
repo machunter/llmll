@@ -36,6 +36,8 @@ The files below are the **minimal warm-ups** — the single-idea pieces the flag
     ```
     llmll verify examples/heartbleed/heartbleed-safe.llmll                     # SAFE
     llmll verify examples/heartbleed/heartbleed-bug.llmll --strict-verified-core
+    #   error: body verification of 'heartbeat-response' failed
+    #          — implementation does not satisfy postcondition
     #   error: call-site precondition of 'copy-bytes' not satisfied in 'heartbeat-response'
     #          — caller does not prove callee's precondition
     #   ERROR: --strict-verified-core: refuted: heartbeat-response
