@@ -151,7 +151,7 @@ import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkBodyFallbackWarning, mkDecreasesUndischarged)
 import LLMLL.HoleAnalysis (buildCallGraph)
-import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, reflectedCompareNames)
+import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
 -- def, premise sites, warnings). Pure; the checker already raised every error.
 import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), PremiseSite(..), PremiseCase(..), RespFact(..), FactCategory(..), factCategoryName)
@@ -4218,9 +4218,10 @@ bodyToPredM _ _ _ _ (EVar v)
       return (Just (SimpleVC [] (FQApp (fqCtorSym v) [])))
 
 -- Variables: look up renamed name, check sort env
-bodyToPredM env sortEnv _ _ (EVar v) =
+bodyToPredM env sortEnv _ _ (EVar v) = do
+  (_, _, _, (_, pairSorts)) <- ask
   let renamed = fromMaybe v (Map.lookup v env)
-  in case Map.lookup renamed sortEnv of
+  case Map.lookup renamed sortEnv of
        Just FQInt  -> return (Just (SimpleVC [] (FQVar renamed)))
        Just FQBool -> return (Just (SimpleVC [] (FQVar renamed)))  -- BOOL-FRAG: bare bool var body
        -- STRLIT (body-channel flip): a Str-sorted var — an ANF-hoisted string
@@ -4235,6 +4236,13 @@ bodyToPredM env sortEnv _ _ (EVar v) =
        -- ('sumValParams') is a declared value, so returning it reflects.
        Just (FQData _) -> return (Just (SimpleVC [] (FQVar renamed)))
        Just (FQDataApp "Result" _) -> return (Just (SimpleVC [] (FQVar renamed)))
+       -- GENERIC-COMPARE-PAIR-1: a pair parameter is declared at its applied
+       -- Pair2 sort (PAIR-PROJ-LET-1's 'pairParams', the same list the
+       -- reader's pairSorts holds, built alias-aware as the RESULT binder is),
+       -- so returning it reflects: `(if (<= (compare x y) 0) x y)` at a pair.
+       Nothing
+         | Just (FQDataApp "Pair2" _) <- Map.lookup renamed pairSorts
+         -> return (Just (SimpleVC [] (FQVar renamed)))
        _           -> return Nothing  -- non-scalar or unknown sort → fallback
 
 -- v0.9.0: User-defined function call with contract (COMP-0 §2, §3)
@@ -4683,7 +4691,12 @@ bodyToPredM env se cenv sccSet (EOp name args) = bodyToPredM env se cenv sccSet 
 
 -- EIf: branch into guard + then-VC + else-VC
 bodyToPredM env se cenv sccSet (EIf guard thenE elseE) = do
-  mGuard <- lift (guardToPredM env se guard)
+  -- GENERIC-COMPARE-PAIR-1: a pair parameter's sort is in the reader's
+  -- pairSorts, not in se. The guard sees both, so a reflected compare can take
+  -- a pair operand. classifyGuardM's EVar rule admits only int, bool and Str,
+  -- so no other guard reads the added entries.
+  (_, _, _, (_, pairSorts)) <- ask
+  mGuard <- lift (guardToPredM env (Map.union se pairSorts) guard)
   case mGuard of
     Nothing -> return Nothing
     Just gp -> do
@@ -6232,11 +6245,11 @@ markIntBuiltins :: Set.Set Name -> Expr -> Expr
 markIntBuiltins declared body = go body
   where
     shadowed = declared `Set.union` exprBinders body
-    -- GENERIC-COMPARE-1: compare%int and compare%bool are written only by
+    -- GENERIC-COMPARE-1: the compare%<shape> names are written only by
     -- the specialization pass, and `%` cannot appear in a user name, so no
     -- binder can shadow them.
     live f   = (f `elem` ["min", "max", "abs"] && f `Set.notMember` shadowed)
-               || f `elem` ["compare%int", "compare%bool"]
+               || isReflectedCompare f
     go e = case e of
       EApp f as | live f -> EApp (intBuiltinTag <> f) (map go as)
       EOp  f as | live f -> EApp (intBuiltinTag <> f) (map go as)
@@ -6287,7 +6300,7 @@ reflectIntBuiltin "abs" [a]    = Just (FQIte (FQBinPred FQLt a (FQLit 0)) (FQBin
 -- terms live in LLMLL.GuardClassifier.reflectCompare, which the guard channel
 -- also reads, so the body and guard unfoldings cannot drift.
 reflectIntBuiltin b ps
-  | b `elem` reflectedCompareNames = reflectCompare b ps
+  | isReflectedCompare b = reflectCompare b ps
 reflectIntBuiltin _ _          = Nothing
 
 -- | Capture-free predicate substitution.

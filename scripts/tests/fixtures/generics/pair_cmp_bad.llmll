@@ -1,0 +1,14 @@
+;; GENERIC-COMPARE-PAIR-1 contract-plan fixture (refuting). Predicted: each
+;; definition is body-faithful and refuted, so verify exits 1.
+;; pick-min-swapped takes the wrong branch of the compare guard; at
+;; x = (3, false), y = (3, true) only the second component decides, so the
+;; unfolding must read it. order-second-wrong asserts the wrong sign.
+(def-shell pick-min-swapped :type-params [(a ord)] [x: a y: a] -> a
+  (post (and (<= (compare result x) 0) (<= (compare result y) 0)))
+  (if (<= (compare x y) 0) y x))
+
+(def-shell use-ib [x: (int, bool) y: (int, bool)] -> (int, bool) (pick-min-swapped x y))
+
+(def-shell order-second-wrong [u: int] -> int
+  (post (= result 1))
+  (compare (pair 3 false) (pair 3 true)))

@@ -27,7 +27,9 @@
 --
 -- A @compare@ site whose operand type is @int@ or @bool@ (through aliases and
 -- refinements) is renamed @compare%int@ / @compare%bool@, which the emitter
--- unfolds definitionally; any other operand keeps @compare@ and falls back.
+-- unfolds definitionally; GENERIC-COMPARE-PAIR-1 adds pairs of those, named by
+-- their shape (@compare%(int,bool)@). Any other operand keeps @compare@ and
+-- falls back.
 --
 -- The pass is the identity when the module has no generic definition and the
 -- site table is empty (no generic call and no @compare@), which is the
@@ -53,6 +55,7 @@ import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import LLMLL.GuardClassifier (OrdShape(..), compareShapeName)
 import LLMLL.PBT (canonicalExpr)
 import LLMLL.Syntax
 import LLMLL.TypeAdmissibility (AliasMap, buildAliasMap)
@@ -255,12 +258,9 @@ specializeWithRet retTypes cache sites stmts
       let t' = expandTransparent am (unfix (substTP subst t))
       in if mentionsTP t' then Nothing else Just t'
 
-    -- | The rename of a compare site: by the base scalar of its operand.
+    -- | The rename of a compare site: by the order shape of its operand.
     compareName :: Map Name Type -> Type -> Name
-    compareName subst t = case baseScalar am (substTP subst t) of
-      Just TInt  -> "compare%int"
-      Just TBool -> "compare%bool"
-      _          -> "compare"
+    compareName subst t = maybe "compare" compareShapeName (orderShape am (substTP subst t))
 
     -- | Rewrite one definition's (or statement's) expressions: each generic
     -- call to its copy, each compare site to its unfolding name and, in a
@@ -514,15 +514,17 @@ expandTransparent am = go (32 :: Int)
       TCustom _        -> False   -- an alias of a named type keeps its own name
       _                -> True
 
--- | The scalar a type reduces to through aliases and refinements, for the
--- compare unfolding: @PositiveInt@ compares as @int@.
-baseScalar :: AliasMap -> Type -> Maybe Type
-baseScalar am = go (32 :: Int)
+-- | The order shape a type reduces to through aliases and refinements, for
+-- the compare unfolding: @PositiveInt@ compares as @int@, and
+-- GENERIC-COMPARE-PAIR-1 a pair of such types as a pair shape.
+orderShape :: AliasMap -> Type -> Maybe OrdShape
+orderShape am = go (32 :: Int)
   where
     go 0 _ = Nothing
     go k t = case t of
-      TInt             -> Just TInt
-      TBool            -> Just TBool
+      TInt             -> Just OSInt
+      TBool            -> Just OSBool
+      TPair a b        -> OSPair <$> go (k - 1) a <*> go (k - 1) b
       TDependent _ b _ -> go (k - 1) b
       TCustom n        -> Map.lookup n am >>= go (k - 1)
       _                -> Nothing
