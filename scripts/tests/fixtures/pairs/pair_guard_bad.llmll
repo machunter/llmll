@@ -1,0 +1,18 @@
+;; PAIR-GUARD-PROJ-1 refuting witnesses: each body is wrong, and `verify`
+;; refutes all four through the projected guard.
+
+(def-shell min-by-first [x: (int, bool) y: (int, bool)] -> (int, bool)
+  (post (<= (first result) (first x)))
+  (if (< (first x) (first y)) y x))
+
+(def-shell flag-to-int [x: (int, bool)] -> int
+  (post (=> (second x) (= result 1)))
+  (if (second x) 0 1))
+
+(def-shell nested-cmp [x: ((int, bool), int)] -> int
+  (post (=> (> (first (first x)) (second x)) (= result 1)))
+  (if (> (first (first x)) (second x)) 0 1))
+
+(def-shell str-key [x: (string, int)] -> int
+  (post (=> (= (first x) "a") (= result 1)))
+  (if (= (first x) "a") 0 1))

@@ -20,7 +20,7 @@ import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern
 -- in builtinEnv above.
 import LLMLL.TypeAdmissibility (builtinAliases)
 import LLMLL.ObligationAssembly
-  ( exprToSExpr, deriveBacking, collectHoleGuards, holeContractBrief, normalizeForFingerprint
+  ( exprToSExpr, deriveBacking, collectHoleGuards, PathEntry(..), holeContractBrief, normalizeForFingerprint
   , obligationStatus, classifyContractFragment, classifyContractFragmentTyped, classifyBodyFragment
   , recursiveNames, descentDischargedFns, ObligationKind(..), patternBindings, isTypeCompatible
   , ContractChannel(..)
@@ -30,7 +30,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -25797,6 +25797,55 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       r <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<gp>.llmll" ss
       erBodyFaithfulFns r `shouldSatisfy` (\fs -> "r1" `elem` fs && "r2" `elem` fs)
       erBodyFallback r `shouldSatisfy` ("r3" `elem`)
+
+  describe "PAIR-GUARD-PROJ-1: first and second of a pair are guard operands" $ do
+    let guardOf se e = evalState (classifyGuardM Map.empty se e) 0
+        ib = FQDataApp "Pair2" [FQInt, FQBool]
+        se = Map.fromList [ ("x", ib), ("y", ib)
+                          , ("n", FQDataApp "Pair2" [ib, FQInt])
+                          , ("s", FQDataApp "Pair2" [FQStr, FQInt])
+                          , ("k", FQInt) ]
+        fx v = EApp "first" [EVar v]
+        sx v = EApp "second" [EVar v]
+        p0 v = FQApp "pair2_0" [FQVar v]
+        p1 v = FQApp "pair2_1" [FQVar v]
+    it "PGP-1 an int component is a comparison operand" $
+      guardOf se (EApp "<" [fx "x", fx "y"]) `shouldBe` Just (FQBinPred FQLt (p0 "x") (p0 "y"))
+    it "PGP-2 a bool component is a guard atom" $ do
+      guardOf se (sx "x") `shouldBe` Just (p1 "x")
+      guardOf se (EApp "not" [sx "x"]) `shouldBe` Just (FQNot (p1 "x"))
+    it "PGP-3 a nested projection reads the inner component sort" $
+      guardOf se (EApp ">" [EApp "first" [fx "n"], sx "n"])
+        `shouldBe` Just (FQBinPred FQGt (FQApp "pair2_0" [p0 "n"]) (p1 "n"))
+    it "PGP-4 a string component meets a string literal" $
+      guardOf se (EApp "=" [fx "s", ELit (LitString "a")])
+        `shouldBe` Just (FQBinPred FQEq (p0 "s") (FQApp (strlitConst "a") []))
+    it "PGP-5 refused: a non-pair or unknown variable, and a pair-valued component" $ do
+      guardOf se (fx "k") `shouldBe` Nothing
+      guardOf se (fx "z") `shouldBe` Nothing
+      guardOf se (EApp "=" [fx "n", fx "n"]) `shouldBe` Nothing
+      guardOf se (EApp "first" [EApp "second" [fx "x"]]) `shouldBe` Nothing
+    it "PGP-6 a projection inside a reflected compare is unchanged" $ do
+      let cmp = EApp "<=" [EApp (intBuiltinTag <> "compare%int") [fx "x", fx "y"], ELit (LitInt 0)]
+      guardOf se cmp `shouldBe`
+        (reflectCompare "compare%int" [p0 "x", p0 "y"] >>= \t -> Just (FQBinPred FQLe t (FQLit 0)))
+    it "PGP-7 end to end: the four guard shapes are body-faithful" $ do
+      let ss = case parseStatements GrammarCoreInversion "<pgp>" (T.unlines
+                 [ "(def-shell min-by-first [x: (int, bool) y: (int, bool)] -> (int, bool) (post (<= (first result) (first x))) (if (< (first x) (first y)) x y))"
+                 , "(def-shell flag-to-int [x: (int, bool)] -> int (post (=> (second x) (= result 1))) (if (second x) 1 0))"
+                 , "(def-shell nested-cmp [x: ((int, bool), int)] -> int (post (=> (> (first (first x)) (second x)) (= result 1))) (if (> (first (first x)) (second x)) 1 0))"
+                 , "(def-shell str-key [x: (string, int)] -> int (post (=> (= (first x) \"a\") (= result 1))) (if (= (first x) \"a\") 1 0))" ]) of
+                 Left err -> error ("PAIR-GUARD-PROJ-1 test source failed to parse: " ++ show err)
+                 Right v  -> v
+      r <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<pgp>.llmll" ss
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["min-by-first", "flag-to-int", "nested-cmp", "str-key"])
+      erBodyFallback r `shouldBe` []
+    it "PGP-8 a hole under a pair guard has a qf_lia path condition" $ do
+      let pse = pairParamSorts Map.empty [("x", TPair TInt TBool)]
+          expr = EIf (EApp "second" [EVar "x"]) (EHole (HNamed "t")) (EHole (HNamed "e"))
+          kinds = [ map peKind gs | (_, gs) <- collectHoleGuards Map.empty pse expr ]
+      Map.keys pse `shouldBe` ["x"]
+      kinds `shouldBe` [["qf_lia"], ["qf_lia"]]
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

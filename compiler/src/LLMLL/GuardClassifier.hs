@@ -155,6 +155,17 @@ classifyGuardM env se (EApp "<=>" [p, q]) =
 -- Normalize EOp
 classifyGuardM env se (EOp name args) = classifyGuardM env se (EApp name args)
 
+-- PAIR-GUARD-PROJ-1: `(first p)` / `(second p)` of a pair-sorted variable, at
+-- any depth, when the projected component is int, bool or Str (the sorts the
+-- EVar arm admits). A selector on the one-constructor Pair2 is total and exact,
+-- so the guard is the projection's value. A pair-valued component is no guard
+-- operand here; inside a reflected compare 'compareOperandM' takes it.
+classifyGuardM env se e@(EApp p [_])
+  | p == "first" || p == "second" =
+      return $ case projTerm env se e of
+        Just (t, s) | s `elem` [FQInt, FQBool, FQStr] -> Just t
+        _ -> Nothing
+
 -- Everything else in guard position: ELet, EIf, etc. → fallback
 classifyGuardM _ _ _ = return Nothing
 
@@ -244,6 +255,21 @@ shapeLt (OSPair s t) a b =
 sel0, sel1 :: FQPred -> FQPred
 sel0 x = FQApp "pair2_0" [x]
 sel1 x = FQApp "pair2_1" [x]
+
+-- | PAIR-GUARD-PROJ-1: the term and sort of a pair-sorted variable or a
+-- `first` / `second` chain over one. Each step reads the component sort off
+-- the applied `Pair2 s0 s1`.
+projTerm :: Map Name Name -> SortEnv -> Expr -> Maybe (FQPred, FQSort)
+projTerm env se e = case e of
+  EVar v
+    | let r = fromMaybe v (Map.lookup v env)
+    , Just s@(FQDataApp "Pair2" _) <- Map.lookup r se -> Just (FQVar r, s)
+  EApp "first" [a]
+    | Just (t, FQDataApp "Pair2" [s0, _]) <- projTerm env se a -> Just (sel0 t, s0)
+  EApp "second" [a]
+    | Just (t, FQDataApp "Pair2" [_, s1]) <- projTerm env se a -> Just (sel1 t, s1)
+  EOp n as -> projTerm env se (EApp n as)
+  _ -> Nothing
 
 -- | GENERIC-COMPARE-PAIR-1: an operand of a reflected compare in a guard. A
 -- pair-sorted variable, a `pair` of operands and a `first` / `second` of one
