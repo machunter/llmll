@@ -916,7 +916,7 @@ Passing `(use-nonneg 5)` is now valid — the type checker expands `NonNeg` to i
 | `regex-spans` | `string string → list[(int, int)]` | `[start, end)` span of each match, for `string-slice`. |
 | `regex-replace-all` | `string string string → string` | Pattern, subject, replacement. The replacement is literal text (no `\1`). |
 | `string-compare` | `string string → int` | `-1`, `0` or `1` by code point; `<` is `int` only. |
-| `compare` | `a a → int`, `a` ordered | `-1`, `0` or `1`; `0` exactly when `=`. Proved at `int` and `bool`, including in an `if` guard; uninterpreted at `string` and pairs (§4.28). |
+| `compare` | `a a → int`, `a` ordered | `-1`, `0` or `1`; `0` exactly when `=`. Proved at `int`, `bool` and pairs of these, including in an `if` guard; uninterpreted at `string` and at a pair with a `string` component (§4.28). |
 | `list-sort` / `list-sort-by` | `list[a] → list[a]` / `list[a] (fn [a] → k) → list[a]` | Ascending; `list-sort-by` takes a key function and is stable. The element or key type must be `int`, `string`, `bool` or a pair of them (`order-undefined`). |
 | `list-reverse` | `list[a] → list[a]` | O(n). Build a list with `list-prepend` in a fold, then reverse once; `list-append` is O(n) per call. |
 | `map-keys` / `map-entries` | `map[k,v] → list[k]` / `map[k,v] → list[(k, v)]` | Ascending key order. |
@@ -1790,7 +1790,7 @@ tag bound to it warns `W-RESP-FACT-NONE` and receives nothing.
 A function over "any ordered thing" is written once, with a type parameter, instead of once per
 element type. Type parameters go on a `def-shell` only (`LLMLL.md` §3.5). The first idiom is an
 `(a ord)` parameter with `compare` applied directly, because the verifier unfolds `compare` at
-`int` and `bool` and so keeps the proof:
+`int`, `bool` and pairs of these, and so keeps the proof:
 
 ```lisp
 (def-shell pick-min :type-params [(a ord)] [x: a y: a] -> a

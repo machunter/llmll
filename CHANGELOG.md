@@ -4,6 +4,25 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.33.0)
+
+### `GENERIC-COMPARE-PAIR-1`: `compare` is proved at pairs of `int` and `bool`
+
+- **The verifier unfolds `compare` at a pair** whose components are `int`, `bool` or such a pair,
+  in bodies, contracts and `if` guards: first components, then second, by the order of §13.5.
+  Equality is taken only at `int` and `bool` components, so the term grows linearly with nesting.
+  Measured on `scripts/tests/fixtures/generics/pair_cmp.llmll`: `pick-min@[(int,bool)]` and
+  `pick-min@[((int,bool),int)]` are body-faithful and proved; `pick-min@[(int,string)]` falls back
+  ("4 of 5 contracted functions proved"). `pick-min@[(PositiveInt,bool)]` also proves. A body with
+  its branches swapped, and a post with the wrong sign on either component, are refuted.
+- **A pair parameter is a body-faithful leaf.** A body that returns a pair parameter, such as
+  `(if … x y)`, fell back with "Refused by: var"; it is now verified.
+- Still falling back: `first` or `second` in an `if` guard outside `compare`
+  (`PAIR-GUARD-PROJ-1`), and a parameter whose type is a refined pair alias (`PAIR-ALIAS-PARAM-1`).
+- No schema change (0.15.0) and no version-stamp change.
+
+**Tests:** hspec 2843 → 2851, 0 failures; Python 622 → 624 passed, 5 skipped.
+
 ## v0.33.0: Type parameters on `def-shell` and the `compare` builtin (2026-10-25)
 
 ### `GENERICS-1`: type parameters on `def-shell`
