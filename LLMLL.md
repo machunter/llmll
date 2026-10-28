@@ -1212,7 +1212,7 @@ The following matrix documents the verification status of each syntax construct.
 | `EMatch` two-arm sum (`Result`, or user ADT both arms single-payload) | ✅ | ✅ | ✅ | ✅ (two-path, any nesting; consumes payload refinement) | ✅ | — |
 | constructor application `(Ctor e)` / `(Ctor)` over an admissible sum (incl. Result `ok`/`err`) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | recursive sum / non-admissible Result payload → fallback; user-sum recursive ctor → strict-core gate → `def-shell` |
 | `EMatch` n-arm admissible sum (mixed nullary/payload, nested, sequential) | ✅ | ✅ | ✅ | ✅ (n-ary int-tag chain; exhaustiveness type-checked) | ✅ | recursive/non-admissible payload → runtime; a requesting def's `Response` arm binder carries the declared builtin fact under a proved control tag (§9.7, control-tag facts), still QF-LIA |
-| `EPair`/`first`/`second` (scalar / admissible-sum / nested / list component) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | opaque-pair / `Result` / recursive-sum / non-`Σ_auto` component → runtime |
+| `EPair`/`first`/`second` (scalar / admissible-sum / nested / list component; in an `if` guard, a projection of a pair parameter to an `int`, `bool` or `string` component) | ✅ | ✅ | ✅ | ✅ (datatype theory, §5.3.3) | ✅ | opaque-pair / `Result` / recursive-sum / non-`Σ_auto` component → runtime |
 | `letrec` (own body VC) | ✅ | ✅ | ⚠ measure well-formedness only | ❌ | ✅ | runtime + `:decreases` check |
 | `EDo` | ✅ | ✅ | ❌ | ❌ | limited | runtime |
 | `ELambda` | ✅ | ✅ | ❌ | ❌ | ✅ | runtime |

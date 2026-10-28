@@ -78,6 +78,7 @@ import LLMLL.FixpointIR (FQSort(..))
 import LLMLL.FixpointEmit
   ( EmitResult(..), ContractEnv, SortEnv
   , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap
+  , pairParamSorts
   -- OBLIG-CH: the emitter's own ContractEnv recipe, so a call site the report
   -- instantiates is a call site the solver saw
   , cacheAwareContractEnv
@@ -1316,7 +1317,9 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
       -- Contract channel
       aliases  = buildAliasMap stmts
       sortEnv  = buildSortEnv aliases params
-      guards   = collectHoleGuards Map.empty sortEnv (fromMaybe (ELit (LitBool True)) mBody)
+      -- PAIR-GUARD-PROJ-1: a guard sees the pair params, as the verifier's does.
+      guards   = collectHoleGuards Map.empty (Map.union sortEnv (pairParamSorts aliases params))
+                   (fromMaybe (ELit (LitBool True)) mBody)
       -- F7 fix: holeName has "?" prefix, collectHoleGuards emits without
       hName    = T.dropWhile (== '?') (holeName he)
       myGuards = maybe [] snd $ lookup hName [(n, (n, gs)) | (n, gs) <- guards]
@@ -1641,7 +1644,7 @@ holeContractBrief stmts pointer holeNm =
           params   = fromMaybe [] mParams
           aliases  = buildAliasMap stmts
           sortEnv  = buildSortEnv aliases params
-          guards   = collectHoleGuards Map.empty sortEnv
+          guards   = collectHoleGuards Map.empty (Map.union sortEnv (pairParamSorts aliases params))
                        (fromMaybe (ELit (LitBool True)) mBody)
           hName    = T.dropWhile (== '?') holeNm
           myGuards = fromMaybe [] (lookup hName guards)

@@ -17,11 +17,25 @@
   its branches swapped, and a post with the wrong sign on either component, are refuted.
 - **A pair parameter is a body-faithful leaf.** A body that returns a pair parameter, such as
   `(if … x y)`, fell back with "Refused by: var"; it is now verified.
-- Still falling back: `first` or `second` in an `if` guard outside `compare`
-  (`PAIR-GUARD-PROJ-1`), and a parameter whose type is a refined pair alias (`PAIR-ALIAS-PARAM-1`).
+- Still falling back: a parameter whose type is a refined pair alias (`PAIR-ALIAS-PARAM-1`).
+  `first` or `second` in an `if` guard outside `compare` is closed by `PAIR-GUARD-PROJ-1` below.
 - No schema change (0.15.0) and no version-stamp change.
 
-**Tests:** hspec 2843 → 2851, 0 failures; Python 622 → 624 passed, 5 skipped.
+### `PAIR-GUARD-PROJ-1`: `first` and `second` of a pair in an `if` guard
+
+- **A projection of a pair parameter is a guard operand** when the projected component is `int`,
+  `bool` or `string`, nested projections included: `(if (< (first x) (first y)) x y)`,
+  `(if (second x) 1 0)`, `(if (> (first (first x)) (second x)) …)` and
+  `(if (= (first x) "a") …)` are body-faithful. Each fell back with "Refused by: if". A component
+  that is itself a pair is a guard operand only inside `compare`.
+- Measured on `scripts/tests/fixtures/pairs/pair_guard.llmll`: all four functions proved;
+  `pair_guard_bad.llmll`, with the wrong branch of the same guard, is refuted at all four.
+- **The obligation report** labels a hole's path condition under such a guard `qf_lia`, not
+  `structural`.
+- Still falling back: a body that returns a nested projection such as `(first (first x))`.
+- No schema change (0.15.0) and no version-stamp change.
+
+**Tests:** hspec 2843 → 2859, 0 failures; Python 622 → 626 passed, 5 skipped.
 
 ## v0.33.0: Type parameters on `def-shell` and the `compare` builtin (2026-10-25)
 

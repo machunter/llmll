@@ -1,0 +1,18 @@
+;; PAIR-GUARD-PROJ-1: `first` / `second` of a pair parameter in an `if` guard.
+;; Every body is body-faithful; `verify` proves all four.
+
+(def-shell min-by-first [x: (int, bool) y: (int, bool)] -> (int, bool)
+  (post (<= (first result) (first x)))
+  (if (< (first x) (first y)) x y))
+
+(def-shell flag-to-int [x: (int, bool)] -> int
+  (post (=> (second x) (= result 1)))
+  (if (second x) 1 0))
+
+(def-shell nested-cmp [x: ((int, bool), int)] -> int
+  (post (=> (> (first (first x)) (second x)) (= result 1)))
+  (if (> (first (first x)) (second x)) 1 0))
+
+(def-shell str-key [x: (string, int)] -> int
+  (post (=> (= (first x) "a") (= result 1)))
+  (if (= (first x) "a") 1 0))

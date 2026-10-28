@@ -95,6 +95,7 @@ module LLMLL.FixpointEmit
   , payloadArms                  -- COMP-4 (b): two-arm payload types per arm key
   , admissibleDatatype           -- COMP-4 (a): acyclic-closure admissibility
   , sortableComponent            -- PAIR-RET-2: pair-component faithful-sortability
+  , pairParamSorts               -- PAIR-GUARD-PROJ-1: pair params at their Pair2 sort
   , resultReturnUnsafe           -- COMP-4-RESULT: non-admissible Result-return firewall
   , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
   , typeToSort                   -- JSON-1: the opaque-carrier lowering test
@@ -1656,7 +1657,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             let (newSeed, mBodyVC) =
                   if isJust mMapRetPair
                     then (seed, Nothing)
-                    else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts (buildCtorSums aliases, Map.fromList [ (n, typeToSortA aliases t) | (n, t) <- pairParams ]) cenv sccSet
+                    else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts (buildCtorSums aliases, pairParamSorts aliases params) cenv sccSet
                            (markIntBuiltins (Set.fromList (map fst params) `Set.union` Map.keysSet cenv)
                                             (reifyBytesZeroLen mRet body'))
             writeIORef bodyCounterRef newSeed
@@ -3262,6 +3263,16 @@ typeToSortA am t = case t of
 -- sort mismatch that crashes liquid-fixpoint. A non-sortable component routes the
 -- whole function to erBodyFallback (the §5.3.3 firewall) instead of emitting the
 -- crash-inducing constraint.
+-- | PAIR-GUARD-PROJ-1: each pair parameter whose components are sortable, at
+-- its alias-aware Pair2 sort. The body channel's guards and the hole report's
+-- path conditions read the same map, so a guard over a pair classifies alike.
+pairParamSorts :: AliasMap -> [(Name, Type)] -> Map.Map Name FQSort
+pairParamSorts aliases params = Map.fromList
+  [ (n, typeToSortA aliases t) | (n, t) <- params
+  , TPair a b <- [resolveAliasTy aliases t]
+  , sortableComponent aliases a
+  , sortableComponent aliases b ]
+
 sortableComponent :: AliasMap -> Type -> Bool
 sortableComponent am t0 = case resolveAliasTy am t0 of
   TInt        -> True
