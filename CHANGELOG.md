@@ -4,7 +4,7 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.33.0)
+## v0.33.1: Pairs in proofs: `compare`, `if` guards, pair aliases and `bool` constructor arguments (2026-10-29)
 
 ### `GENERIC-COMPARE-PAIR-1`: `compare` is proved at pairs of `int` and `bool`
 
