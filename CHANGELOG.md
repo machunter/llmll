@@ -4,6 +4,23 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.33.1)
+
+### `MINMAX-GUARD-1`: `min`, `max` and `abs` in an `if` guard
+
+- **A call to `min`, `max` or `abs` is a guard operand** when its arguments are guard operands:
+  `(if (< (min a b) 0) 0 (min a b))` and `(if (> (abs a) 10) 10 (abs a))` are body-faithful. Each
+  fell back with "Refused by: if". The guard reflects the call as its `if` definition, as a body
+  and a contract already do.
+- A parameter, local binder or top-level function named `min`, `max` or `abs` shadows the builtin
+  in a guard, as it does in a body. A hole's path condition over such a guard is labelled `qf_lia`.
+- Measured on `scripts/tests/fixtures/minmax/guard.llmll`: all three functions proved.
+  `guard_bad.llmll`, with the wrong branch of the same guards and a function whose parameter
+  `min` shadows the builtin, is refuted at all four.
+- No schema change (0.15.0) and no version-stamp change.
+
+**Tests:** hspec 2872 → 2878, 0 failures; Python 632 → 634 passed, 5 skipped.
+
 ## v0.33.1: Pairs in proofs: `compare`, `if` guards, pair aliases and `bool` constructor arguments (2026-10-29)
 
 ### `GENERIC-COMPARE-PAIR-1`: `compare` is proved at pairs of `int` and `bool`

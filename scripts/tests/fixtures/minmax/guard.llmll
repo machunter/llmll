@@ -1,0 +1,15 @@
+;; MINMAX-GUARD-1: `min`, `max` and `abs` in an `if` guard. Every body is
+;; body-faithful; `verify` proves all three. pick-hi needs the guard's fact on
+;; its else-branch.
+
+(def-shell clamp [a: int b: int] -> int
+  (post (>= result 0))
+  (if (< (min a b) 0) 0 (min a b)))
+
+(def-shell pick-hi [a: int b: int] -> int
+  (post (>= result a))
+  (if (>= (max a b) (+ a 1)) b a))
+
+(def-shell cap [a: int] -> int
+  (post (>= result 0))
+  (if (> (abs a) 10) 10 (abs a)))
