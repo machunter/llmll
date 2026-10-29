@@ -25901,6 +25901,40 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["mk", "use", "use2"])
       erBodyFallback r `shouldBe` []
 
+  describe "PAIR-BOOL-COMP-1: a predicate application argument is a bool term" $ do
+    let parsedB src = case parseStatements GrammarCoreInversion "<pbc>" (T.unlines src) of
+          Left err -> error ("PAIR-BOOL-COMP-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        emitB src = emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<pbc>.llmll" (parsedB src)
+        ite c = "(if " <> c <> " then true else false)"
+    it "PBC-1 a comparison argument is emitted as an if term" $
+      emitPred (FQApp "pair2" [FQVar "n", FQBinPred FQLt (FQVar "n") (FQLit 0)])
+        `shouldBe` ("(pair2 n " <> ite "(n < 0)" <> ")")
+    it "PBC-2 a not argument is emitted as an if term" $
+      emitPred (FQApp "ctor_yes" [FQNot (FQVar "b")])
+        `shouldBe` ("(ctor_yes " <> ite "((not b))" <> ")")
+    it "PBC-3 an and or an or argument is emitted as an if term" $ do
+      emitPred (FQApp "ok" [FQAnd [FQVar "a", FQVar "b"]]) `shouldBe` ("(ok " <> ite "(a && b)" <> ")")
+      emitPred (FQApp "ok" [FQOr [FQVar "a", FQVar "b"]]) `shouldBe` ("(ok " <> ite "(a || b)" <> ")")
+    it "PBC-4 a term argument is emitted unchanged" $ do
+      emitPred (FQApp "pair2" [FQVar "x", FQLit 1]) `shouldBe` "(pair2 x 1)"
+      emitPred (FQApp "pair2" [FQApp "pair2_0" [FQVar "x"], FQBinArith FQSub (FQLit 0) (FQLit 1)])
+        `shouldBe` "(pair2 (pair2_0 x) (0 - 1))"
+      emitPred (FQApp "ok" [FQIte (FQVar "c") (FQLit 1) (FQLit 0)]) `shouldBe` "(ok (if c then 1 else 0))"
+      emitPred (FQApp "ok" [FQAnd [], FQOr []]) `shouldBe` "(ok (true) (false))"
+    it "PBC-5 end to end: a predicate in a pair, a constructor, ok and a contract is body-faithful" $ do
+      r <- emitB
+        [ "(type Flag (| Yes bool) (| No))"
+        , "(def-shell flip [x: (int, bool)] -> (int, bool) (post (= (second result) (not (second x)))) (pair (first x) (not (second x))))"
+        , "(def-shell sign [n: int] -> (int, bool) (post (= (second result) (< n 0))) (pair n (< n 0)))"
+        , "(def-shell flip-eq [x: (int, bool)] -> (int, bool) (post (= result (pair (first x) (not (second x))))) (pair (first x) (not (second x))))"
+        , "(def-shell wrap [b: bool] -> Flag (post (match result ((Yes v) (= v (not b))) ((No) false))) (Yes (not b)))"
+        , "(def-shell okb [n: int] -> Result[bool, string] (post (match result ((Success v) (= v (< n 0))) ((Error e) false))) (ok (< n 0)))" ]
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["flip", "sign", "flip-eq", "wrap", "okb"])
+      erBodyFallback r `shouldBe` []
+      erFQText r `shouldSatisfy` T.isInfixOf "then true else false"
+      erFQText r `shouldNotSatisfy` T.isInfixOf "(pair2 (pair2_0 x) ((not"
+
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
