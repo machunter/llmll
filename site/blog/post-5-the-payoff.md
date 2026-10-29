@@ -1,4 +1,7 @@
-# Post 5: A channel that stands where TLS fell
+# Post 5: 163 agent-written functions, verified against their contracts
+
+*An arithmetic model of the TLS record layer's control flow and bounds. Not a verified TLS
+implementation: no hash, MAC or cipher is computed.*
 
 *The [first post](post-1-the-bugs-that-looked-correct.md) asked whether we could build a
 model of TLS's record-layer logic where a compiler proves the code and agents write it, so
@@ -99,10 +102,13 @@ precisely.
   function carries an explicit `termination_unverified` flag rather than quietly claiming
   the stronger thing. Distributed-decrease and mixed-arity mutual cycles stay partial. The
   record layer's discipline is structural and does not lean on either case.
-- **The compiler proves a contract is met and not vacuous, not that it is the *right*
-  contract.** This is the deepest limit, and the open one. A specification that is
-  precise, satisfiable, and wrong is the failure mode no solver closes; the vacuity gate of
-  Post 4 removes the emptiest version of it, and human judgment still owns the rest.
+- **The compiler proves a contract is met, not that it is the *right* contract.** This is
+  the deepest limit, and the open one. A specification that is precise, satisfiable, and
+  wrong is the failure mode no solver closes. The vacuity gate of Post 4 removes the
+  emptiest version of it, and only for sub-contracts agents invent through `refine`: it
+  rejects a contract that a trivial body (identity, a constant, a projection) already
+  satisfies. The flagship's 163 contracts were carved from a reference implementation and
+  did not pass through it. Human judgment owns the rest.
 - **The proof is about the generated program, and it trusts its tools.** A `SAFE` result
   trusts LLMLL's translation of the program into solver constraints, the solver itself
   (liquid-fixpoint and Z3), the Haskell code generator and GHC. It does not trust the
@@ -119,7 +125,7 @@ tests, and the compiler, and shipped into the encryption everyone depends on. Th
 this series was that the answer to code that *looks* correct, whether human or machine, is a
 checker that can *refuse* it, and that this is exactly what lets you put agents on the
 keyboard for code that matters. The record layer model is that bet, paid off: agents wrote
-its bodies, a compiler proved them, and it stands where TLS fell.
+its bodies, and the verifier proved each one against its contract.
 
 *The programs in this series were written against `llmll 0.14.67` and re-checked on
 v0.28.0 with the same verdicts. The "about a minute" above was measured in July 2026; on

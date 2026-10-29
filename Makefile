@@ -126,7 +126,8 @@ fallback-census:
 benchmark-all: benchmark-erc20 benchmark-totp refute-crux-gate
 
 # ─────────────────────────────────────────────────────────────────────
-# README demo GIFs: docs/assets/refute.gif and docs/assets/protocol.gif.
+# Demo GIFs: docs/assets/refute.gif and docs/assets/protocol.gif (README), and
+# docs/assets/gotofail.gif, which is also copied to site/assets/ for the blog.
 #
 # Records each demo script headlessly in --auto mode (asciinema 3), then renders
 # the cast with agg. The recording runs under `env -i` with a neutral prompt and
@@ -149,6 +150,8 @@ DEMO_SIZE      ?= 100x34
 DEMO_FONT_SIZE ?= 14
 DEMO_IDLE      ?= 2
 DEMO_LAST      ?= 6
+# example-dir:gif-name pairs; narrow it to re-record one, e.g. DEMO_GIFS=gotofail:gotofail
+DEMO_GIFS      ?= payments-core:refute withdraw-demo:protocol gotofail:gotofail
 
 demo-gifs:
 	@set -eu; \
@@ -161,7 +164,7 @@ demo-gifs:
 	DEMO_PATH="$$DEMO_PATH:/usr/bin:/bin"; \
 	ASCIINEMA="$$(command -v asciinema)"; \
 	CASTS="$$(mktemp -d)"; \
-	for pair in payments-core:refute withdraw-demo:protocol; do \
+	for pair in $(DEMO_GIFS); do \
 	  ex="$${pair%%:*}"; name="$${pair##*:}"; \
 	  echo "demo-gifs: recording examples/$$ex/demo.sh -> docs/assets/$$name.gif"; \
 	  env -i HOME="$$CASTS" SHELL=/bin/bash PATH="$$DEMO_PATH" TERM=xterm-256color \
@@ -171,5 +174,6 @@ demo-gifs:
 	  agg -q --font-size $(DEMO_FONT_SIZE) --idle-time-limit $(DEMO_IDLE) \
 	    --last-frame-duration $(DEMO_LAST) "$$CASTS/$$name.cast" "docs/assets/$$name.gif"; \
 	  ls -l "docs/assets/$$name.gif"; \
+	  if [ "$$name" = gotofail ]; then cp docs/assets/gotofail.gif site/assets/gotofail.gif; fi; \
 	done; \
 	echo "demo-gifs: casts kept in $$CASTS"

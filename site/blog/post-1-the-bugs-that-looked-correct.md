@@ -1,4 +1,4 @@
-# Writing a verified slice of TLS, with AI agents doing the typing
+# A verified model of TLS's record-layer logic, with AI agents doing the typing
 
 *A short series. We take the part of TLS where two famous security bugs lived, model it,
 and build the model so that (a) a compiler proves the code meets a specification, and
@@ -115,5 +115,5 @@ implementation to an agent, and watch the compiler reject the version that skips
 check, the goto-fail move, refuted before it can ship. From there the series builds
 outward, through non-trivial multi-stage bodies, agents that decompose the problem into
 their own sub-contracts, and finally the whole record layer assembled and verified as one
-program, ending with a model of the record layer whose bodies agents wrote and a compiler
-proved, standing exactly where TLS fell.
+program: a model of the record layer's control flow and bounds, whose bodies agents wrote
+and the verifier proved against their contracts.
