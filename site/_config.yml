@@ -20,8 +20,8 @@
 
 title: LLMLL
 description: >-
-  A language where AI agents write the code and a compiler proves it meets its
-  specification.
+  A language where AI agents write function bodies and a verifier proves each one meets its
+  contract.
 theme: minima
 author:
   name: Burc Sahinoglu

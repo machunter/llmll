@@ -1,7 +1,8 @@
 # Post 2: A compiler that refuses
 
-*In [Post 1](post-1-the-bugs-that-looked-correct.md) we set the goal: build a slice of
-TLS where a compiler proves the code and agents write it, so goto-fail can't ship. This
+*In [Post 1](post-1-the-bugs-that-looked-correct.md) we set the goal: build a model of
+TLS's record-layer logic where a verifier proves the code and agents write it, so goto-fail
+can't ship. This
 post is the smallest working version of that loop: one function, one contract, one agent,
 and a compiler that says no to the bug.*
 

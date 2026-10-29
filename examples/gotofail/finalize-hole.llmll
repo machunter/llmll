@@ -1,0 +1,9 @@
+;; The hole an agent is handed in blog Post 2 and the demo post: goto-fail's
+;; invariant as a contract, no body. examples/gotofail/demo.sh fills it twice
+;; through checkout/patch, once wrong (rejected) and once right (accepted).
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def-shell finalize [sig: Step payload: int] -> Verdict
+  (post (=> (= result Verified) (= sig Continue)))   ;; return Verified => sig was Continue
+  ?body)

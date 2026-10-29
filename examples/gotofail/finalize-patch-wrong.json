@@ -1,0 +1,53 @@
+{
+  "token": "TOKEN",
+  "patch": [
+    {
+      "op": "test",
+      "path": "/statements/2/body",
+      "value": {
+        "kind": "hole-named",
+        "name": "body"
+      }
+    },
+    {
+      "op": "replace",
+      "path": "/statements/2/body",
+      "value": {
+        "arms": [
+          {
+            "body": {
+              "kind": "var",
+              "name": "Verified"
+            },
+            "pattern": {
+              "constructor": "Continue",
+              "kind": "constructor",
+              "sub_patterns": []
+            }
+          },
+          {
+            "body": {
+              "kind": "var",
+              "name": "Verified"
+            },
+            "pattern": {
+              "constructor": "Abort",
+              "kind": "constructor",
+              "sub_patterns": [
+                {
+                  "kind": "bind",
+                  "name": "c"
+                }
+              ]
+            }
+          }
+        ],
+        "kind": "match",
+        "scrutinee": {
+          "kind": "var",
+          "name": "sig"
+        }
+      }
+    }
+  ]
+}

@@ -17,6 +17,7 @@ the modeled discipline is the error-propagation control flow the bug broke.
 |---|---|
 | `finalize.llmll` | `SAFE` — the single-function `def-shell` version quoted in blog Post 2 |
 | `finalize-bad.llmll` | **refuted** — the goto-fail fill (`Verified` on the `Abort` arm) |
+| `finalize-hole.llmll` / `.ast.json` | the same contract with `?body`: the hole `demo.sh` fills twice through `checkout` and `patch` (the wrong fill in `finalize-patch-wrong.json` is rejected, the guarded one in `finalize-patch-correct.json` is accepted). Recorded as `docs/assets/gotofail.gif` by `make demo-gifs`. |
 | `pipeline.llmll` | `SAFE` — `finalize` returns `Verified` only when `sig = Continue` |
 | `pipeline-bad.llmll` | **refuted** — returns `Verified` on the `Abort` arm too (the bug) |
 | `nested.llmll` | `SAFE` — the multi-stage pipeline via nested matches (reordered arms) |
