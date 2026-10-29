@@ -30,6 +30,8 @@ module LLMLL.ObligationAssembly
   , deriveBacking
   , classifyGuard
   , collectHoleGuards
+  , collectHoleGuardsWith
+  , holeGuardMark
   , holeContractBrief
   , classifyContractFragment
   , classifyContractFragmentTyped
@@ -79,6 +81,8 @@ import LLMLL.FixpointEmit
   ( EmitResult(..), ContractEnv, SortEnv
   , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap
   , pairParamSorts
+  -- MINMAX-GUARD-1: a hole guard is marked as the verifier marks the body
+  , markIntBuiltins, exprBinders
   -- OBLIG-CH: the emitter's own ContractEnv recipe, so a call site the report
   -- instantiates is a call site the solver saw
   , cacheAwareContractEnv
@@ -242,8 +246,14 @@ hasClausePrefix table fn prefix =
 
 -- | Classify a guard expression as a PathEntry (spec §4.2.3).
 classifyGuard :: Map Name Name -> SortEnv -> Expr -> PathEntry
-classifyGuard env se guard =
-  let mPred = evalState (classifyGuardM env se guard) 0
+classifyGuard = classifyGuardWith id
+
+-- | MINMAX-GUARD-1: classify the guard after 'mark' (the verifier's
+-- 'markIntBuiltins'), so a builtin `min` guard the solver reflects is labelled
+-- qf_lia; the rendered text stays the guard as written.
+classifyGuardWith :: (Expr -> Expr) -> Map Name Name -> SortEnv -> Expr -> PathEntry
+classifyGuardWith mark env se guard =
+  let mPred = evalState (classifyGuardM env se (mark guard)) 0
   in case mPred of
        Just _  -> PathEntry (exprToSExpr guard) "qf_lia"
        Nothing -> PathEntry (exprToSExpr guard) "structural"
@@ -268,14 +278,19 @@ matchArmGuard ctor mScrut =
 -- | Collect path conditions for holes in an expression (spec §4.2.3).
 -- F5: Uses total pattern match on bindings (no crash on non-PVar).
 collectHoleGuards :: Map Name Name -> SortEnv -> Expr -> [(Name, [PathEntry])]
-collectHoleGuards env0 se0 = go env0 se0 []
+collectHoleGuards = collectHoleGuardsWith id
+
+-- | MINMAX-GUARD-1: 'collectHoleGuards' with each guard classified after 'mark'
+-- ('holeGuardMark').
+collectHoleGuardsWith :: (Expr -> Expr) -> Map Name Name -> SortEnv -> Expr -> [(Name, [PathEntry])]
+collectHoleGuardsWith mark env0 se0 = go env0 se0 []
   where
     maxPathEntries = 16
 
     go _   _  acc (EHole (HNamed n)) = [(n, take maxPathEntries acc)]
     go _   _  acc (EHole _)          = [("_anon", take maxPathEntries acc)]
     go env se acc (EIf guard thenE elseE) =
-      let entry    = classifyGuard env se guard
+      let entry    = classifyGuardWith mark env se guard
           negEntry = PathEntry ("(not " <> peGuard entry <> ")") (peKind entry)
       in go env se (acc ++ [entry]) thenE
          ++ go env se (acc ++ [negEntry]) elseE
@@ -1278,6 +1293,16 @@ assembleReport fp stmts cache emitR mFqResult trustRpt =
         }
   in encodeReport report
 
+-- | MINMAX-GUARD-1: the verifier's builtin marking for a hole guard. The
+-- verifier marks the body with the params and its contract env as declared
+-- names (FixpointEmit.hs:1668); here every top-level function of the module
+-- stands in for the contract env, and every binder of the body is added, so a
+-- guard is marked only where the whole-body test would mark it.
+holeGuardMark :: [Statement] -> [(Name, Type)] -> Expr -> Expr -> Expr
+holeGuardMark stmts params body =
+  markIntBuiltins (Set.fromList (map fst params ++ topNames) `Set.union` exprBinders body)
+  where topNames = [ n | s <- stmts, Just (n, _, _, _, _) <- [normalizeDefStmt s] ]
+
 -- | Assemble hole obligations from HoleReport.
 assembleHoleObligations :: [Statement] -> ModuleCache -> ConstraintTable -> Maybe FQVerifyResult
                         -> TrustReport -> [Text] -> [Text] -> [Text] -> Set Name -> Set Name
@@ -1318,8 +1343,9 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
       aliases  = buildAliasMap stmts
       sortEnv  = buildSortEnv aliases params
       -- PAIR-GUARD-PROJ-1: a guard sees the pair params, as the verifier's does.
-      guards   = collectHoleGuards Map.empty (Map.union sortEnv (pairParamSorts aliases params))
-                   (fromMaybe (ELit (LitBool True)) mBody)
+      body0    = fromMaybe (ELit (LitBool True)) mBody
+      guards   = collectHoleGuardsWith (holeGuardMark stmts params body0) Map.empty
+                   (Map.union sortEnv (pairParamSorts aliases params)) body0
       -- F7 fix: holeName has "?" prefix, collectHoleGuards emits without
       hName    = T.dropWhile (== '?') (holeName he)
       myGuards = maybe [] snd $ lookup hName [(n, (n, gs)) | (n, gs) <- guards]
@@ -1644,8 +1670,9 @@ holeContractBrief stmts pointer holeNm =
           params   = fromMaybe [] mParams
           aliases  = buildAliasMap stmts
           sortEnv  = buildSortEnv aliases params
-          guards   = collectHoleGuards Map.empty (Map.union sortEnv (pairParamSorts aliases params))
-                       (fromMaybe (ELit (LitBool True)) mBody)
+          body0    = fromMaybe (ELit (LitBool True)) mBody
+          guards   = collectHoleGuardsWith (holeGuardMark stmts params body0) Map.empty
+                       (Map.union sortEnv (pairParamSorts aliases params)) body0
           hName    = T.dropWhile (== '?') holeNm
           myGuards = fromMaybe [] (lookup hName guards)
       in ( fmap exprToSExpr (contractPre contract)

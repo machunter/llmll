@@ -96,6 +96,7 @@ module LLMLL.FixpointEmit
   , admissibleDatatype           -- COMP-4 (a): acyclic-closure admissibility
   , sortableComponent            -- PAIR-RET-2: pair-component faithful-sortability
   , pairParamSorts               -- PAIR-GUARD-PROJ-1: pair params at their Pair2 sort
+  , markIntBuiltins, exprBinders -- MINMAX-GUARD-1: the hole report marks guards as the verifier does
   , resultReturnUnsafe           -- COMP-4-RESULT: non-admissible Result-return firewall
   , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
   , typeToSort                   -- JSON-1: the opaque-carrier lowering test
@@ -152,7 +153,7 @@ import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkBodyFallbackWarning, mkDecreasesUndischarged)
 import LLMLL.HoleAnalysis (buildCallGraph)
-import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare)
+import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare, reflectMinMaxAbs)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
 -- def, premise sites, warnings). Pure; the checker already raised every error.
 import LLMLL.RespFact (analyzeRespFacts, respFactPlanOrEmpty, RespFactPlan(..), PremiseSite(..), PremiseCase(..), RespFact(..), FactCategory(..), factCategoryName)
@@ -6313,12 +6314,11 @@ exprBinders e = case e of
     patNames _                   = Set.empty
 
 -- | MINMAX-FRAG-1: the `if` definition of an int builtin over translated operands.
--- `max` follows the Prelude's argument order (`if x <= y then y else x`); on
--- integers a tie returns equal values, so the order cannot change the result.
+-- MINMAX-GUARD-1: the min/max/abs terms live in LLMLL.GuardClassifier
+-- ('reflectMinMaxAbs'), which the guard channel also reads.
 reflectIntBuiltin :: Name -> [FQPred] -> Maybe FQPred
-reflectIntBuiltin "min" [a, b] = Just (FQIte (FQBinPred FQLe a b) a b)
-reflectIntBuiltin "max" [a, b] = Just (FQIte (FQBinPred FQLe a b) b a)
-reflectIntBuiltin "abs" [a]    = Just (FQIte (FQBinPred FQLt a (FQLit 0)) (FQBinArith FQSub (FQLit 0) a) a)
+reflectIntBuiltin b ps
+  | Just t <- reflectMinMaxAbs b ps = Just t
 -- GENERIC-COMPARE-1: `compare` at int and at bool, after specialization. The
 -- terms live in LLMLL.GuardClassifier.reflectCompare, which the guard channel
 -- also reads, so the body and guard unfoldings cannot drift.

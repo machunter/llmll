@@ -22,6 +22,8 @@ module LLMLL.GuardClassifier
   , intBuiltinTag
   , reflectCompare
   , isReflectedCompare
+    -- * MINMAX-GUARD-1: the min/max/abs terms, shared with the body channel
+  , reflectMinMaxAbs
     -- * GENERIC-COMPARE-PAIR-1: the order shape a compare name encodes
   , OrdShape(..)
   , compareShapeName
@@ -85,8 +87,7 @@ classifyGuardM _ _ (ELit (LitString s))   = return (Just (FQApp (strlitConst s) 
 -- GENERIC-COMPARE-1: a reflected `compare` at int or bool (written by the
 -- specialization pass, tagged by FixpointEmit.markIntBuiltins) unfolds to the
 -- same definitional term the body channel uses ('reflectCompare'), so
--- `(if (<= (compare x y) 0) x y)` keeps its guard. Only the compare names:
--- `min`, `max` and `abs` in a guard still fall back (a separate gap).
+-- `(if (<= (compare x y) 0) x y)` keeps its guard.
 -- GENERIC-COMPARE-PAIR-1: at a pair shape the operands may be pair-sorted,
 -- which 'compareOperandM' admits here and nowhere else.
 classifyGuardM env se (EApp op args)
@@ -94,6 +95,15 @@ classifyGuardM env se (EApp op args)
   , isReflectedCompare b = do
       ps <- mapM (compareOperandM env se) args
       return (sequence ps >>= reflectCompare b)
+
+-- MINMAX-GUARD-1: a tagged `min`, `max` or `abs` (a builtin call no binder
+-- shadows; FixpointEmit.markIntBuiltins) unfolds to its `if` definition over
+-- int operands, as in a body, so `(if (< (min a b) 0) …)` keeps its guard.
+classifyGuardM env se (EApp op args)
+  | Just b <- T.stripPrefix intBuiltinTag op
+  , b `elem` ["min", "max", "abs"] = do
+      ps <- mapM (classifyGuardM env se) args
+      return (sequence ps >>= reflectMinMaxAbs b)
 
 -- Comparison operators (including Unicode aliases)
 classifyGuardM env se (EApp op [l, r])
@@ -213,6 +223,17 @@ parseCompareName n = do
           r4      <- T.stripPrefix ")" r3
           Just (OSPair a b, r4)
       | otherwise = Nothing
+
+-- | MINMAX-FRAG-1: the `if` definition of an int builtin over translated operands.
+-- `max` follows the Prelude's argument order (`if x <= y then y else x`); on
+-- integers a tie returns equal values, so the order cannot change the result.
+-- MINMAX-GUARD-1: moved here from FixpointEmit.reflectIntBuiltin, so the body,
+-- contract and guard channels read one definition.
+reflectMinMaxAbs :: Name -> [FQPred] -> Maybe FQPred
+reflectMinMaxAbs "min" [a, b] = Just (FQIte (FQBinPred FQLe a b) a b)
+reflectMinMaxAbs "max" [a, b] = Just (FQIte (FQBinPred FQLe a b) b a)
+reflectMinMaxAbs "abs" [a]    = Just (FQIte (FQBinPred FQLt a (FQLit 0)) (FQBinArith FQSub (FQLit 0) a) a)
+reflectMinMaxAbs _ _          = Nothing
 
 -- | The specialized compare names that unfold definitionally.
 isReflectedCompare :: Name -> Bool

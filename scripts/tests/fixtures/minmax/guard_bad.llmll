@@ -1,0 +1,20 @@
+;; MINMAX-GUARD-1: guard.llmll with the wrong branch in each body. `verify`
+;; refutes all four.
+
+(def-shell clamp [a: int b: int] -> int
+  (post (>= result 0))
+  (if (< (min a b) 0) (min a b) 0))
+
+(def-shell pick-hi [a: int b: int] -> int
+  (post (>= result a))
+  (if (>= (max a b) (+ a 1)) a b))
+
+(def-shell cap [a: int] -> int
+  (post (>= result 0))
+  (if (> (abs a) 10) 10 a))
+
+;; A parameter named `min` is not the builtin: the guard and the then-branch
+;; are opaque calls through it, so the post is refuted, never proved.
+(def-shell gs [min: (fn [int int] -> int) a: int b: int] -> int
+  (post (<= result a))
+  (if (<= (min a b) a) (min a b) a))

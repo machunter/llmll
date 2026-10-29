@@ -20,7 +20,7 @@ import LLMLL.InvariantRegistry (defaultPatterns, matchPatterns, InvariantPattern
 -- in builtinEnv above.
 import LLMLL.TypeAdmissibility (builtinAliases)
 import LLMLL.ObligationAssembly
-  ( exprToSExpr, deriveBacking, collectHoleGuards, PathEntry(..), holeContractBrief, normalizeForFingerprint
+  ( exprToSExpr, deriveBacking, collectHoleGuards, collectHoleGuardsWith, holeGuardMark, PathEntry(..), holeContractBrief, normalizeForFingerprint
   , obligationStatus, classifyContractFragment, classifyContractFragmentTyped, classifyBodyFragment
   , recursiveNames, descentDischargedFns, ObligationKind(..), patternBindings, isTypeCompatible
   , ContractChannel(..)
@@ -64,7 +64,7 @@ import LLMLL.VerifyEnvelope (VerifyEnvelope(..), renderEnvelope, envelopeFields,
 import Data.Either (isLeft, isRight)
 import Data.Aeson (encode, decode)
 import LLMLL.AgentSpec (agentSpec, AgentSpec(..), BuiltinEntry(..), OperatorEntry(..))
-import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, reflectCompare, intBuiltinTag, OrdShape(..), compareShapeName, parseCompareName, isReflectedCompare)
+import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, reflectCompare, reflectMinMaxAbs, intBuiltinTag, OrdShape(..), compareShapeName, parseCompareName, isReflectedCompare)
 import Control.Monad.State.Strict (evalState)
 
 import qualified Data.Map.Strict as Map
@@ -25695,15 +25695,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       reflectCompare "compare%bool" [x, y] `shouldBe` Just term
       guardOf (sorts FQBool) (leZero (intBuiltinTag <> "compare%bool"))
         `shouldBe` Just (FQBinPred FQLe term (FQLit 0))
-    it "G1-G-3 regression pin: plain compare (string), and min/max/abs, still fall back in a guard" $ do
+    it "G1-G-3 regression pin: plain compare (string) and an untagged min/max still fall back in a guard" $ do
       guardOf (sorts FQStr) (leZero "compare") `shouldBe` Nothing
       guardOf (sorts FQInt) (leZero "compare") `shouldBe` Nothing
-      forM_ ["min", "max"] $ \f -> do
+      -- MINMAX-GUARD-1: the tagged builtin classifies (MMG-1); the untagged
+      -- name is a call 'markIntBuiltins' did not mark, so it still refuses.
+      forM_ ["min", "max"] $ \f ->
         guardOf (sorts FQInt) (leZero f) `shouldBe` Nothing
-        guardOf (sorts FQInt) (leZero (intBuiltinTag <> f)) `shouldBe` Nothing
-      guardOf (sorts FQInt) (EApp "<=" [EApp (intBuiltinTag <> "abs") [EVar "x"], ELit (LitInt 0)]) `shouldBe` Nothing
+      guardOf (sorts FQInt) (EApp "<=" [EApp "abs" [EVar "x"], ELit (LitInt 0)]) `shouldBe` Nothing
       reflectCompare "min" [x, y] `shouldBe` Nothing
-    it "G1-G-4 end to end: a compare guard keeps pick@[int] and pick@[bool] body-faithful; string and a min guard fall back" $ do
+    it "G1-G-4 end to end: a compare guard keeps pick@[int] and pick@[bool] body-faithful; string falls back, a min guard proves" $ do
       let ss = parsedG
             [ "(def-shell pick :type-params [(a ord)] [x: a y: a] -> a (post (<= (compare result y) 0)) (if (<= (compare x y) 0) x y))"
             , "(def-shell ui [x: int y: int] -> int (pick x y))"
@@ -25713,7 +25714,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           (out, _) = specialize Map.empty (sitesOf ss) ss
       r <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<g1>.llmll" out
       erBodyFaithfulFns r `shouldSatisfy` (\fs -> "pick@[int]" `elem` fs && "pick@[bool]" `elem` fs)
-      erBodyFallback r `shouldSatisfy` (\fs -> "pick@[string]" `elem` fs && "mg" `elem` fs)
+      erBodyFallback r `shouldSatisfy` (\fs -> "pick@[string]" `elem` fs && "mg" `notElem` fs)
+      erBodyFaithfulFns r `shouldSatisfy` ("mg" `elem`)
 
   describe "GENERIC-COMPARE-PAIR-1: compare unfolds lexicographically at pairs of int and bool" $ do
     let parsedG src = case parseStatements GrammarCoreInversion "<gp>" (T.unlines src) of
@@ -25934,6 +25936,51 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erBodyFallback r `shouldBe` []
       erFQText r `shouldSatisfy` T.isInfixOf "then true else false"
       erFQText r `shouldNotSatisfy` T.isInfixOf "(pair2 (pair2_0 x) ((not"
+
+  describe "MINMAX-GUARD-1: min, max and abs in an if guard" $ do
+    let parsedM src = case parseStatements GrammarCoreInversion "<mmg>" (T.unlines src) of
+          Left err -> error ("MINMAX-GUARD-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        emitM src = emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<mmg>.llmll" (parsedM src)
+        guardOf se e = evalState (classifyGuardM Map.empty se e) 0
+        ints = Map.fromList [("x", FQInt), ("y", FQInt)]
+        x = FQVar "x"
+        y = FQVar "y"
+        tag f = intBuiltinTag <> f
+    it "MMG-1 a tagged min guard is the min definition" $
+      guardOf ints (EApp "<" [EApp (tag "min") [EVar "x", EVar "y"], ELit (LitInt 0)])
+        `shouldBe` Just (FQBinPred FQLt (FQIte (FQBinPred FQLe x y) x y) (FQLit 0))
+    it "MMG-2 max, and abs inside arithmetic, classify with the body's terms" $ do
+      guardOf ints (EApp ">=" [EApp (tag "max") [EVar "x", EVar "y"], EVar "x"])
+        `shouldBe` (FQBinPred FQGe <$> reflectMinMaxAbs "max" [x, y] <*> Just x)
+      guardOf ints (EApp ">" [EApp "+" [EApp (tag "abs") [EVar "x"], ELit (LitInt 1)], ELit (LitInt 0)])
+        `shouldBe` ((\a -> FQBinPred FQGt (FQBinArith FQAdd a (FQLit 1)) (FQLit 0)) <$> reflectMinMaxAbs "abs" [x])
+    it "MMG-3 an untagged min, an unknown operand and a wrong arity still refuse" $ do
+      guardOf ints (EApp "<" [EApp "min" [EVar "x", EVar "y"], ELit (LitInt 0)]) `shouldBe` Nothing
+      guardOf ints (EApp "<" [EApp (tag "min") [EVar "x", EVar "z"], ELit (LitInt 0)]) `shouldBe` Nothing
+      guardOf ints (EApp "<" [EApp (tag "abs") [EVar "x", EVar "y"], ELit (LitInt 0)]) `shouldBe` Nothing
+    it "MMG-4 end to end: min, max and abs guards are body-faithful" $ do
+      r <- emitM
+        [ "(def-shell clamp [a: int b: int] -> int (post (>= result 0)) (if (< (min a b) 0) 0 (min a b)))"
+        , "(def-shell pick-hi [a: int b: int] -> int (post (>= result a)) (if (>= (max a b) (+ a 1)) b a))"
+        , "(def-shell cap [a: int] -> int (post (>= result 0)) (if (> (abs a) 10) 10 (abs a)))" ]
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["clamp", "pick-hi", "cap"])
+      erBodyFallback r `shouldBe` []
+      -- the reflected min term MMG-5 checks is absent for a shadowed min
+      erFQText r `shouldSatisfy` T.isInfixOf "(if (a <= b) then a else b)"
+    it "MMG-5 a parameter named min is never the builtin in a guard" $ do
+      r <- emitM
+        [ "(def-shell gs [min: (fn [int int] -> int) a: int b: int] -> int (post (<= result a)) (if (<= (min a b) a) (min a b) a))" ]
+      erFQText r `shouldNotSatisfy` T.isInfixOf "(if (a <= b) then a else b)"
+    it "MMG-6 a hole under a min guard is qf_lia; under a shadowed min it stays structural" $ do
+      let ss = parsedM [ "(def-shell h [a: int b: int] -> int (if (< (min a b) 0) ?t 0))" ]
+          body = EIf (EApp "<" [EApp "min" [EVar "a", EVar "b"], ELit (LitInt 0)]) (EHole (HNamed "t")) (ELit (LitInt 0))
+          se = Map.fromList [("a", FQInt), ("b", FQInt)]
+          run ps = [ map (\pe -> (peGuard pe, peKind pe)) gs
+                   | (_, gs) <- collectHoleGuardsWith (holeGuardMark ss ps body) Map.empty se body ]
+      run [("a", TInt), ("b", TInt)] `shouldBe` [[("(< (min a b) 0)", "qf_lia")]]
+      run [("min", TFn [TInt, TInt] TInt), ("a", TInt), ("b", TInt)]
+        `shouldBe` [[("(< (min a b) 0)", "structural")]]
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
