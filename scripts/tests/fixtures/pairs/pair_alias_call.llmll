@@ -1,0 +1,18 @@
+;; PAIR-ALIAS-PARAM-1: a call to a Pt-returning callee, projected (use) and
+;; returned (use2). Every body is body-faithful; `verify` proves all three.
+
+(type Pt (where [p: (int, int)] (>= (first p) 0)))
+
+(def-shell mk [n: int] -> Pt
+  (pre (>= n 0))
+  (post (= (first result) n))
+  (pair n 0))
+
+(def-shell use [n: int] -> int
+  (pre (>= n 0))
+  (post (= result n))
+  (let [(p (mk n))] (first p)))
+
+(def-shell use2 [n: int] -> Pt
+  (pre (>= n 0))
+  (mk n))

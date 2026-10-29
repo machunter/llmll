@@ -1,0 +1,18 @@
+;; PAIR-ALIAS-PARAM-1 refuting witnesses: each body breaks the alias's
+;; predicate or the post, and `verify` refutes all four.
+
+(type Pt (where [p: (int, int)] (>= (first p) 0)))
+(type IB (int, bool))
+
+(def-shell ret-pt-bad [x: (int, int)] -> Pt x)
+
+(def-shell min-pt [x: Pt y: Pt] -> Pt
+  (post (<= (first result) (first x)))
+  (if (< (first x) (first y)) y x))
+
+(def-shell mk-pt-bad [n: int] -> Pt
+  (pair n 0))
+
+(def-shell ib-flip [x: IB] -> IB
+  (post (= (first result) (first x)))
+  (pair (+ (first x) 1) (second x)))

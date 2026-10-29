@@ -1,0 +1,17 @@
+;; PAIR-ALIAS-PARAM-1: pair_alias_call.llmll with a wrong post in use and no
+;; pre in use2. Both are refuted: a body failure and a call-site pre failure.
+
+(type Pt (where [p: (int, int)] (>= (first p) 0)))
+
+(def-shell mk [n: int] -> Pt
+  (pre (>= n 0))
+  (post (= (first result) n))
+  (pair n 0))
+
+(def-shell use [n: int] -> int
+  (pre (>= n 0))
+  (post (= result (+ n 1)))
+  (let [(p (mk n))] (first p)))
+
+(def-shell use2 [n: int] -> Pt
+  (mk n))

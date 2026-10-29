@@ -17,7 +17,7 @@
   its branches swapped, and a post with the wrong sign on either component, are refuted.
 - **A pair parameter is a body-faithful leaf.** A body that returns a pair parameter, such as
   `(if … x y)`, fell back with "Refused by: var"; it is now verified.
-- Still falling back: a parameter whose type is a refined pair alias (`PAIR-ALIAS-PARAM-1`).
+- A parameter whose type is a refined pair alias is closed by `PAIR-ALIAS-PARAM-1` below.
   `first` or `second` in an `if` guard outside `compare` is closed by `PAIR-GUARD-PROJ-1` below.
 - No schema change (0.15.0) and no version-stamp change.
 
@@ -35,7 +35,28 @@
 - Still falling back: a body that returns a nested projection such as `(first (first x))`.
 - No schema change (0.15.0) and no version-stamp change.
 
-**Tests:** hspec 2843 → 2859, 0 failures; Python 622 → 626 passed, 5 skipped.
+### `PAIR-ALIAS-PARAM-1`: a pair alias as a parameter, a return and a call result
+
+- **A type alias whose expansion is a pair, refined or not, takes the pair sort.** The verifier
+  gave it the `int` sort. Three results change:
+  - A parameter of type `Pt`, for `(type Pt (where [p: (int, int)] (>= (first p) 0)))`, is a
+    body leaf and an `if`-guard operand. `(def-shell ret-pt [x: Pt] -> Pt x)` and a guard such as
+    `(if (< (first x) (first y)) x y)` fell back with "Refused by: var" or "Refused by: if".
+  - A function that returns a pair alias crashed liquid-fixpoint ("The sort (Pair2 …) is not
+    numeric"). It is now proved or refuted, and the alias predicate is checked on the result:
+    `(pair n 0)` returned as `Pt` with no precondition on `n` is refuted.
+  - A call to a function that returns a pair alias crashed liquid-fixpoint when the callee has a
+    postcondition, as in `(let [(p (mk n))] (first p))`. The call result now has the pair sort.
+- Both components must have a sort the verifier supports, as for a pair parameter.
+- Measured on `scripts/tests/fixtures/pairs/pair_alias.llmll` and `pair_alias_call.llmll`: all
+  functions proved. `pair_alias_bad.llmll` and `pair_alias_call_bad.llmll` are refuted at every
+  function, with no solver error.
+- Still an error: a `bool` component built by `not` or a comparison, such as
+  `(pair (first x) (not (second x)))`, gives a liquid-fixpoint error in a function with a
+  contract, with or without an alias (`PAIR-BOOL-COMP-1`).
+- No schema change (0.15.0) and no version-stamp change.
+
+**Tests:** hspec 2843 → 2867, 0 failures; Python 622 → 630 passed, 5 skipped.
 
 ## v0.33.0: Type parameters on `def-shell` and the `compare` builtin (2026-10-25)
 

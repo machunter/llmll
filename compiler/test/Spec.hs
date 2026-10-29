@@ -25788,7 +25788,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       r <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<gp>.llmll" out
       erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["pick@[(int,bool)]", "pick@[((int,bool),int)]", "pick@[(PositiveInt,bool)]"])
       erBodyFallback r `shouldSatisfy` ("pick@[(int,string)]" `elem`)
-    it "GP-8 a pair parameter reflects as a body leaf; a refined pair alias still falls back" $ do
+    it "GP-8 a pair parameter reflects as a body leaf, a refined pair alias included" $ do
       let ss = parsedG
             [ "(def-shell r1 [x: (int, bool)] -> (int, bool) (post (= (first result) 0)) x)"
             , "(def-shell r2 [b: bool x: (int, bool) y: (int, bool)] -> (int, bool) (post (or (= result x) (= result y))) (if b x y))"
@@ -25796,10 +25796,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , "(def-shell r3 [x: Pt] -> Pt x)" ]
       r <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<gp>.llmll" ss
       erBodyFaithfulFns r `shouldSatisfy` (\fs -> "r1" `elem` fs && "r2" `elem` fs)
-      erBodyFallback r `shouldSatisfy` ("r3" `elem`)
+      -- PAIR-ALIAS-PARAM-1: the refined pair alias now takes the Pair2 sort.
+      erBodyFaithfulFns r `shouldSatisfy` ("r3" `elem`)
 
   describe "PAIR-GUARD-PROJ-1: first and second of a pair are guard operands" $ do
-    let guardOf se e = evalState (classifyGuardM Map.empty se e) 0
+    let guardOf sm e = evalState (classifyGuardM Map.empty sm e) 0
         ib = FQDataApp "Pair2" [FQInt, FQBool]
         se = Map.fromList [ ("x", ib), ("y", ib)
                           , ("n", FQDataApp "Pair2" [ib, FQInt])
@@ -25846,6 +25847,59 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           kinds = [ map peKind gs | (_, gs) <- collectHoleGuards Map.empty pse expr ]
       Map.keys pse `shouldBe` ["x"]
       kinds `shouldBe` [["qf_lia"], ["qf_lia"]]
+
+  describe "PAIR-ALIAS-PARAM-1: a pair alias takes the Pair2 sort" $ do
+    let parsedA src = case parseStatements GrammarCoreInversion "<pap>" (T.unlines src) of
+          Left err -> error ("PAIR-ALIAS-PARAM-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        decls = parsedA
+          [ "(type Pt (where [p: (int, int)] (>= (first p) 0)))"
+          , "(type IB (int, bool))"
+          , "(type PositiveInt (where [n: int] (> n 0)))"
+          , "(type Box (| Full int) (| Empty))" ]
+        am = buildAliasMap decls
+        p2 a b = FQDataApp "Pair2" [a, b]
+        emitA src = emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<pap>.llmll" (parsedA src)
+    it "PAP-1 a refined and a plain pair alias sort as Pair2" $ do
+      typeToSortA am (TCustom "Pt") `shouldBe` p2 FQInt FQInt
+      typeToSortA am (TCustom "IB") `shouldBe` p2 FQInt FQBool
+    it "PAP-2 an alias component of a pair sorts as Pair2 too" $
+      typeToSortA am (TPair (TCustom "Pt") TBool) `shouldBe` p2 (p2 FQInt FQInt) FQBool
+    it "PAP-3 a non-pair alias keeps its sort" $ do
+      typeToSortA am (TCustom "PositiveInt") `shouldBe` FQInt
+      typeToSortA am (TCustom "Box") `shouldBe` FQData "Box"
+    it "PAP-4 pairParamSorts holds a Pt parameter at Pair2" $
+      pairParamSorts am [("x", TCustom "Pt"), ("n", TInt)] `shouldBe` Map.fromList [("x", p2 FQInt FQInt)]
+    it "PAP-5 end to end: Pt and IB as parameters and returns are body-faithful" $ do
+      r <- emitA
+        [ "(type Pt (where [p: (int, int)] (>= (first p) 0)))"
+        , "(type IB (int, bool))"
+        , "(def-shell ret-pt [x: Pt] -> Pt x)"
+        , "(def-shell min-pt [x: Pt y: Pt] -> Pt (post (<= (first result) (first x))) (if (< (first x) (first y)) x y))"
+        , "(def-shell mk-pt [n: int] -> Pt (pre (>= n 0)) (pair n 0))"
+        , "(def-shell ib-flip [x: IB] -> IB (post (= (first result) (first x))) (pair (first x) (second x)))" ]
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["ret-pt", "min-pt", "mk-pt", "ib-flip"])
+      erBodyFallback r `shouldBe` []
+    it "PAP-6 a pair-alias return declares result at Pair2, not int (the solver crash)" $ do
+      r <- emitA
+        [ "(type P (int, int))"
+        , "(def-shell f [x: (int, int)] -> P (post (= (first result) 1)) (pair 1 0))" ]
+      erFQText r `shouldSatisfy` T.isInfixOf "result : { v : (Pair2 int int)"
+      erFQText r `shouldNotSatisfy` T.isInfixOf "result : { v : int"
+    it "PAP-7 a pair-alias parameter in a guard classifies" $ do
+      let se = pairParamSorts am [("x", TCustom "Pt"), ("y", TCustom "Pt")]
+      evalState (classifyGuardM Map.empty se (EApp "<" [EApp "first" [EVar "x"], EApp "first" [EVar "y"]])) 0
+        `shouldSatisfy` isJust
+    it "PAP-8 a call to a pair-alias callee binds its result at Pair2 and proves" $ do
+      r <- emitA
+        [ "(type Pt (where [p: (int, int)] (>= (first p) 0)))"
+        , "(def-shell mk [n: int] -> Pt (pre (>= n 0)) (post (= (first result) n)) (pair n 0))"
+        , "(def-shell use [n: int] -> int (pre (>= n 0)) (post (= result n)) (let [(p (mk n))] (first p)))"
+        , "(def-shell use2 [n: int] -> Pt (pre (>= n 0)) (mk n))" ]
+      erFQText r `shouldSatisfy` T.isInfixOf "_bv_call_mk_0 : { v : (Pair2 int int)"
+      erFQText r `shouldNotSatisfy` T.isInfixOf "_bv_call_mk_0 : { v : int"
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["mk", "use", "use2"])
+      erBodyFallback r `shouldBe` []
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
