@@ -342,7 +342,18 @@ emitPred (FQOr  [])           = "false"
 emitPred (FQOr  ps)           = T.intercalate " || " (map emitPredParens ps)
 emitPred (FQNot p)            = "(not " <> emitPredParens p <> ")"
 emitPred (FQKVar k args)      = "$" <> sanitizeFQId k <> "(" <> T.intercalate "," (map emitPred args) <> ")"
-emitPred (FQApp f args)       = "(" <> sanitizeFQId f <> " " <> T.unwords (map emitPredParens args) <> ")"
+-- PAIR-BOOL-COMP-1: fixpoint parses only a term as an application argument, so a
+-- predicate argument (`(pair2 n (n < 0))`, `(ctor_yes (not b))`) crashed the solver.
+-- It is emitted as the bool term `(if P then true else false)`; other args unchanged.
+emitPred (FQApp f args)       = "(" <> sanitizeFQId f <> " " <> T.unwords (map emitArg args) <> ")"
+  where
+    emitArg p | propShaped p = "(if " <> emitPredParens p <> " then true else false)"
+              | otherwise    = emitPredParens p
+    propShaped (FQBinPred {}) = True
+    propShaped (FQNot _)      = True
+    propShaped (FQAnd (_:_))  = True
+    propShaped (FQOr  (_:_))  = True
+    propShaped _              = False
 emitPred (FQIte c a b)        = "(if " <> emitPredParens c <> " then " <> emitPredParens a <> " else " <> emitPredParens b <> ")"
 
 -- | Wrap compound predicates in parentheses to prevent precedence ambiguity.

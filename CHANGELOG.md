@@ -51,12 +51,23 @@
 - Measured on `scripts/tests/fixtures/pairs/pair_alias.llmll` and `pair_alias_call.llmll`: all
   functions proved. `pair_alias_bad.llmll` and `pair_alias_call_bad.llmll` are refuted at every
   function, with no solver error.
-- Still an error: a `bool` component built by `not` or a comparison, such as
-  `(pair (first x) (not (second x)))`, gives a liquid-fixpoint error in a function with a
-  contract, with or without an alias (`PAIR-BOOL-COMP-1`).
+- A `bool` component built by `not` or a comparison is closed by `PAIR-BOOL-COMP-1` below.
 - No schema change (0.15.0) and no version-stamp change.
 
-**Tests:** hspec 2843 → 2867, 0 failures; Python 622 → 630 passed, 5 skipped.
+### `PAIR-BOOL-COMP-1`: a predicate as a constructor argument
+
+- **A comparison, `not`, `and` or `or` as a constructor argument no longer crashes
+  liquid-fixpoint.** It gave "Constraint with free vars [not]" or a parse error in a function with a
+  contract. This hit a pair component such as `(pair (first x) (not (second x)))` or
+  `(pair n (< n 0))`, a user constructor such as `(Yes (not b))`, `ok`/`err`, and a pair inside a
+  contract. The verifier now writes such an argument as `(if P then true else false)`, and the
+  function is proved or refuted. No other argument changes, so no `.fq` that verified before
+  changes.
+- Measured on `scripts/tests/fixtures/pairs/bool_comp.llmll`: all five functions proved.
+  `bool_comp_bad.llmll`, with the wrong `bool` argument in each body, is refuted at all five.
+- No schema change (0.15.0) and no version-stamp change.
+
+**Tests:** hspec 2843 → 2872, 0 failures; Python 622 → 632 passed, 5 skipped.
 
 ## v0.33.0: Type parameters on `def-shell` and the `compare` builtin (2026-10-25)
 

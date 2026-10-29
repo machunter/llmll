@@ -1,0 +1,24 @@
+;; PAIR-BOOL-COMP-1: bool_comp.llmll with the wrong bool argument in each body.
+;; `verify` refutes all five, with no solver error.
+
+(type Flag (| Yes bool) (| No))
+
+(def-shell flip [x: (int, bool)] -> (int, bool)
+  (post (= (second result) (not (second x))))
+  (pair (first x) (second x)))
+
+(def-shell sign [n: int] -> (int, bool)
+  (post (= (second result) (< n 0)))
+  (pair n (> n 0)))
+
+(def-shell flip-eq [x: (int, bool)] -> (int, bool)
+  (post (= result (pair (first x) (not (second x)))))
+  (pair (first x) (second x)))
+
+(def-shell wrap [b: bool] -> Flag
+  (post (match result ((Yes v) (= v (not b))) ((No) false)))
+  (Yes b))
+
+(def-shell okb [n: int] -> Result[bool, string]
+  (post (match result ((Success v) (= v (< n 0))) ((Error e) false)))
+  (ok (> n 0)))
