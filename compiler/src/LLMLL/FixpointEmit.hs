@@ -1290,8 +1290,15 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
       -- param keeps its .fq byte-identical. A param passed to a callee whose
       -- contract names that argument needs one too ('sumCallArgVars').
       -- CALLEE-DATA-SORT-1: the datatype return sort of each contracted callee.
-      calleeSorts = Map.fromList [ (f, s) | (f, (_, _, Just rt)) <- Map.toList cenv
-                                          , Just s <- [sumValueSort aliases rt] ]
+      -- PAIR-ALIAS-PARAM-1: a callee returning a pair alias takes the Pair2
+      -- sort too; the alias-unaware 'calleeRetSort' fallback made it int.
+      calleeSorts = Map.fromList $
+                      [ (f, s) | (f, (_, _, Just rt)) <- Map.toList cenv
+                               , Just s <- [sumValueSort aliases rt] ]
+                   ++ [ (f, typeToSortA aliases rt) | (f, (_, _, Just rt)) <- Map.toList cenv
+                      , TPair a b <- [resolveAliasTy aliases rt]
+                      , sortableComponent aliases a
+                      , sortableComponent aliases b ]
       sumValParams = [ (n, s) | (n, t) <- params
                      , Just s <- [sumValueSort aliases t]
                      , any (maybe False (exprMentionsVar n))
@@ -3246,6 +3253,11 @@ typeToSortA am t = case t of
     | admissibleDatatype am t
     , hasRealPayload ctors
     , (n:_) <- [ nm | (nm, TSumType c) <- Map.toList am, c == ctors ] -> FQData n
+  -- PAIR-ALIAS-PARAM-1: an alias (refined or not) whose expansion is a pair
+  -- takes the pair's applied sort. It fell to typeToSort's FQInt default, so a
+  -- `-> Pt` result binder was int while its body built a Pair2 term (a solver
+  -- crash), and a `Pt` param missed 'pairParamSorts'.
+  _ | TPair a b <- resolveAliasTy am t -> FQDataApp "Pair2" [typeToSortA am a, typeToSortA am b]
   _ -> typeToSort t
   where
     -- A pure nullary enum (all unit/empty payloads) is int-tag-desugared

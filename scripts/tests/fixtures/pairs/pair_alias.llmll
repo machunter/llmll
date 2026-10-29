@@ -1,0 +1,19 @@
+;; PAIR-ALIAS-PARAM-1: a pair alias, refined (Pt) or not (IB), as a parameter
+;; and as a return. Every body is body-faithful; `verify` proves all four.
+
+(type Pt (where [p: (int, int)] (>= (first p) 0)))
+(type IB (int, bool))
+
+(def-shell ret-pt [x: Pt] -> Pt x)
+
+(def-shell min-pt [x: Pt y: Pt] -> Pt
+  (post (<= (first result) (first x)))
+  (if (< (first x) (first y)) x y))
+
+(def-shell mk-pt [n: int] -> Pt
+  (pre (>= n 0))
+  (pair n 0))
+
+(def-shell ib-flip [x: IB] -> IB
+  (post (= (first result) (first x)))
+  (pair (first x) (second x)))
