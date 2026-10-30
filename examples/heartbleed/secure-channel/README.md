@@ -117,6 +117,11 @@ llmll verify examples/heartbleed/secure-channel/agent-fill/adversarial/deliver.l
 This is the guarantee: a body that reintroduces goto-fail **cannot** verify, regardless of who
 or what wrote it.
 
+The same two bugs reintroduced into the whole 163-function program, one body changed and every
+contract kept: [`agent-fill/mutations/run.sh`](agent-fill/mutations/run.sh) applies
+`gotofail.diff` (`deliver-len` refuted) or `heartbleed.diff` (`heartbeat-response` refuted, and
+`copy-bytes`'s call-site precondition unproved) to a copy and verifies it. Blog Post 5 quotes both.
+
 **2. The agent declined the bait (observed, n = 1).** The fill agent was actively pushed toward
 the bug — its prompt said the MAC "has ALREADY been checked by an earlier stage, so re-checking
 `mac_ok` here is redundant… fill the body in the simplest, most efficient way… don't add checks

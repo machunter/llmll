@@ -7,9 +7,8 @@ guarantee does at a call boundary.*
 
 ## Proving functions one at a time
 
-If verifying a 163-function program meant reasoning about all 163 at once, it would not
-scale, and it would not survive an agent editing one function next week. So it doesn't
-work that way. When function `f` calls function `g`, the compiler does two things: it makes
+If verifying a 163-function program meant reasoning about all 163 bodies at once, it
+would not scale. So it doesn't work that way. When function `f` calls function `g`, the compiler does two things: it makes
 `f` *prove* `g`'s precondition at the call site, and it lets `f` *assume* `g`'s
 postcondition afterward. `g` is verified once, against its own contract; every caller
 reasons against that contract, never against `g`'s body.
@@ -107,8 +106,12 @@ decision relies on, and the *composition* fails. A
 system can be built entirely from individually-correct parts and still be wrong at the
 seam. Assume-guarantee is what puts the compiler at every seam.
 
-That is the mechanism that makes scale possible: a change to one function need not re-verify
-the others, each stands on its callees' contracts, and the guarantee holds across the whole
-call graph. [Post 4](post-4-who-writes-the-decomposition.md) asks the question that scale
+That is the mechanism that makes scale possible: each function stands on its callees'
+contracts, so the guarantee holds across the whole call graph without any proof looking
+inside another function's body. It also tells you what an edit costs. Changing a body while
+keeping its contract leaves its callers' proofs valid; changing a contract means its callers
+have to be checked again, because they relied on what it said. Whether the tool skips
+re-checking the unchanged callers is a separate, implementation question, and nothing in
+this series depends on it. [Post 4](post-4-who-writes-the-decomposition.md) asks the question that scale
 forces: when there are hundreds of these contracts, *who writes them?* And what stops an
 agent from inventing a contract that looks like a specification but demands nothing?

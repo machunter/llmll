@@ -1,0 +1,9 @@
+;; Blog Post 2: the stronger contract. Verified exactly when sig is Continue, so the
+;; guarded body still verifies and the always-reject body does not.
+;;   llmll verify finalize-iff.llmll   -> SAFE
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def-shell finalize [sig: Step payload: int] -> Verdict
+  (post (<=> (= result Verified) (= sig Continue)))   ;; Verified <=> sig was Continue
+  (match sig ((Continue) Verified) ((Abort c) (Rejected c))))

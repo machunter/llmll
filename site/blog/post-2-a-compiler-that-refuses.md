@@ -48,23 +48,12 @@ hashes; nothing in it is a hint):
 }
 ```
 
-(That `"status": "hole"` matters more than it looks: an early brief presented the
-function being filled as an available *filled* function, and a blind agent's answer
-was a degenerate call to itself. That type-checks and even verifies, body-faithful and
-all: the proof assumes the function terminates, and a body that never terminates meets any
-postcondition vacuously. The brief now marks the function as the hole, so an agent is not
-invited to call it. A self-call that does appear is flagged twice: the `verify` headline drops the `✅` and
-prints `⚠️ … proved only if it terminates` with the function's name, and the trust report
-marks every function in a recursive cycle `termination_unverified`; the acceptance bar the
-emergent build in Post 5 uses is SAFE, body-faithful, and not `termination_unverified`.
-Declaring a `(decreases …)` measure turns the degenerate self-call into a hard failure,
-because the solver cannot show the measure goes down.)
-
 The contract, the return type, the names in scope, and a lock token. **No worked example,
 no hint, no nudge toward the answer.** The agent gets the same thing a careful engineer
 would get from a ticket: here is the invariant, here are your materials, write the body.
-This matters for what comes next: if the demo fed the agent the answer, the compiler's
-verdict would prove nothing.
+The verdict does not depend on that: a body that passes meets its contract wherever the
+body came from. What the bare brief protects is the evidence about agents. If the brief
+carried the answer, a passing body would show only that the agent could copy it.
 
 ## The agent writes a body; the compiler judges it
 
@@ -119,8 +108,52 @@ error: body verification of 'finalize' failed
 **Refused**, and the solver points at the branch: the `else` branch, the one that returns
 `Verified` when `sig` is `Abort`, which is the input the real bug shipped on. That branch
 cannot establish the postcondition, and the compiler says so. This is not a lint warning you can turn off or a test case someone forgot to
-add. The postcondition makes the body that skips the check the one body that does *not*
-pass.
+add. Any body that can return `Verified` when `sig` is `Abort` fails the same way.
+
+## What the contract does not say
+
+The contract forbids one thing: accepting a failed check. It does not require accepting a
+good one. A body that rejects everything satisfies it:
+
+```lisp
+(def-shell finalize [sig: Step payload: int] -> Verdict
+  (post (=> (= result Verified) (= sig Continue)))
+  (Rejected 0))   ;; never returns Verified, so the implication always holds
+```
+
+```
+$ llmll verify examples/gotofail/finalize-always-reject.llmll
+   body-faithful: finalize
+   Running liquid-fixpoint ...
+✅ examples/gotofail/finalize-always-reject.llmll — SAFE (liquid-fixpoint)
+```
+
+That is not a verifier bug. The contract is a safety property, and it holds. A server that
+rejects every handshake is safe and useless. To rule it out, the contract has to say more:
+with `<=>` in place of `=>`, so that the result is `Verified` *exactly* when `sig` is
+`Continue`, the always-reject body fails and the guarded body still verifies. All three files
+are in [`examples/gotofail/`](https://github.com/machunter/llmll/tree/main/examples/gotofail).
+
+So a rejection can mean two different things. A body that breaks its contract is what the
+verifier catches. A body that meets its contract and is still not what you wanted points
+at the contract, and no solver can catch that, because the contract is the only statement
+of intent it has. Which contract to write is a decision, and when agents write the
+contracts too, it is the decision that matters most. That is the question of
+[Post 4](post-4-who-writes-the-decomposition.md).
+
+## A body that calls itself
+
+The brief lists `finalize` among the available functions with `"status": "hole"`. That
+matters more than it looks. An early brief listed the function being filled as an ordinary
+filled function, and a blind agent answered with a call to itself. That type-checks and even
+verifies: the proof of a recursive function assumes it terminates, and a body that never
+terminates meets any postcondition vacuously.
+
+The brief now marks the function as the hole, so an agent is not invited to call it. A
+self-call that does appear is flagged: the `verify` headline drops the `✅` and prints
+`⚠️ … proved only if it terminates` with the function's name, and the trust report marks it
+`termination_unverified`. Declaring a `(decreases …)` measure turns the self-call into a hard
+failure, because the solver cannot show the measure goes down.
 
 ## What just happened
 
@@ -131,8 +164,9 @@ That is the whole loop, in miniature:
 3. `verify` proves the body meets the spec, or refuses it and points at the flaw.
 
 The agent proposes; the compiler disposes. Neither half is new on its own. The
-combination is a way to let something fast and fallible write code, and still get a
-result you can stand behind, because the fast, fallible thing does not get the last word.
+combination lets something fast and fallible write the body while the contract stays
+enforced, because the fast, fallible thing does not get the last word. How much that is
+worth depends on the contract, which a person still has to read.
 
 The obvious objection is that `finalize` is one small function, and real protocols are
 thousands of them calling each other. That is exactly right, and it is

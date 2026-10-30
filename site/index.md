@@ -69,23 +69,14 @@ It prints the error above. Swap `finalize-bad` for `finalize` to see the guarded
 
 ## What this does not claim
 
-- **The TLS model is arithmetic.** What it covers is the control flow and bounds of the record
-  layer: every value is an integer, and no hash, MAC or cipher is computed. This is not a
-  verified TLS implementation.
-- **The solver reasons about lengths, sequence numbers and states**, not about arbitrary heap
-  structure.
-- **People own the specifications.** No person wrote the flagship's LLMLL: an authoring agent
-  wrote its contracts at our direction, and fill agents wrote the bodies. Whether a contract
-  says the right thing is checked by a human reviewer, not by the compiler.
-- **A verified contract is met. That does not make it the right contract.** The one automated
-  check on contract quality, the vacuity gate in [Post 4](blog/post-4-who-writes-the-decomposition.md),
-  runs only on sub-contracts that agents invent during decomposition. It rejects a contract
-  that a trivial body (identity, a constant, a projection) already satisfies. It does not
-  establish that a contract is adequate.
+- **The TLS model is arithmetic**: the record layer's control flow and bounds, with no hash,
+  MAC or cipher computed. It is not a verified TLS implementation.
+- **A verified body meets its contract. That does not make it the right contract.** Whether a
+  contract says what was meant is a person's job.
 - **The verdict trusts its tools**: LLMLL's translation to solver constraints, liquid-fixpoint,
   Z3, the Haskell code generator and GHC.
 
-[Post 5](blog/post-5-the-payoff.md) states the full scope.
+[Post 5](blog/post-5-the-payoff.md#where-the-line-is) states the full scope.
 
 ## The series
 
@@ -103,9 +94,9 @@ The five posts read in order, but each one stands on its own.
    What the guarantee does at a call boundary, and why Heartbleed is a precondition nobody
    discharged.
 
-4. **[Who writes the decomposition?](blog/post-4-who-writes-the-decomposition.md)**
-   Splitting a contract into sub-contracts one step at a time, and the gate that stops a
-   sub-contract which demands nothing.
+4. **[Can agents invent the helper functions too?](blog/post-4-who-writes-the-decomposition.md)**
+   Agents splitting a contract into helper functions with contracts of their own, and why a
+   helper contract cannot quietly weaken the one above it.
 
 5. **[163 agent-written functions, verified against their contracts](blog/post-5-the-payoff.md)**
    An arithmetic model of the TLS record layer's control flow and bounds: who wrote what, and
@@ -113,9 +104,16 @@ The five posts read in order, but each one stands on its own.
 
 ## Try to break it
 
-Weaken a contract, or write a body that should fail, and report what the verifier accepts.
-A wrong body that verifies is the most useful bug report this project can get:
-[open an issue](https://github.com/machunter/llmll/issues).
+Two kinds of report are useful, and they show different things:
+
+- **A body that breaks its contract and still verifies.** That is a verifier bug, and the
+  most serious kind of report this project can get.
+- **A body that meets its contract and is still wrong.** That shows a contract that says
+  too little. The `finalize` contract above is one: a body that always returns
+  `(Rejected 0)` satisfies it, as [Post 2](blog/post-2-a-compiler-that-refuses.md#what-the-contract-does-not-say)
+  shows.
+
+Either way, [open an issue](https://github.com/machunter/llmll/issues).
 
 ## The code
 

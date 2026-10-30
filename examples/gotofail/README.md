@@ -17,6 +17,9 @@ the modeled discipline is the error-propagation control flow the bug broke.
 |---|---|
 | `finalize.llmll` | `SAFE` — the single-function `def-shell` version quoted in blog Post 2 |
 | `finalize-bad.llmll` | **refuted** — the goto-fail fill (`Verified` on the `Abort` arm) |
+| `finalize-always-reject.llmll` | `SAFE` — a body that rejects every input meets the `=>` contract: the contract is a safety property, not a full specification (blog Post 2) |
+| `finalize-iff.llmll` | `SAFE` — the stronger `<=>` contract (`Verified` exactly when `sig = Continue`) with the guarded body |
+| `finalize-iff-always-reject.llmll` | **refuted** — the always-reject body against the `<=>` contract |
 | `finalize-hole.llmll` / `.ast.json` | the same contract with `?body`: the hole `demo.sh` fills twice through `checkout` and `patch` (the wrong fill in `finalize-patch-wrong.json` is rejected, the guarded one in `finalize-patch-correct.json` is accepted). Recorded as `docs/assets/gotofail.gif` by `make demo-gifs`. |
 | `pipeline.llmll` | `SAFE` — `finalize` returns `Verified` only when `sig = Continue` |
 | `pipeline-bad.llmll` | **refuted** — returns `Verified` on the `Abort` arm too (the bug) |
@@ -28,6 +31,9 @@ the modeled discipline is the error-propagation control flow the bug broke.
 ```
 llmll verify examples/gotofail/finalize.llmll        # SAFE
 llmll verify examples/gotofail/finalize-bad.llmll    # body verification failed (refuted)
+llmll verify examples/gotofail/finalize-always-reject.llmll      # SAFE
+llmll verify examples/gotofail/finalize-iff.llmll                # SAFE
+llmll verify examples/gotofail/finalize-iff-always-reject.llmll  # body verification failed (refuted)
 llmll verify examples/gotofail/pipeline.llmll        # SAFE
 llmll verify examples/gotofail/pipeline-bad.llmll    # body verification failed (refuted)
 llmll verify examples/gotofail/nested.llmll          # SAFE
