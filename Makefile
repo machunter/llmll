@@ -57,7 +57,7 @@ benchmark-totp:
 	@./scripts/benchmark-totp.sh
 
 # ─────────────────────────────────────────────────────────────────────
-# Refute-crux verdict gate: 96 frozen verify verdicts across fifteen suites,
+# Refute-crux verdict gate: 99 frozen verify verdicts across fifteen suites,
 # fourteen under examples/ and one under tools/llmll-driver/. Freezes verdict +
 # exit code ONLY (not report/classification shapes).
 #
