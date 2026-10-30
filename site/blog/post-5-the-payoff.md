@@ -168,6 +168,9 @@ against `llmll 0.14.67` and re-checked on v0.28.0 with the same verdicts; the 16
 program was re-checked again on v0.33.0, still `SAFE`. On v0.33.0 the 163-function verify took 54 seconds with a peak of 8.0 GB resident memory on a
 laptop; on v0.28.0 it took about a minute and 5.1 GB on a lightly loaded laptop, and about
 three minutes on one busy with other work. The two mutation verdicts above were produced on
-v0.33.0. goto-fail lives in `examples/gotofail/`, Heartbleed and
-the 163-function program in `examples/heartbleed/`, cascading refinement in
-`examples/refine-demo/`, and the emergent build in `examples/secure-channel-emergent/`.*
+v0.33.0. goto-fail lives in
+[`examples/gotofail/`](https://github.com/machunter/llmll/tree/main/examples/gotofail), Heartbleed and
+the 163-function program in [`examples/heartbleed/`](https://github.com/machunter/llmll/tree/main/examples/heartbleed),
+cascading refinement in [`examples/refine-demo/`](https://github.com/machunter/llmll/tree/main/examples/refine-demo),
+and the emergent build in
+[`examples/secure-channel-emergent/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent).*

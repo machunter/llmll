@@ -14,7 +14,9 @@ first post is the problem and the goal; the code starts in Post 2.*
 
 ## Post 1: The bugs that looked like correct code
 
-In February 2014, Apple shipped an emergency patch for CVE-2014-1266. For months, across
+In February 2014, Apple shipped an emergency patch for
+[CVE-2014-1266](https://nvd.nist.gov/vuln/detail/CVE-2014-1266)
+([Adam Langley's analysis](https://www.imperialviolet.org/2014/02/22/applebug.html)). For months, across
 hundreds of millions of devices, a TLS handshake could be reported as *successful* for a
 server that presented no valid signature: an attacker on the network could impersonate
 any HTTPS site. The cause was one duplicated line:
@@ -39,7 +41,7 @@ the one call that checks the signature, and returns the `0` left over from the l
 hash update. Zero means success. The routine certifies a signature it never checked.
 
 Six weeks later, in April 2014, the other half of TLS had its own catastrophe. Heartbleed
-(CVE-2014-0160) lived in the "heartbeat" responder, the code that answers a keep-alive
+([CVE-2014-0160](https://nvd.nist.gov/vuln/detail/CVE-2014-0160), [heartbleed.com](https://heartbleed.com/)) lived in the "heartbeat" responder, the code that answers a keep-alive
 ping by echoing back the payload the peer sent:
 
 ```c
@@ -56,25 +58,23 @@ keys, session cookies, other users' in-flight requests.
 
 Two bugs, weeks apart, both in the plumbing of the web's encryption. Look at what they have
 in common. Neither is exotic. goto-fail is a skipped statement; Heartbleed is a length
-one forgot to compare. Both passed code reviews: humans read them top to bottom and saw
-nothing. Both passed their test suites. Both compiled without error. Every individual line
-is locally plausible. The defect is not in a line; it is in a *path a check does not take*,
-or a *bound nobody wrote down*, and those are the mistakes that a reader, a test, and a
-type-checker all slide straight past.
+one forgot to compare. Both got through whatever review and testing their projects did, and
+both compiled without error. Every individual line is locally plausible. The defect is not in
+a line; it is in a *path a check does not take*, or a *bound nobody wrote down*. A reader can
+miss that, a test catches it only if it happens to exercise that path with that input, and a
+conventional type-checker does not look at it at all: both bugs are well-typed.
 
-## The problem is about to get bigger
+## Why this matters for agent-written code
 
-These are the highest-stakes programs we have, written by expert teams, and the ordinary
-failure mode of code got through anyway. Now put AI agents at the keyboard, writing code
-at a scale and speed no team can match. An agent will write a plausible-looking skipped
-check exactly the way a human does, faster, and probably more of it. "Looks correct but isn't" is
-the failure mode of machine-written code too, and there is going to be a great deal more
-of it.
+These were high-stakes programs written by expert teams, and an ordinary mistake got
+through anyway. AI agents now write code too, and nothing about them makes a plausible
+skipped check less likely. "Looks correct but isn't" is a failure mode of their code as
+well.
 
-Reviews, tests, and type-checkers share one property: they can all be satisfied by code
-that is wrong. That is why goto-fail shipped. If agents are going to write the plumbing,
-the thing checking their work has to be able to *refuse* wrong code, not merely fail to
-notice it.
+Review and testing sample the program: they find a bug when someone reads that line
+closely or a test hits that path. Neither is built to show that a property holds on every
+path. If agents are going to write the plumbing, it helps to have a check that can *refuse*
+code that breaks a stated property, rather than one that might not notice.
 
 ## The goal of this series
 
@@ -89,26 +89,29 @@ Two words in that question need defining.
 
 **"Proves"** does not mean "we tested it a lot." The tool we use is a refinement-type
 compiler backed by an SMT solver: each function carries a contract (a precondition it may
-assume and a postcondition it must establish), and the compiler proves, over *all* inputs,
-that the body actually establishes the postcondition. Code that does not is rejected, not
-warned about. This is the same technology behind Dafny, F\*, and Liquid Haskell, and
+assume and a postcondition it must establish), and the compiler proves that the body
+establishes the postcondition for *every* input that satisfies the precondition. For a
+recursive function, the proof also assumes the recursion terminates, unless a declared
+termination measure proves that it does. Code that cannot be proved is rejected, not warned about. This is the same technology behind Dafny, F\*, and Liquid Haskell, and
 pointing those tools at LLM-written code is already an active research area. What this
 series adds is a specific combination: an agent receives only a contract, never the
-answer; the compiler rejects wrong bodies and contracts too weak to mean anything; and
-every function carries a visible record of how strongly it was checked.
+answer; the compiler rejects bodies that break their contracts; when agents propose
+contracts for new helper functions, a gate rejects the ones a trivial body already
+satisfies; and every function carries a visible record of how strongly it was checked.
+Whether a contract says the right thing is still a person's job, and later posts are
+specific about where that line falls.
 
-**"Agents do the authoring"** is what makes the verifier matter more. Agents are fast, and
-an agent can write the plausible-but-wrong body (the skipped check, the missing bound) as
-easily as a human can. The verifier is the backstop that turns that speed into something
-you can trust. The agent proposes; the compiler disposes. Neither is sufficient alone.
+**"Agents do the authoring"** is what makes the verifier matter more. An agent can write
+the plausible-but-wrong body (the skipped check, the missing bound) as easily as a human
+can. The verifier is the backstop: it does not accept a body until the body meets its
+contract. The agent proposes; the compiler disposes. Neither is sufficient alone.
 
 ## The one idea to carry into Post 2
 
 The invariant goto-fail violated is not mysterious. It is a sentence: *report success only
 if the signature check actually ran and passed.* You can write that down. It is a
-**specification**, and the moment it exists as something a compiler enforces, the bug
-stops being a bug you might catch: a body that violates the stated invariant does not
-verify.
+**specification**, and once it exists as something a compiler enforces, a body that
+violates it does not verify.
 
 That is where Post 2 starts: what it looks like to state that invariant, hand the
 implementation to an agent, and watch the compiler reject the version that skips the

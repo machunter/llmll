@@ -91,6 +91,14 @@ $ llmll verify finalize-hole.ast.json
 `body_faithful` means the solver proved the postcondition from the body itself. It did not
 assume the contract.
 
+## What the contract leaves open
+
+This contract is a safety property. It forbids returning `Verified` when the check failed,
+and it does not require returning `Verified` when the check passed, so a body that always
+returns `(Rejected 0)` also verifies. Ruling that out takes a stronger contract, with `<=>`
+in place of `=>`. [Post 2](blog/post-2-a-compiler-that-refuses.md#what-the-contract-does-not-say)
+runs both versions.
+
 ## Which pass rejects it
 
 The rejection comes from the verifier, not from the type checker. `llmll build` checks types and
@@ -115,11 +123,14 @@ how much of a contract's adequacy a tool can check at all
 
 **Scope.**
 
-- The solver covers linear integer arithmetic, booleans, non-recursive sums, pairs, fixed-size
-  bytes, maps and string literals. Outside that fragment a postcondition is assumed, `verify`
-  names the function, and `--require-proof` refuses the fill.
-- A proof shows that the body meets the contract. It does not show that the contract is right.
-  Whether the contract says the right thing is a human reviewer's job.
+- As of `llmll` 0.33, the solver covers linear integer arithmetic, booleans, non-recursive
+  sums, pairs, fixed-size bytes, maps and string literals, each with restrictions listed in
+  [the language reference](https://github.com/machunter/llmll/blob/main/LLMLL.md#533-verification-scope).
+  Outside that fragment a postcondition is assumed, `verify` names the function, and
+  `--require-proof` refuses the fill.
+- A proof shows that the body meets the contract, for every input that satisfies the
+  precondition. It does not show that the contract is right. Whether the contract says the
+  right thing is a human reviewer's job.
 - The example is one function. The series scales it up to an arithmetic model of the TLS record
   layer's control flow and bounds: 163 agent-written functions, verified as one program
   ([Post 5](blog/post-5-the-payoff.md)). That model computes no hash, MAC or cipher, and it is
@@ -144,9 +155,14 @@ To run the whole checkout-and-patch loop from the recording, build `llmll` from
 
 ## Try to break it
 
-Weaken the contract, or write a body that should fail, and report what the verifier accepts. A
-wrong body that verifies is the most useful bug report this project can get:
-[open an issue](https://github.com/machunter/llmll/issues).
+Two kinds of report are useful, and they show different things:
+
+- **A body that breaks its contract and still verifies.** That is a verifier bug, and the
+  most serious kind of report this project can get.
+- **A body that meets its contract and is still wrong**, like the always-reject body above.
+  That shows a contract that says too little.
+
+Either way, [open an issue](https://github.com/machunter/llmll/issues).
 
 ## Read on
 

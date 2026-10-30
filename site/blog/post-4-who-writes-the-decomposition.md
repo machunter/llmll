@@ -44,12 +44,14 @@ The walkthrough that builds it is scripted: each step is a committed request fil
 so you can replay it exactly. It demonstrates the protocol each agent works under, not what
 agents choose on their own. That is the blind run, [further down](#what-blind-agents-actually-chose).
 
-The first step's agent receives the root contract above, the whole conjunction, because that
-is the hole it fills. It fills `admit-byte` with `(and (authenticated …) (ordered …))` and
-spawns those two as fresh holes, each carrying the sub-contract it proposes. From there on,
-each agent receives only its own hole's local obligation: the agent that takes
-`authenticated` sees `authenticated`'s contract, not the root's and not its sibling's. It
-splits that into `mac-matches` and `handshake-up`, and a third agent splits `ordered` into
+Each step is the request one agent would send, written in advance. Step 1 is in the
+position of the agent that checks out the root hole, so its brief is the root contract
+above, the whole conjunction. Its request fills `admit-byte` with
+`(and (authenticated …) (ordered …))` and spawns those two as fresh holes, each carrying a
+proposed sub-contract. Every later step is in the position of an agent that checks out one
+of those holes, and its brief is that hole's contract only: the brief for `authenticated`
+shows `authenticated`'s contract, not the root's and not its sibling's. Step 2 splits
+`authenticated` into `mac-matches` and `handshake-up`, and step 3 splits `ordered` into
 `seq-fresh` and `length-sound`. The leaves are simple enough to implement directly: each
 *is* one comparison, a `bool` returned straight.
 
@@ -134,9 +136,12 @@ The walkthrough is scripted. The experiment is
 [`examples/secure-channel-emergent/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent),
 and it was not. An authoring agent wrote seven modules of root contracts, at our direction,
 and nothing else was written in advance: no reference solution, no decomposition. Each hole
-then went to a fresh agent with every tool disabled, whose entire input was a fixed operation
-manual and that hole's checkout brief. On a rejection, the retry prompt added only the
-compiler's error text. Every prompt, reply and verdict is committed.
+then went to a fresh agent with every tool disabled, whose entire input was a fixed
+[operation manual](https://github.com/machunter/llmll/blob/main/examples/secure-channel-emergent/audit/OPERATION-MANUAL.md)
+and that hole's checkout brief. On a rejection, the retry prompt added only the compiler's
+error text. Every prompt, reply and verdict is committed under
+[`audit/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent/audit),
+one folder per module.
 
 The agents built 25 functions in 25 steps. Once a compiler bug the run exposed was fixed, every
 step was accepted on its first attempt, and all seven modules verify. What the agents chose:

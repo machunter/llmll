@@ -1,0 +1,9 @@
+;; Blog Post 2, "What the contract does not say": the finalize contract is a safety
+;; property, so a body that rejects every input satisfies it.
+;;   llmll verify finalize-always-reject.llmll   -> SAFE
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def-shell finalize [sig: Step payload: int] -> Verdict
+  (post (=> (= result Verified) (= sig Continue)))
+  (Rejected 0))

@@ -1,0 +1,8 @@
+;; Blog Post 2: the always-reject body against the stronger <=> contract.
+;;   llmll verify finalize-iff-always-reject.llmll   -> body verification failed
+(type Step    (| Continue) (| Abort int))
+(type Verdict (| Verified) (| Rejected int))
+
+(def-shell finalize [sig: Step payload: int] -> Verdict
+  (post (<=> (= result Verified) (= sig Continue)))
+  (Rejected 0))
