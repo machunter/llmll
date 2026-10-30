@@ -92,7 +92,11 @@ compiler backed by an SMT solver: each function carries a contract (a preconditi
 assume and a postcondition it must establish), and the compiler proves that the body
 establishes the postcondition for *every* input that satisfies the precondition. For a
 recursive function, the proof also assumes the recursion terminates, unless a declared
-termination measure proves that it does. Code that cannot be proved is rejected, not warned about. This is the same technology behind Dafny, F\*, and Liquid Haskell, and
+termination measure proves that it does. In the strict loop this series uses, code that
+cannot be proved is rejected, not warned about. (Outside the fragment the solver handles, a
+postcondition can be assumed instead of proved; `verify` names the function, and
+`--require-proof` turns that into a rejection.) This is the same technology behind Dafny,
+F\*, and Liquid Haskell, and
 pointing those tools at LLM-written code is already an active research area. What this
 series adds is a specific combination: an agent receives only a contract, never the
 answer; the compiler rejects bodies that break their contracts; when agents propose

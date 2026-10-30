@@ -134,8 +134,8 @@ precisely.
   Buffers and messages are reasoned about through their lengths and orderings; in this
   program every value is an integer. The approach does not prove properties of rich heap
   data structures.
-- **No proof here depends on termination.** `verify` prints `✅` only when no function's
-  proof assumes that a recursion terminates, and this program gets it. How LLMLL handles
+- **No proof here relies on an unproved termination assumption.** `verify` prints `✅` only
+  when no function's proof assumes that a recursion terminates, and this program gets it. How LLMLL handles
   recursion in general, proved total with a `(decreases …)` measure and flagged partial
   without one, is in [the language reference](https://github.com/machunter/llmll/blob/main/LLMLL.md).
 - **The compiler proves a contract is met, not that it is the *right* contract.** This is

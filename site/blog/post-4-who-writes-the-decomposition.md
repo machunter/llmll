@@ -143,8 +143,12 @@ error text. Every prompt, reply and verdict is committed under
 [`audit/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent/audit),
 one folder per module.
 
-The agents built 25 functions in 25 steps. Once a compiler bug the run exposed was fixed, every
-step was accepted on its first attempt, and all seven modules verify. What the agents chose:
+The agents built 25 functions in 25 steps, and all seven modules verify. An earlier trial run
+exposed a compiler bug: the brief listed the function being filled as already available, and
+the first agent answered with a call to itself ([Post 2](post-2-a-compiler-that-refuses.md#a-body-that-calls-itself)).
+The bug was fixed before this run, and every answer below was generated fresh from the
+corrected briefs; none was replayed. Every step was accepted on its first attempt. What the
+agents chose:
 
 - **They mostly did not decompose.** Of 25 steps, 4 were refines and 21 were direct fills.
   Given a contract they could implement outright, agents implemented it, sometimes by
@@ -153,7 +157,7 @@ step was accepted on its first attempt, and all seven modules verify. What the a
   genuinely wide.
 - **One invented the Heartbleed bound.** Asked to fill a wide record-admission contract, an
   agent spawned `len-ok`, which returns `true` exactly when `claimed ≥ 0 ∧ claimed ≤ received`:
-  the bound from Post 3, proposed as a sub-contract by an agent that never saw the CVE.
+  the bound from Post 3, proposed as a sub-contract. The prompt did not mention Heartbleed.
 - **They reused each other's helpers.** The agent filling `deliver-count` called
   `claim-in-window`, a helper a different agent had invented for a sibling function.
 - **The gates never fired.** Every invented sub-contract was an exact `<=>` or a conditional
