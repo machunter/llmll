@@ -25,10 +25,10 @@ control must produce graded rows, and the count is asserted rather than assumed.
 That is a weaker instrument than a second implementation and it is not offered as
 an equal replacement.
 
-WHAT DOES NOT CHANGE. The 96-verdict freeze is not here and never was. It is the
+WHAT DOES NOT CHANGE. The 99-verdict freeze is not here and never was. It is the
 live corpus run, in `.github/workflows/version-gate.yml`, job `spec-roundtrip`,
 step "Run refute-crux verdict gate (LLMLL port, TOOL-RFC-002)", which grades all
-96 frozen verdicts against `EXPECTED_VERDICTS.json` with the compiler that job
+99 frozen verdicts against `EXPECTED_VERDICTS.json` with the compiler that job
 just built. The retirement removed the reference's step beside it and left that
 one untouched.
 

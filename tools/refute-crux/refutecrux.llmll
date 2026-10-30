@@ -13,7 +13,7 @@
 ;; Nothing compares two answers here any more, so a message reworded in this file
 ;; is now correct by definition rather than by agreement.
 ;;
-;; WHAT THIS GATE DOES. It runs `llmll verify` on 96 frozen cases across fifteen
+;; WHAT THIS GATE DOES. It runs `llmll verify` on 99 frozen cases across fifteen
 ;; suites and compares verdict, exit code and localization against each suite's
 ;; EXPECTED_VERDICTS.json. It exists because refutation of the tcp_rfc793 and
 ;; session-pay wrong twins was silently lost for twenty versions (v0.14.12 to

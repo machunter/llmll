@@ -6,6 +6,9 @@
   "cases": [
     { "file": "finalize.llmll",       "flags": [],                         "expect_exit": 0, "expect": "safe" },
     { "file": "finalize-bad.llmll",   "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "finalize" },
+    { "file": "finalize-always-reject.llmll",     "flags": [], "expect_exit": 0, "expect": "safe" },
+    { "file": "finalize-iff.llmll",               "flags": [], "expect_exit": 0, "expect": "safe" },
+    { "file": "finalize-iff-always-reject.llmll", "flags": [], "expect_exit": 1, "expect": "refuted", "localized": "finalize" },
     { "file": "pipeline.llmll",       "flags": [],                         "expect_exit": 0, "expect": "safe" },
     { "file": "pipeline-bad.llmll",   "flags": [],                         "expect_exit": 1, "expect": "refuted", "localized": "finalize" },
     { "file": "sequential.llmll",     "flags": [],                         "expect_exit": 0, "expect": "safe" },
