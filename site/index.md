@@ -6,8 +6,11 @@ layout: default
 
 LLMLL is a programming language built for AI agents to write. Every function has a contract: a
 precondition and a postcondition the code must satisfy. An agent fills in the body, and
-`llmll verify` hands the body and its contract to an SMT solver. If the solver cannot prove the
-body meets the contract, the body is rejected, and the error names the branch that fails.
+`llmll verify` hands the body and its contract to an SMT solver. If the body breaks the
+contract, verification fails, and the error names the branch that fails. If the body uses a
+construct the solver does not handle, the postcondition is assumed rather than proved and
+`verify` names the function. The agent loop in these examples runs with `--require-proof`,
+which rejects those bodies too.
 
 Three ways in:
 

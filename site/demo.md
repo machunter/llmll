@@ -1,4 +1,4 @@
-# LLMLL: AI agents fill function bodies; a verifier checks their contracts
+# LLMLL: a goto-fail body, rejected before the edit lands
 
 *Burc Sahinoglu · 29 October 2026. A self-contained demonstration. The [five-post
 series](index.md) tells the longer story, up to 163 functions.*
@@ -109,17 +109,24 @@ solver fell back to assuming the postcondition.
 
 ## What this shows, and what it does not
 
-**For people building agent tools.** The agent gets a structured contract instead of a prose
-ticket. A rejection comes back as JSON with a kind, a message and a pointer into the patch, so a
-repair loop can act on it without parsing compiler text. A rejected patch changes nothing, and
-the checkout lock stays with the agent so it can try again.
+**Why a language for this, and not a verifier behind an agent tool.** The verifier is not the
+new part: Dafny, Liquid Haskell or F\* would reject the same body, and LLMLL's proofs run on
+liquid-fixpoint and Z3. What LLMLL adds is the loop around the proof, built into the
+toolchain:
 
-**For programming-language researchers.** The verifier is not the new part: Dafny, Liquid
-Haskell or F\* would reject the same body. LLMLL's proofs run on liquid-fixpoint and Z3. What the
-project explores is the loop around the proof: holes as contracts, checkout and patch, how
-contracts compose across calls ([Post 3](blog/post-3-composition-and-the-missing-bound.md)), and
-how much of a contract's adequacy a tool can check at all
-([Post 4](blog/post-4-who-writes-the-decomposition.md)).
+- The unit of work is a hole with a contract. `checkout` hands an agent that hole's contract
+  and the names in scope as JSON, and locks it.
+- `patch` applies the agent's body and verifies it before writing, so a rejected edit leaves
+  the program byte-for-byte unchanged, and the lock stays with the agent so it can retry.
+- A rejection is JSON with a kind, a message and a pointer into the patch, so a repair loop
+  can act on it without parsing compiler text.
+- `refine` lets an agent split a hole into helper holes with contracts of their own, while
+  the parent stays held to its original contract
+  ([Post 4](blog/post-4-who-writes-the-decomposition.md)).
+
+None of this needs a stronger solver. It lets you hand one function at a time to an agent
+and take back only bodies that verify, with the rest of the program untouched. How contracts
+compose across calls is [Post 3](blog/post-3-composition-and-the-missing-bound.md).
 
 **Scope.**
 
