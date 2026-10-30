@@ -155,5 +155,5 @@ The [series](index.md) goes from this one function to 163:
 1. [The bugs that looked like correct code](blog/post-1-the-bugs-that-looked-correct.md)
 2. [A compiler that refuses](blog/post-2-a-compiler-that-refuses.md)
 3. [Composition, and the bound that wasn't there](blog/post-3-composition-and-the-missing-bound.md)
-4. [Who writes the decomposition?](blog/post-4-who-writes-the-decomposition.md)
+4. [Can agents invent the helper functions too?](blog/post-4-who-writes-the-decomposition.md)
 5. [163 agent-written functions, verified against their contracts](blog/post-5-the-payoff.md)

@@ -1,0 +1,11 @@
+--- a/sc-channel-agentfilled.llmll
++++ b/sc-channel-agentfilled.llmll
+@@ -864,7 +864,7 @@
+   (pre  (and (or (= mac_ok 0) (= mac_ok 1)) (>= payload_len 0)))
+   (post (and (>= result 0)
+              (and (<= result payload_len) (or (<= result 0) (= mac_ok 1)))))
+-  (if (= mac_ok 1) payload_len 0))
++  payload_len)   ;; MUTATION: deliver unconditionally (goto-fail)
+ 
+ ;; ── Nothing is delivered on a closed connection. result>0 ⇒ closed=0.
+ ;;    Monotone (result <= payload_len) so it composes over deliver-len.

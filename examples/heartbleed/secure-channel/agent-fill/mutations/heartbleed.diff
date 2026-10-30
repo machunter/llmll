@@ -1,0 +1,11 @@
+--- a/sc-channel-agentfilled.llmll
++++ b/sc-channel-agentfilled.llmll
+@@ -1094,7 +1094,7 @@
+ (def-shell heartbeat-response [claimed_len: int received_len: int] -> int
+   (pre  (and (>= claimed_len 0) (>= received_len 0)))
+   (post (and (>= result 0) (<= result received_len)))
+-  (if (<= claimed_len received_len) (copy-bytes received_len claimed_len) (copy-bytes received_len 0)))
++  (copy-bytes received_len claimed_len))   ;; MUTATION: echo claimed_len unchecked (Heartbleed)
+ 
+ ;; ── Heartbeat served into a send buffer — nested calls (ANF). [HEARTBLEED]
+ (def-shell serve-heartbeat [claimed_len: int received_len: int buf_len: int] -> int

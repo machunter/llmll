@@ -1,11 +1,11 @@
-# Post 4: Who writes the decomposition?
+# Post 4: Can agents invent the helper functions too?
 
 *[Posts 2](post-2-a-compiler-that-refuses.md) and [3](post-3-composition-and-the-missing-bound.md)
 showed a contract that refuses a wrong body, and contracts that compose across calls. A
-record layer has a
-hundred-plus contracts, and someone has to invent them: the sub-problems, and the
-specification of each. This post is about agents inventing that structure themselves,
-top-down, one level at a time, and what keeps an invented contract from being hollow.*
+record layer has a hundred-plus contracts, and someone has to write them. Decomposition
+means choosing the helper functions and their contracts: which sub-problems exist, and what
+each must guarantee. This post asks whether agents can do that part too, one level at a time,
+and what stops an agent from inventing helper contracts that make its own job easy.*
 
 ## Refining a hole into a narrower tree
 
@@ -27,26 +27,36 @@ was received). With a `bool` result and `<=>`, the contract reads as that one se
   ?body)
 ```
 
-The walkthrough below is scripted: each step is a committed request file in
+Here is the tree this post builds from that one hole:
+
+```
+admit-byte                     deliver iff authenticated ∧ ordered
+├── authenticated              iff MAC matches ∧ handshake connected
+│   ├── mac-matches            iff computed = expected
+│   └── handshake-up           iff hs_state = CONNECTED
+└── ordered                    iff sequence fresh ∧ length sound
+    ├── seq-fresh              iff seq > last
+    └── length-sound           iff claimed ≤ received   ← the Heartbleed bound
+```
+
+The walkthrough that builds it is scripted: each step is a committed request file in
 [`examples/refine-demo/`](https://github.com/machunter/llmll/tree/main/examples/refine-demo),
-so you can replay it exactly. It shows the protocol each agent works under. The version
-where agents did this blind, with no reference solution, is the emergent build linked in
-Post 5.
+so you can replay it exactly. It demonstrates the protocol each agent works under, not what
+agents choose on their own. That is the blind run, [further down](#what-blind-agents-actually-chose).
 
-No agent is handed that whole conjunction. The first agent, given only this hole's contract,
-splits it into *authenticated* and *ordered*, filling `admit-byte`'s body with
-`(and (authenticated …) (ordered …))` and spawning those two as fresh holes, each carrying
-the sub-contract it just invented. `admit-byte` then verifies, *assuming* those two contracts.
-A second agent takes `authenticated` and splits it into `mac-matches` and `handshake-up`; a
-third splits `ordered` into `seq-fresh` and `length-sound`, each agent seeing only its own
-hole's brief, never its siblings' work. The leaves are then simple enough to implement
-directly: each *is* one comparison, a `bool` returned straight.
+The first step's agent receives the root contract above, the whole conjunction, because that
+is the hole it fills. It fills `admit-byte` with `(and (authenticated …) (ordered …))` and
+spawns those two as fresh holes, each carrying the sub-contract it proposes. From there on,
+each agent receives only its own hole's local obligation: the agent that takes
+`authenticated` sees `authenticated`'s contract, not the root's and not its sibling's. It
+splits that into `mac-matches` and `handshake-up`, and a third agent splits `ordered` into
+`seq-fresh` and `length-sound`. The leaves are simple enough to implement directly: each
+*is* one comparison, a `bool` returned straight.
 
-Every step verifies against the current frontier's contracts. Starting from the single
-`admit-byte` hole, the open-hole count fans out as agents decompose, then contracts to zero
-as they fill the leaves. Every intermediate program is `SAFE` with the open holes' contracts
-assumed, so `verify` marks it `⚠️ … partial` and names them; the last step, with no hole
-left, is the first to earn the `✅`:
+Every step verifies against the current frontier's contracts. The open-hole count fans out
+as the tree is decomposed, then falls to zero as the leaves are filled. Every intermediate
+program is `SAFE` with the open holes' contracts assumed, so `verify` marks it `⚠️ … partial`
+and names them; the last step, with no hole left, is the first to earn the `✅`:
 
 | step | the move | open holes |
 |:---:|---|:---:|
@@ -58,79 +68,118 @@ left, is the first to earn the `✅`:
 | 6 | patch `seq-fresh` with `(> seq last)` | 1 |
 | 7 | patch `length-sound` with `(<= claimed received)` | 0 |
 
-The tree, built one step at a time:
+The finished program verifies as one whole: seven functions, zero holes. Its last leaf,
+`length-sound`, is the exact bound from Post 3.
 
-```
-admit-byte                     deliver iff authenticated ∧ ordered
-├── authenticated              iff MAC matches ∧ handshake connected
-│   ├── mac-matches            iff computed = expected
-│   └── handshake-up           iff hs_state = CONNECTED
-└── ordered                    iff sequence fresh ∧ length sound
-    ├── seq-fresh              iff seq > last
-    └── length-sound       iff claimed ≤ received   ← the Heartbleed bound
-```
+## Why a bad decomposition cannot weaken the root
 
-Each function verifies against the contracts of the children below it, and the finished
-program verifies as one whole: seven functions, zero holes. That last leaf, `length-sound`,
-is the exact bound from Post 3: Heartbleed reappears at the bottom of a decomposition an agent
-invented, and it is proved.
+If an agent both proposes a sub-contract and then relies on it, it might seem the unchecked
+assumptions have only moved down a level. They have not, because two separate proofs pin each
+proposed contract from both sides.
 
-## The failure this opens, and the two gates that close it
+**From above: the parent must still meet its original contract.** When step 1 lands,
+`admit-byte` is verified against the root contract it was given, assuming only what the
+proposed contracts of `authenticated` and `ordered` promise. Suppose the agent proposes an
+`authenticated` that promises too little: "if the checks pass, return `true`", without the
+converse. Then `admit-byte` can no longer prove its own `<=>` from it, and the step fails.
+A child contract weak enough to be easy is too weak for the parent to use.
 
-If an agent both invents a sub-contract and then relies on it, what stops it from inventing
-one that demands nothing? A hole that "verifies" against a contract satisfied by any trivial
-body has proved nothing. Two gates guard each spawn.
+**From below: each child must earn its contract.** A spawned function is a hole, and its
+contract is assumed only until a body is proved against it. Until every hole is filled, `verify`
+reports the program as partial and names the functions whose contracts are still assumed. The
+`✅` arrives only when every contract in the tree, the invented ones included, has been proved
+from a body. A child contract too strong to implement never gets there.
 
-**Vacuity.** Suppose an agent weakens `authenticated`'s `<=>` to a one-way `(=> (and …) result)`,
-meaning "if the checks pass, return `true`," dropping the converse. A constant `true` body
-satisfies that (it never has to return `false`), so the sub-goal discriminates nothing, and
-the refine gate rejects the spawn:
+So the root requirement holds whenever the whole tree verifies: each parent is proved from its
+children's contracts, and each child's contract is proved from its body. The root contract is
+the anchor, and what the proofs do not check is whether the root says the right thing.
+
+## Gates at the spawn
+
+The two proofs above would eventually catch a bad sub-contract. Three gates catch some of them
+earlier, at the moment of the spawn, so a bad decomposition is rejected before anyone builds on
+it.
+
+**Feasibility.** A proposed contract that no body could satisfy is rejected, with an input
+that shows why. Without this gate, an impossible child would surface only as a hole nobody can
+fill. The gate decides integer and boolean contracts with Z3, and outside that fragment it
+admits the spawn rather than guessing.
+
+**Vacuity.** The weak `authenticated` from above, `(=> (and …) result)`, is satisfied by a
+body that always returns `true`. The gate rejects the spawn:
 
 > refine gate: spawned sub-contract 'authenticated' is vacuous — a trivial
 > (identity/constant) body already satisfies it … strengthen the contract
 
-Rejected at the spawn. The gate asks whether a trivial identity, constant, or projection
-body would already pass the proposed contract; if so, the sub-goal discriminates nothing
-and the decomposition is refused. An agent cannot make progress by breaking a hard problem
-into an easy one that means nothing. The gate is a check over a fixed set of trivial
-candidate bodies, not a proof that the contract means what you intended: a contract can
-pass it and still say the wrong thing.
+The check is narrow, and it is meant to be. It asks whether any of a fixed set of trivial
+bodies (identity, a constant, a projection of an argument) already satisfies the proposed
+contract, and if one does, it rejects the spawn. A contract that passes can still say the wrong
+thing. A contract that fails is not necessarily empty: one that admits constant `true` may
+still rule out many other bodies, and for some sub-problems a constant or a projection is the
+correct implementation. The gate is a policy about acceptable decomposition: a spawned helper
+must demand more than a trivial body delivers. It is not a theorem about contract quality.
 
 **Scope.** Suppose an agent tries to add a function the fill body never calls. The gate
 rejects that too:
 
 > refine: spawned def 'audit-log' is not referenced by the fill body
 
-Also rejected. A `refine` may only introduce sub-functions the decomposition *uses* (fresh
-names, referenced by the body, with hole bodies, nothing clobbered), so the operation cannot
-become a way to write arbitrary code into the module.
+A `refine` may only introduce sub-functions the decomposition *uses* (fresh names, referenced
+by the body, with hole bodies, nothing clobbered), so the operation cannot become a way to
+write arbitrary code into the module.
 
-## One module, one writer at a time
+## What blind agents actually chose
 
-The seven steps above were applied one after another to a single module, and that is a
-property of the module, not a limitation of the agents. The agents *reason* independently
-(each has only its hole's brief), but a module carries a whole-file compare-and-swap: the
-moment one agent's refine lands, any other outstanding checkout goes stale and must be taken
-again. So application to one module is serialized; a checkout is re-taken immediately before
-each step.
+The walkthrough is scripted. The experiment is
+[`examples/secure-channel-emergent/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent),
+and it was not. An authoring agent wrote seven modules of root contracts, at our direction,
+and nothing else was written in advance: no reference solution, no decomposition. Each hole
+then went to a fresh agent with every tool disabled, whose entire input was a fixed operation
+manual and that hole's checkout brief. On a rejection, the retry prompt added only the
+compiler's error text. Every prompt, reply and verdict is committed.
 
-For agents that write *truly* in parallel, the move is to give each subtree its own module
-that one agent owns, then assemble the modules through their contracts. The 163-function
-channel in [Post 5](post-5-the-payoff.md) used that module-per-agent split, though there
-the *decomposition* was authored up front and the agents filled it. The build where the
-modules' internals are grown exactly as in this post (root contracts only, agents
-inventing the sub-contracts, an import-linked spine composed across module boundaries)
-is [`examples/secure-channel-emergent/`](https://github.com/machunter/llmll/tree/main/examples/secure-channel-emergent):
-twenty-five functions, every step gated and verified, the full blind-agent transcript
-committed alongside.
+The agents built 25 functions in 25 steps. Once a compiler bug the run exposed was fixed, every
+step was accepted on its first attempt, and all seven modules verify. What the agents chose:
+
+- **They mostly did not decompose.** Of 25 steps, 4 were refines and 21 were direct fills.
+  Given a contract they could implement outright, agents implemented it, sometimes by
+  simplifying it: one filled a four-clause conjunction with a logically equivalent two-clause
+  body, and the solver proved the equivalence. Decomposition happened where a contract was
+  genuinely wide.
+- **One invented the Heartbleed bound.** Asked to fill a wide record-admission contract, an
+  agent spawned `len-ok`, which returns `true` exactly when `claimed ≥ 0 ∧ claimed ≤ received`:
+  the bound from Post 3, proposed as a sub-contract by an agent that never saw the CVE.
+- **They reused each other's helpers.** The agent filling `deliver-count` called
+  `claim-in-window`, a helper a different agent had invented for a sibling function.
+- **The gates never fired.** Every invented sub-contract was an exact `<=>` or a conditional
+  equality, so no spawn was infeasible, vacuous or out of scope. The run shows that agents can
+  propose usable helper contracts. It does not show the gates catching an agent, because none
+  needed catching.
+
+This is the evidence for the post's question, and it is one run of 25 functions: agents can
+choose the sub-problems as well as solve them, when the problem is wide enough to need them.
 
 ## Why this is the hard part
 
 Filling a contract is checkable: the compiler proves the body or refuses it, as in Posts 2
 and 3. Inventing a *good* contract is the deeper problem, because a bad contract fails
-silently: it passes, and tells you nothing. The vacuity gate is a first, concrete answer:
-it catches the decomposition that demanded nothing. It does not certify that an invented
-contract is the *right* specification; that remains the open frontier, and the final post is
-precise about it. What the gate does buy is real: an agent can grow a tree of its own
-sub-problems, and the compiler polices both that every step is proved and that no step was
-made easy by hollowing out its goal.
+silently: it passes, and tells you nothing. Inside a decomposition the risk is smaller than it
+looks, because a parent is proved from its children's contracts and each child from its body,
+so a helper contract cannot quietly weaken the root. What remains unchecked is whether the
+contracts, the root above all, say what you meant; that is the open frontier, and the
+[final post](post-5-the-payoff.md) is precise about it. The gates narrow it at the edges: a
+helper no body can meet, or one a trivial body already meets, is refused at the spawn.
+
+## Implementation note: one writer per module
+
+The seven walkthrough steps were applied one after another to a single module. Agents reason
+independently, each with only its own hole's brief, but writes to one module are serialized:
+the module carries a whole-file compare-and-swap, so when one agent's refine lands, every other
+outstanding checkout on that module goes stale and must be taken again. The walkthrough re-takes
+its checkout immediately before each step.
+
+For agents that write in parallel, each subtree gets its own module, owned by one agent, and the
+modules are assembled through their contracts. The emergent build ran its six component modules
+as parallel cascades this way and composed them in an import-linked spine. The 163-function
+program in [Post 5](post-5-the-payoff.md) used the same module-per-agent split, though there the
+decomposition was written in advance and the agents only filled it.

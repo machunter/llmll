@@ -103,7 +103,7 @@ The five posts read in order, but each one stands on its own.
    What the guarantee does at a call boundary, and why Heartbleed is a precondition nobody
    discharged.
 
-4. **[Who writes the decomposition?](blog/post-4-who-writes-the-decomposition.md)**
+4. **[Can agents invent the helper functions too?](blog/post-4-who-writes-the-decomposition.md)**
    Splitting a contract into sub-contracts one step at a time, and the gate that stops a
    sub-contract which demands nothing.
 
