@@ -30,7 +30,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -3888,7 +3888,9 @@ main = hspec $ do
       r <- ledgerPatch "2" outsideBody
       case r of
         PatchSuccess _ fns -> fns `shouldBe`
-          [PatchedFn "clamp-withdrawal" False (Just "body-outside-fragment") ["app:unwrap-or"]]
+          -- FALLBACK-ATTRIB-1: the `if` inside `ok` refuses too ((ok (if …))
+          -- alone falls back), so both refused terms are named.
+          [PatchedFn "clamp-withdrawal" False (Just "body-outside-fragment") ["app:unwrap-or", "if"]]
         PatchVerifyUnavailable SolverNotFound -> pendingWith "fixpoint not installed"
         other -> expectationFailure ("expected PatchSuccess, got: " ++ show other)
 
@@ -25981,6 +25983,76 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       run [("a", TInt), ("b", TInt)] `shouldBe` [[("(< (min a b) 0)", "qf_lia")]]
       run [("min", TFn [TInt, TInt] TInt), ("a", TInt), ("b", TInt)]
         `shouldBe` [[("(< (min a b) 0)", "structural")]]
+
+  -- FALLBACK-ATTRIB-1: W-BODY-FALLBACK names the term that refused, and a
+  -- contract cause raises it too. Before, a body label was the root construct
+  -- (`if`, `let`), and a contract-post, contract-pre or signature cause was
+  -- recorded in the trust report with no warning.
+  describe "FALLBACK-ATTRIB-1: the fallback warning names the refused term" $ do
+    let parsedF src = case parseStatements GrammarCoreInversion "<fat>" (T.unlines src) of
+          Left err -> error ("FALLBACK-ATTRIB-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        emitF src = emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<fat>.llmll" (parsedF src)
+        consOf n er = lookup n (erFallbackConstructs er)
+        causeOf n er = lookup n (erBodyFallbackCauses er)
+        warnsFor n er = [ diagMessage d | d <- erDiagnostics er
+                        , diagCode d == Just "W-BODY-FALLBACK"
+                        , ("'" <> n <> "'") `T.isInfixOf` diagMessage d ]
+
+    it "FAT-1 a * in one branch of an if is named, not the if" $ do
+      er <- emitF [ "(def-shell f [x: int] -> int (post (>= result 0)) (if (>= x 0) (* x x) 0))" ]
+      consOf "f" er `shouldBe` Just ["nonlinear:*"]
+      warnsFor "f" er `shouldSatisfy` any (T.isInfixOf "Refused by: nonlinear:*.")
+
+    it "FAT-2 a * under a let is named, not the let" $ do
+      er <- emitF [ "(def-shell f [x: int] -> int (post (>= result 0)) (if (>= x 0) (let [[y (* x x)]] y) 0))" ]
+      consOf "f" er `shouldBe` Just ["nonlinear:*"]
+
+    it "FAT-3 the innermost refused call is named: string-slice, not string-length" $ do
+      er <- emitF [ "(def-shell f [s: string] -> int (post (>= result 0)) (if (= s \"a\") (string-length (string-slice s 0 1)) 0))" ]
+      consOf "f" er `shouldBe` Just ["app:string-slice"]
+
+    it "FAT-4 a contracted callee, a function parameter and min are not named" $ do
+      er <- emitF
+        [ "(def-shell g [x: int] -> int (post (>= result 0)) (if (>= x 0) x 0))"
+        , "(def-shell c1 [x: int] -> int (post (>= result 0)) (+ (g x) (* x x)))"
+        , "(def-shell c2 [f: (fn [int] -> int) x: int] -> int (post (>= result 0)) (+ (f x) (* x x)))"
+        , "(def-shell c3 [x: int y: int] -> int (post (>= result 0)) (+ (min x y) (* x y)))" ]
+      map (`consOf` er) ["c1", "c2", "c3"] `shouldBe` replicate 3 (Just ["nonlinear:*"])
+
+    it "FAT-5 an if in argument position is named; with nothing inner refused the root is kept" $ do
+      er <- emitF [ "(def-shell f [x: int] -> int (post (>= result 0)) (+ (if (> x 0) 1 2) 3))" ]
+      consOf "f" er `shouldBe` Just ["if"]
+      let body = EIf (EVar "c") (ELit (LitInt 1)) (ELit (LitInt 2))
+      bodyRefusalLabels Map.empty [] Set.empty body `shouldBe` ["if"]
+
+    it "FAT-5b a refused call is named beside a refused argument only when it refuses alone" $ do
+      er <- emitF
+        [ "(def-shell u [a: int b: int] -> int (post (>= result 0)) (unwrap-or (ok (if (<= a b) a b)) 0))"
+        , "(def-shell sl [s: string] -> int (post (>= result 0)) (string-length (string-slice s 0 1)))" ]
+      consOf "u" er `shouldBe` Just ["app:unwrap-or", "if"]
+      consOf "sl" er `shouldBe` Just ["app:string-slice"]
+
+    it "FAT-6 a post that calls a function warns with contract-post-outside-fragment" $ do
+      er <- emitF
+        [ "(def-shell g [x: int] -> int x)"
+        , "(def-shell f [x: int] -> int (post (>= (g result) 0)) x)" ]
+      causeOf "f" er `shouldBe` Just FallbackContractPost
+      warnsFor "f" er `shouldSatisfy` any (\m -> "(contract-post-outside-fragment)" `T.isInfixOf` m
+                                               && "Refused by: app:g." `T.isInfixOf` m)
+
+    it "FAT-7 a nonlinear pre warns with contract-pre-outside-fragment" $ do
+      er <- emitF [ "(def-shell f [x: int] -> int (pre (>= (* x x) 0)) (post (>= result 0)) (if (>= x 0) x 0))" ]
+      causeOf "f" er `shouldBe` Just FallbackContractPre
+      warnsFor "f" er `shouldSatisfy` any (T.isInfixOf "(contract-pre-outside-fragment)")
+
+    it "FAT-8 negative control: no post and a scaffold raise no warning" $ do
+      er <- emitF
+        [ "(def-shell np [x: int] -> int (* x x))"
+        , "(def-shell sc [x: int] -> int (post (>= (* result result) 0)) ?todo)" ]
+      causeOf "np" er `shouldBe` Just FallbackNoPost
+      causeOf "sc" er `shouldBe` Just FallbackHole
+      warnsFor "np" er ++ warnsFor "sc" er `shouldBe` []
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

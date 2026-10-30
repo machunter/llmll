@@ -1,0 +1,11 @@
+;; FALLBACK-ATTRIB-1: each function falls back, and W-BODY-FALLBACK names the
+;; term that refused. The first four used to say "Refused by: if".
+(def-shell sq-pos [x: int] -> int (post (>= result 0)) (if (>= x 0) (* x x) 0))
+(def-shell sq-let [x: int] -> int (post (>= result 0)) (if (>= x 0) (let [[y (* x x)]] y) 0))
+(def-shell first-len [s: string] -> int (post (>= result 0)) (if (= s "a") (string-length (string-slice s 0 1)) 0))
+(def-shell prod [x: int y: int] -> int (post (>= result 0)) (if (> x 0) (+ (* x y) 1) 0))
+(def-shell if-arg [x: int] -> int (post (>= result 0)) (+ (if (> x 0) 1 2) 3))
+;; The contract causes, which used to raise no warning.
+(def-shell g [x: int] -> int x)
+(def-shell post-call [x: int] -> int (post (>= (g result) 0)) x)
+(def-shell pre-sq [x: int] -> int (pre (>= (* x x) 0)) (post (>= result 0)) (if (>= x 0) x 0))
