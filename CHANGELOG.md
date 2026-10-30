@@ -4,7 +4,7 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.33.1)
+## v0.33.2: `min`, `max` and `abs` in an `if` guard (2026-10-29)
 
 ### `MINMAX-GUARD-1`: `min`, `max` and `abs` in an `if` guard
 
