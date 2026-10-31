@@ -385,8 +385,13 @@ reservedCallerObligationsKey = "caller_obligations"
 -- top-level function of the same name, so an older sidecar can hold a false
 -- `verified` (fn-param-uf-1-proposal S1, S2, S4) or a false `tested` (S3).
 -- Every older sidecar is discarded once.
+--
+-- "5" (LET-CALL-CONT-1, ahead of AND-GUARD-PRE-1): a `let` whose right-hand
+-- side continues after a call — @(+ 1 (f y))@, a nested let, an `if` over a
+-- call result — bound the variable to the bare call result, so an older
+-- sidecar can hold a false `verified`. Every older sidecar is discarded once.
 checkerSoundnessVersion :: Text
-checkerSoundnessVersion = "4"
+checkerSoundnessVersion = "5"
 
 -- | SAFE-ARG: reserved top-level sidecar key carrying 'checkerSoundnessVersion'.
 reservedCheckerSoundnessKey :: Text

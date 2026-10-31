@@ -1,0 +1,3 @@
+(import lib)
+(open lib)
+(def f [y: int] -> int (post (= result (+ y 1))) (let [(x (+ 1 (inc y)))] x))

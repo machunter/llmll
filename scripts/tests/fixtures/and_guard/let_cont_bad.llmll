@@ -1,0 +1,24 @@
+;; LET-CALL-CONT-1: each body's let right-hand side continues after a call,
+;; and each post is false of the body. Before the fix the let variable was
+;; bound to the bare call result, so all four verified SAFE. Each must now be
+;; refuted on its post.
+
+(def c01 [r: map[int,int] i: int] -> int
+  (pre (map-has r i))
+  (post (= result (map-get r i)))
+  (let [(x (+ 1 (map-get r i)))] x))
+
+(def c02 [b: bytes[8] i: int] -> int
+  (pre (and (>= i 0) (< i 8)))
+  (post (= result (bytes-get b i)))
+  (let [(x (+ 1 (bytes-get b i)))] x))
+
+(def c04 [r: map[int,int] i: int] -> int
+  (pre (map-has r i))
+  (post (= result (map-get r i)))
+  (let [(x (let [(y (map-get r i))] (+ y 1)))] x))
+
+(def c06 [r: map[int,int] i: int] -> int
+  (pre (map-has r i))
+  (post (= result (map-get r i)))
+  (let [(x (if (> (map-get r i) 0) 1 0))] x))

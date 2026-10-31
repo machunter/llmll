@@ -4805,6 +4805,36 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, EVar c)] body)
 bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
   -- Translate the RHS
   mRhsVC <- bodyToPredM env se cenv sccSet rhs
+  -- MATCH-WIDEN-2 / LET-CALL-CONT-1: graft the let body at each leaf of a
+  -- non-simple RHS VC. At each leaf, bind `v` to that leaf's result and
+  -- translate `body` FRESH — fresh skolems per path, because
+  -- 'collectBranchBinders' does not dedup, so grafting a shared body-'BranchVC'
+  -- would double-declare its binders. The RHS guards, payload binders and call
+  -- nodes are preserved; only the leaf continuation changes. The leaf binder's
+  -- sort comes from 'leafSort' over the sort env extended with everything the
+  -- path above the leaf declares (let binders, branch binders, call results);
+  -- an undecided sort, or any leaf whose body fails to translate, is a whole
+  -- fallback (Applicative Maybe short-circuit).
+  let graftLeaves seAcc (SimpleVC lbs result) =
+        let seP = foldr (\lb m -> Map.insert (lbName lb) (lbSort lb) m) seAcc lbs
+        in case leafSort seP result of
+             Nothing  -> return Nothing
+             Just srt -> do
+               rn <- freshName v
+               let env'' = Map.insert v rn env
+                   se''  = Map.insert rn srt se
+                   lb    = LetBinding rn srt result
+               mb <- bodyToPredM env'' se'' cenv sccSet body
+               return (prependLBs (lbs ++ [lb]) <$> mb)
+      graftLeaves seAcc (BranchVC g bs t e) = do
+        let seB = foldr (\(n, s, _) m -> Map.insert n s m) seAcc bs
+        mt <- graftLeaves seB t
+        me <- graftLeaves seB e
+        return (BranchVC g bs <$> mt <*> me)
+      graftLeaves seAcc (CallVC cal cargs cargEs mPre mPost pParts rVar rSort cont) = do
+        let seC = Map.insert rVar rSort seAcc
+        mc <- graftLeaves seC cont
+        return ((\k -> CallVC cal cargs cargEs mPre mPost pParts rVar rSort k) <$> mc)
   case mRhsVC of
     Nothing -> return Nothing
     Just (SimpleVC [] rhsPred) -> do
@@ -4832,7 +4862,15 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
     -- name here left the let var unbound (never equated to rVar) — a free variable
     -- in every constraint that referenced it (the withdraw-twice / banking_ledger
     -- crash, masked pre-F-NIW-3 by liquid-fixpoint's hyphen mis-lex).
-    Just (CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort _cont) -> do
+    -- LET-CALL-CONT-1: the alias is sound ONLY when the RHS is the bare call,
+    -- i.e. its continuation is the identity @SimpleVC [] (FQVar rVar)@ every call
+    -- arm returns. A RHS that continues after the call — @(+ 1 (f y))@, which
+    -- 'aNormalizeBody' turns into @(let [(_anf (f y))] (+ 1 _anf))@, or a
+    -- user-written nested let — has a non-identity continuation; aliasing `v` to
+    -- rVar there dropped the continuation and bound `v` to the bare call result
+    -- (a false SAFE). Those RHS shapes take the leaf-graft path below.
+    Just (CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort cont)
+      | isIdentityCont rVar cont -> do
       -- LEVER-A2.1: a map-returning callee (rSort == mapArraySort, the
       -- cross-call marker) binds its result as a SPLIT component pair — seed
       -- rVar$has/rVar$val so subsequent map ops over the let-bound name root
@@ -4852,17 +4890,22 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
       case mBodyVC of
         Nothing -> return Nothing
         Just bvc -> return $ Just $ CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort bvc
+    -- LET-CALL-CONT-1: a call RHS with a non-identity continuation — the call
+    -- node stays in place and the let body is grafted at each leaf of its
+    -- continuation, each leaf binding `v` to what the RHS actually evaluates to.
+    Just cvc@(CallVC {}) -> graftLeaves se cvc
     -- RHS is a branch (EIf in let RHS) — hoist via flattening.
-    -- Single-path degenerate branches are handled; multi-path falls back.
+    -- Single-path degenerate branches are handled; multi-path is grafted.
     Just bvc@(BranchVC _ _ _ _) -> do
       renamed <- freshName v
-      let env'  = Map.insert v renamed env
-          se'   = Map.insert renamed FQInt se
-          paths = flattenBodyVC bvc
+      let paths = flattenBodyVC bvc
       case paths of
         -- Degenerate single-path: the branch always takes one path
-        [(_, pathLBs, pathResult)] -> do
-          let lb = LetBinding renamed FQInt pathResult
+        [(_, pathLBs, pathResult)]
+          | Just srt <- leafSort (foldr (\lb m -> Map.insert (lbName lb) (lbSort lb) m) se pathLBs) pathResult -> do
+          let env' = Map.insert v renamed env
+              se'  = Map.insert renamed srt se
+              lb   = LetBinding renamed srt pathResult
           mBodyVC <- bodyToPredM env' se' cenv sccSet body
           case mBodyVC of
             Nothing -> return Nothing
@@ -4872,31 +4915,11 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
               return (Just (BranchVC gp bs
                 (prependLBs (pathLBs ++ [lb]) tvc)
                 (prependLBs (pathLBs ++ [lb]) evc)))
+          | otherwise -> return Nothing
         -- Multi-path (MATCH-WIDEN-2, §S4 sequential matches): thread the branch
-        -- into the body instead of falling back. At each RHS-branch leaf, bind
-        -- `v` to that path's result and translate `body` FRESH — fresh skolems
-        -- per path, because 'collectBranchBinders' does not dedup, so grafting a
-        -- shared body-'BranchVC' would double-declare its binders. The RHS branch
-        -- guards + payload binders are preserved; only the leaf continuation
-        -- changes. Any leaf whose body fails to translate → whole fallback
-        -- (Applicative Maybe short-circuit). When `body` is itself a match this
-        -- nests naturally (two sequential matches).
-        _ ->
-          let graftLeaves (SimpleVC lbs result) = do
-                rn <- freshName v
-                let env'' = Map.insert v rn env
-                    se''  = Map.insert rn FQInt se
-                    lb    = LetBinding rn FQInt result
-                mb <- bodyToPredM env'' se'' cenv sccSet body
-                return (prependLBs (lbs ++ [lb]) <$> mb)
-              graftLeaves (BranchVC g bs t e) = do
-                mt <- graftLeaves t
-                me <- graftLeaves e
-                return (BranchVC g bs <$> mt <*> me)
-              graftLeaves (CallVC cal cargs cargEs mPre mPost pParts rVar rSort cont) = do
-                mc <- graftLeaves cont
-                return ((\k -> CallVC cal cargs cargEs mPre mPost pParts rVar rSort k) <$> mc)
-          in graftLeaves bvc
+        -- into the body instead of falling back, via 'graftLeaves' above. When
+        -- `body` is itself a match this nests naturally (two sequential matches).
+        _ -> graftLeaves se bvc
     _ -> return Nothing
 
 -- ELet with multiple bindings: desugar to nested single-binding ELets
@@ -5110,9 +5133,11 @@ bodyToPredM env se cenv sccSet (EMatch scrutinee arms)
             case scrutVC of
               SimpleVC [] _scrutPred ->
                 return (Just (BranchVC (FQVar guardVar) matchBinders svc evc))
-              CallVC {} ->
+              CallVC { cvResultVar = rv, cvContinuation = k } | isIdentityCont rv k ->
                 -- The scrutinee is a function call — wrap the branch as CallVC continuation
                 -- The CallVC result is the match scrutinee; branch discriminates its constructor
+                -- LET-CALL-CONT-1: only a BARE call (identity continuation);
+                -- a scrutinee that continues after the call falls through.
                 return (Just (setCallVCContinuation scrutVC (BranchVC (FQVar guardVar) matchBinders svc evc)))
               _ ->
                 -- Scrutinee produced a complex VC (branch, etc.) — fallback
@@ -6277,10 +6302,48 @@ prependLBs lbs bvc = foldr prependLB bvc lbs
 
 -- | v0.9.0 COMP-3: Replace the continuation of a CallVC.
 -- Used for EMatch-over-call: the match's BranchVC becomes the call's continuation.
+-- LET-CALL-CONT-1: replacing a continuation is sound only when the old one is
+-- the identity (the CallVC is a bare call); otherwise the old continuation is
+-- real computation and dropping it would mis-state the scrutinee. On a
+-- mismatch the input is returned unchanged; the caller checks
+-- 'isIdentityCont' first and falls back.
 setCallVCContinuation :: BodyVC -> BodyVC -> BodyVC
-setCallVCContinuation (CallVC cal args argEs mPre mPost pParts rVar rSort _cont) newCont =
+setCallVCContinuation (CallVC cal args argEs mPre mPost pParts rVar rSort cont) newCont
+  | isIdentityCont rVar cont =
   CallVC cal args argEs mPre mPost pParts rVar rSort newCont
 setCallVCContinuation bvc _newCont = bvc  -- no-op for non-CallVC (shouldn't happen)
+
+-- | LET-CALL-CONT-1: is this CallVC continuation the identity — no let
+-- bindings, result = the call's own result var? Every call arm of
+-- 'bodyToPredM' returns exactly this shape; anything else means the RHS
+-- continues after the call.
+isIdentityCont :: Name -> BodyVC -> Bool
+isIdentityCont rVar (SimpleVC [] (FQVar x)) = x == rVar
+isIdentityCont _ _ = False
+
+-- | LET-CALL-CONT-1: the sort of a let-RHS leaf result, for the leaf-graft
+-- binder. The sort env must already hold everything the path above the leaf
+-- declares. 'Nothing' when undecided (the caller falls back) — never a guess,
+-- since a wrong sort is a solver crash. A map-return marker sort is
+-- undecided here: its $has/$val components are only seeded on the alias path.
+leafSort :: SortEnv -> FQPred -> Maybe FQSort
+leafSort se p = case p of
+  FQTrue            -> Just FQBool
+  FQFalse           -> Just FQBool
+  FQNot _           -> Just FQBool
+  FQAnd _           -> Just FQBool
+  FQOr _            -> Just FQBool
+  FQBinPred _ _ _   -> Just FQBool
+  FQLit _           -> Just FQInt
+  FQBinArith _ _ _  -> Just FQInt
+  FQVar x           -> case Map.lookup x se of
+                         Just s | not (isMapArrRetSort s) -> Just s
+                         _ -> Nothing
+  FQIte _ a b       -> leafSort se a <|> leafSort se b
+  FQApp f _ | f `elem` ["bytesLen", "listLen", "strLen"] -> Just FQInt
+  FQApp "Map_select" [arr, _] -> Just (mapSelValSort se arr)
+  FQApp n [] | "strlit_" `T.isPrefixOf` n -> Just FQStr
+  _                 -> Nothing
 
 -- | Infer the FQSort of a predicate result.
 -- In BODY-VC-0, we only support int-typed results.
