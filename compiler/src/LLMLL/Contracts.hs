@@ -12,7 +12,10 @@
 module LLMLL.Contracts
   ( -- * AST Instrumentation
     instrumentContracts
+  , instrumentClosure
   , instrumentStatement
+  , wrapPre
+  , wrapPost
 
     -- * Contract Modes (v0.3)
   , ContractsMode(..)
@@ -166,6 +169,23 @@ instrumentContracts mode statusMap = map go
     lookupStatus _                     = defaultCS
     defaultCS = ContractStatus Nothing Nothing []
 
+-- | XMOD-POST-RT-1: instrument every module in the import closure, not
+-- just the entry module. The status map is the union of each imported
+-- module's 'meContractStatus' (hash-validated by 'checkCacheEvidence' at
+-- load); top-level names are unique across the closure (duplicates are a
+-- @check@ error), so one bare-keyed map cannot select the wrong record.
+-- Each imported module's statements and the entry statements go through
+-- the same 'instrumentContracts' call, so an imported function's post is
+-- asserted under the same @--contracts@ rule as an entry function's.
+instrumentClosure :: ContractsMode -> [ModuleEnv] -> [Statement]
+                  -> ([ModuleEnv], [Statement])
+instrumentClosure mode envs stmts =
+  let statusMap = foldl (\acc menv -> Map.union (meContractStatus menv) acc)
+                        Map.empty envs
+      instr     = instrumentContracts mode statusMap
+  in ( [ menv { meStatements = instr (meStatements menv) } | menv <- envs ]
+     , instr stmts )
+
 -- | Instrument a single statement.
 instrumentStatement :: ContractsMode -> ContractStatus -> Statement -> Statement
 -- None: strip everything
@@ -293,6 +313,13 @@ wrapWithContracts funcName contract body =
 -- (if (not pre) (error "pre violated") body)
 wrapPre :: Name -> Maybe Expr -> Expr -> Expr
 wrapPre _ Nothing body = body
+-- XMOD-POST-RT-1 (F1): a bare `?proof-required` clause is the spec'd
+-- no-op (no runtime assertion); a predicate-carrying one asserts its
+-- predicate. Wrapping the hole itself would emit `error "PROOF REQUIRED"`
+-- as the guard and crash every call.
+wrapPre _ (Just (EHole (HProofRequired _ Nothing))) body = body
+wrapPre funcName (Just (EHole (HProofRequired _ (Just p)))) body =
+  wrapPre funcName (Just p) body
 wrapPre funcName (Just preExpr) body =
   EIf
     (EOp "not" [preExpr])
@@ -307,6 +334,10 @@ wrapPre funcName (Just preExpr) body =
 -- (let [result body] (if (not post) (error "post violated") result))
 wrapPost :: Name -> Maybe Expr -> Expr -> Expr
 wrapPost _ Nothing body = body
+-- XMOD-POST-RT-1 (F1): same `?proof-required` cases as 'wrapPre'.
+wrapPost _ (Just (EHole (HProofRequired _ Nothing))) body = body
+wrapPost funcName (Just (EHole (HProofRequired _ (Just p)))) body =
+  wrapPost funcName (Just p) body
 wrapPost funcName (Just postExpr) body =
   ELet
     [ (PVar "result", Nothing, body) ]

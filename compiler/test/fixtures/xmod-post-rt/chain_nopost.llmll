@@ -1,0 +1,7 @@
+(import wasi.io (capability stdout))
+(import bb)
+(open bb)
+(def-shell a-inc [x: int] -> int (pre (>= x 0)) (b-inc x))
+(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout "|")))
+(def-shell fin [s: int] -> bool (>= s 1))
+(def-main :mode cli :init (pair 0 (wasi.io.stdout (int-to-string (a-inc 1)))) :step st :done? fin)

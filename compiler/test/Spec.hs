@@ -45,7 +45,7 @@ import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName, convIn, convOut, lowerFfiType, ffiBoundaryMisuse, lowerBoundaryMisuse)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
-import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, buildFuncEnv, maxFuel)
+import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, wrapPre, wrapPost, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, buildFuncEnv, maxFuel)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash, canonicalExpr)
@@ -4868,6 +4868,43 @@ main = hspec $ do
       T.isInfixOf "_post_check" src `shouldBe` False
       T.isInfixOf "Postcondition violated in double-it" src `shouldBe` True
       T.isInfixOf "else result)" src `shouldBe` True
+
+    -- XMOD-POST-RT-1 (F1): wrapping the `?proof-required` hole itself emitted
+    -- `error "PROOF REQUIRED [...]"` as the guard, so every call crashed. A
+    -- predicate-carrying clause now asserts its predicate; a bare one is the
+    -- spec'd no-op.
+    it "XMOD-POST-RT-1: wrapPost on a predicate-carrying ?proof-required asserts the predicate" $ do
+      let p = EOp "=" [EVar "result", EOp "*" [EVar "x", EVar "x"]]
+          hole = EHole (HProofRequired "nl" (Just p))
+      wrapPost "sq" (Just hole) body `shouldBe` wrapPost "sq" (Just p) body
+      case wrapPost "sq" (Just hole) body of
+        ELet [(PVar "result", _, b)] (EIf (EOp "not" [p']) _ (EVar "result")) -> do
+          b `shouldBe` body
+          p' `shouldBe` p
+        other -> expectationFailure ("expected result-bound EIf on the predicate, got: " ++ show other)
+      let stmt = SDefShell "sq" [("x", TInt)] Nothing
+                   (Contract Nothing Nothing (Just hole) Nothing Nothing [] []) body [] []
+          src = cgHsSource (generateHaskell "test" [instrumentStatement ContractsFull noCS stmt])
+      T.isInfixOf "PROOF REQUIRED" src `shouldBe` False
+      T.isInfixOf "Postcondition violated in sq" src `shouldBe` True
+
+    it "XMOD-POST-RT-1: wrapPre on a predicate-carrying ?proof-required asserts the predicate" $ do
+      let hole = EHole (HProofRequired "nl" (Just preE))
+      case wrapPre "f" (Just hole) body of
+        EIf (EOp "not" [p']) _ b -> do
+          p' `shouldBe` preE
+          b `shouldBe` body
+        other -> expectationFailure ("expected EIf on the predicate, got: " ++ show other)
+      let stmt = SDefShell "f" [("x", TInt)] Nothing
+                   (Contract (Just hole) Nothing Nothing Nothing Nothing [] []) body [] []
+          src = cgHsSource (generateHaskell "test" [instrumentStatement ContractsFull noCS stmt])
+      T.isInfixOf "PROOF REQUIRED" src `shouldBe` False
+      T.isInfixOf "Precondition violated in f" src `shouldBe` True
+
+    it "XMOD-POST-RT-1: a bare ?proof-required pre or post adds no guard" $ do
+      let bare = EHole (HProofRequired "manual" Nothing)
+      wrapPre "f" (Just bare) body `shouldBe` body
+      wrapPost "f" (Just bare) body `shouldBe` body
 
   describe "parseTrustDecl (S-expression)" $ do
     it "parses (trust foo.bar :level tested)" $ do
