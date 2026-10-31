@@ -4,7 +4,48 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.33.2)
+## v0.33.3: A `let` that continues after a call, and imported contracts at run time (2026-10-31)
+
+### `LET-CALL-CONT-1`: a `let` whose right-hand side continues after a call keeps the rest
+
+- **A false SAFE is closed.** In `(let [(x (+ 1 (map-get r i)))] x)` the verifier bound `x` to
+  the bare call result and dropped the `+ 1`, so a false `post` was reported SAFE and the trust
+  report said `verified`. A user-written nested `let` and a cross-module callee did the same. The
+  defect dates from v0.14.11.
+- **The continuation is kept.** The `let` body is grafted at each leaf of the right-hand side, and
+  each leaf binds the variable to what that path returns (`graftLeaves` in `FixpointEmit.hs`). An
+  `if` over a call result binds the variable per path; a `bool` leaf declares it at `bool`. A bare
+  call on the right-hand side still aliases the call result.
+- **`checker_soundness_version` goes from `"4"` to `"5"`.** A `.verified.json` sidecar with an
+  older stamp is discarded once, so a cached false `verified` is re-checked. Expect one re-verify
+  per tree.
+- Measured on `scripts/tests/fixtures/and_guard/let_cont_bad.llmll`: all four functions, each
+  SAFE on 0.33.2, are refuted. The cross-module witness in `and_guard/xmod/` is refuted too.
+- `AND-GUARD-PRE-1`, a call-site `pre` guarded by the first conjunct of an `and`, is still open.
+- No schema change (0.15.0).
+
+### `XMOD-POST-RT-1`: imported contracts are checked at run time
+
+- **`build`, `build-json` and `run` instrument every module in the import closure**, not the entry
+  module alone (`instrumentClosure` in `Contracts.hs`). An imported function's `post` was never
+  checked: an imported `bad-inc` that returns `x + 2` against `(post (= result (+ x 1)))` printed
+  `3` and exited 0, while `verify` refuted the same post. The built program now stops with
+  `Postcondition violated in bad-inc` and exits 1.
+- An imported `post` follows the same `--contracts` rule as an entry `post`: `full` (the default)
+  and `unproven` keep it, and `none` drops it. `llmll run` builds with `full`. In a three-module
+  chain the failure names the function whose `post` broke.
+- **`?proof-required` in a `pre` or `post` builds and runs.** A bare `?proof-required` adds no
+  guard. The predicate-carrying `(?proof-required :reason "…" pred)` asserts `pred`, with the
+  `Precondition violated` or `Postcondition violated` message of a plain clause. Before, the hole
+  itself was the guard, so such a function failed at build or at its first call.
+- The Netpbm swarm codec (`examples/netpbm-swarm/`) gives byte-identical output. Its generated
+  code has 82 post-check sites, up from 14.
+- **`LLMLL.md` §4.4.2 is rewritten.** It gives `full` as the `build` default whether or not a
+  cached verify result exists, and says `--contracts` covers the import closure. This closes
+  `CONTRACTS-DEFAULT-DOC-1`.
+- Still open: `--contracts none` keeps every `pre` check (`CONTRACTS-NONE-1`), and `unproven`
+  never strips an entry function's verified `post` (`UNPROVEN-ENTRY-1`).
+- No schema change (0.15.0) and no version-stamp change.
 
 ### `FALLBACK-ATTRIB-1`: `W-BODY-FALLBACK` names the term that refused
 
@@ -25,7 +66,7 @@
   `(unwrap-or (ok (if …)) 0)`; `(ok (if …))` alone falls back, so both terms refuse.
 - No schema change (0.15.0) and no version-stamp change.
 
-**Tests:** hspec 2878 → 2887, 0 failures; Python 634 → 636 passed, 5 skipped.
+**Tests:** hspec 2878 → 2903, 0 failures; Python 634 → 643 passed, 5 skipped.
 
 ## v0.33.2: `min`, `max` and `abs` in an `if` guard (2026-10-29)
 
