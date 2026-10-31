@@ -21812,9 +21812,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             report = buildTrustReport Map.empty (parseSrc src) Map.empty
         concatMap teAssumedFacts (trEntries report) `shouldBe` []
         formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
-      -- FN-SHADOW-1 moved the stamp to "4"; FS-13 pins "3" as discarded.
-      it "RF-P4 checker_soundness_version is \"4\" (FN-SHADOW-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
-        checkerSoundnessVersion `shouldBe` "4"
+      -- FN-SHADOW-1 moved the stamp to "4", LET-CALL-CONT-1 to "5" (pinned by
+      -- LCC-6); FS-13 pins "3" as discarded.
+      it "RF-P4 checker_soundness_version is \"5\" (LET-CALL-CONT-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "5"
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "2")]) `shouldBe` True
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
 
@@ -23678,10 +23679,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           report = buildTrustReport Map.empty ss (Map.fromList [("pick", ContractStatus Nothing vrec [])])
       fmap (length . teDeps) (listToMaybe [ e | e <- trEntries report, teName e == "g" ]) `shouldBe` Just 0
 
-    it "FS-13 checker_soundness_version is \"4\": a sidecar stamped \"3\" is discarded" $ do
-      checkerSoundnessVersion `shouldBe` "4"
+    -- LET-CALL-CONT-1 moved the stamp past "4" (LCC-6 pins "5").
+    it "FS-13 a sidecar stamped \"3\" (before FN-SHADOW-1) is discarded" $ do
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "3")]) `shouldBe` True
-      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "4")]) `shouldBe` False
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String checkerSoundnessVersion)]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- FN-PARAM-UF-1 (fn-param-uf-1-proposal R2, R3, R5) and PBT-FN-PARAM-1: a
@@ -26053,6 +26054,54 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       causeOf "np" er `shouldBe` Just FallbackNoPost
       causeOf "sc" er `shouldBe` Just FallbackHole
       warnsFor "np" er ++ warnsFor "sc" er `shouldBe` []
+
+  -- LET-CALL-CONT-1: a `let` whose right-hand side continues after a call
+  -- bound the variable to the BARE call result (the CallVC continuation was
+  -- dropped), so a false post verified. The let body is now grafted at each
+  -- leaf of the RHS VC, binding the variable to what the RHS evaluates to.
+  describe "LET-CALL-CONT-1: a let RHS that continues after a call" $ do
+    let parsedL src = case parseStatements GrammarCoreInversion "<lcc>" (T.unlines src) of
+          Left err -> error ("LET-CALL-CONT-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        emitL src = emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<lcc>.llmll" (parsedL src)
+        sig = "(def f [r: map[int,int] i: int] -> int (pre (map-has r i)) (post (= result (map-get r i))) "
+    it "LCC-1 (+ 1 (map-get r i)) in a let RHS keeps the + 1 (c01)" $ do
+      r <- emitL [ sig <> "(let [(x (+ 1 (map-get r i)))] x))" ]
+      erBodyFaithfulFns r `shouldBe` ["f"]
+      erFQText r `shouldSatisfy` T.isInfixOf "v : int | (v = (1 + _bv_call_map_get_"
+      erFQText r `shouldNotSatisfy` T.isInfixOf "(result = _bv_call_map_get_"
+    it "LCC-2 a user-written nested let in the RHS keeps its continuation (c04)" $ do
+      r <- emitL [ sig <> "(let [(x (let [(y (map-get r i))] (+ y 1)))] x))" ]
+      erBodyFaithfulFns r `shouldBe` ["f"]
+      erFQText r `shouldSatisfy` T.isInfixOf " + 1)) }"
+      erFQText r `shouldNotSatisfy` T.isInfixOf "(result = _bv_call_map_get_"
+    it "LCC-3 an if over the call result binds x per path (c06)" $ do
+      r <- emitL [ sig <> "(let [(x (if (> (map-get r i) 0) 1 0))] x))" ]
+      erBodyFaithfulFns r `shouldBe` ["f"]
+      let fq = erFQText r
+      T.count "rhs { result : int | (result = (Map_select r_val i)) }" fq `shouldBe` 2
+      fq `shouldSatisfy` T.isInfixOf ": { v : int | (v = 1) }"
+      fq `shouldSatisfy` T.isInfixOf ": { v : int | (v = 0) }"
+      fq `shouldNotSatisfy` T.isInfixOf "(result = _bv_call_map_get_"
+    it "LCC-4 a bool leaf declares the let binder at bool (c07, a07)" $ do
+      r <- emitL
+        [ "(def p1 [r: map[int,int] i: int] -> int (post (>= result 0)) (let [(ok (if (map-has r i) (>= (map-get r i) 0) false))] (if ok 1 0)))"
+        , "(def p2 [r: map[int,int] i: int] -> int (post (>= result 0)) (let [(ok (and (map-has r i) (>= (map-get r i) 0)))] (if ok 1 0)))" ]
+      erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["p1", "p2"])
+      let fq = erFQText r
+      fq `shouldSatisfy` T.isInfixOf ": { v : bool | (v = false) }"
+      fq `shouldSatisfy` T.isInfixOf ": { v : bool | (v = (_bv_call_map_get_"
+      fq `shouldSatisfy` T.isInfixOf ": { v : bool | (v = (((Map_select r_has i) = 1) && (_bv_call_map_get_"
+      fq `shouldNotSatisfy` T.isInfixOf "_bv_ok_2 : { v : int"
+    it "LCC-5 a bare call RHS (identity continuation) still aliases: no let binder" $ do
+      r <- emitL [ "(def f [r: map[int,int] i: int] -> int (pre (map-has r i)) (post (= result (+ (map-get r i) 1))) (let [(x (map-get r i))] (+ x 1)))" ]
+      erBodyFaithfulFns r `shouldBe` ["f"]
+      erFQText r `shouldSatisfy` T.isInfixOf "(result = (_bv_call_map_get_0 + 1))"
+      erFQText r `shouldNotSatisfy` T.isInfixOf "_bv_x_"
+    it "LCC-6 checker_soundness_version is \"5\": a sidecar stamped \"4\" is discarded" $ do
+      checkerSoundnessVersion `shouldBe` "5"
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "4")]) `shouldBe` True
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "5")]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

@@ -1,0 +1,2 @@
+(def inc [x: int] -> int (post (= result (+ x 1))) (+ x 1))
+(def half [x: int] -> int (pre (> x 0)) (post (>= result 0)) (- x 1))
