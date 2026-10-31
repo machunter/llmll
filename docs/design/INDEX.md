@@ -160,6 +160,7 @@ Per **DOC-CONSOLIDATE M6** (settled 2026-05-24, shipped at `1a8733f`), entries b
 | [component-hub.md](component-hub.md) | Per-project + global component registry; query by type signature and contract | **Dormant** — future discussion retained |
 | [language-comparison-experiments.md](language-comparison-experiments.md) | Cross-language benchmark: correctness vs assurance on independent axes | Design note |
 | [multilangbench-scope-evaluation.md](multilangbench-scope-evaluation.md) | OpenAI's SQLite benchmark as an LLMLL-only longitudinal track, never cross-language | **Rev 2, SETTLED 2026-10-20**; filed `CHAR-CODE-1` (G7), `SIGMA-CONST-ARITH-1` (G1); two professor passes folded as the appendix |
+| [byte-io-proposal.md](byte-io-proposal.md) | Byte read and write, unsized `bytes`, character codes, bitwise operations, abstraction verdict rule | **Rev 2, SETTLED 2026-10-31**; filed `ABSTRACTION-VERDICT-1` (G1), `FFI-BYTES-1` (G3), `BITWISE-1`, `BYTES-UNSIZED-1`, `BITWISE-WIDTH-1` (G7), `BYTES-SLICE-CONTENT-1`, `BYTES-NARROW-1` (parking lot); `CHAR-CODE-1`, `BYTES-READ-1`, `BYTES-WRITE-1` to PLAN; two professor passes folded as the appendix |
 | [type-driven-development.md](type-driven-development.md) | Indexed types (`Vect n a`, GADTs, type-level arithmetic); obligation part promoted | **Dormant** — partially promoted, R1 residual |
 
 ---

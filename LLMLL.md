@@ -10,7 +10,7 @@
 
 ## 0. What Is Proved and What Is Not
 
-A `verified` verdict means the solver decided a verification condition built from the function body, and that decision is complete only inside the signature `Σ_auto`: linear integer arithmetic without `*`, `/` or `mod`, the `string-length` and `list-length` measures, acyclic datatypes, and `bytes`/`map` arrays ([§5.3.3](#533-verification-scope)).
+A `verified` verdict means the solver decided a verification condition built from the function body, and that decision is complete only inside the signature `Σ_auto`: linear integer arithmetic with constant multipliers and positive constant divisors, the `string-length` and `list-length` measures, acyclic datatypes, and `bytes`/`map` arrays ([§5.3.3](#533-verification-scope)).
 Inside `Σ_auto`, `llmll verify` returns SAFE or UNSAFE on a fixed condition, and an UNSAFE body is reported as `refuted`, with a JSON pointer to the failing body and the violated constraint; no counterexample input is printed.
 Outside it no completeness is claimed: nonlinear arithmetic and the five `regex-*` builtins are not auto-discharged, and the cryptographic builtins are opaque stubs whose callers are capped at `asserted` ([§13.11](#1311-cryptographic-operations)).
 The verification matrix ([§5.3.5](#535-verification-matrix)) states, construct by construct, what reaches the solver and what each construct falls back to.
@@ -140,7 +140,7 @@ LLMLL's identifier character class (§2.1) permits both `-` and `_`. The shippin
 |------|-------------|---------------|
 | `int` | Mathematical integer (unbounded; lowers to Haskell `Integer` at codegen) | `0`, `-1`, `9999` |
 | `float` | 64-bit IEEE 754 double. Literals (§12 `FLOAT`) and `=` only, until `FLOAT-OPS-1`; there is no arithmetic, ordering or conversion. A literal is rounded to the nearest double, ties to even; every zero literal, `-0.0` included, is `+0.0` | `3.14`, `-0.5`, `1.25e-3`, `1E+3` |
-| `string` | Immutable UTF-8 byte sequence | `"hello"`, `""` |
+| `string` | Immutable sequence of Unicode code points, written as UTF-8 at the IO boundary | `"hello"`, `""` |
 | `bool` | Boolean | `true`, `false` |
 | `unit` | No-value type (result of pure IO commands) | `()` |
 
