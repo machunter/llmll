@@ -30,7 +30,7 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -21849,10 +21849,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             report = buildTrustReport Map.empty (parseSrc src) Map.empty
         concatMap teAssumedFacts (trEntries report) `shouldBe` []
         formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
-      -- FN-SHADOW-1 moved the stamp to "4", LET-CALL-CONT-1 to "5" (pinned by
-      -- LCC-6); FS-13 pins "3" as discarded.
-      it "RF-P4 checker_soundness_version is \"5\" (LET-CALL-CONT-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
-        checkerSoundnessVersion `shouldBe` "5"
+      -- FN-SHADOW-1 moved the stamp to "4", LET-CALL-CONT-1 to "5" (LCC-6),
+      -- AND-GUARD-PRE-1 to "6" (pinned by AGP-9); FS-13 pins "3" as discarded.
+      it "RF-P4 checker_soundness_version is \"6\" (AND-GUARD-PRE-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "6"
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "2")]) `shouldBe` True
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
 
@@ -23716,7 +23716,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           report = buildTrustReport Map.empty ss (Map.fromList [("pick", ContractStatus Nothing vrec [])])
       fmap (length . teDeps) (listToMaybe [ e | e <- trEntries report, teName e == "g" ]) `shouldBe` Just 0
 
-    -- LET-CALL-CONT-1 moved the stamp past "4" (LCC-6 pins "5").
+    -- LET-CALL-CONT-1 moved the stamp past "4", AND-GUARD-PRE-1 past "5"
+    -- (AGP-9 pins "6").
     it "FS-13 a sidecar stamped \"3\" (before FN-SHADOW-1) is discarded" $ do
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "3")]) `shouldBe` True
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String checkerSoundnessVersion)]) `shouldBe` False
@@ -26128,17 +26129,104 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let fq = erFQText r
       fq `shouldSatisfy` T.isInfixOf ": { v : bool | (v = false) }"
       fq `shouldSatisfy` T.isInfixOf ": { v : bool | (v = (_bv_call_map_get_"
-      fq `shouldSatisfy` T.isInfixOf ": { v : bool | (v = (((Map_select r_has i) = 1) && (_bv_call_map_get_"
+      -- AND-GUARD-PRE-1: p2's `and` is lowered to p1's `if`, so the call is
+      -- no longer hoisted above the conjunction.
+      fq `shouldNotSatisfy` T.isInfixOf ": { v : bool | (v = (((Map_select r_has i) = 1) && (_bv_call_map_get_"
       fq `shouldNotSatisfy` T.isInfixOf "_bv_ok_2 : { v : int"
     it "LCC-5 a bare call RHS (identity continuation) still aliases: no let binder" $ do
       r <- emitL [ "(def f [r: map[int,int] i: int] -> int (pre (map-has r i)) (post (= result (+ (map-get r i) 1))) (let [(x (map-get r i))] (+ x 1)))" ]
       erBodyFaithfulFns r `shouldBe` ["f"]
       erFQText r `shouldSatisfy` T.isInfixOf "(result = (_bv_call_map_get_0 + 1))"
       erFQText r `shouldNotSatisfy` T.isInfixOf "_bv_x_"
-    it "LCC-6 checker_soundness_version is \"5\": a sidecar stamped \"4\" is discarded" $ do
-      checkerSoundnessVersion `shouldBe` "5"
+    -- AND-GUARD-PRE-1 moved the stamp past "5" (AGP-9 pins "6").
+    it "LCC-6 a sidecar stamped \"4\" (before LET-CALL-CONT-1) is discarded" $ do
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "4")]) `shouldBe` True
-      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "5")]) `shouldBe` False
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String checkerSoundnessVersion)]) `shouldBe` False
+
+  -- AND-GUARD-PRE-1: a call in a later operand of `and`, `or` or `=>` was
+  -- hoisted above the operator, so its pre was required, and its post
+  -- assumed, on the path that never calls it. The operator is now lowered to
+  -- the nested `if` it means before A-normalization, only when a later
+  -- operand holds a hoisted call.
+  describe "AND-GUARD-PRE-1: a short-circuit operand guards its calls" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<agp>" (T.unlines src) of
+          Left err -> error ("AND-GUARD-PRE-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        emitG src = emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "<agp>.llmll" (parsedG src)
+        exprG src = case parseExpr "<agp>" src of
+          Left err -> error ("AND-GUARD-PRE-1 test expr failed to parse: " ++ show err)
+          Right e  -> e
+        normG src = evalState (aNormalizeBody (Set.fromList ["map-get", "bytes-get"]) (exprG src)) (0 :: Int)
+        ri = [EVar "r", EVar "i"]
+        sigM n = "(def " <> n <> " [r: map[int,int] i: int] -> int (post (>= result 0)) "
+        -- The lhs of the call-pre constraint whose rhs is the map-get pre.
+        callPreLhs fq = [ l | (l, r) <- zip ls (drop 1 ls)
+                            , "rhs { v : int | ((Map_select r_has i) = 1) }" `T.isInfixOf` r ]
+          where ls = T.lines fq
+    it "AGP-1 (unit) w1's guard lowers to nested ifs, the map-get hoisted inside the inner if" $ do
+      normG "(if (and (map-has r i) (>= (map-get r i) 0)) 1 0)" `shouldBe`
+        EIf (EApp "map-has" ri)
+            (ELet [(PVar "_bv_anf_0", Nothing, EApp "map-get" ri)]
+                  (EIf (EOp ">=" [EVar "_bv_anf_0", ELit (LitInt 0)]) (ELit (LitInt 1)) (ELit (LitInt 0))))
+            (ELit (LitInt 0))
+    it "AGP-2 (unit) a call-free short-circuit guard, and a call in the first operand, are not lowered" $ do
+      let callFree = "(if (and (>= i 0) (< i 5)) 1 0)"
+      normG callFree `shouldBe` exprG callFree
+      normG "(if (and (>= (map-get r i) 0) (map-has r i)) 1 0)" `shouldBe`
+        ELet [(PVar "_bv_anf_0", Nothing, EApp "map-get" ri)]
+             (EIf (EOp "and" [EOp ">=" [EVar "_bv_anf_0", ELit (LitInt 0)], EApp "map-has" ri]) (ELit (LitInt 1)) (ELit (LitInt 0)))
+    it "AGP-3 or, => and not-over-and guards put the earlier operand on the call-pre lhs" $ do
+      r <- emitG
+        [ sigM "gor"  <> "(if (or (not (map-has r i)) (>= (map-get r i) 0)) 1 0))"
+        , sigM "gnot" <> "(if (not (and (map-has r i) (< (map-get r i) 0))) 1 0))"
+        , "(def gimp [b: bytes[8] i: int] -> int (post (>= result 0)) (if (=> (and (>= i 0) (< i 8)) (>= (bytes-get b i) 0)) 1 0))" ]
+      erBodyFaithfulFns r `shouldBe` ["gor", "gnot", "gimp"]
+      let fq = erFQText r
+      callPreLhs fq `shouldBe`
+        [ "  lhs { v : int | (not ((not ((Map_select r_has i) = 1)))) }"
+        , "  lhs { v : int | ((Map_select r_has i) = 1) }" ]
+      fq `shouldSatisfy` T.isInfixOf "lhs { v : int | ((bytesLen b) >= 0) && (((i >= 0) && (i < 8)) && ((bytesLen b) = 8)) }"
+      fq `shouldNotSatisfy` T.isInfixOf "lhs { v : int | true }"
+    it "AGP-4 value forms: a bool body and a let-bound and are body-faithful with a guarded call-pre" $ do
+      r <- emitG
+        [ "(def b08 [r: map[int,int] i: int] -> bool (post (=> result (map-has r i))) (and (map-has r i) (>= (map-get r i) 0)))"
+        , sigM "a07" <> "(let [(ok (and (map-has r i) (>= (map-get r i) 0)))] (if ok 1 0)))" ]
+      erBodyFaithfulFns r `shouldBe` ["b08", "a07"]
+      callPreLhs (erFQText r) `shouldBe` replicate 2 "  lhs { v : int | ((Map_select r_has i) = 1) }"
+      erFQText r `shouldSatisfy` T.isInfixOf ": { v : bool | (v = false) }"
+    it "AGP-5 an and in argument position is bound to a fresh let, not an if argument" $ do
+      r <- emitG
+        [ "(def-shell h [x: bool] -> int (post (>= result 0)) (if x 1 0))"
+        , "(def-shell garg [r: map[int,int] i: int] -> int (post (>= result 0)) (h (and (map-has r i) (>= (map-get r i) 0))))" ]
+      erBodyFaithfulFns r `shouldBe` ["h", "garg"]
+      erBodyFallback r `shouldBe` []
+      callPreLhs (erFQText r) `shouldBe` ["  lhs { v : int | ((Map_select r_has i) = 1) }"]
+      map diagMessage (erDiagnostics r) `shouldNotSatisfy` any (T.isInfixOf "Refused by: if")
+    it "AGP-6 negatives: the earlier operand does not imply the pre (a15), or the call is first (a16)" $ do
+      r <- emitG
+        [ sigM "a15" <> "(if (and (>= i 0) (>= (map-get r i) 0)) 1 0))"
+        , sigM "a16" <> "(if (and (>= (map-get r i) 0) (map-has r i)) 1 0))" ]
+      erBodyFaithfulFns r `shouldBe` ["a15", "a16"]
+      callPreLhs (erFQText r) `shouldBe`
+        [ "  lhs { v : int | (i >= 0) }"
+        , "  lhs { v : int | true }" ]
+    it "AGP-7 a recursive descent site under and carries the earlier operand (e03)" $ do
+      r <- emitG [ "(def-shell cnt [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (and (> n 0) (>= (cnt (- n 1)) 0)) 1 0))" ]
+      erBodyFaithfulFns r `shouldBe` ["cnt"]
+      let fq = erFQText r
+      T.count "lhs { v : int | (n > 0) && (n >= 0) }" fq `shouldBe` 2
+      fq `shouldSatisfy` T.isInfixOf "rhs { v : int | ((n - 1) >= 0) }"
+      fq `shouldSatisfy` T.isInfixOf "rhs { v : int | ((n - 1) < n) }"
+    it "AGP-8 <=> evaluates both operands and is not lowered: its call-pre stays unguarded" $ do
+      normG "(if (<=> (map-has r i) (>= (map-get r i) 0)) 1 0)" `shouldBe`
+        ELet [(PVar "_bv_anf_0", Nothing, EApp "map-get" ri)]
+             (EIf (EOp "<=>" [EApp "map-has" ri, EOp ">=" [EVar "_bv_anf_0", ELit (LitInt 0)]]) (ELit (LitInt 1)) (ELit (LitInt 0)))
+      r <- emitG [ sigM "giff" <> "(if (<=> (map-has r i) (>= (map-get r i) 0)) 1 0))" ]
+      callPreLhs (erFQText r) `shouldBe` ["  lhs { v : int | true }"]
+    it "AGP-9 checker_soundness_version is \"6\": a sidecar stamped \"5\" is discarded" $ do
+      checkerSoundnessVersion `shouldBe` "6"
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "5")]) `shouldBe` True
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "6")]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

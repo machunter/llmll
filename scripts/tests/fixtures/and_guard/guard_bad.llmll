@@ -1,0 +1,17 @@
+;; AND-GUARD-PRE-1 negatives: the call's pre is not established on the path
+;; that reaches the call. In a15 the earlier conjunct says nothing about the
+;; key; in a16 the call is in the first conjunct, which always runs; in wrong
+;; the earlier conjunct tests a different key. Each stays refuted at its
+;; call-site pre.
+
+(def a15 [r: map[int,int] i: int] -> int
+  (post (>= result 0))
+  (if (and (>= i 0) (>= (map-get r i) 0)) 1 0))
+
+(def a16 [r: map[int,int] i: int] -> int
+  (post (>= result 0))
+  (if (and (>= (map-get r i) 0) (map-has r i)) 1 0))
+
+(def wrong [r: map[int,int] i: int j: int] -> int
+  (post (>= result 0))
+  (if (and (map-has r j) (>= (map-get r i) 0)) 1 0))

@@ -53,6 +53,7 @@ module LLMLL.FixpointEmit
   , hasHole                       -- FALLBACK-CENSUS-1: shared hole walker (defined in Syntax)
   , refusedConstructs             -- FALLBACK-CENSUS-1: per-clause refusal labels
   , bodyRefusalLabels             -- SHELL-FALLBACK-SILENT-1: per-body refusal labels
+  , aNormalizeBody                -- AND-GUARD-PRE-1: unit tests read the lowering
   , classifyResultArms            -- SHELL-FALLBACK-SILENT-1: re-export, defined in Syntax
   , classifyNArmAdtArms           -- SHELL-FALLBACK-SILENT-1: re-export, defined in Syntax
     -- * Alias map (v0.8.0)
@@ -4213,18 +4214,89 @@ localBinderNames = go
 -- Identity on any expression with no call in argument position, so it never
 -- perturbs a function that already verified body-faithfully. Uses the shared
 -- alpha-renaming counter (runs before 'bodyToPredM', which continues it).
+--
+-- AND-GUARD-PRE-1: `and`, `or` and `=>` evaluate a later operand only when the
+-- earlier ones do not decide the result (CodegenHs 'esLazyOps'). Hoisting a
+-- call out of a later operand put it above the branch, so its pre was required
+-- and its post assumed on the path that never calls it. When a later operand
+-- holds a call this pass would hoist, the operator is first lowered to the
+-- nested `if` it means ('lowerGuard' in an `if` guard, 'lowerValue'
+-- elsewhere). A short-circuit operator without such a call is left as it was.
 aNormalizeBody :: Set.Set Name -> Expr -> State Int Expr
 aNormalizeBody calls = normTail
   where
     isCall f = f `Set.member` calls
 
+    -- AND-GUARD-PRE-1: would 'atomize' hoist a call out of this expression?
+    hoists :: Expr -> Bool
+    hoists e = case e of
+      EApp f _ | isCall f -> True
+      EApp _ args -> any hoists args
+      EOp  _ args -> any hoists args
+      EPair a b   -> hoists a || hoists b
+      _           -> False
+
+    -- The parser spells an operator 'EOp' and a call 'EApp'; both are read.
+    opView :: Expr -> Maybe (Name, [Expr])
+    opView e = case e of
+      EApp f as -> Just (f, as)
+      EOp  f as -> Just (f, as)
+      _         -> Nothing
+
+    notOf :: Expr -> Maybe Expr
+    notOf e = case opView e of
+      Just ("not", [c]) -> Just c
+      _                 -> Nothing
+
+    -- A short-circuit operator, binary, whose later operand holds a hoisted
+    -- call. An n-ary `and`/`or` is read right-nested.
+    shortCircuit :: Expr -> Maybe (Name, Expr, Expr)
+    shortCircuit e = case opView e of
+      Just (op, a : rest@(_ : _))
+        | op `elem` ["and", "or"], any hoists rest ->
+            Just (op, a, case rest of { [x] -> x; _ -> EOp op rest })
+      Just ("=>", [a, b]) | hoists b -> Just ("=>", a, b)
+      _ -> Nothing
+
+    -- Guard form: @(if c t e)@ with @c@ lowered to nested ifs.
+    lowerGuard :: Expr -> Expr -> Expr -> Maybe Expr
+    lowerGuard c t e
+      | Just c' <- notOf c = lowerGuard c' e t
+      | otherwise = case shortCircuit c of
+          Just ("and", a, b) -> Just (EIf a (EIf b t e) e)
+          Just ("or",  a, b) -> Just (EIf a t (EIf b t e))
+          Just ("=>",  a, b) -> Just (EIf a (EIf b t e) t)
+          _                  -> Nothing
+
+    -- Value form: a bool-valued short-circuit expression as an `if`; a `not`
+    -- over one is pushed inward.
+    lowerValue :: Expr -> Maybe Expr
+    lowerValue c
+      | Just c' <- notOf c, Just c'' <- notOf c' = lowerValue c''
+      | Just c' <- notOf c = case shortCircuit c' of
+          Just ("and", a, b) -> Just (EIf a (EOp "not" [b]) true_)
+          Just ("or",  a, b) -> Just (EIf a false_ (EOp "not" [b]))
+          Just ("=>",  a, b) -> Just (EIf a (EOp "not" [b]) false_)
+          _                  -> Nothing
+      | otherwise = case shortCircuit c of
+          Just ("and", a, b) -> Just (EIf a b false_)
+          Just ("or",  a, b) -> Just (EIf a true_ b)
+          Just ("=>",  a, b) -> Just (EIf a b true_)
+          _                  -> Nothing
+
+    true_  = ELit (LitBool True)
+    false_ = ELit (LitBool False)
+
     -- Tail context: a call at the head is fine; hoist calls from sub-positions.
     normTail :: Expr -> State Int Expr
     normTail e = case e of
+      _ | Just e' <- lowerValue e -> normTail e'
       EApp f args     -> do { (bs, as) <- atomizeArgs args; pure (wrapLets bs (EApp f as)) }
       EOp  op args    -> do { (bs, as) <- atomizeArgs args; pure (wrapLets bs (EOp op as)) }
       EPair a b       -> do { (bs, as) <- atomizeArgs [a, b]; pure (wrapLets bs (mkPair as)) }
-      EIf c t f       -> do
+      EIf c t f
+        | Just e' <- lowerGuard c t f -> normTail e'
+        | otherwise -> do
         (bs, c') <- atomize c
         t' <- normTail t
         f' <- normTail f
@@ -4242,6 +4314,12 @@ aNormalizeBody calls = normTail
     -- Atom context: must become atomic; a call here is hoisted to a fresh let.
     atomize :: Expr -> State Int ([(Pattern, Maybe Type, Expr)], Expr)
     atomize e = case e of
+      -- AND-GUARD-PRE-1: a lowered short-circuit operator in argument position
+      -- is bound to a fresh let, so no `if` lands in argument position.
+      _ | Just e' <- lowerValue e -> do
+        rhs <- normTail e'
+        t <- freshName "anf"
+        pure ([(PVar t, Nothing, rhs)], EVar t)
       EApp f args | isCall f -> do
         (bs, as) <- atomizeArgs args
         t <- freshName "anf"

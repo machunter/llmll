@@ -1,0 +1,3 @@
+(import lib2)
+(open lib2)
+(def-shell f [y: int] -> int (post (= result 2)) (if (> y 0) (if (> (boom y) 0) 2 1) 1))
