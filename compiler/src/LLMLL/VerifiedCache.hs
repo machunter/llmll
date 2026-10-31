@@ -390,8 +390,13 @@ reservedCallerObligationsKey = "caller_obligations"
 -- side continues after a call — @(+ 1 (f y))@, a nested let, an `if` over a
 -- call result — bound the variable to the bare call result, so an older
 -- sidecar can hold a false `verified`. Every older sidecar is discarded once.
+--
+-- "6" (AND-GUARD-PRE-1): a call in a later operand of `and`, `or` or `=>` was
+-- hoisted above the operator, so its post was assumed on the path that never
+-- calls it; under a callee proved only if it terminates, an older sidecar can
+-- hold a false `verified`. Every older sidecar is discarded once.
 checkerSoundnessVersion :: Text
-checkerSoundnessVersion = "5"
+checkerSoundnessVersion = "6"
 
 -- | SAFE-ARG: reserved top-level sidecar key carrying 'checkerSoundnessVersion'.
 reservedCheckerSoundnessKey :: Text
