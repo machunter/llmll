@@ -1,7 +1,7 @@
 (import wasi.io (capability stdout))
 (import prlib)
 (open prlib)
-(def-shell sq [x: int] -> int (pre (>= x 0)) (post (?proof-required :reason "nl" (= result (* x x)))) (* x x))
+(def-shell sq [x: int] -> int (pre (>= x 0)) (post (?proof-required :reason "non-linear-contract" (= result (* x x)))) (* x x))
 (def-shell bare2 [x: int] -> int (pre ?proof-required) (post ?proof-required) (+ x 1))
 (def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout "|")))
 (def-shell fin [s: int] -> bool (>= s 1))

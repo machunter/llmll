@@ -1,1 +1,1 @@
-(def-shell sqbad [x: int] -> int (pre (>= x 0)) (post (?proof-required :reason "nl" (= result (* x x)))) (+ x 1))
+(def-shell sqbad [x: int] -> int (pre (>= x 0)) (post (?proof-required :reason "non-linear-contract" (= result (* x x)))) (+ x 1))
