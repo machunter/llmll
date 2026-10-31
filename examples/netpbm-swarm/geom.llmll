@@ -1,0 +1,128 @@
+;; geom — LEVEL 1 of the netpbm-swarm verified core.
+;; Depends on: types (level 0). Verify types.llmll first.
+;;
+;; Index maps for the geometric transforms, on channel-interleaved rows:
+;; sample i of a row is channel (i mod c) of pixel column (i / c), and a row
+;; of a w-wide image has L = (row-len c w) samples (w, or 3w). Each transform
+;; is "output sample i of output row y comes from input sample <src i> of
+;; input row <src y>"; the shell walks the rows, and kernel.llmll reads the
+;; source sample through these maps. i / 3 and i mod 3 have a constant
+;; divisor, so every formula here is linear.
+;;
+;; vflip needs no index map: the shell reverses the row list (list-reverse,
+;; O(h)). Crop's row selection is crop-row?.
+
+(import types)
+(open types)
+
+;; ─── Horizontal flip ────────────────────────────────────────────────────
+;; Source sample for output sample i: pixel column w-1-x, SAME channel.
+;; Rejects (- L 1 i) for c = 3 (it also reverses r,g,b inside each pixel)
+;; and the off-by-one (- w i).
+(def hflip-src [c: int w: int i: int] -> int
+  (pre  (and (or (= c 1) (= c 3))
+        (and (>= w 1)
+        (and (>= i 0)
+        (and (=> (= c 1) (< i w)) (=> (= c 3) (< i (* 3 w))))))))
+  (post (and (>= result 0)
+        (and (=> (= c 1) (and (< result w) (= result (- (- w 1) i))))
+             (=> (= c 3) (and (< result (* 3 w))
+                         (and (= (mod result 3) (mod i 3))
+                              (= result (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3)))))))))
+  (if (= c 3)
+      (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3))
+      (- (- w 1) i)))
+
+;; ─── Crop ───────────────────────────────────────────────────────────────
+;; The cw x ch window at (x, y) lies inside a w x h image. Rejects (< ...)
+;; for (<= (+ x cw) w) (refuses a window flush with the right edge).
+(def crop-ok? [w: int h: int x: int y: int cw: int ch: int] -> bool
+  (post (= result (and (>= x 0) (and (>= y 0) (and (>= cw 1) (and (>= ch 1)
+                  (and (<= (+ x cw) w) (<= (+ y ch) h))))))))
+  (and (>= x 0) (and (>= y 0) (and (>= cw 1) (and (>= ch 1)
+       (and (<= (+ x cw) w) (<= (+ y ch) h)))))))
+
+;; Input row y is kept by a crop of rows y0 .. y0+ch-1.
+(def crop-row? [y0: int ch: int y: int] -> bool
+  (post (= result (and (<= y0 y) (< y (+ y0 ch)))))
+  (and (<= y0 y) (< y (+ y0 ch))))
+
+;; Source sample for output sample i of a cropped row (columns x0..x0+cw-1).
+;; Proved to land inside the source row. Rejects (+ x0 i) for c = 3.
+(def crop-src [c: int w: int x0: int cw: int i: int] -> int
+  (pre  (and (or (= c 1) (= c 3))
+        (and (>= x0 0)
+        (and (>= cw 1)
+        (and (<= (+ x0 cw) w)
+        (and (>= i 0)
+             (and (=> (= c 1) (< i cw)) (=> (= c 3) (< i (* 3 cw))))))))))
+  (post (and (>= result 0)
+        (and (=> (= c 1) (and (= result (+ x0 i)) (< result w)))
+             (=> (= c 3) (and (= result (+ (* 3 x0) i)) (< result (* 3 w)))))))
+  (+ (row-len c x0) i))
+
+;; ─── Blur neighbourhood ─────────────────────────────────────────────────
+;; Sample index of the SAME channel in the pixel at column x+dx, where x is
+;; the column of sample i, clamped into 0..w-1 (edge replication).
+;; dx is -1, 0 or 1. Stated as properties, not as the body:
+;;   in the row and in the same channel; dx = 0 is i itself; an in-range
+;;   neighbour is i + c*dx; an out-of-range neighbour replicates the edge
+;;   pixel, i.e. is i itself. Rejects wrap-around (mod w), a neighbour taken
+;;   in the wrong channel (i + dx for c = 3), and clamping to w.
+(def nbr-src [c: int w: int i: int dx: int] -> int
+  (pre  (and (or (= c 1) (= c 3))
+        (and (>= w 1)
+        (and (>= i 0)
+        (and (=> (= c 1) (< i w))
+        (and (=> (= c 3) (< i (* 3 w)))
+             (and (>= dx -1) (<= dx 1))))))))
+  (post (and (>= result 0)
+        (and (=> (= dx 0) (= result i))
+        (and (=> (= c 1)
+                 (and (< result w)
+                 (and (=> (and (>= (+ i dx) 0) (< (+ i dx) w)) (= result (+ i dx)))
+                      (=> (or (< (+ i dx) 0) (>= (+ i dx) w)) (= result i)))))
+             (=> (= c 3)
+                 (and (< result (* 3 w))
+                 (and (= (mod result 3) (mod i 3))
+                 (and (=> (and (>= (+ (/ i 3) dx) 0) (< (+ (/ i 3) dx) w))
+                          (= result (+ i (* 3 dx))))
+                      (=> (or (< (+ (/ i 3) dx) 0) (>= (+ (/ i 3) dx) w))
+                          (= result i))))))))))
+  (if (= c 3)
+      (let [(x (/ i 3))]
+        (+ (* 3 (max 0 (min (- w 1) (+ x dx)))) (mod i 3)))
+      (max 0 (min (- w 1) (+ i dx)))))
+
+;; ─── Composite properties (tested) ──────────────────────────────────────
+;; The per-function posts above are verified. These state facts across two
+;; calls, which no single post can express. Inputs are generated freely, so
+;; each property maps them into the callee's pre (c from a sign, w and i by
+;; mod) instead of discarding almost every sample with a guard.
+
+;; Flipping twice gives the original sample back.
+(check "hflip-src is an involution" :subject hflip-src
+  (for-all [k: int w0: int i0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 40)))
+          (i (mod (abs i0) (* c w)))]
+      (= (hflip-src c w (hflip-src c w i)) i))))
+
+;; A full-width crop (x0 = 0, cw = w) maps every sample to itself.
+(check "full-width crop-src is the identity" :subject crop-src
+  (for-all [k: int w0: int i0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 40)))
+          (i (mod (abs i0) (* c w)))]
+      (= (crop-src c w 0 w i) i))))
+
+;; Neighbours are symmetric away from the edges: the left neighbour of the
+;; right neighbour of an interior sample is the sample itself.
+(check "nbr-src left of right is identity off the right edge" :subject nbr-src
+  (for-all [k: int w0: int i0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 40)))
+          (i (mod (abs i0) (* c w)))]
+      (if (< (+ (/ i c) 1) w)
+          (= (nbr-src c w (nbr-src c w i 1) -1) i)
+          (= (nbr-src c w i 1) i)))))

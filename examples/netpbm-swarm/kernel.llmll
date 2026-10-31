@@ -1,0 +1,236 @@
+;; kernel — LEVEL 2 of the netpbm-swarm verified core.
+;; Depends on: types (0), sample (0), geom (1). Verify those first, in that
+;; order, then this module.
+;;
+;; One output sample of each index-based transform, computed end to end by a
+;; verified def: the source index (geom), the read (sample.sample-at), and
+;; the arithmetic (sample). The shell only enumerates i over (range 0 L') and
+;; builds the row maps.
+;;
+;; Row maps. A row is held as map[int,int] with keys 0..L-1 (L = row-len c w)
+;; mapping to its samples; the shell builds it from the row list with one
+;; fold. A decoded image satisfies "every key 0..L-1 present, every value in
+;; 0..m", and under that the reads below are exact; whatever the map holds,
+;; every result is still proved to lie in 0..m.
+;;
+;; Posts spell the source index out (not as a call to hflip-src etc.), so
+;; they state WHICH sample is read, independently of the body.
+;;
+;; The blur's 3x3 mean is in blur.llmll (level 3); this module has the
+;; per-row window sum it is built from.
+;;
+;; invert and threshold need no kernel: the shell maps sample.invert-sample
+;; and sample.threshold-sample over each row list. vflip is list-reverse.
+
+(import types)
+(open types)
+(import sample)
+(open sample)
+(import geom)
+(open geom)
+
+;; ─── Horizontal flip ────────────────────────────────────────────────────
+;; Output sample i reads input sample w-1-i (P2) or the same channel of
+;; pixel w-1-x (P3). Rejects reading (- L 1 i) for P3, and reading i.
+;; Fully determined, off the decoded-image domain too: an absent source key
+;; reads 0 and an out-of-range stored value is clamped (as sample-at). This
+;; rejects a "defensive" body that falls back to reading sample i when the
+;; mirrored key is absent (it verified SAFE against the in-domain-only post).
+(def hflip-sample [m: int c: int w: int row: map[int, int] i: int] -> int
+  (pre  (and (>= m 1)
+        (and (or (= c 1) (= c 3))
+        (and (>= w 1)
+        (and (>= i 0)
+             (and (=> (= c 1) (< i w)) (=> (= c 3) (< i (* 3 w)))))))))
+  (post (and (>= result 0)
+        (and (<= result m)
+        (and (=> (and (= c 1)
+                 (and (map-has row (- (- w 1) i))
+                 (and (>= (map-get row (- (- w 1) i)) 0)
+                      (<= (map-get row (- (- w 1) i)) m))))
+                 (= result (map-get row (- (- w 1) i))))
+        (and (=> (and (= c 3)
+                 (and (map-has row (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3)))
+                 (and (>= (map-get row (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3))) 0)
+                      (<= (map-get row (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3))) m))))
+                 (= result (map-get row (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3)))))
+        (and
+        (and (=> (and (= c 1) (not (map-has row (- (- w 1) i)))) (= result 0))
+        (and (=> (and (= c 1) (and (map-has row (- (- w 1) i)) (< (map-get row (- (- w 1) i)) 0))) (= result 0))
+             (=> (and (= c 1) (and (map-has row (- (- w 1) i)) (> (map-get row (- (- w 1) i)) m))) (= result m))))
+        (and (=> (and (= c 3) (not (map-has row (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3))))) (= result 0))
+        (and (=> (and (= c 3) (and (map-has row (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3))) (< (map-get row (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3))) 0))) (= result 0))
+             (=> (and (= c 3) (and (map-has row (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3))) (> (map-get row (+ (* 3 (- (- w 1) (/ i 3))) (mod i 3))) m))) (= result m))))))))))
+  (sample-at m row (hflip-src c w i)))
+
+;; ─── Crop ───────────────────────────────────────────────────────────────
+;; Output sample i of a cropped row (columns x0 .. x0+cw-1 of a w-wide
+;; input row) reads input sample x0+i (P2) or 3*x0+i (P3).
+;; Fully determined, as hflip-sample: an absent source key reads 0 and an
+;; out-of-range value is clamped. Rejects a body that returns m (white) for
+;; an absent key (it verified SAFE against the in-domain-only post).
+(def crop-sample [m: int c: int w: int x0: int cw: int row: map[int, int] i: int] -> int
+  (pre  (and (>= m 1)
+        (and (or (= c 1) (= c 3))
+        (and (>= x0 0)
+        (and (>= cw 1)
+        (and (<= (+ x0 cw) w)
+        (and (>= i 0)
+             (and (=> (= c 1) (< i cw)) (=> (= c 3) (< i (* 3 cw)))))))))))
+  (post (and (>= result 0)
+        (and (<= result m)
+        (and (=> (and (= c 1)
+                 (and (map-has row (+ x0 i))
+                 (and (>= (map-get row (+ x0 i)) 0) (<= (map-get row (+ x0 i)) m))))
+                 (= result (map-get row (+ x0 i))))
+        (and (=> (and (= c 3)
+                 (and (map-has row (+ (* 3 x0) i))
+                 (and (>= (map-get row (+ (* 3 x0) i)) 0) (<= (map-get row (+ (* 3 x0) i)) m))))
+                 (= result (map-get row (+ (* 3 x0) i))))
+        (and
+        (and (=> (and (= c 1) (not (map-has row (+ x0 i)))) (= result 0))
+        (and (=> (and (= c 1) (and (map-has row (+ x0 i)) (< (map-get row (+ x0 i)) 0))) (= result 0))
+             (=> (and (= c 1) (and (map-has row (+ x0 i)) (> (map-get row (+ x0 i)) m))) (= result m))))
+        (and (=> (and (= c 3) (not (map-has row (+ (* 3 x0) i)))) (= result 0))
+        (and (=> (and (= c 3) (and (map-has row (+ (* 3 x0) i)) (< (map-get row (+ (* 3 x0) i)) 0))) (= result 0))
+             (=> (and (= c 3) (and (map-has row (+ (* 3 x0) i)) (> (map-get row (+ (* 3 x0) i)) m))) (= result m))))))))))
+  (sample-at m row (crop-src c w x0 cw i)))
+
+;; ─── Grayscale (P3 -> P2) ───────────────────────────────────────────────
+;; Gray sample of pixel x of a P3 row: luma of samples 3x, 3x+1, 3x+2.
+;; Rejects reading (x, x+1, x+2), swapping r and b, and averaging.
+(def gray-sample [m: int w: int row: map[int, int] x: int] -> int
+  (pre  (and (>= m 1) (and (>= w 1) (and (>= x 0) (< x w)))))
+  (post (and (>= result 0)
+        (and (<= result m)
+             (=> (and (map-has row (* 3 x))
+                 (and (map-has row (+ (* 3 x) 1))
+                 (and (map-has row (+ (* 3 x) 2))
+                 (and (and (>= (map-get row (* 3 x)) 0) (<= (map-get row (* 3 x)) m))
+                 (and (and (>= (map-get row (+ (* 3 x) 1)) 0) (<= (map-get row (+ (* 3 x) 1)) m))
+                      (and (>= (map-get row (+ (* 3 x) 2)) 0) (<= (map-get row (+ (* 3 x) 2)) m)))))))
+                 (= result (/ (+ (* 77 (map-get row (* 3 x)))
+                              (+ (* 150 (map-get row (+ (* 3 x) 1)))
+                                 (* 29 (map-get row (+ (* 3 x) 2)))))
+                              256))))))
+  (luma m (sample-at m row (* 3 x))
+          (sample-at m row (+ (* 3 x) 1))
+          (sample-at m row (+ (* 3 x) 2))))
+
+;; ─── Blur, one row of the window ─────────────────────────────────────
+;; Sum of the same channel over pixel columns x-1, x, x+1 of row map r
+;; (x = the column of sample i), edges replicated via geom.nbr-src.
+;; Proved: 0 <= sum <= 3m whatever the map holds; and, whenever the keys it
+;; reads hold samples, the exact sum for every case -- a 1-pixel row (3v), the
+;; left edge (2*r[i] + r[i+c]), the interior (r[i-c] + r[i] + r[i+c]) and the
+;; right edge (r[i-c] + 2*r[i]), for P2 and P3 separately. Mutants refuted:
+;; a wrong-channel neighbour (i-1 for P3), a missing clamp (reads an absent
+;; key as 0), a body that reads the centre twice, and one that reads the
+;; right neighbour twice. (The architect's post had only the 1-pixel P2
+;; case; the full one verifies in the same ~40 s.)
+;; The 3x3 mean is blur.llmll's blur-sample, one level up: a single def that
+;; makes all nine reads did not finish verifying in 3 minutes, while this
+;; split verifies in about 15 s (row-sum3) plus 0.4 s (blur-sample).
+(def row-sum3 [m: int c: int w: int r: map[int, int] i: int] -> int
+  (pre  (and (>= m 1)
+        (and (or (= c 1) (= c 3))
+        (and (>= w 1)
+        (and (>= i 0)
+             (and (=> (= c 1) (< i w)) (=> (= c 3) (< i (* 3 w)))))))))
+  (post (and (>= result 0)
+        (and (<= result (* 3 m))
+             (and (=> (and (= w 1)
+                     (and (map-has r i) (and (>= (map-get r i) 0) (<= (map-get r i) m))))
+                 (= result (* 3 (map-get r i))))
+        (and (=> (and (and (= c 1) (and (>= w 2) (< i 1)))
+                     (and (and (map-has r i) (and (>= (map-get r i) 0) (<= (map-get r i) m))) (and (map-has r (+ i 1)) (and (>= (map-get r (+ i 1)) 0) (<= (map-get r (+ i 1)) m)))))
+                 (= result (+ (* 2 (map-get r i)) (map-get r (+ i 1)))))
+        (and (=> (and (and (= c 1) (and (>= i 1) (< i (- w 1))))
+                     (and (and (map-has r (- i 1)) (and (>= (map-get r (- i 1)) 0) (<= (map-get r (- i 1)) m))) (and (and (map-has r i) (and (>= (map-get r i) 0) (<= (map-get r i) m))) (and (map-has r (+ i 1)) (and (>= (map-get r (+ i 1)) 0) (<= (map-get r (+ i 1)) m))))))
+                 (= result (+ (map-get r (- i 1)) (+ (map-get r i) (map-get r (+ i 1))))))
+        (and (=> (and (and (= c 1) (and (>= w 2) (>= i (- w 1))))
+                     (and (and (map-has r (- i 1)) (and (>= (map-get r (- i 1)) 0) (<= (map-get r (- i 1)) m))) (and (map-has r i) (and (>= (map-get r i) 0) (<= (map-get r i) m)))))
+                 (= result (+ (map-get r (- i 1)) (* 2 (map-get r i)))))
+        (and (=> (and (and (= c 3) (and (>= w 2) (< i 3)))
+                     (and (and (map-has r i) (and (>= (map-get r i) 0) (<= (map-get r i) m))) (and (map-has r (+ i 3)) (and (>= (map-get r (+ i 3)) 0) (<= (map-get r (+ i 3)) m)))))
+                 (= result (+ (* 2 (map-get r i)) (map-get r (+ i 3)))))
+        (and (=> (and (and (= c 3) (and (>= i 3) (< i (- (* 3 w) 3))))
+                     (and (and (map-has r (- i 3)) (and (>= (map-get r (- i 3)) 0) (<= (map-get r (- i 3)) m))) (and (and (map-has r i) (and (>= (map-get r i) 0) (<= (map-get r i) m))) (and (map-has r (+ i 3)) (and (>= (map-get r (+ i 3)) 0) (<= (map-get r (+ i 3)) m))))))
+                 (= result (+ (map-get r (- i 3)) (+ (map-get r i) (map-get r (+ i 3))))))
+        (=> (and (and (= c 3) (and (>= w 2) (>= i (- (* 3 w) 3))))
+                     (and (and (map-has r (- i 3)) (and (>= (map-get r (- i 3)) 0) (<= (map-get r (- i 3)) m))) (and (map-has r i) (and (>= (map-get r i) 0) (<= (map-get r i) m)))))
+                 (= result (+ (map-get r (- i 3)) (* 2 (map-get r i))))))))))))))
+  (+ (sample-at m r (nbr-src c w i -1))
+     (+ (sample-at m r (nbr-src c w i 0))
+        (sample-at m r (nbr-src c w i 1)))))
+
+;; ─── Composite properties (tested) ──────────────────────────────────────
+;; These need a whole row map, which no single post can quantify over (the
+;; posts speak about one read). Inputs are generated freely, so each
+;; property maps them into the callee's pre (c from a sign, w, i, v by mod)
+;; and builds the row map with one fold, as the shell does.
+;;
+;; "Index-valued" rows store k at key k (with m = c*w so every value is a
+;; sample), so a kernel's result IS the source index it read.
+
+;; hflip-sample twice returns the index it started from: the read goes to
+;; the mirrored pixel, same channel, and the mirror of that is i again.
+(check "hflip-sample is an involution on an index-valued row" :subject hflip-sample
+  (for-all [k: int w0: int i0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 30)))
+          (m (* c w))
+          (i (mod (abs i0) (* c w)))
+          (row (list-fold (range 0 (* c w)) (map-empty)
+                 (fn [acc: map[int, int] j: int] (map-put acc j j))))]
+      (= (hflip-sample m c w row (hflip-sample m c w row i)) i))))
+
+;; A full-width crop (x0 = 0, cw = w) reads sample i itself.
+(check "full-width crop-sample reads sample i" :subject crop-sample
+  (for-all [k: int w0: int i0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 30)))
+          (m (* c w))
+          (i (mod (abs i0) (* c w)))
+          (row (list-fold (range 0 (* c w)) (map-empty)
+                 (fn [acc: map[int, int] j: int] (map-put acc j j))))]
+      (= (crop-sample m c w 0 w row i) i))))
+
+;; A gray pixel (r = g = b = v) keeps its value: 77 + 150 + 29 = 256.
+(check "gray-sample of a gray row is the gray value" :subject gray-sample
+  (for-all [w0: int x0: int v0: int]
+    (let [(w (+ 1 (mod (abs w0) 30)))
+          (m 255)
+          (x (mod (abs x0) w))
+          (v (mod (abs v0) 256))
+          (row (list-fold (range 0 (* 3 w)) (map-empty)
+                 (fn [acc: map[int, int] j: int] (map-put acc j v))))]
+      (= (gray-sample m w row x) v))))
+
+;; A constant row sums to 3v at every sample, edges included.
+(check "row-sum3 of a constant row is 3v" :subject row-sum3
+  (for-all [k: int w0: int i0: int v0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 30)))
+          (m 255)
+          (i (mod (abs i0) (* c w)))
+          (v (mod (abs v0) 256))
+          (row (list-fold (range 0 (* c w)) (map-empty)
+                 (fn [acc: map[int, int] j: int] (map-put acc j v))))]
+      (= (row-sum3 m c w row i) (* 3 v)))))
+
+;; On an index-valued row an interior sample's window is i-c, i, i+c, so the
+;; sum is 3i; at a replicated edge one neighbour is i itself. Rejects a
+;; neighbour taken in the wrong channel (i +- 1 for P3) and a missing clamp.
+(check "row-sum3 reads the same channel of the neighbouring pixels" :subject row-sum3
+  (for-all [k: int w0: int i0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 30)))
+          (m (* c w))
+          (i (mod (abs i0) (* c w)))
+          (x (/ i c))
+          (row (list-fold (range 0 (* c w)) (map-empty)
+                 (fn [acc: map[int, int] j: int] (map-put acc j j))))
+          (left (if (>= (- x 1) 0) (- i c) i))
+          (right (if (< (+ x 1) w) (+ i c) i))]
+      (= (row-sum3 m c w row i) (+ left (+ i right))))))

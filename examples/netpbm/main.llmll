@@ -1,0 +1,165 @@
+;; main — command-line entry for the netpbm codec.
+;;
+;;   netpbm IN TRANSFORM OUT [N ...]
+;;
+;; TRANSFORM is one of
+;;   copy | invert | hflip | vflip | gray | blur
+;;   threshold T          samples >= T become maxval, the rest 0
+;;   crop X Y W H         the W x H window with top-left corner (X, Y)
+;;
+;; The program is a three-turn `cli` loop over the Command/Response model:
+;;   :init  asks for the argument vector       -> RList args
+;;   turn 1 validates it and reads IN          -> RText text | RErr
+;;   turn 2 decodes, transforms, encodes, writes OUT -> RNone | RErr
+;;   turn 3 records success; :on-done reports, :status sets the exit code.
+;;
+;; State = (phase, (args, message))
+;;   phase 0 = want args, 1 = reading, 2 = writing, 3 = done, 4 = failed
+
+(import wasi.io   (capability stdout :deterministic false))
+(import wasi.fs   (capability read-write "."))
+(import wasi.proc (capability args :deterministic false))
+(import pixel)
+(open pixel)
+(import netpbm)
+(open netpbm)
+(import mainlogic)
+(open mainlogic)
+
+(type State (int, (list[string], string)))
+
+(def st-phase [s: State] -> int
+  (post (= result (first s)))
+  (first s))
+(def-shell st-args [s: State] -> list[string]
+  (post (= result (first (second s))))
+  (first (second s)))
+(def-shell st-msg [s: State] -> string
+  (post (= result (second (second s))))
+  (second (second s)))
+
+(def-shell mk [phase: int args: list[string] msg: string] -> State
+  (post (and (= (st-phase result) phase) (and (= (st-args result) args) (= (st-msg result) msg))))
+  (pair phase (pair args msg)))
+
+;; Argument i, or "" when there are fewer arguments.
+(def-shell arg [args: list[string] i: int] -> string
+  (post (=> (or (< i 0) (>= i (list-length args))) (= result "")))
+  (unwrap-or (list-nth args i) ""))
+
+(def-shell usage [] -> string
+  "usage: netpbm IN TRANSFORM OUT [N ...]\n  TRANSFORM: copy | invert | hflip | vflip | gray | blur | threshold T | crop X Y W H\n")
+
+;; Integer arguments after OUT, or an error naming the bad one.
+(def-shell int-args [args: list[string]] -> Result[list[int], string]
+  (post (match result
+          ((Success ns) (= (list-length ns) (max 0 (- (list-length args) 3))))
+          ((Error e) (not (= e "")))))
+  (list-fold (slice-strings args 3 (list-length args)) (ok (list-empty))
+    (fn [acc: Result[list[int], string] a: string]
+      (match acc
+        ((Error e) (err e))
+        ((Success xs)
+          (match (parse-nat a "transform argument")
+            ((Error e) (err e))
+            ((Success n) (ok (list-append xs n)))))))))
+
+(def-shell slice-strings [xs: list[string] lo: int hi: int] -> list[string]
+  (post (= (list-length result) (max 0 (- (min hi (list-length xs)) (max lo 0)))))
+  (list-reverse
+    (second
+      (list-fold xs (pair 0 (list-empty))
+        (fn [acc: (int, list[string]) x: string]
+          (pair (+ (first acc) 1)
+                (if (in-span? lo hi (first acc)) (list-prepend x (second acc)) (second acc))))))))
+
+(def-shell nth-int [xs: list[int] i: int] -> int
+  (post (=> (or (< i 0) (>= i (list-length xs))) (= result 0)))
+  (unwrap-or (list-nth xs i) 0))
+
+;; Apply the named transform. Argument-count and crop-window checks are the
+;; verified decisions in mainlogic.llmll and pixel.llmll.
+(def-shell apply-op [name: string ns: list[int] img: Image] -> Result[Image, string]
+  (pre (image-ok? img))
+  (post (match result ((Success out) (image-ok? out)) ((Error e) true)))
+  (let [(code (op-code name))
+        (h    (img-header img))]
+    (if (= code 0)
+        (err (string-concat-many ["unknown transform '" name "'\n" (usage)]))
+        (if (not (= (list-length ns) (op-arity code)))
+            (err (string-concat-many [name " takes " (int-to-string (op-arity code))
+                                      " integer argument(s), got " (int-to-string (list-length ns))]))
+            (if (= code 1) (ok img)
+            (if (= code 2) (ok (invert img))
+            (if (= code 3) (ok (hflip img))
+            (if (= code 4) (ok (vflip img))
+            (if (= code 5) (ok (grayscale img))
+            (if (= code 6) (ok (blur img))
+            (if (= code 7) (ok (threshold (nth-int ns 0) img))
+                (let [(x (nth-int ns 0)) (y (nth-int ns 1)) (cw (nth-int ns 2)) (ch (nth-int ns 3))]
+                  (if (crop-ok? (hdr-width h) (hdr-height h) x y cw ch)
+                      (ok (crop x y cw ch img))
+                      (err (string-concat-many ["crop window " (int-to-string cw) "x" (int-to-string ch)
+                                                "+" (int-to-string x) "+" (int-to-string y)
+                                                " is not inside the " (int-to-string (hdr-width h)) "x"
+                                                (int-to-string (hdr-height h)) " image"])))))))))))))))
+
+;; Turn 2: the whole pure pipeline, text in, text out.
+(def-shell process [args: list[string] text: string] -> Result[string, string]
+  (post (match result
+          ((Success out) (is-ok (decode out)))
+          ((Error e) (not (= e "")))))
+  (match (decode text)
+    ((Error e) (err (string-concat-many [(arg args 0) ": " e])))
+    ((Success img)
+      (match (int-args args)
+        ((Error e) (err e))
+        ((Success ns)
+          (match (apply-op (arg args 1) ns img)
+            ((Error e) (err e))
+            ((Success out) (ok (encode out)))))))))
+
+(def-shell summary [args: list[string]] -> string
+  (string-concat-many ["netpbm: " (arg args 1) " " (arg args 0) " -> " (arg args 2) "\n"]))
+
+(def-shell step [s: State r: Response] -> (State, Command)
+  (post (and (>= (st-phase (first result)) 1) (<= (st-phase (first result)) 4)))
+  (let [(args (st-args s))]
+    (match r
+      ((RList xs)
+        (if (< (list-length xs) 3)
+            (pair (mk 4 xs (usage)) (wasi.io.stdout ""))
+            (pair (mk 1 xs "") (wasi.fs.read (arg xs 0)))))
+      ((RText text)
+        (match (process args text)
+          ((Error e) (pair (mk 4 args (string-concat e "\n")) (wasi.io.stdout "")))
+          ((Success out) (pair (mk 2 args "") (wasi.fs.write (arg args 2) out)))))
+      ((RNone)
+        (if (= (st-phase s) 2)
+            (pair (mk 3 args (summary args)) (wasi.io.stdout ""))
+            (pair (mk 4 args "netpbm: unexpected empty response\n") (wasi.io.stdout ""))))
+      ((RErr e)
+        (pair (mk 4 args (string-concat-many ["netpbm: " e "\n"])) (wasi.io.stdout "")))
+      ((RCode n)
+        (pair (mk 4 args "netpbm: unexpected status response\n") (wasi.io.stdout ""))))))
+
+(def finished? [s: State] -> bool
+  (post (= result (>= (first s) 3)))
+  (phase-done? (first s)))
+
+(def-shell report [s: State] -> Command
+  (if (= (st-phase s) 3)
+      (wasi.io.stdout (st-msg s))
+      (wasi.io.stderr (st-msg s))))
+
+(def exit-code [s: State] -> int
+  (post (and (>= result 0) (and (<= result 255)
+        (and (=> (= (first s) 3) (= result 0)) (=> (= (first s) 4) (= result 1))))))
+  (phase-status (first s)))
+
+(def-main :mode cli
+  :init    (pair (mk 0 (list-empty) "") wasi.proc.args)
+  :step    step
+  :done?   finished?
+  :on-done report
+  :status  exit-code)

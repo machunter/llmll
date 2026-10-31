@@ -1,0 +1,213 @@
+;; main — command-line entry for the netpbm-swarm codec.
+;;
+;;   main IN TRANSFORM OUT [N ...]
+;;
+;; TRANSFORM is one of
+;;   copy | invert | hflip | vflip | gray | blur
+;;   threshold T          samples >= T become maxval, the rest 0
+;;   crop X Y W H         the W x H window with top-left corner (X, Y)
+;;
+;; A three-turn `cli` loop over the Command/Response model:
+;;   :init  asks for the argument vector              -> RList args
+;;   turn 1 checks the argument count, reads IN       -> RText text | RErr
+;;   turn 2 decodes, transforms, encodes, writes OUT  -> RNone | RErr
+;;   turn 3 records success; :on-done reports, :status sets the exit code.
+;;
+;; State = (phase, (args, message))
+;;   phase 0 = want args, 1 = reading, 2 = writing, 3 = done, 4 = failed
+;;
+;; The decisions with a contract worth proving (transform lookup, argument
+;; arity, termination, exit status) are defs and verify; the rest is glue.
+
+(import wasi.io   (capability stdout :deterministic false))
+(import wasi.fs   (capability read-write "."))
+(import wasi.proc (capability args :deterministic false))
+(import types)
+(open types)
+(import geom)
+(open geom)
+(import codec)
+(open codec)
+(import image)
+(open image)
+
+(type State (int, (list[string], string)))
+
+;; ─── Verified decisions ─────────────────────────────────────────────────
+
+;; Transform name -> code; 0 = unknown.
+;;   1 copy  2 invert  3 hflip  4 vflip  5 gray  6 blur  7 threshold  8 crop
+(def op-code [name: string] -> int
+  (post (and (>= result 0) (and (<= result 8)
+        (and (=> (= name "copy") (= result 1))
+        (and (=> (= name "invert") (= result 2))
+        (and (=> (= name "hflip") (= result 3))
+        (and (=> (= name "vflip") (= result 4))
+        (and (=> (= name "gray") (= result 5))
+        (and (=> (= name "blur") (= result 6))
+        (and (=> (= name "threshold") (= result 7))
+        (and (=> (= name "crop") (= result 8))
+             (=> (= result 0) (and (!= name "copy") (and (!= name "invert")
+                 (and (!= name "hflip") (and (!= name "vflip") (and (!= name "gray")
+                 (and (!= name "blur") (and (!= name "threshold") (!= name "crop"))))))))))))))))))))
+  (if (= name "copy") 1
+  (if (= name "invert") 2
+  (if (= name "hflip") 3
+  (if (= name "vflip") 4
+  (if (= name "gray") 5
+  (if (= name "blur") 6
+  (if (= name "threshold") 7
+  (if (= name "crop") 8 0)))))))))
+
+;; Integer arguments a transform code takes.
+(def op-arity [code: int] -> int
+  (pre  (and (>= code 1) (<= code 8)))
+  (post (and (=> (= code 7) (= result 1))
+        (and (=> (= code 8) (= result 4))
+             (=> (< code 7) (= result 0)))))
+  (if (= code 7) 1 (if (= code 8) 4 0)))
+
+(def st-phase [s: State] -> int
+  (post (= result (first s)))
+  (first s))
+
+(def finished? [s: State] -> bool
+  (post (= result (>= (first s) 3)))
+  (>= (first s) 3))
+
+(def exit-code [s: State] -> int
+  (post (and (>= result 0) (and (<= result 255)
+        (and (=> (= (first s) 3) (= result 0)) (=> (= (first s) 4) (= result 1))))))
+  (if (= (first s) 4) 1 0))
+
+;; ─── Glue ───────────────────────────────────────────────────────────────
+
+(def-shell st-args [s: State] -> list[string]
+  (post (= result (first (second s))))
+  (first (second s)))
+
+(def-shell st-msg [s: State] -> string
+  (post (= result (second (second s))))
+  (second (second s)))
+
+(def-shell mk [phase: int args: list[string] msg: string] -> State
+  (post (and (= (st-phase result) phase) (and (= (st-args result) args) (= (st-msg result) msg))))
+  (pair phase (pair args msg)))
+
+(def-shell arg [args: list[string] i: int] -> string
+  (post (=> (or (< i 0) (>= i (list-length args))) (= result "")))
+  (unwrap-or (list-nth args i) ""))
+
+(def-shell usage [] -> string
+  "usage: main IN TRANSFORM OUT [N ...]\n  TRANSFORM: copy | invert | hflip | vflip | gray | blur | threshold T | crop X Y W H\n")
+
+;; Decimal digits only (string-to-int alone also accepts a sign).
+(def-shell parse-nat [tok: string] -> Result[int, string]
+  (post (match result ((Success n) (>= n 0)) ((Error e) (not (= e "")))))
+  (if (regex-match "^[0-9]+$" tok)
+      (string-to-int tok)
+      (err (string-concat-many ["transform argument is not a non-negative integer: '" tok "'"]))))
+
+;; The integer arguments after OUT.
+(def-shell int-args [args: list[string]] -> Result[list[int], string]
+  (post (match result
+          ((Success ns) (= (list-length ns) (max 0 (- (list-length args) 3))))
+          ((Error e) (not (= e "")))))
+  (let [(extra (list-reverse
+                 (second
+                   (list-fold args (pair 0 (list-empty))
+                     (fn [acc: (int, list[string]) a: string]
+                       (pair (+ (first acc) 1)
+                             (if (>= (first acc) 3) (list-prepend a (second acc)) (second acc))))))))]
+    (list-fold extra (ok (list-empty))
+      (fn [acc: Result[list[int], string] a: string]
+        (match acc
+          ((Error e) (err e))
+          ((Success xs)
+            (match (parse-nat a)
+              ((Error e) (err e))
+              ((Success n) (ok (list-append xs n))))))))))
+
+(def-shell nth-int [xs: list[int] i: int] -> int
+  (unwrap-or (list-nth xs i) 0))
+
+(def-shell apply-op [name: string ns: list[int] img: Image] -> Result[Image, string]
+  (pre  (image-ok? img))
+  (post (match result ((Success out) (image-ok? out)) ((Error e) (not (= e "")))))
+  (let [(code (op-code name))]
+    (if (= code 0)
+        (err (string-concat-many ["unknown transform '" name "'\n" (usage)]))
+        (if (not (= (list-length ns) (op-arity code)))
+            (err (string-concat-many [name " takes " (int-to-string (op-arity code))
+                                      " integer argument(s), got " (int-to-string (list-length ns))]))
+            (if (= code 1) (ok img)
+            (if (= code 2) (ok (img-invert img))
+            (if (= code 3) (ok (img-hflip img))
+            (if (= code 4) (ok (img-vflip img))
+            (if (= code 5) (ok (img-grayscale img))
+            (if (= code 6) (ok (img-blur img))
+            (if (= code 7) (ok (img-threshold (nth-int ns 0) img))
+                (let [(x (nth-int ns 0)) (y (nth-int ns 1)) (cw (nth-int ns 2)) (ch (nth-int ns 3))
+                      (w (img-width img)) (h (img-height img))]
+                  (if (crop-ok? w h x y cw ch)
+                      (ok (img-crop x y cw ch img))
+                      (err (string-concat-many ["crop window " (int-to-string cw) "x" (int-to-string ch)
+                                                "+" (int-to-string x) "+" (int-to-string y)
+                                                " is not inside the " (int-to-string w) "x"
+                                                (int-to-string h) " image"])))))))))))))))
+
+;; Turn 2: the pure pipeline, text in, text out.
+(def-shell process [args: list[string] text: string] -> Result[string, string]
+  (post (match result ((Success out) true) ((Error e) (not (= e "")))))
+  (match (decode text)
+    ((Error e) (err (string-concat-many [(arg args 0) ": " e])))
+    ((Success img)
+      (match (int-args args)
+        ((Error e) (err e))
+        ((Success ns)
+          (match (apply-op (arg args 1) ns img)
+            ((Error e) (err e))
+            ((Success out) (ok (encode out)))))))))
+
+(def-shell step [s: State r: Response] -> (State, Command)
+  (post (and (>= (st-phase (first result)) 1) (<= (st-phase (first result)) 4)))
+  (let [(args (st-args s))]
+    (match r
+      ((RList xs)
+        (if (< (list-length xs) 3)
+            (pair (mk 4 xs (usage)) (wasi.io.stdout ""))
+            (pair (mk 1 xs "") (wasi.fs.read (arg xs 0)))))
+      ((RText text)
+        (match (process args text)
+          ((Error e) (pair (mk 4 args (string-concat e "\n")) (wasi.io.stdout "")))
+          ((Success out) (pair (mk 2 args "") (wasi.fs.write (arg args 2) out)))))
+      ((RNone)
+        (if (= (st-phase s) 2)
+            (pair (mk 3 args (string-concat-many ["netpbm: " (arg args 1) " " (arg args 0)
+                                                   " -> " (arg args 2) "\n"]))
+                  (wasi.io.stdout ""))
+            (pair (mk 4 args "netpbm: unexpected empty response\n") (wasi.io.stdout ""))))
+      ((RErr e)
+        (pair (mk 4 args (string-concat-many ["netpbm: " e "\n"])) (wasi.io.stdout "")))
+      ((RCode n)
+        (pair (mk 4 args "netpbm: unexpected status response\n") (wasi.io.stdout ""))))))
+
+(def-shell report [s: State] -> Command
+  (if (= (st-phase s) 3)
+      (wasi.io.stdout (st-msg s))
+      (wasi.io.stderr (st-msg s))))
+
+(def-main :mode cli
+  :init    (pair (mk 0 (list-empty) "") wasi.proc.args)
+  :step    step
+  :done?   finished?
+  :on-done report
+  :status  exit-code)
+
+;; ─── Properties ─────────────────────────────────────────────────────────
+
+(check "int-args parses the arguments after OUT" :subject int-args
+  (for-all [a: int b: int]
+    (let [(x (abs a)) (y (abs b))]
+      (and (= (int-args ["i" "crop" "o" (int-to-string x) (int-to-string y)]) (ok [x y]))
+           (not (is-ok (int-args ["i" "threshold" "o" "-3"])))))))

@@ -1,0 +1,185 @@
+;; rules — LEVEL 1 of the netpbm-swarm verified core.
+;; Depends on: types (level 0) for row-len. Verify types.llmll first.
+;;
+;; The format's decisions, for the decoder and the encoder: magic number,
+;; header faults in a fixed order, per-sample range, the sample-count
+;; counter, the encoder's line layout, and the shape predicates the shell's
+;; image-ok? is built from. Every function returns int / bool / string /
+;; Problem, never a list, so each can be body-faithful. The list walking
+;; (and the rendering of a Problem as a message) belongs to the shell.
+;;
+;; The sample count w*h*c is nonlinear, so it is never compared directly.
+;; The decoder instead counts with (r, k): r complete rows so far, k samples
+;; in the current partial row, with row length L = (row-len c w) (linear:
+;; L is w or 3w). After the last token, (count-problem h r k) decides.
+;;
+;; Problem is declared HERE because the posts below compare with its
+;; constructors; a post that compares a value with an IMPORTED sum's
+;; constructor crashes liquid-fixpoint. Other modules may match on Problem
+;; (and construct it) but must not write (= p NoProblem) in a verified
+;; contract.
+
+(import types)
+(open types)
+
+(type Problem
+  (| NoProblem)
+  (| BadMagic)              ;; not "P2"/"P3", or "P2" not followed by whitespace or '#'
+  (| BadChar)               ;; lexer BadTok; built by the shell, not by this module
+  (| MissingWidth)
+  (| MissingHeight)
+  (| MissingMaxval)
+  (| BadWidth int)          ;; offending value (< 1)
+  (| BadHeight int)         ;; offending value (< 1)
+  (| BadMaxval int)         ;; offending value (outside 1..65535)
+  (| SampleOverMax int)     ;; offending sample value
+  (| TooFewSamples)
+  (| TooManySamples))
+
+;; ─── Magic number ───────────────────────────────────────────────────────
+;; Channels for a magic number; 0 means unsupported ("P5", "p2", "P6"...).
+(def magic-channels [magic: string] -> int
+  (post (and (=> (= magic "P2") (= result 1))
+        (and (=> (= magic "P3") (= result 3))
+             (=> (and (!= magic "P2") (!= magic "P3")) (= result 0)))))
+  (if (= magic "P2") 1 (if (= magic "P3") 3 0)))
+
+;; ─── Header ─────────────────────────────────────────────────────────────
+;; c    = (magic-channels magic), 0 if unsupported
+;; sep  = the magic is followed by whitespace or '#' (or by end of text)
+;; ntok = number of numeric tokens available after the magic
+;; w h m = the first three tokens, 0 where missing
+;; The first fault in this order is reported: magic, width missing, width
+;; bad, height missing, height bad, maxval missing, maxval bad. The post
+;; determines the result completely, so reordering the checks, reporting
+;; MissingHeight when the width is already bad, or accepting maxval 65536
+;; is refuted.
+(def header-problem [c: int sep: bool ntok: int w: int h: int m: int] -> Problem
+  (post (and (=> (not (and (or (= c 1) (= c 3)) sep))
+                 (= result BadMagic))
+        (and (=> (and (and (or (= c 1) (= c 3)) sep) (< ntok 1))
+                 (= result MissingWidth))
+        (and (=> (and (and (or (= c 1) (= c 3)) sep) (and (>= ntok 1) (< w 1)))
+                 (= result (BadWidth w)))
+        (and (=> (and (and (or (= c 1) (= c 3)) sep) (and (>= ntok 1) (and (>= w 1) (< ntok 2))))
+                 (= result MissingHeight))
+        (and (=> (and (and (or (= c 1) (= c 3)) sep) (and (>= ntok 2) (and (>= w 1) (< h 1))))
+                 (= result (BadHeight h)))
+        (and (=> (and (and (or (= c 1) (= c 3)) sep)
+                      (and (>= ntok 2) (and (>= w 1) (and (>= h 1) (< ntok 3)))))
+                 (= result MissingMaxval))
+        (and (=> (and (and (or (= c 1) (= c 3)) sep)
+                      (and (>= ntok 3) (and (>= w 1) (and (>= h 1) (or (< m 1) (> m 65535))))))
+                 (= result (BadMaxval m)))
+             (= (= result NoProblem)
+                (and (and (or (= c 1) (= c 3)) sep)
+                     (and (>= ntok 3) (and (>= w 1) (and (>= h 1) (and (>= m 1) (<= m 65535)))))))))))))))
+  (if (not (and (or (= c 1) (= c 3)) sep)) BadMagic
+  (if (< ntok 1) MissingWidth
+  (if (< w 1) (BadWidth w)
+  (if (< ntok 2) MissingHeight
+  (if (< h 1) (BadHeight h)
+  (if (< ntok 3) MissingMaxval
+  (if (or (< m 1) (> m 65535)) (BadMaxval m)
+      NoProblem))))))))
+
+;; The well-formed-header predicate the shell's image-ok? uses.
+(def header-ok? [c: int w: int h: int m: int] -> bool
+  (post (= result (and (or (= c 1) (= c 3))
+                  (and (>= w 1) (and (>= h 1) (and (>= m 1) (<= m 65535)))))))
+  (and (or (= c 1) (= c 3)) (and (>= w 1) (and (>= h 1) (and (>= m 1) (<= m 65535))))))
+
+;; ─── Samples ────────────────────────────────────────────────────────────
+;; v comes from the lexer, so v >= 0 (NumTok payloads are non-negative).
+;; Rejects (>= v m) (refuses v = m) and a body that reports the index or m
+;; instead of the value.
+(def sample-problem [m: int v: int] -> Problem
+  (pre  (and (>= m 1) (>= v 0)))
+  (post (and (= (= result NoProblem) (<= v m))
+             (=> (> v m) (= result (SampleOverMax v)))))
+  (if (> v m) (SampleOverMax v) NoProblem))
+
+;; ─── Sample counter (decoder) ───────────────────────────────────────────
+;; Position after placing one more sample at column k of a row of length L.
+;; Rejects a counter that wraps at L+1 or never wraps.
+(def next-k [len: int k: int] -> int
+  (pre  (and (>= len 1) (and (>= k 0) (< k len))))
+  (post (and (>= result 0)
+        (and (< result len)
+        (and (= (= result 0) (= (+ k 1) len))
+             (=> (< (+ k 1) len) (= result (+ k 1)))))))
+  (if (= (+ k 1) len) 0 (+ k 1)))
+
+;; Complete-row count after placing one more sample at column k.
+(def next-r [len: int r: int k: int] -> int
+  (pre  (and (>= len 1) (and (>= r 0) (and (>= k 0) (< k len)))))
+  (post (and (=> (= (+ k 1) len) (= result (+ r 1)))
+             (=> (< (+ k 1) len) (= result r))))
+  (if (= (+ k 1) len) (+ r 1) r))
+
+;; Verdict after the last token: exactly h complete rows and no partial row.
+;; Rejects a body that ignores k (a partial extra row would pass) or that
+;; calls r = h - 1 with a partial row "ok".
+(def count-problem [h: int r: int k: int] -> Problem
+  (pre  (and (>= h 1) (and (>= r 0) (>= k 0))))
+  (post (and (= (= result NoProblem) (and (= r h) (= k 0)))
+        (and (=> (< r h) (= result TooFewSamples))
+             (=> (or (> r h) (and (= r h) (> k 0))) (= result TooManySamples)))))
+  (if (< r h) TooFewSamples (if (and (= r h) (= k 0)) NoProblem TooManySamples)))
+
+;; ─── Encoder layout ─────────────────────────────────────────────────────
+;; Separator written after the sample at column k of a row of length L:
+;; "\n" at the end of every row and after every 10th sample in a row, " "
+;; otherwise. 10 samples of at most 5 digits plus 9 spaces is 59 <= 70
+;; characters per line, as the format recommends. (12 per line would allow
+;; 71 characters at maxval 65535.) Rejects a body that breaks every 12th,
+;; or that never ends a row with "\n".
+(def sep-after [len: int k: int] -> string
+  (pre  (and (>= len 1) (and (>= k 0) (< k len))))
+  (post (and (or (= result "\n") (= result " "))
+             (= (= result "\n") (or (= (+ k 1) len) (= (mod (+ k 1) 10) 0)))))
+  (if (or (= (+ k 1) len) (= (mod (+ k 1) 10) 0)) "\n" " "))
+
+;; ─── Shape predicates (for the shell's image-ok?) ───────────────────────
+;; list-length of a parameter is a verifier measure, so these are exact.
+(def row-length-ok? [c: int w: int row: list[int]] -> bool
+  (pre  (and (or (= c 1) (= c 3)) (>= w 0)))
+  (post (and (=> (= c 1) (= result (= (list-length row) w)))
+             (=> (= c 3) (= result (= (list-length row) (* 3 w))))))
+  (= (list-length row) (row-len c w)))
+
+(def rows-count-ok? [h: int rows: list[list[int]]] -> bool
+  (post (= result (= (list-length rows) h)))
+  (= (list-length rows) h))
+
+;; ─── Properties the posts cannot state ──────────────────────────────────
+;; The counter's meaning is "r*len + k samples placed", which is nonlinear
+;; in (r, len), so no post can say it. Placing one sample adds exactly one.
+(check "next-r/next-k place exactly one more sample" :subjects [next-k next-r]
+  (for-all [a: int b: int c: int]
+    (let [(len (+ 1 (mod (abs a) 60)))
+          (k (mod (abs b) len))
+          (r (mod (abs c) 1000))]
+      (= (+ (* (next-r len r k) len) (next-k len k))
+         (+ (+ (* r len) k) 1)))))
+
+;; After n samples the counter is (n div len, n mod len); the verdict is
+;; NoProblem exactly when n = h * len (the nonlinear w*h*c count).
+(check "count-problem accepts exactly h*len samples" :subject count-problem
+  (for-all [a: int b: int d: int]
+    (let [(len (+ 1 (mod (abs a) 30)))
+          (h (+ 1 (mod (abs b) 30)))
+          (n (mod (abs d) (+ (* (+ h 2) len) 1)))]
+      (= (match (count-problem h (/ n len) (mod n len))
+           ((NoProblem) true)
+           (_ false))
+         (= n (* h len))))))
+
+;; No output line carries more than 10 samples: within a row, the 10
+;; columns starting at any k (when they all exist) include a newline.
+(check "sep-after breaks at least every 10 samples" :subject sep-after
+  (for-all [a: int b: int]
+    (let [(len (+ 10 (mod (abs a) 90)))
+          (k (mod (abs b) (- len 9)))
+          (j (+ k (- 9 (mod k 10))))]
+      (= (sep-after len j) "\n"))))

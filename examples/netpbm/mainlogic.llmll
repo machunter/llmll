@@ -1,0 +1,40 @@
+;; mainlogic — the verified decisions of the CLI (main.llmll): which
+;; transform a name selects, how many integer arguments it takes, and the
+;; loop's termination and exit status. Leaf module: no def calls another.
+
+;; Transform name -> code; 0 = unknown.
+;;   1 copy  2 invert  3 hflip  4 vflip  5 gray  6 blur  7 threshold  8 crop
+(def op-code [name: string] -> int
+  (post (and (>= result 0) (and (<= result 8)
+        (and (=> (= name "invert") (= result 2))
+        (and (=> (= name "crop") (= result 8))
+             (=> (= result 0) (and (!= name "copy") (and (!= name "invert")
+                 (and (!= name "hflip") (and (!= name "vflip") (and (!= name "gray")
+                 (and (!= name "blur") (and (!= name "threshold") (!= name "crop"))))))))))))))
+  (if (= name "copy") 1
+  (if (= name "invert") 2
+  (if (= name "hflip") 3
+  (if (= name "vflip") 4
+  (if (= name "gray") 5
+  (if (= name "blur") 6
+  (if (= name "threshold") 7
+  (if (= name "crop") 8 0)))))))))
+
+;; Integer arguments a transform code takes.
+(def op-arity [code: int] -> int
+  (pre  (and (>= code 1) (<= code 8)))
+  (post (and (=> (= code 7) (= result 1))
+        (and (=> (= code 8) (= result 4))
+             (=> (< code 7) (= result 0)))))
+  (if (= code 7) 1 (if (= code 8) 4 0)))
+
+;; Phases: 0 want args, 1 reading, 2 writing, 3 done, 4 failed.
+(def phase-done? [p: int] -> bool
+  (post (= result (>= p 3)))
+  (>= p 3))
+
+;; Exit status: 0 on success, 1 on failure; always a valid status.
+(def phase-status [p: int] -> int
+  (post (and (>= result 0) (and (<= result 255)
+        (and (=> (= p 3) (= result 0)) (=> (= p 4) (= result 1))))))
+  (if (= p 4) 1 0))

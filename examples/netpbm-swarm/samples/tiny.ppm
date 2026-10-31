@@ -1,0 +1,8 @@
+P3
+# tiny.ppm: 4x4 colour test card (from the ppm(5) man page)
+4 4
+15
+ 0  0  0    0  0  0    0  0  0   15  0 15
+ 0  0  0    0 15  7    0  0  0    0  0  0
+ 0  0  0    0  0  0    0 15  7    0  0  0
+15  0 15    0  0  0    0  0  0    0  0  0

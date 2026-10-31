@@ -1,0 +1,221 @@
+;; lex — LEVEL 0 of the netpbm-swarm verified core. Imports nothing.
+;;
+;; A character-level scanner for the body of a plain Netpbm file (everything
+;; after the two-character magic number), as a finite-state machine whose
+;; every transition is a verified def. The shell only drives the loop:
+;;
+;;   st := Gap
+;;   for each character ch (in order):
+;;     cc   := (char-class ch)
+;;     tok  := (lex-emit st cc)      ;; NumTok n -> append n; BadTok -> fail
+;;     st   := (lex-step st cc)
+;;   at end: (lex-flush st)          ;; NumTok n -> append n
+;;
+;; Netpbm rules covered: whitespace is blank, TAB, CR, LF; '#' starts a
+;; comment that runs to the end of the line, and may appear anywhere,
+;; including directly after a number ("12#c" is the number 12); every other
+;; character outside a comment is an error.
+;;
+;; Performance note for the shell: do NOT walk the text with
+;; (string-char-at text i) over (range 0 n) -- that is O(n^2) on Haskell
+;; String. Split into lines with (string-split "\n" text), take each line's
+;; characters with (regex-find-all "." line) (linear; "." does not match a
+;; newline), and feed a "\n" between lines.
+;;
+;; The three sum types are declared HERE because posts in this module compare
+;; values with their constructors; a module that imports them may match on
+;; them but must not write (= x Ctor) in a verified contract (solver crash,
+;; see types.llmll header).
+
+(type CharClass
+  (| Blank)          ;; " ", "\t", "\r"
+  (| Newline)        ;; "\n" -- ends a comment
+  (| Hash)           ;; "#"  -- starts a comment
+  (| Digit int)      ;; "0".."9" with its value
+  (| Other))         ;; anything else, including ""
+
+(type LexState
+  (| Gap)            ;; between tokens
+  (| InNum int)      ;; inside a number; payload = value so far
+  (| InComment))     ;; after '#', until "\n"
+
+(type Tok
+  (| NoTok)          ;; nothing completed by this character
+  (| NumTok int)     ;; a complete non-negative integer
+  (| BadTok))        ;; a character that may not appear here
+
+;; ─── Character classes ──────────────────────────────────────────────────
+;; The post is the full table plus a closed-world clause, so a body that
+;; maps "8" to (Digit 9), treats "\r" as Other, or "a" as Blank is refuted.
+
+(def char-class [ch: string] -> CharClass
+  (post (and (=> (= ch " ") (= result Blank))
+        (and (=> (= ch "\t") (= result Blank))
+        (and (=> (= ch "\r") (= result Blank))
+        (and (=> (= ch "\n") (= result Newline))
+        (and (=> (= ch "#") (= result Hash))
+        (and (=> (= ch "0") (= result (Digit 0)))
+        (and (=> (= ch "1") (= result (Digit 1)))
+        (and (=> (= ch "2") (= result (Digit 2)))
+        (and (=> (= ch "3") (= result (Digit 3)))
+        (and (=> (= ch "4") (= result (Digit 4)))
+        (and (=> (= ch "5") (= result (Digit 5)))
+        (and (=> (= ch "6") (= result (Digit 6)))
+        (and (=> (= ch "7") (= result (Digit 7)))
+        (and (=> (= ch "8") (= result (Digit 8)))
+        (and (=> (= ch "9") (= result (Digit 9)))
+        (=> (not (or (= ch " ") (or (= ch "\t") (or (= ch "\r") (or (= ch "\n") (or (= ch "#") (or (= ch "0") (or (= ch "1") (or (= ch "2") (or (= ch "3") (or (= ch "4") (or (= ch "5") (or (= ch "6") (or (= ch "7") (or (= ch "8") (= ch "9"))))))))))))))))
+                 (= result Other))))))))))))))))))
+  (if (= ch " ") Blank
+  (if (= ch "\t") Blank
+  (if (= ch "\r") Blank
+  (if (= ch "\n") Newline
+  (if (= ch "#") Hash
+  (if (= ch "0") (Digit 0)
+  (if (= ch "1") (Digit 1)
+  (if (= ch "2") (Digit 2)
+  (if (= ch "3") (Digit 3)
+  (if (= ch "4") (Digit 4)
+  (if (= ch "5") (Digit 5)
+  (if (= ch "6") (Digit 6)
+  (if (= ch "7") (Digit 7)
+  (if (= ch "8") (Digit 8)
+  (if (= ch "9") (Digit 9)
+    Other))))))))))))))))
+
+;; ─── Transition function ────────────────────────────────────────────────
+;; The post is the complete transition table (nested match, probed: a match
+;; in a post verifies and discriminates). It rejects, e.g., (InNum (+ a d))
+;; for (InNum (+ (* 10 a) d)), a Blank that ends a comment, or a digit that
+;; restarts the number instead of extending it.
+;; Invariant carried by pre/post: an InNum payload is never negative.
+
+(def lex-step [st: LexState cc: CharClass] -> LexState
+  (pre  (and (match st ((Gap) true) ((InNum a) (>= a 0)) ((InComment) true))
+             (match cc ((Blank) true) ((Newline) true) ((Hash) true)
+                       ((Digit d) (and (>= d 0) (<= d 9))) ((Other) true))))
+  (post (and
+          (match st
+            ((InComment)
+               (match cc
+                 ((Newline) (= result Gap))
+                 ((Blank) (= result InComment)) ((Hash) (= result InComment))
+                 ((Digit d) (= result InComment)) ((Other) (= result InComment))))
+            ((Gap)
+               (match cc
+                 ((Digit d) (= result (InNum d)))
+                 ((Hash) (= result InComment))
+                 ((Blank) (= result Gap)) ((Newline) (= result Gap)) ((Other) (= result Gap))))
+            ((InNum a)
+               (match cc
+                 ((Digit d) (= result (InNum (+ (* 10 a) d))))
+                 ((Hash) (= result InComment))
+                 ((Blank) (= result Gap)) ((Newline) (= result Gap)) ((Other) (= result Gap)))))
+          (match result ((Gap) true) ((InNum n) (>= n 0)) ((InComment) true))))
+  (match st
+    ((InComment)
+       (match cc
+         ((Newline) Gap)
+         ((Blank) InComment) ((Hash) InComment)
+         ((Digit d) InComment) ((Other) InComment)))
+    ((Gap)
+       (match cc
+         ((Digit d) (InNum d))
+         ((Hash) InComment)
+         ((Blank) Gap) ((Newline) Gap) ((Other) Gap)))
+    ((InNum a)
+       (match cc
+         ((Digit d) (InNum (+ (* 10 a) d)))
+         ((Hash) InComment)
+         ((Blank) Gap) ((Newline) Gap) ((Other) Gap)))))
+
+;; ─── Token emission ─────────────────────────────────────────────────────
+;; What consuming cc in state st completes. A number ends at a Blank,
+;; Newline or Hash; "12x" and a stray "x" between tokens are BadTok; nothing
+;; inside a comment is ever an error. Rejects a body that emits on a Digit,
+;; or one that reports BadTok inside a comment.
+
+(def lex-emit [st: LexState cc: CharClass] -> Tok
+  (pre  (match st ((Gap) true) ((InNum a) (>= a 0)) ((InComment) true)))
+  (post (and
+          (match st
+            ((InComment) (= result NoTok))
+            ((Gap)
+               (match cc
+                 ((Other) (= result BadTok))
+                 ((Blank) (= result NoTok)) ((Newline) (= result NoTok))
+                 ((Hash) (= result NoTok)) ((Digit d) (= result NoTok))))
+            ((InNum a)
+               (match cc
+                 ((Blank) (= result (NumTok a))) ((Newline) (= result (NumTok a)))
+                 ((Hash) (= result (NumTok a)))
+                 ((Other) (= result BadTok))
+                 ((Digit d) (= result NoTok)))))
+          (match result ((NoTok) true) ((NumTok n) (>= n 0)) ((BadTok) true))))
+  (match st
+    ((InComment) NoTok)
+    ((Gap)
+       (match cc
+         ((Other) BadTok)
+         ((Blank) NoTok) ((Newline) NoTok) ((Hash) NoTok) ((Digit d) NoTok)))
+    ((InNum a)
+       (match cc
+         ((Blank) (NumTok a)) ((Newline) (NumTok a)) ((Hash) (NumTok a))
+         ((Other) BadTok)
+         ((Digit d) NoTok)))))
+
+;; End of input: a number in progress is complete.
+(def lex-flush [st: LexState] -> Tok
+  (pre  (match st ((Gap) true) ((InNum a) (>= a 0)) ((InComment) true)))
+  (post (match st
+          ((InNum a) (= result (NumTok a)))
+          ((Gap) (= result NoTok))
+          ((InComment) (= result NoTok))))
+  (match st
+    ((InNum a) (NumTok a))
+    ((Gap) NoTok)
+    ((InComment) NoTok)))
+
+;; The character right after the magic number must be whitespace or '#'
+;; ("P23 ..." is a bad magic number, not P2 followed by 3). The shell
+;; treats end-of-text after the magic as acceptable separately.
+(def sep-ok? [cc: CharClass] -> bool
+  (post (match cc
+          ((Blank) (= result true)) ((Newline) (= result true)) ((Hash) (= result true))
+          ((Digit d) (= result false)) ((Other) (= result false))))
+  (match cc
+    ((Blank) true) ((Newline) true) ((Hash) true)
+    ((Digit d) false) ((Other) false)))
+
+;; ─── Multi-step properties (tested) ─────────────────────────────────────
+;; The per-step posts above are verified; these check the composed scan,
+;; which no single post can state (no fold/quantifier in the fragment).
+;; Feeding the decimal digits of n >= 0 from Gap ends in (InNum n).
+
+(check "digits of n accumulate to n" :subjects [char-class lex-step]
+  (for-all [n: int]
+    (=> (>= n 0)
+        (match (list-fold (regex-find-all "." (int-to-string n)) Gap
+                 (fn [st: LexState g: list[string]]
+                   (lex-step st (char-class (unwrap (list-head g))))))
+          ((InNum v) (= v n))
+          ((Gap) false)
+          ((InComment) false)))))
+
+;; A comment straight after a digit completes the number, and the
+;; comment swallows non-blank junk without error until LF.
+(check "12#x y then LF then 3 scans as 12 and 3" :subjects [char-class lex-step lex-emit lex-flush]
+  (for-all [k: int]
+    (let [(s0 Gap)
+          (s1 (lex-step s0 (char-class "1")))
+          (s2 (lex-step s1 (char-class "2")))
+          (t3 (lex-emit s2 (char-class "#")))
+          (s3 (lex-step s2 (char-class "#")))
+          (t4 (lex-emit s3 (char-class "x")))
+          (s4 (lex-step s3 (char-class "x")))
+          (s5 (lex-step s4 (char-class " ")))
+          (s6 (lex-step s5 (char-class "\n")))
+          (s7 (lex-step s6 (char-class "3")))]
+      (and (match t3 ((NumTok v) (= v 12)) ((NoTok) false) ((BadTok) false))
+           (and (match t4 ((NoTok) true) ((NumTok v) false) ((BadTok) false))
+                (match (lex-flush s7) ((NumTok v) (= v 3)) ((NoTok) false) ((BadTok) false)))))))

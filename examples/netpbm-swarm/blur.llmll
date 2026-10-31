@@ -1,0 +1,110 @@
+;; blur — LEVEL 3 of the netpbm-swarm verified core.
+;; Depends on: sample (0), kernel (2). Verify types, sample, geom, kernel
+;; first, then this module.
+;;
+;; One output sample of the 3x3 box blur (edge replication, floor of the
+;; mean, per channel): three kernel.row-sum3 window sums and sample.avg9.
+;; It is a module of its own only because a def in kernel cannot call
+;; row-sum3 (same module), and the inlined nine-read version is too slow to
+;; verify (see kernel.llmll).
+;;
+;; above / below are the neighbouring row maps; for the first (last) row
+;; the shell passes the row itself as above (below), which is the vertical
+;; edge replication.
+
+(import sample)
+(open sample)
+(import kernel)
+(open kernel)
+
+;; Proved: the result is a sample (0..m) whatever the maps hold; on a
+;; 1x1 P2 image holding v, the result is v (architect's clause); for a
+;; 1-pixel-wide image (P2 or P3) the result is floor((a+v+b)/3) of the
+;; three vertically adjacent samples; and at EVERY other position (P2
+;; interior, P2 left/right edge, P3 interior, P3 left/right edge) it is the
+;; floor of the edge-replicated weighted nine-cell mean (a replicated edge
+;; cell counts twice). So on well-formed rows (every window key present, in
+;; 0..m) the result is fully determined. Mutants refuted: / 8, a window
+;; that reads an absent key as 0, cur passed in place of above, above read
+;; twice, and (adversarial review) bodies that drop the horizontal
+;; neighbours at the edges or for every P3 sample, or read cur twice only
+;; for P3. Before the review the post pinned only the 1-pixel-wide and
+;; P2-interior cases, and those P3/edge-only mutants verified SAFE; the
+;; edge and P3 clauses cost about 4 s (15 s total).
+(def blur-sample [m: int c: int w: int above: map[int, int] cur: map[int, int] below: map[int, int] i: int] -> int
+  (pre  (and (>= m 1)
+        (and (or (= c 1) (= c 3))
+        (and (>= w 1)
+        (and (>= i 0)
+             (and (=> (= c 1) (< i w)) (=> (= c 3) (< i (* 3 w)))))))))
+  (post (and (>= result 0)
+        (and (<= result m)
+        (and (=> (and (= c 1) (and (= w 1) (and (= i 0)
+                 (and (map-has above 0) (and (map-has cur 0) (and (map-has below 0)
+                 (and (= (map-get above 0) (map-get cur 0))
+                 (and (= (map-get below 0) (map-get cur 0))
+                 (and (>= (map-get cur 0) 0) (<= (map-get cur 0) m))))))))))
+                 (= result (map-get cur 0)))
+        (and (=> (and (= w 1) (and (and (map-has above i) (and (>= (map-get above i) 0) (<= (map-get above i) m))) (and (and (map-has cur i) (and (>= (map-get cur i) 0) (<= (map-get cur i) m))) (and (map-has below i) (and (>= (map-get below i) 0) (<= (map-get below i) m))))))
+                 (= result (/ (+ (map-get above i) (+ (map-get cur i) (map-get below i))) 3)))
+             (and (=> (and (= c 1) (and (>= i 1) (and (< i (- w 1))
+                 (and (and (map-has above (- i 1)) (and (>= (map-get above (- i 1)) 0) (<= (map-get above (- i 1)) m))) (and (and (map-has above i) (and (>= (map-get above i) 0) (<= (map-get above i) m))) (and (and (map-has above (+ i 1)) (and (>= (map-get above (+ i 1)) 0) (<= (map-get above (+ i 1)) m))) (and (and (map-has cur (- i 1)) (and (>= (map-get cur (- i 1)) 0) (<= (map-get cur (- i 1)) m))) (and (and (map-has cur i) (and (>= (map-get cur i) 0) (<= (map-get cur i) m))) (and (and (map-has cur (+ i 1)) (and (>= (map-get cur (+ i 1)) 0) (<= (map-get cur (+ i 1)) m))) (and (and (map-has below (- i 1)) (and (>= (map-get below (- i 1)) 0) (<= (map-get below (- i 1)) m))) (and (and (map-has below i) (and (>= (map-get below i) 0) (<= (map-get below i) m))) (and (map-has below (+ i 1)) (and (>= (map-get below (+ i 1)) 0) (<= (map-get below (+ i 1)) m))))))))))))))
+                 (= result (/ (+ (map-get above (- i 1)) (+ (map-get above i) (+ (map-get above (+ i 1)) (+ (map-get cur (- i 1)) (+ (map-get cur i) (+ (map-get cur (+ i 1)) (+ (map-get below (- i 1)) (+ (map-get below i) (map-get below (+ i 1)))))))))) 9))) (and (=> (and (= c 1) (and (>= w 2) (and (= i 0) (and (and (map-has above i) (and (>= (map-get above i) 0) (<= (map-get above i) m))) (and (and (map-has above (+ i 1)) (and (>= (map-get above (+ i 1)) 0) (<= (map-get above (+ i 1)) m))) (and (and (map-has cur i) (and (>= (map-get cur i) 0) (<= (map-get cur i) m))) (and (and (map-has cur (+ i 1)) (and (>= (map-get cur (+ i 1)) 0) (<= (map-get cur (+ i 1)) m))) (and (and (map-has below i) (and (>= (map-get below i) 0) (<= (map-get below i) m))) (and (map-has below (+ i 1)) (and (>= (map-get below (+ i 1)) 0) (<= (map-get below (+ i 1)) m)))))))))))
+                 (= result (/ (+ (* 2 (map-get above i)) (+ (map-get above (+ i 1)) (+ (* 2 (map-get cur i)) (+ (map-get cur (+ i 1)) (+ (* 2 (map-get below i)) (map-get below (+ i 1))))))) 9))) (and (=> (and (= c 1) (and (>= w 2) (and (= i (- w 1)) (and (and (map-has above (- i 1)) (and (>= (map-get above (- i 1)) 0) (<= (map-get above (- i 1)) m))) (and (and (map-has above i) (and (>= (map-get above i) 0) (<= (map-get above i) m))) (and (and (map-has cur (- i 1)) (and (>= (map-get cur (- i 1)) 0) (<= (map-get cur (- i 1)) m))) (and (and (map-has cur i) (and (>= (map-get cur i) 0) (<= (map-get cur i) m))) (and (and (map-has below (- i 1)) (and (>= (map-get below (- i 1)) 0) (<= (map-get below (- i 1)) m))) (and (map-has below i) (and (>= (map-get below i) 0) (<= (map-get below i) m)))))))))))
+                 (= result (/ (+ (map-get above (- i 1)) (+ (* 2 (map-get above i)) (+ (map-get cur (- i 1)) (+ (* 2 (map-get cur i)) (+ (map-get below (- i 1)) (* 2 (map-get below i))))))) 9))) (and (=> (and (= c 3) (and (>= w 2) (and (< i 3) (and (and (map-has above i) (and (>= (map-get above i) 0) (<= (map-get above i) m))) (and (and (map-has above (+ i 3)) (and (>= (map-get above (+ i 3)) 0) (<= (map-get above (+ i 3)) m))) (and (and (map-has cur i) (and (>= (map-get cur i) 0) (<= (map-get cur i) m))) (and (and (map-has cur (+ i 3)) (and (>= (map-get cur (+ i 3)) 0) (<= (map-get cur (+ i 3)) m))) (and (and (map-has below i) (and (>= (map-get below i) 0) (<= (map-get below i) m))) (and (map-has below (+ i 3)) (and (>= (map-get below (+ i 3)) 0) (<= (map-get below (+ i 3)) m)))))))))))
+                 (= result (/ (+ (* 2 (map-get above i)) (+ (map-get above (+ i 3)) (+ (* 2 (map-get cur i)) (+ (map-get cur (+ i 3)) (+ (* 2 (map-get below i)) (map-get below (+ i 3))))))) 9))) (and (=> (and (= c 3) (and (>= i 3) (and (< i (- (* 3 w) 3)) (and (and (map-has above (- i 3)) (and (>= (map-get above (- i 3)) 0) (<= (map-get above (- i 3)) m))) (and (and (map-has above i) (and (>= (map-get above i) 0) (<= (map-get above i) m))) (and (and (map-has above (+ i 3)) (and (>= (map-get above (+ i 3)) 0) (<= (map-get above (+ i 3)) m))) (and (and (map-has cur (- i 3)) (and (>= (map-get cur (- i 3)) 0) (<= (map-get cur (- i 3)) m))) (and (and (map-has cur i) (and (>= (map-get cur i) 0) (<= (map-get cur i) m))) (and (and (map-has cur (+ i 3)) (and (>= (map-get cur (+ i 3)) 0) (<= (map-get cur (+ i 3)) m))) (and (and (map-has below (- i 3)) (and (>= (map-get below (- i 3)) 0) (<= (map-get below (- i 3)) m))) (and (and (map-has below i) (and (>= (map-get below i) 0) (<= (map-get below i) m))) (and (map-has below (+ i 3)) (and (>= (map-get below (+ i 3)) 0) (<= (map-get below (+ i 3)) m))))))))))))))
+                 (= result (/ (+ (map-get above (- i 3)) (+ (map-get above i) (+ (map-get above (+ i 3)) (+ (map-get cur (- i 3)) (+ (map-get cur i) (+ (map-get cur (+ i 3)) (+ (map-get below (- i 3)) (+ (map-get below i) (map-get below (+ i 3)))))))))) 9))) (=> (and (= c 3) (and (>= w 2) (and (>= i (- (* 3 w) 3)) (and (and (map-has above (- i 3)) (and (>= (map-get above (- i 3)) 0) (<= (map-get above (- i 3)) m))) (and (and (map-has above i) (and (>= (map-get above i) 0) (<= (map-get above i) m))) (and (and (map-has cur (- i 3)) (and (>= (map-get cur (- i 3)) 0) (<= (map-get cur (- i 3)) m))) (and (and (map-has cur i) (and (>= (map-get cur i) 0) (<= (map-get cur i) m))) (and (and (map-has below (- i 3)) (and (>= (map-get below (- i 3)) 0) (<= (map-get below (- i 3)) m))) (and (map-has below i) (and (>= (map-get below i) 0) (<= (map-get below i) m)))))))))))
+                 (= result (/ (+ (map-get above (- i 3)) (+ (* 2 (map-get above i)) (+ (map-get cur (- i 3)) (+ (* 2 (map-get cur i)) (+ (map-get below (- i 3)) (* 2 (map-get below i))))))) 9)))))))))))))
+  (avg9 m (+ (row-sum3 m c w above i) (+ (row-sum3 m c w cur i) (row-sum3 m c w below i)))))
+
+;; ─── Composite properties (tested) ──────────────────────────────────────
+;; The post pins every position exactly; these properties exercise the
+;; same facts at run time, for P2 and P3, edges included.
+
+;; Blurring a constant image is the identity, at every sample, edges
+;; included (the architect's "blur of a constant image" property, per sample).
+(check "blur-sample of a constant window is v" :subject blur-sample
+  (for-all [k: int w0: int i0: int v0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 30)))
+          (m 255)
+          (i (mod (abs i0) (* c w)))
+          (v (mod (abs v0) 256))
+          (row (list-fold (range 0 (* c w)) (map-empty)
+                 (fn [acc: map[int, int] j: int] (map-put acc j v))))]
+      (= (blur-sample m c w row row row i) v))))
+
+;; Vertical edge replication as the shell does it (cur passed as above):
+;; with above = cur = a-row, below = b-row (constants a, b), the result is
+;; floor((6a + 3b) / 9) = floor((2a + b) / 3) at every sample.
+(check "blur-sample on a replicated top edge weights cur twice" :subject blur-sample
+  (for-all [k: int w0: int i0: int a0: int b0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 30)))
+          (m 255)
+          (i (mod (abs i0) (* c w)))
+          (a (mod (abs a0) 256))
+          (b (mod (abs b0) 256))
+          (ra (list-fold (range 0 (* c w)) (map-empty)
+                 (fn [acc: map[int, int] j: int] (map-put acc j a))))
+          (rb (list-fold (range 0 (* c w)) (map-empty)
+                 (fn [acc: map[int, int] j: int] (map-put acc j b))))]
+      (= (blur-sample m c w ra ra rb i) (/ (+ (* 2 a) b) 3)))))
+
+;; Index-valued rows (row j holds j, same map for above/cur/below): each row
+;; sum is left + i + right, where left/right are the same-channel
+;; neighbours, replicated at the edges. Rejects a body that drops the
+;; horizontal neighbours (at the edges, or for P3) -- the two properties
+;; above pass on such a body because their rows are constant.
+(check "blur-sample reads same-channel horizontal neighbours with edge replication" :subject blur-sample
+  (for-all [k: int w0: int i0: int]
+    (let [(c (if (>= k 0) 3 1))
+          (w (+ 1 (mod (abs w0) 30)))
+          (m (* c w))
+          (i (mod (abs i0) (* c w)))
+          (x (/ i c))
+          (row (list-fold (range 0 (* c w)) (map-empty)
+                 (fn [acc: map[int, int] j: int] (map-put acc j j))))
+          (left (if (>= (- x 1) 0) (- i c) i))
+          (right (if (< (+ x 1) w) (+ i c) i))]
+      (= (blur-sample m c w row row row i) (/ (* 3 (+ left (+ i right))) 9)))))
