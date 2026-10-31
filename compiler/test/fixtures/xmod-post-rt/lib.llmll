@@ -1,0 +1,14 @@
+(def-shell bad-inc [x: int] -> int
+  (pre (>= x 0))
+  (post (= result (+ x 1)))
+  (+ x 2))
+
+(def bad-dbl [x: int] -> int
+  (pre (>= x 0))
+  (post (= result (* 2 x)))
+  (+ x 3))
+
+(def good-dbl [x: int] -> int
+  (pre (>= x 0))
+  (post (= result (* 2 x)))
+  (+ x x))

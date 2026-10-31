@@ -1,0 +1,1 @@
+(def-shell c-inc [x: int] -> int (pre (>= x 0)) (post (= result (+ x 1))) (+ x 2))

@@ -1,0 +1,2 @@
+(def-shell sqi [x: int] -> int (pre (>= x 0)) (post (?proof-required :reason "nl" (= result (* x x)))) (* x x))
+(def-shell bare [x: int] -> int (pre ?proof-required) (post ?proof-required) (+ x 1))

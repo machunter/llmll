@@ -1,0 +1,3 @@
+(import cc)
+(open cc)
+(def-shell b-inc [x: int] -> int (pre (>= x 0)) (post (= result (+ x 100))) (c-inc x))

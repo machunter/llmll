@@ -29,7 +29,9 @@ import LLMLL.TypeCheck
 import LLMLL.TypeAdmissibility (builtinAliases)
 import LLMLL.InvariantRegistry (defaultPatterns)
 import LLMLL.Diagnostic (reportSuccess, reportDiagnostics, diagKind, diagMessage, diagSeverity, Severity(..))
-import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterfaceMismatch, isBuiltinImport)
+import LLMLL.Module (loadModule, buildModuleEnv, mergeModuleEnvs, checkInterfaceMismatch, isBuiltinImport, topoSortedEnvs)
+import LLMLL.LoadClosure (loadImportClosure)  -- XMOD-POST-RT-1
+import LLMLL.Contracts (ContractsMode(..), instrumentClosure)  -- XMOD-POST-RT-1
 -- XMOD-SCOPE: build-closure name scope
 import LLMLL.BuildScope (closureOf, resolveQualifiedTypes, stripModuleQualifiers, closureDecls, Decl(..), Namespace(..))
 import LLMLL.CodegenHs (generateHaskellMulti, cgHsSource)
@@ -1092,6 +1094,92 @@ moduleSpec = describe "Module System" $ do
           cenv    = cacheAwareContractEnv aliases stmts cache
       Map.keys cenv `shouldBe` ["double", "lib.double", "use-double"]
       Map.keys (buildContractEnv stmts) `shouldBe` ["use-double"]
+
+  -- -----------------------------------------------------------------------
+  -- XMOD-POST-RT-1: `--contracts` instruments every module in the import
+  -- closure, not just the entry module. Before the fix, an imported function
+  -- reached codegen with its contract untouched: CodegenHs emitted its own
+  -- pre guard ("pre-condition failed") and dropped the post. Files:
+  -- test/fixtures/xmod-post-rt/.
+  -- -----------------------------------------------------------------------
+  describe "XMOD-POST-RT-1: imported modules are instrumented like the entry module" $ do
+    let xprRoot = "test/fixtures/xmod-post-rt/"
+        xprLoad name = do
+          src <- TIO.readFile (xprRoot ++ name ++ ".llmll")
+          ss <- either (fail . show) pure
+                  (parseTopLevel GrammarCoreInversion (name ++ ".llmll") src)
+          r <- loadImportClosure GrammarCoreInversion (xprRoot ++ name ++ ".llmll") ss
+          case r of
+            Left ds -> fail (show (map diagMessage ds))
+            Right (stmts, cache, order) -> pure (stmts, topoSortedEnvs cache order)
+        xprGen mode name envs stmts =
+          let (envs', stmts') = instrumentClosure mode envs stmts
+          in cgHsSource (generateHaskellMulti name envs' stmts')
+        -- the emitted definition of one Haskell function: its `name ... =`
+        -- line through the blank line codegen ends every definition with
+        defOf hsName hs =
+          let ls    = T.lines hs
+              start = dropWhile (\l -> not ((hsName <> " ") `T.isPrefixOf` l
+                                            && " =" `T.isSuffixOf` l)) ls
+          in T.unlines (takeWhile (not . T.null) start)
+        postEr bf = EvidenceRecord (DLVerified "liquid-fixpoint") bf Nothing [] False
+                      Nothing Nothing False (Just "sha256:x") False []
+        withStatus name cs envs =
+          [ if mePath e == ["lib"]
+              then e { meContractStatus = Map.insert name cs (meContractStatus e) }
+              else e
+          | e <- envs ]
+
+    it "full: an imported def-shell gets the instrumented pre and post, not the native pre" $ do
+      (ss, envs) <- xprLoad "main"
+      let hs = xprGen ContractsFull "main" envs ss
+      T.isInfixOf "Postcondition violated in bad-inc" hs `shouldBe` True
+      T.isInfixOf "Precondition violated in bad-inc" hs `shouldBe` True
+      T.isInfixOf "bad_inc x =" (defOf "bad_inc" hs) `shouldBe` True
+      T.isInfixOf "pre-condition failed" (defOf "bad_inc" hs) `shouldBe` False
+
+    it "full: an imported def gets its post guard" $ do
+      (ss, envs) <- xprLoad "main"
+      let hs = xprGen ContractsFull "main" envs ss
+      T.isInfixOf "Postcondition violated in bad-dbl" hs `shouldBe` True
+
+    it "full: an imported letrec gets its post guard" $ do
+      (ss, envs) <- xprLoad "main"
+      let recS = SLetrec "rec-f" [("x", TInt)] (Just TInt)
+                   (Contract Nothing Nothing (Just (EOp ">=" [EVar "result", ELit (LitInt 0)]))
+                             Nothing Nothing [] [])
+                   (EVar "x") (EVar "x")
+          envs' = [ if mePath e == ["lib"] then e { meStatements = meStatements e ++ [recS] } else e
+                  | e <- envs ]
+          hs = xprGen ContractsFull "main" envs' ss
+      T.isInfixOf "Postcondition violated in rec-f" hs `shouldBe` True
+
+    it "full: every link of a three-module chain gets its post guard" $ do
+      (ss, envs) <- xprLoad "chain"
+      let hs = xprGen ContractsFull "chain" envs ss
+      map (\n -> T.isInfixOf ("Postcondition violated in " <> n) hs) ["c-inc", "b-inc", "a-inc"]
+        `shouldBe` [True, True, True]
+
+    it "unproven: an imported verified + body-faithful post is stripped, its pre kept" $ do
+      (ss, envs) <- xprLoad "main"
+      let cs = ContractStatus Nothing (Just (postEr True)) []
+          hs = xprGen ContractsUnproven "main" (withStatus "good-dbl" cs envs) ss
+      T.isInfixOf "Postcondition violated in good-dbl" hs `shouldBe` False
+      T.isInfixOf "Precondition violated in good-dbl" hs `shouldBe` True
+      -- an imported post with no evidence still gets its guard
+      T.isInfixOf "Postcondition violated in bad-inc" hs `shouldBe` True
+
+    it "unproven: a verified post that is not body-faithful keeps its guard" $ do
+      (ss, envs) <- xprLoad "main"
+      let cs = ContractStatus Nothing (Just (postEr False)) []
+          hs = xprGen ContractsUnproven "main" (withStatus "good-dbl" cs envs) ss
+      T.isInfixOf "Postcondition violated in good-dbl" hs `shouldBe` True
+
+    it "none: no imported post guard (native pre unchanged; F4 follow-up owns it)" $ do
+      (ss, envs) <- xprLoad "main"
+      let hs = xprGen ContractsNone "main" envs ss
+      T.isInfixOf "Postcondition violated" hs `shouldBe` False
+      T.isInfixOf "pre-condition failed" (defOf "bad_inc" hs) `shouldBe` True
 
   -- -----------------------------------------------------------------------
   -- XMOD-SCOPE-BRIEF: the brief's callable-vocabulary channels are

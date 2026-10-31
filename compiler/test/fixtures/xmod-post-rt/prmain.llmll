@@ -1,0 +1,8 @@
+(import wasi.io (capability stdout))
+(import prlib)
+(open prlib)
+(def-shell sq [x: int] -> int (pre (>= x 0)) (post (?proof-required :reason "nl" (= result (* x x)))) (* x x))
+(def-shell bare2 [x: int] -> int (pre ?proof-required) (post ?proof-required) (+ x 1))
+(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout "|")))
+(def-shell fin [s: int] -> bool (>= s 1))
+(def-main :mode cli :init (pair 0 (wasi.io.stdout (int-to-string (+ (bare2 1) (+ (bare 1) (+ (sq 3) (sqi 3))))))) :step st :done? fin)

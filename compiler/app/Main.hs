@@ -77,7 +77,7 @@ import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval)
 import LLMLL.DivergenceCheck
   ( Fill(..), FillStatus(..), ClassifiedFill(..), DivergenceContext(..)
   , DivergenceReport(..), buildDivergenceReport, divergenceReportJson )
-import LLMLL.Contracts (ContractsMode(..), instrumentContracts, applyContractsMode, buildFuncEnv)
+import LLMLL.Contracts (ContractsMode(..), instrumentClosure, applyContractsMode, buildFuncEnv)
 import LLMLL.VerifiedCache (saveVerified, saveVerifiedWith, saveVerifiedWithAxioms, loadVerified, verifiedPath, demotePositiveRecords)
 import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
 -- GENERICS-1 (S5): the verifier reads the specialized program.
@@ -807,14 +807,14 @@ doBuild json gm fp mOutDir doWasm emitJson emitOnly contractsMode = do
           unless (reportSuccess tcReport) $ do
             printTypeCheckFailure json tcReport
             exitFailure
-          let -- v0.6.3: collect contract statuses and instrument contracts per mode (BUG-2)
-              allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
-                                Map.empty cache
-              instrumentedStmts = instrumentContracts contractsMode allCS stmts
+          let -- v0.6.3 BUG-2 / XMOD-POST-RT-1: instrument contracts per mode
+              -- across the whole import closure, not just the entry module
+              (instrumentedEnvs, instrumentedStmts) =
+                instrumentClosure contractsMode importedEnvs stmts
               outDir       = case mOutDir of
                                Just d  -> d
                                Nothing -> "generated/" <> T.unpack modName
-          (envsA, stmtsA) <- absImportSrc importedEnvs instrumentedStmts
+          (envsA, stmtsA) <- absImportSrc instrumentedEnvs instrumentedStmts
           let result       = generateHaskellMulti modName envsA stmtsA
           -- Write Haskell source + optional Main.hs
           createDirectoryIfMissing True (outDir <> "/src")
@@ -889,14 +889,13 @@ doBuildFromJson json gm fp mOutDir emitOnly contractsMode = do
       unless (reportSuccess tcReport) $ do
         printTypeCheckFailure json tcReport
         exitFailure
-      let -- v0.6.3: instrument contracts (BUG-2)
-          allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
-                            Map.empty cache
-          instrumentedStmts = instrumentContracts contractsMode allCS stmts
+      let -- v0.6.3 BUG-2 / XMOD-POST-RT-1: instrument the whole import closure
+          (instrumentedEnvs, instrumentedStmts) =
+            instrumentClosure contractsMode importedEnvs stmts
           outDir  = case mOutDir of
                       Just d  -> d
                       Nothing -> "generated/" <> T.unpack modName
-      (envsA, stmtsA) <- absImportSrc importedEnvs instrumentedStmts
+      (envsA, stmtsA) <- absImportSrc instrumentedEnvs instrumentedStmts
       let result  = generateHaskellMulti modName envsA stmtsA
       createDirectoryIfMissing True (outDir <> "/src")
       writeFileUtf8 (outDir <> "/src/Lib.hs")   (cgHsSource result)
@@ -957,12 +956,11 @@ doRun json gm fp extraArgs = do
         exitFailure
       let modNameT = T.pack modName
           importedEnvs = topoSortedEnvs cache loadOrder
-          allCS = Map.foldl' (\acc menv -> Map.union (meContractStatus menv) acc)
-                             Map.empty cache
-          -- v0.6.3: instrument contracts (BUG-2) — full mode for run
-          instrumentedStmts = instrumentContracts ContractsFull allCS stmts
+          -- v0.6.3 BUG-2 / XMOD-POST-RT-1: full mode for run, whole closure
+          (instrumentedEnvs, instrumentedStmts) =
+            instrumentClosure ContractsFull importedEnvs stmts
           outDir   = tmpDir
-      (envsA, stmtsA) <- absImportSrc importedEnvs instrumentedStmts
+      (envsA, stmtsA) <- absImportSrc instrumentedEnvs instrumentedStmts
       let result   = generateHaskellMulti modNameT envsA stmtsA
       createDirectoryIfMissing True (outDir <> "/src")
       writeFileUtf8 (outDir <> "/src/Lib.hs")   (cgHsSource result)
