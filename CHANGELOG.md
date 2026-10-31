@@ -4,6 +4,29 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.33.2)
+
+### `FALLBACK-ATTRIB-1`: `W-BODY-FALLBACK` names the term that refused
+
+- **A body fallback names its innermost refused term**, not the enclosing `if` or `let`.
+  `(if (>= x 0) (* x x) 0)` gave `Refused by: if.` and now gives `Refused by: nonlinear:*.`;
+  `(string-length (string-slice s 0 1))` in a branch gives `app:string-slice`. A call the
+  verifier admits is not named: a contracted callee, a function-typed parameter, `min`, `max`,
+  `abs` and `compare`. An `if`, `let` or `match` in an argument position, where the verifier
+  refuses it, is named: `(+ (if c 1 2) 3)` gives `if`.
+- **A contract cause raises the warning.** A post or pre outside the fragment, a signature-level
+  refusal and the two map-return causes were recorded in `--json verify` and said nothing in text
+  mode. `no-post` and `unfilled-hole` still raise nothing.
+- `body_fallback_constructs` carries the same labels, so `scripts/fallback_census.py` counts move
+  from `if` and `let` to the inner terms. The label set is unchanged. The `.fq` output is
+  unchanged.
+- Measured on `scripts/tests/fixtures/fallback_attrib/attrib.llmll`: all seven functions name the
+  expected cause and term. `PATCH-PROOF-1` PP-2 now reports `app:unwrap-or` and `if` for
+  `(unwrap-or (ok (if …)) 0)`; `(ok (if …))` alone falls back, so both terms refuse.
+- No schema change (0.15.0) and no version-stamp change.
+
+**Tests:** hspec 2878 → 2887, 0 failures; Python 634 → 636 passed, 5 skipped.
+
 ## v0.33.2: `min`, `max` and `abs` in an `if` guard (2026-10-29)
 
 ### `MINMAX-GUARD-1`: `min`, `max` and `abs` in an `if` guard

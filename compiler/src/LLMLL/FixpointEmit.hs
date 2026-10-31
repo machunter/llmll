@@ -1488,19 +1488,25 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         -- refusal, which is what made the first two hand censuses wrong in the
         -- same direction. Neither decision changes the Nothing/Just outcome
         -- above, so the emitted .fq is unchanged.
+        -- FALLBACK-ATTRIB-1: a contract cause raises W-BODY-FALLBACK, as a body
+        -- cause does. It was recorded in the trust report and said nowhere in
+        -- the text output. A hole or an absent post still raises nothing.
         let holeBody = hasHole body
             noPost   = isNothing (contractPost contract)
+            contractFallback c cons = do
+              addBodyFallback name c cons
+              addDiag (mkBodyFallbackWarning name (renderFallbackCause c) cons [])
         case (mPostPred, mPrePred) of
           (Nothing, _)
             | holeBody  -> addBodyFallback name FallbackHole []
             | noPost    -> addBodyFallback name FallbackNoPost []
             | otherwise -> case postCause of
-                Just (c, cons) -> addBodyFallback name c cons  -- a whole-contract refusal, attributed above
-                Nothing        -> addBodyFallback name FallbackContractPost  -- an untranslatable post → fallback
+                Just (c, cons) -> contractFallback c cons  -- a whole-contract refusal, attributed above
+                Nothing        -> contractFallback FallbackContractPost  -- an untranslatable post → fallback
                                     (maybe [] refusedConstructs (contractPost contract))
           (_, Nothing)
             | holeBody  -> addBodyFallback name FallbackHole []
-            | otherwise -> addBodyFallback name FallbackContractPre  -- untranslatable pre → fallback
+            | otherwise -> contractFallback FallbackContractPre  -- untranslatable pre → fallback
                              (maybe [] refusedConstructs (contractPre contract))
           (Just postPred, Just mPre) -> do
             -- Build SortEnv from int-typed parameters
@@ -1766,7 +1772,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                 -- means a post exists: 'FallbackNoPost' is decided earlier, so
                 -- this warning cannot fire on a function with no proof goal.
                 | otherwise -> do
-                    let labels = bodyRefusalLabels aliases params body
+                    let labels = bodyRefusalLabels aliases params (Map.keysSet cenv) body
                         -- only from arm sets binding actually repairs, so the
                         -- message's repair sentence is true when it is printed
                         wildCtors = concatMap wildcardPayloadCtors
@@ -1807,7 +1813,11 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                   else if maybe FQInt sortA1 mRet == FQInt && arrayResultPath bvc
                           && not (arrGate && maybe False (mapArrEncodableTy aliases) mRet
                                   && all pinnableTail (flattenBodyVC bvc))
-                    then addBodyFallback name FallbackMixedMapTail []
+                    then do
+                      addBodyFallback name FallbackMixedMapTail []
+                      -- FALLBACK-ATTRIB-1: every assumed post is said.
+                      addDiag (mkBodyFallbackWarning name
+                                 (renderFallbackCause FallbackMixedMapTail) [] [])
                     else do
                     -- Warn at 257-4096
                     when (pathCount > 256) $
@@ -1937,7 +1947,11 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     -- Mark as body-faithful, unless MAP-RET-POST-1's reflection
                     -- scope check refused the post above.
                     if unboundMapResult
-                      then addBodyFallback name FallbackUnboundMapResult []
+                      then do
+                        addBodyFallback name FallbackUnboundMapResult []
+                        -- FALLBACK-ATTRIB-1: every assumed post is said.
+                        addDiag (mkBodyFallbackWarning name
+                                   (renderFallbackCause FallbackUnboundMapResult) [] [])
                       else addBodyFaithful name
 
                     -- INT-1 (v0.10.8): tagged body-faithful fns whose body used
@@ -3888,10 +3902,18 @@ constructLabel (ELit _)             = "lit"
 -- the census histogram in scripts/fallback_census.py keeps stable buckets. The
 -- exact alternative is a reason at each of 'bodyToPredM''s Nothing returns,
 -- which is about forty clauses and is not worth it for the measured population.
-bodyRefusalLabels :: AliasMap -> [(Name, Type)] -> Expr -> [Text]
-bodyRefusalLabels aliases params body =
+--
+-- FALLBACK-ATTRIB-1: with no match label, the label is the innermost term that
+-- refused ('innerRefusals'), not the root. A root `if` or `let` was named for a
+-- body whose only refusal was a `*` in one branch. The root label stays as the
+-- last resort, so the walk never drops a refusal.
+bodyRefusalLabels :: AliasMap -> [(Name, Type)] -> Set.Set Name -> Expr -> [Text]
+bodyRefusalLabels aliases params callees body =
   case concatMap matchLabels (matchSites body) of
-    []   -> [constructLabel body]
+    [] -> case innerRefusals callees
+                 (markIntBuiltins (Set.fromList (map fst params) `Set.union` callees) body) of
+            []   -> [constructLabel body]
+            lbls -> Set.toAscList (Set.fromList lbls)
     lbls -> Set.toAscList (Set.fromList lbls)
   where
     -- Does THIS match's scrutinee carry a payload the fragment cannot admit?
@@ -3918,6 +3940,44 @@ bodyRefusalLabels aliases params body =
       , not (null ctorArms) =
           [ "match-payload-sort" | inadmissibleScrutinee scr ]
       | otherwise = ["match-arm-shape"]
+
+-- | FALLBACK-ATTRIB-1: the innermost terms of a body that 'exprToPred' refuses.
+-- In a tail position (the body, a branch, a `let` binding or body, an arm, a
+-- pair component), `if`, `let`, `match` and `pair` are walked through, because
+-- 'bodyToPredM' admits them there and 'exprToPred' does not. In an argument
+-- position they are not, so `(+ (if c 1 2) 3)` names the `if`. A call that
+-- 'bodyToPredM' admits and 'exprToPred' refuses is walked through anywhere: a
+-- callee of the contract environment (which holds the function-typed
+-- parameters, FN-PARAM-UF-1) and a builtin 'markIntBuiltins' marked, `compare`
+-- included. Any other refused node is labelled by its innermost refused
+-- children, and by itself when it refuses without them.
+innerRefusals :: Set.Set Name -> Expr -> [Text]
+innerRefusals callees = tailR
+  where
+    tailR e = case e of
+      EIf c t f      -> argR c ++ tailR t ++ tailR f
+      ELet bs b      -> concatMap tailR ([ x | (_, _, x) <- bs ] ++ [b])
+      EMatch sc arms -> argR sc ++ concatMap (tailR . snd) arms
+      EPair a b      -> tailR a ++ tailR b
+      _              -> argR e
+    argR e = case e of
+      EApp f as | admitted f -> concatMap argR as
+      EOp  f as | admitted f -> concatMap argR as
+      _ | isJust (exprToPred e) -> []
+        | otherwise ->
+            let rs = concatMap argR (subExprs e)
+            in [ constructLabel e | null rs || isNothing (exprToPred (plugArgs e)) ] ++ rs
+    -- A node is named beside its refused arguments when it still refuses with
+    -- each of them replaced by a variable: `(unwrap-or (ok (if c a b)) 0)`
+    -- names `unwrap-or` and the `if`, `(+ (if c 1 2) 3)` names only the `if`.
+    plugArgs e = case e of
+      EApp f as -> EApp f (map plug as)
+      EOp  f as -> EOp f (map plug as)
+      _         -> e
+    plug a | isJust (exprToPred a) = a
+           | otherwise             = EVar "fat$arg"
+    admitted f = f `Set.member` callees || intBuiltinTag `T.isPrefixOf` f
+                 || isReflectedCompare f
 
 -- | Label an application node. 'map-has' and 'map-get' on '(map-empty)' are
 -- refused by 'exprToPred' with their children translating, so they surface
