@@ -1222,7 +1222,7 @@ JSON-AST:
 (pre (?proof-required :reason "non-linear-contract" (>= (* x y) 0)))
 ```
 
-A predicate-carrying `?proof-required` in `pre`/`post` emits a Haskell runtime assertion (`if pred then () else error "proof-required: reason"`). Non-linear predicates (`*`, `/`, `mod`, `^`) also emit a `QF-LIA` warning at `llmll check`.
+A predicate-carrying `?proof-required` in `pre`/`post` emits a Haskell runtime assertion of `pred`. A violation fails with the message of a plain clause, `Precondition violated in <name>` or `Postcondition violated in <name>`. The bare form adds no guard. Both forms behave the same in an imported module, since `build` and `run` instrument every module of the import closure. Non-linear predicates (`*`, `/`, `mod`, `^`) also emit a `QF-LIA` warning at `llmll check`.
 
 **JSON-AST node — bare form:**
 
