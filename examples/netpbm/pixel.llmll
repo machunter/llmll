@@ -1,0 +1,165 @@
+;; pixel — the verified scalar core of the netpbm codec.
+;;
+;; Every function here is a strict-core `def` over plain ints. None of them
+;; calls another def: a def may only call defs whose body-faithful record was
+;; written by an EARLIER `llmll verify` run of ANOTHER module, so predicates
+;; such as "s is a sample in 0..m" are written out inline in each contract
+;; instead of being factored into a helper. Headers are passed as separate
+;; ints rather than as the (c, (w, (h, m))) pair the shell uses, because a
+;; nested projection such as (first (second h)) falls back (or crashes the
+;; solver) in a def body; see FRICTION.md.
+;;
+;; Multiplying two variables is outside the verifier's fragment. The one
+;; product the codec needs over and over, n * channels, is written as
+;; (if (= c 3) (* 3 n) n): channels is 1 or 3, so a constant multiplication
+;; suffices and stays linear.
+
+;; ─── Header predicates ──────────────────────────────────────────────────
+
+;; A well-formed header: 1 or 3 channels, positive dimensions, 1 <= maxval <= 65535.
+(def header-ok? [c: int w: int ht: int m: int] -> bool
+  (post (= result (and (or (= c 1) (= c 3))
+                  (and (>= w 1) (and (>= ht 1) (and (>= m 1) (<= m 65535)))))))
+  (and (or (= c 1) (= c 3))
+  (and (>= w 1) (and (>= ht 1) (and (>= m 1) (<= m 65535))))))
+
+;; n * c for c in {1, 3}, kept linear by case analysis on c.
+(def times-channels [c: int n: int] -> int
+  (pre  (or (= c 1) (= c 3)))
+  (post (and (=> (= c 1) (= result n)) (=> (= c 3) (= result (* 3 n)))))
+  (if (= c 3) (* 3 n) n))
+
+;; ─── Per-sample transforms ──────────────────────────────────────────────
+
+;; Invert one sample. The post states the involution directly: result + s = m,
+;; hence (invert-sample m (invert-sample m s)) = s.
+(def invert-sample [m: int s: int] -> int
+  (pre  (and (>= m 1) (and (>= s 0) (<= s m))))
+  (post (and (= (+ result s) m) (and (>= result 0) (<= result m))))
+  (- m s))
+
+;; Threshold one sample to black (0) or white (m).
+(def threshold-sample [m: int t: int s: int] -> int
+  (pre  (and (>= m 1) (and (>= s 0) (<= s m))))
+  (post (and (or (= result 0) (= result m))
+        (and (=> (>= s t) (= result m))
+             (=> (< s t) (= result 0)))))
+  (if (>= s t) m 0))
+
+;; Integer luma (77 r + 150 g + 29 b) / 256. The weights sum to 256, so the
+;; result stays in 0..m; the solver proves it (constant products and a
+;; constant positive divisor are linear).
+(def luma [m: int r: int g: int b: int] -> int
+  (pre  (and (>= m 1)
+        (and (and (>= r 0) (<= r m))
+        (and (and (>= g 0) (<= g m))
+             (and (>= b 0) (<= b m))))))
+  (post (and (>= result 0) (<= result m)))
+  (/ (+ (* 77 r) (+ (* 150 g) (* 29 b))) 256))
+
+;; Mean of a 3x3 neighbourhood, given the sum of its nine samples.
+(def avg9 [m: int sum: int] -> int
+  (pre  (and (>= m 1) (and (>= sum 0) (<= sum (* 9 m)))))
+  (post (and (>= result 0) (<= result m)))
+  (/ sum 9))
+
+;; Clamp a coordinate into 0..n-1 (edge replication for the blur).
+(def clamp-coord [n: int i: int] -> int
+  (pre  (>= n 1))
+  (post (and (>= result 0) (and (< result n)
+        (=> (and (>= i 0) (< i n)) (= result i)))))
+  (if (< i 0) 0 (if (>= i n) (- n 1) i)))
+
+;; ─── Crop geometry ──────────────────────────────────────────────────────
+
+;; The cw x ch window at (x, y) lies inside a w x ht image.
+(def crop-ok? [w: int ht: int x: int y: int cw: int ch: int] -> bool
+  (post (= result (and (>= x 0) (and (>= y 0) (and (>= cw 1) (and (>= ch 1)
+                  (and (<= (+ x cw) w) (<= (+ y ch) ht))))))))
+  (and (>= x 0) (and (>= y 0) (and (>= cw 1) (and (>= ch 1)
+  (and (<= (+ x cw) w) (<= (+ y ch) ht)))))))
+
+;; Sample-index span [lo, hi) of columns x .. x+cw-1 inside one row of a
+;; c-channel, w-wide image. Proved: the span is non-empty, inside the row,
+;; and exactly cw pixels wide.
+(def row-span [c: int w: int x: int cw: int] -> (int, int)
+  (pre  (and (or (= c 1) (= c 3))
+        (and (>= x 0) (and (>= cw 1) (<= (+ x cw) w)))))
+  (post (and (>= (first result) 0)
+        (and (< (first result) (second result))
+        (and (=> (= c 1) (and (= (- (second result) (first result)) cw)
+                              (<= (second result) w)))
+             (=> (= c 3) (and (= (- (second result) (first result)) (* 3 cw))
+                              (<= (second result) (* 3 w))))))))
+  (if (= c 3)
+      (pair (* 3 x) (* 3 (+ x cw)))
+      (pair x (+ x cw))))
+
+;; ─── Decoder decisions ──────────────────────────────────────────────────
+
+;; Channels for a magic number; 0 means unsupported.
+(def magic-channels [magic: string] -> int
+  (post (and (=> (= magic "P2") (= result 1))
+        (and (=> (= magic "P3") (= result 3))
+             (=> (and (!= magic "P2") (!= magic "P3")) (= result 0)))))
+  (if (= magic "P2") 1 (if (= magic "P3") 3 0)))
+
+;; What is wrong with the header dimensions, or "" when nothing is.
+(def header-problem [w: int ht: int m: int] -> string
+  (post (and (= (= result "") (and (>= w 1) (and (>= ht 1) (and (>= m 1) (<= m 65535)))))
+        (and (=> (< w 1) (= result "width must be positive"))
+             (=> (and (>= w 1) (< ht 1)) (= result "height must be positive")))))
+  (if (< w 1) "width must be positive"
+  (if (< ht 1) "height must be positive"
+  (if (or (< m 1) (> m 65535)) "maxval must be in 1..65535" ""))))
+
+;; 0: sample v is valid for maxval m; 1: negative; 2: above maxval.
+(def sample-problem [m: int v: int] -> int
+  (pre  (>= m 1))
+  (post (and (= (= result 0) (and (>= v 0) (<= v m)))
+        (and (=> (< v 0) (= result 1))
+             (=> (> v m) (and (>= v 0) (= result 2))))))
+  (if (< v 0) 1 (if (> v m) 2 0)))
+
+;; ─── Encoder decisions ──────────────────────────────────────────────────
+
+(def magic-for [c: int] -> string
+  (post (and (=> (= c 3) (= result "P3")) (=> (!= c 3) (= result "P2"))))
+  (if (= c 3) "P3" "P2"))
+
+;; Column counter of the encoder: the position after writing one more sample
+;; of a row of rowlen samples, wrapping to 0 at the end of the row.
+(def next-col [rowlen: int col: int] -> int
+  (pre  (and (>= rowlen 1) (and (>= col 0) (< col rowlen))))
+  (post (and (>= result 0) (and (< result rowlen)
+        (and (=> (= (+ col 1) rowlen) (= result 0))
+             (=> (< (+ col 1) rowlen) (= result (+ col 1)))))))
+  (if (= (+ col 1) rowlen) 0 (+ col 1)))
+
+;; Separator written after a sample: a newline at the end of a row and
+;; after every 12th sample in it (keeps lines under 70 characters even at
+;; maxval 65535), a space otherwise. col is the counter BEFORE the sample.
+(def sep-after [rowlen: int col: int] -> string
+  (pre  (and (>= rowlen 1) (and (>= col 0) (< col rowlen))))
+  (post (and (or (= result "\n") (= result " "))
+             (=> (= (+ col 1) rowlen) (= result "\n"))))
+  (if (= (+ col 1) rowlen) "\n"
+      (if (= (mod (+ col 1) 12) 0) "\n" " ")))
+
+;; ─── Map-backed sample reads (for the blur) ─────────────────────────────
+
+;; Read sample j of a row stored as index -> sample, clamped into 0..m and 0
+;; when absent. On a well-formed row the clamp is the identity (third
+;; conjunct); it is what lets callers prove the blur's sum bound without
+;; quantifying over the map.
+(def sample-at [m: int r: map[int, int] j: int] -> int
+  (pre  (>= m 1))
+  (post (and (>= result 0) (and (<= result m)
+        (=> (and (map-has r j) (and (>= (map-get r j) 0) (<= (map-get r j) m)))
+            (= result (map-get r j))))))
+  (if (map-has r j) (min m (max 0 (map-get r j))) 0))
+
+;; i is inside the half-open span [lo, hi).
+(def in-span? [lo: int hi: int i: int] -> bool
+  (post (= result (and (>= i lo) (< i hi))))
+  (and (>= i lo) (< i hi)))

@@ -1,0 +1,26 @@
+;; geom — layer 2 of the verified core. Each def here calls only layer-1
+;; defs from pixel.llmll, whose body-faithful record must already exist
+;; (run `llmll verify pixel.llmll` first). None calls a sibling def.
+
+(import pixel)
+(open pixel)
+
+;; Offset of channel k of column x inside one row: x * c + k, linear
+;; through times-channels. Proved to land inside the row.
+(def pixel-offset [c: int w: int x: int k: int] -> int
+  (pre  (and (or (= c 1) (= c 3))
+        (and (>= x 0) (and (< x w) (and (>= k 0) (< k c))))))
+  (post (and (>= result 0)
+        (and (=> (= c 1) (and (= result x) (< result w)))
+             (=> (= c 3) (and (= result (+ (* 3 x) k)) (< result (* 3 w)))))))
+  (+ (times-channels c x) k))
+
+;; Sum of channel k over columns x-1, x, x+1 of one row (edges replicated).
+;; Proved: 0 <= sum <= 3m, whatever the map holds.
+(def window-sum3 [m: int c: int w: int r: map[int, int] x: int k: int] -> int
+  (pre  (and (>= m 1) (and (or (= c 1) (= c 3))
+        (and (>= w 1) (and (>= k 0) (< k c))))))
+  (post (and (>= result 0) (<= result (* 3 m))))
+  (+ (sample-at m r (+ (times-channels c (clamp-coord w (- x 1))) k))
+     (+ (sample-at m r (+ (times-channels c (clamp-coord w x)) k))
+        (sample-at m r (+ (times-channels c (clamp-coord w (+ x 1))) k)))))

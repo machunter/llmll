@@ -1,0 +1,21 @@
+;; blur — layer 3 of the verified core: one output sample of the 3x3 box
+;; blur. Calls avg9 (pixel, layer 1) and window-sum3 (geom, layer 2); both
+;; records must exist before this module is checked.
+
+(import pixel)
+(open pixel)
+(import geom)
+(open geom)
+
+;; Output sample (x, k) of a row, given the rows above, at and below it as
+;; index -> sample maps (edge rows are passed twice by the caller).
+;; Proved: the result is a valid sample in 0..m. The sum bound avg9 needs
+;; comes from window-sum3's post, not from any fact about the maps.
+(def blur-sample [m: int c: int w: int above: map[int, int] cur: map[int, int]
+                  below: map[int, int] x: int k: int] -> int
+  (pre  (and (>= m 1) (and (or (= c 1) (= c 3))
+        (and (>= w 1) (and (>= k 0) (< k c))))))
+  (post (and (>= result 0) (<= result m)))
+  (avg9 m (+ (window-sum3 m c w above x k)
+          (+ (window-sum3 m c w cur x k)
+             (window-sum3 m c w below x k)))))

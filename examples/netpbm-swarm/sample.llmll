@@ -1,0 +1,109 @@
+;; sample — LEVEL 0 of the netpbm-swarm verified core. Imports nothing.
+;;
+;; Per-sample arithmetic over plain ints. m is the image maxval
+;; (1 <= m <= 65535). No def here calls another def (a def may only call a
+;; def verified in an EARLIER run of ANOTHER module), so "s is a sample" is
+;; written out inline as (and (>= s 0) (<= s m)) in each contract.
+;;
+;; Requirements are explicit (pre ...) clauses, not refinement-alias params:
+;; the unverified shell calls these, and alias predicates are erased with no
+;; runtime check (LLMLL.md 3.4.5), whereas a pre is asserted at runtime.
+
+;; Invert one sample. result + s = m states the involution:
+;; (invert-sample m (invert-sample m s)) = s follows by arithmetic.
+;; Rejects (- m s 1), (- 255 s), and any body that ignores m.
+(def invert-sample [m: int s: int] -> int
+  (pre  (and (>= m 1) (and (>= s 0) (<= s m))))
+  (post (and (= (+ result s) m) (and (>= result 0) (<= result m))))
+  (- m s))
+
+;; Threshold one sample to black (0) or white (m): white exactly when s >= t.
+;; Rejects (> s t) (off by one at s = t) and a body that returns 1 for white.
+(def threshold-sample [m: int t: int s: int] -> int
+  (pre  (and (>= m 1) (and (>= s 0) (<= s m))))
+  (post (and (or (= result 0) (= result m))
+             (= (= result m) (>= s t))))
+  (if (>= s t) m 0))
+
+;; Integer luma (77 r + 150 g + 29 b) / 256 (floor). The weights sum to 256,
+;; so the result stays in 0..m. Products by constants and a constant positive
+;; divisor are linear. The exact formula rejects (r+g+b)/3, swapped weights,
+;; and / 255.
+(def luma [m: int r: int g: int b: int] -> int
+  (pre  (and (>= m 1)
+        (and (and (>= r 0) (<= r m))
+        (and (and (>= g 0) (<= g m))
+             (and (>= b 0) (<= b m))))))
+  (post (and (= result (/ (+ (* 77 r) (+ (* 150 g) (* 29 b))) 256))
+             (and (>= result 0) (<= result m))))
+  (/ (+ (* 77 r) (+ (* 150 g) (* 29 b))) 256))
+
+;; Mean of a 3x3 window given the sum of its nine samples (floor).
+;; Rejects / 8 and a rounding (+ sum 4) variant.
+(def avg9 [m: int sum: int] -> int
+  (pre  (and (>= m 1) (and (>= sum 0) (<= sum (* 9 m)))))
+  (post (and (= result (/ sum 9)) (and (>= result 0) (<= result m))))
+  (/ sum 9))
+
+;; Clamp a coordinate into 0..n-1 (edge replication). Fully determined:
+;; rejects a body that wraps (mod) or clamps to n instead of n-1.
+(def clamp-coord [n: int i: int] -> int
+  (pre  (>= n 1))
+  (post (and (>= result 0)
+        (and (< result n)
+        (and (=> (< i 0) (= result 0))
+        (and (=> (>= i n) (= result (- n 1)))
+             (=> (and (>= i 0) (< i n)) (= result i)))))))
+  (if (< i 0) 0 (if (>= i n) (- n 1) i)))
+
+;; Read sample i of a row held as a map (keys 0..L-1, see kernel.llmll).
+;; Always in 0..m: an absent key reads 0 and an out-of-range stored value is
+;; clamped, so callers get a range fact whatever the map holds. When the key
+;; is present and the stored value is a sample, the read is exact -- this
+;; rejects a body that always returns 0 or that clamps to m-1. The clamp is
+;; pinned too (stored < 0 reads 0, stored > m reads m), so the post fully
+;; determines the result: it rejects a body that maps out-of-range values to
+;; 0 (or to m) without clamping.
+(def sample-at [m: int r: map[int, int] i: int] -> int
+  (pre  (>= m 1))
+  (post (and (>= result 0)
+        (and (<= result m)
+        (and (=> (and (map-has r i)
+                      (and (>= (map-get r i) 0) (<= (map-get r i) m)))
+                 (= result (map-get r i)))
+        (and (=> (and (map-has r i) (< (map-get r i) 0)) (= result 0))
+        (and (=> (and (map-has r i) (> (map-get r i) m)) (= result m))
+             (=> (not (map-has r i)) (= result 0))))))))
+  (if (map-has r i) (max 0 (min m (map-get r i))) 0))
+
+;; Properties the posts imply but do not state as one fact. Inputs are
+;; generated freely, so each property guards itself with the callee's pre.
+
+;; invert is an involution on samples.
+(check "invert-sample is an involution"
+  (for-all [m: int s: int]
+    (if (and (>= m 1) (and (>= s 0) (<= s m)))
+        (= (invert-sample m (invert-sample m s)) s)
+        true)))
+
+;; The luma weights sum to 256, so a gray pixel (r = g = b = v) maps to v.
+(check "luma of a gray pixel is the gray level"
+  (for-all [m: int v: int]
+    (if (and (>= m 1) (and (>= v 0) (<= v m)))
+        (= (luma m v v v) v)
+        true)))
+
+;; avg9 of nine equal samples gives the sample back.
+(check "avg9 of a constant window is the constant"
+  (for-all [m: int v: int]
+    (if (and (>= m 1) (and (>= v 0) (<= v m)))
+        (= (avg9 m (* 9 v)) v)
+        true)))
+
+;; A row map built from a stored in-range value reads it back; a missing key reads 0.
+(check "sample-at reads back a stored sample and 0 for a missing key"
+  (for-all [m: int i: int v: int]
+    (if (and (>= m 1) (and (>= v 0) (<= v m)))
+        (and (= (sample-at m (map-put (map-empty) i v) i) v)
+             (= (sample-at m (map-empty) i) 0))
+        true)))
