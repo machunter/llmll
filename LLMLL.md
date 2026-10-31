@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.33.3)
+# LLMLL: Large Language Model Logical Language (v0.33.4)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.33.3.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.33.4.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1169,6 +1169,8 @@ guard_k  ∧  P_caller  ∧  ⋀_{i<k} Q_{c_i}[r_i]   ⟹   Pre_{c_k}[args_k]
 ```
 
 where `Q_{c_i}[r_i]` is callee `cᵢ`'s contract postcondition over its fresh result variable `rᵢ` (ASSUME polarity), `rᵢ` is bound in the constraint environment, and `guard_k` is the path guard accumulated through enclosing `EIf`/`EMatch`. A `let`-bound call result is the call's result variable itself (no separate symbol), so a later call referencing an earlier result reasons about that result's assumed post. The single-call rule above is the `k = 1`, empty-prefix instance; the context is **per-path** — a call in one branch does not assume a post from a call in another. This is the standard modular procedure-call (sequential-composition) discipline.
+
+**Short-circuit operators.** A call in a later operand of `and`, `or` or `=>` is verified only on the path that evaluates it (§4.7, §13.3): its precondition need hold only when the earlier operands let evaluation reach it, and its postcondition is assumed only there. `(if (and (map-has r i) (>= (map-get r i) 0)) …)` verifies as its nested-`if` form does; `<=>` evaluates both operands and is unchanged.
 
 **Trust-tier side-condition.** Discharging `cₖ`'s precondition under a prior call's *assumed* post is sound relative to that callee's own `(pre ⟹ post)` at its trust tier. The chaining function's effective tier is therefore the **meet (§4.4) over its own evidence and every transitive callee's tier**: a body-faithful function whose chain traverses an `asserted`-tier call degrades to `asserted`, not `verified`, even when its own VC is SAFE. (This meet is taken by the transitive trust closure over the syntactic call graph, independent of which call-pre obligations are emitted.)
 

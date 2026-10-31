@@ -4,6 +4,33 @@
 
 <a id="Latest"></a>
 
+## v0.33.4: Short-circuit `and`, `or` and `=>` in proofs (2026-10-31)
+
+### `AND-GUARD-PRE-1`: a call in a later operand is verified only on the path that reaches it
+
+- **A guarded call is no longer refuted.** `(if (and (map-has r i) (>= (map-get r i) 0)) 1 0)`
+  exited 1 with `call-site precondition of 'map-get' not satisfied`, while its nested-`if` form
+  was SAFE. The call was hoisted above the `and`, so its `pre` was required on every path. It now
+  verifies as the nested form does. The same holds for `bytes-get` and user calls, and for `or`
+  (under the negation of the earlier operand) and `=>`.
+- **A false SAFE is closed.** The hoist also assumed the callee's `post` on the path that skips
+  the call. A `def-shell` whose later operand called a partially-correct callee with
+  `(post false)` was reported SAFE ("proved only if it terminates"); it is now refuted.
+- `aNormalizeBody` in `FixpointEmit.hs` lowers `and`, `or` and `=>` to the nested `if` they mean
+  before ANF, but only when a later operand holds a call. Other uses are emitted as before. `<=>`
+  evaluates both operands and is unchanged. This is the evaluation order `LLMLL.md` §4.7 and
+  §13.3 already specify; §5.3.4 now states the verification rule.
+- **`checker_soundness_version` goes from `"5"` to `"6"`.** A v0.33.3 sidecar stamped `"5"` can
+  hold the false SAFE, so every older sidecar is re-verified once.
+- Measured on `scripts/tests/fixtures/and_guard/`: eleven witnesses move from refuted to SAFE,
+  including `xmod/d02.llmll` across an import; `xmod/d06.llmll` moves from SAFE to refuted;
+  `xmod/d07.llmll` (the nested form of `d06`) and `guard_bad.llmll` stay refuted. Over 560 tracked
+  `.llmll` files, 485 `.fq` outputs were compared: all byte-identical, none differ.
+- No schema change (0.15.0).
+
+**Tests (measured on merged `main`):** hspec 2903 → 2912, 0 failures; Python
+643 → 646 passed, 5 skipped.
+
 ## v0.33.3: A `let` that continues after a call, and imported contracts at run time (2026-10-31)
 
 ### `LET-CALL-CONT-1`: a `let` whose right-hand side continues after a call keeps the rest
