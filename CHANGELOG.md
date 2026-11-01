@@ -4,6 +4,47 @@
 
 <a id="Latest"></a>
 
+## v0.34.0: Two calls to one callee no longer give a false `refuted` (2026-10-31)
+
+### `ABSTRACTION-VERDICT-1`: an UNSAFE answer that needs two calls to disagree falls back
+
+- **A function with two calls to one callee is no longer reported `refuted` when the
+  counterexample needs the two calls to disagree.** Each call gets its own result variable and
+  nothing says equal arguments give equal results, so `(- (g a) (g a))` against `(post (= result
+  0))` was refuted though it holds for every pure `g`. When every failing constraint of a
+  function holds two or more call results of one callee (a contracted function, a self-call or a
+  call through a function-typed parameter), the function now falls back with cause
+  `abstraction-unsafe` and the construct `abstraction:app:<callee>`.
+- **`W-BODY-FALLBACK`** names `abstraction:app:<callee>` and adds the hint `If two calls to
+  '<callee>' take equal arguments, bind one call with let and reuse its result.` `verify` prints
+  `abstraction fallback: <fn> (abstraction:app:<callee>)`.
+- **`verify --json`** gains the optional key `abstraction_fallback` (`{"h": "abstraction:app:g"}`),
+  present only when non-empty. `solver_verdict` is the effective verdict: a run whose only
+  UNSAFE constraints are reclassified reports `safe` and exits 0.
+- **`--strict-verified-core` refuses such a function** after the solver, with `strict_errors`
+  cause `fallback`. `patch` writes such a fill and reports it as not proved. The proof artifact
+  keeps the raw `solver_result`, so replay still reproduces. A `decreases` or descent constraint
+  under the same rule falls back with `W-DECREASES-UNDISCHARGED`.
+- **A single call keeps `refuted`,** and so does a function with any failing constraint outside
+  the rule. The stated cost: a false `post` whose only refutation needs two self-calls now falls
+  back instead of being refuted. `CALL-CONGRUENCE-1` is the planned fix for both directions.
+- **`LLMLL.md` §4.4.1:** `refuted` is a modular disproof, relative to the callee contracts the
+  verifier assumes. `depends-on-refuted` rests on "a postcondition not established".
+- Measured on `scripts/tests/fixtures/abstraction_verdict/`: A1, A2, W5 and the W5 twin move from
+  refuted to the fallback; A4 (two self-calls, a false post) moves too, the stated cost; A3 (one
+  call) stays refuted. In `scripts/tests/fixtures/minmax/guard_bad.llmll`, `gs`, a false
+  refutation, now falls back as `abstraction:app:min`; the file still exits 1. Over 573 tracked
+  files, all 493 `.fq` outputs are byte-identical: the rule reads metadata after the solver.
+- **Schemas.** `docs/llmll-verify.schema.json` gains `abstraction_fallback` (no version change).
+  `docs/proof-artifact.schema.json`: the `fallback_reason` enum gains `abstraction-unsafe`, and
+  the two causes it lacked, `map-result-components-unbound` and `constraint-symbols-unbound`. The
+  JSON-AST schema is unchanged (0.15.0). `checker_soundness_version` stays `"6"`,
+  `verify_json_version` `1.0.0` and `trust_report_version` `1.10.0`.
+- The minor version moves because `verify` gains a fallback cause and a JSON key.
+
+**Tests (measured on merged `main`):** hspec 2912 → 2928, 0 failures; Python
+646 → 664 passed, 5 skipped.
+
 ## v0.33.4: Short-circuit `and`, `or` and `=>` in proofs (2026-10-31)
 
 ### `AND-GUARD-PRE-1`: a call in a later operand is verified only on the path that reaches it
