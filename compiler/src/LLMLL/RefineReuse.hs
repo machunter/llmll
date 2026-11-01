@@ -56,7 +56,6 @@ import qualified Data.Map.Strict as Map
 import           Data.Aeson (ToJSON(..), object, (.=))
 import           System.Directory (getTemporaryDirectory, removeFile)
 import           System.IO (openTempFile, hClose, hSetEncoding, utf8)
-import           System.Process (readProcessWithExitCode)
 import           Control.Exception (catch, IOException)
 
 import           LLMLL.Syntax
@@ -68,7 +67,7 @@ import           LLMLL.FixpointEmit (AliasMap, typeToSortA, exprToPred, contract
 import           LLMLL.ObligationAssembly (substExpr, classifyContractFragment)
 import           LLMLL.PBT (canonicalExpr)
 import           LLMLL.DiagnosticFQ
-  ( FQVerifyResult(..), parseFQOutcome )
+  ( FQVerifyResult(..), runFQSolver )
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -209,11 +208,11 @@ solveSubsumptionFQ lfBin fq = do
   hSetEncoding h utf8   -- BUILD-ENCODING-1: not the ambient locale
   TIO.hPutStr h (emitFQFile fq)
   hClose h
-  (lfCode, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", path] ""
+  -- VERIFY-BUDGET-1: through the guard; a stopped run is not 'FQSafe', so
+  -- the check abstains.
+  r <- runFQSolver lfBin ["-q", "--json", path]
   removeFile path `catch` \(_ :: IOException) -> pure ()
-  let merged = T.pack out <> T.pack err
-  -- VERDICT-UNSTABLE-1: the exit code is part of the verdict.
-  pure (parseFQOutcome lfCode merged)
+  pure r
 
 -- | Solver-backed subsumption check: does candidate @D@ subsume spawned @Cs@?
 -- Abstains ('False') when the constraint cannot be built (non-QF-LIA) or the

@@ -72,7 +72,7 @@ abstractionRepair :: Name -> Text
 abstractionRepair g =
   " If two calls to '" <> g <> "' take equal arguments, bind one call with let and reuse its result."
 
--- | Apply the rule to one solver answer. 'FQSafe', 'FQError' and an UNSAFE
+-- | Apply the rule to one solver answer. 'FQSafe', 'FQError', 'FQResourceLimit' and an UNSAFE
 -- answer with no ids pass through unchanged.
 applyAbstractionVerdict :: EmitResult -> FQVerifyResult -> AbstractionOutcome
 applyAbstractionVerdict er r = case r of

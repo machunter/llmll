@@ -67,7 +67,8 @@ import LLMLL.Diagnostic
   , mkReuseWarning, decodeSourceUtf8, importNeedsFile)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap, BuiltinAxiom(..))
-import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
+import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, runFQSolver, resourceStopText, resourceStopValue, fqPathFor, runDirFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
+import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, getSolverLimits, renderLimits, parseLimits, runSolverGuarded, installSolverSignalHandlers)
 -- ABSTRACTION-VERDICT-1: every solver consumer that turns UNSAFE into a claim
 import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, abstractionConstruct)
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
@@ -167,6 +168,7 @@ data Options = Options
   { optCommand     :: Command
   , optJson        :: Bool
   , optGrammarMode :: GrammarMode
+  , optSolverLimits :: SolverLimits   -- ^ VERIFY-BUDGET-1: --solver-mem-mb, --time-limit
   } deriving (Show)
 
 optionsParser :: ParserInfo Options
@@ -183,6 +185,17 @@ optionsParser = info (helper <*> versionFlag <*> opts) $
       <*> option (eitherReader parseGrammarMode)
             (long "grammar" <> value GrammarCoreInversion <> metavar "MODE"
             <> help "Grammar mode: core-inversion (default) or legacy (backward-compatible grammar)")
+      <*> (SolverLimits
+            <$> option nonNeg
+                  (long "solver-mem-mb" <> value (slMemMb defaultSolverLimits) <> metavar "MB"
+                  <> help "Stop the solver (liquid-fixpoint and z3 together) above this much memory; 0 turns the limit off (default 2048)")
+            <*> option nonNeg
+                  (long "time-limit" <> value (slTimeSecs defaultSolverLimits) <> metavar "SECS"
+                  <> help "Stop each solver run after this many seconds; 0 turns the limit off (default 120)"))
+
+    nonNeg = eitherReader $ \s -> case reads s :: [(Int, String)] of
+      [(n, "")] | n >= 0 -> Right n
+      _                  -> Left ("expected a whole number >= 0, got: " ++ s)
 
     commandParser = subparser
       ( command "check" (info (helper <*> (CmdCheck <$> fileArg <*> switch (long "strict" <> help "Treat warnings (unbound vars, unknown fns) as hard errors")))
@@ -428,6 +441,10 @@ main = do
   hSetEncoding stdout utf8
   hSetEncoding stderr utf8
   opts <- execParser optionsParser
+  -- VERIFY-BUDGET-1: one set of limits for every solver run of this process,
+  -- and no solver outlives an interrupted run.
+  setSolverLimits (optSolverLimits opts)
+  installSolverSignalHandlers
   let json = optJson opts
       gm   = optGrammarMode opts
   case optCommand opts of
@@ -1334,6 +1351,9 @@ fqExitCode :: FQVerifyResult -> ExitCode
 fqExitCode FQSafe        = ExitSuccess
 fqExitCode (FQUnsafe _)  = ExitFailure 1
 fqExitCode (FQError _)   = ExitFailure 1
+-- VERIFY-BUDGET-1: the solver was stopped at a limit. Distinct from 3 (no
+-- solver) and 4 (contradicted evidence), so an agent can raise the limit.
+fqExitCode (FQResourceLimit _) = ExitFailure 5
 
 doVerify :: Bool -> GrammarMode -> FilePath -> Maybe FilePath -> LeanstralOpts -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Bool -> Maybe FilePath -> IO ()
 doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations specCoverageArg strictCore obligationReport cdpFlagArg strictVerify mProofArtifact = do
@@ -1619,12 +1639,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- back to the text scrape when the envelope does not parse (a
           -- differently-built fixpoint, or a crash with no envelope), and
           -- requires the exit code to corroborate what the scrape claims.
-          (lfCode, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
-          let outT     = T.pack out
-              merged   = outT <> T.pack err
-              -- VERDICT-UNSTABLE-1: the exit code is part of the verdict. A
+          -- VERIFY-BUDGET-1: through the guard. A run over the memory or time
+          -- limit is stopped and reads 'FQResourceLimit'.
+          fqResultRaw <- runFQSolver lfBin ["-q", "--json", fqPath]
+          let -- VERDICT-UNSTABLE-1: the exit code is part of the verdict. A
               -- solver that died must not be reported as a refutation.
-              fqResultRaw = parseFQOutcome lfCode merged
               -- ABSTRACTION-VERDICT-1 (byte-io-proposal Rev 2, Part 0, clause
               -- 2): an UNSAFE answer whose every failing constraint of a
               -- function holds two or more call results of one callee is not a
@@ -1735,7 +1754,8 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           writeIORef envSolver (case fqResult of
                                   FQSafe     -> "safe"
                                   FQUnsafe _ -> "refuted"
-                                  FQError _  -> "error")
+                                  FQError _  -> "error"
+                                  FQResourceLimit _ -> "resource-limit")
           let -- v0.8.0: augment JSON with body-faithful metadata
               bodyMetaV = object $
                 [ "body_faithful" .= erBodyFaithfulFns emitR
@@ -1755,11 +1775,14 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 , "solver_verdict" .= (case fqResult of
                     FQSafe     -> "safe"    :: T.Text
                     FQUnsafe _ -> "refuted"
-                    FQError _  -> "error")
+                    FQError _  -> "error"
+                    FQResourceLimit _ -> "resource-limit")
                 ]
                 -- ABSTRACTION-VERDICT-1: an optional verdict key, present only
                 -- when the rule reclassified a function ('solver_verdict' is
                 -- the effective verdict).
+                -- VERIFY-BUDGET-1: present only when the guard stopped the solver.
+                ++ [ "resource_limit" .= resourceStopValue s | FQResourceLimit s <- [fqResult] ]
                 ++ [ "abstraction_fallback" .= object
                        [ K.fromText f .= abstractionConstruct g | (f, g) <- abstractionFns ]
                    | not (null abstractionFns) ]
@@ -1858,6 +1881,14 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                   TIO.putStr (formatObligations oblSugs)
               FQError e ->
                 TIO.putStrLn $ "ERROR: liquid-fixpoint: " <> e
+              FQResourceLimit stop -> mapM_ TIO.putStrLn
+                [ ""
+                , "  ============================================================"
+                , "  !!  STOPPED AT RESOURCE LIMIT -- NOTHING WAS PROVEN"
+                , "  ============================================================"
+                , "  " <> resourceStopText stop
+                , "  ============================================================"
+                ]
           -- TRUST-REPORT-GATE-1 (design §3.3): '--obligations' nests under
           -- 'obligation_suggestions'. The JSON emit used to sit inside the
           -- text-mode branch, so '--json --obligations' printed no suggestions.
@@ -2360,8 +2391,8 @@ checkCDPCandidate gm lfBin typeDefs wc = do
       -- ABSTRACTION-VERDICT-1: '-q --json' so the UNSAFE ids resolve. A mutant
       -- killed only by the missing call congruence is not a kill: its solver
       -- answer is not a disproof, so the candidate is unvalidated.
-      (code, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
-      let av = applyAbstractionVerdict emitR (parseFQOutcome code (T.pack out <> T.pack err))
+      raw <- runFQSolver lfBin ["-q", "--json", fqPath]   -- VERIFY-BUDGET-1
+      let av = applyAbstractionVerdict emitR raw
       if syntheticName `elem` map fst (aoReclassified av)
         then pure Nothing
         else case aoResult av of
@@ -2388,8 +2419,9 @@ checkWeaknessCandidate gm lfBin _json typeDefs wc = do
           fqPath = "/tmp/llmll-weakness-" <> T.unpack (wcFunctionName wc) <> ".fq"
       writeFileUtf8 fqPath fqText
       -- Run the solver
-      (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
-      let fqResult = parseFQResult (T.pack out <> T.pack err)
+      -- VERIFY-BUDGET-1: a stopped run has no verdict, so no diagnostic.
+      guarded <- runSolverGuarded lfBin [fqPath]
+      let fqResult = either FQResourceLimit (\(_, out, err) -> parseFQResult (T.pack out <> T.pack err)) guarded
       case fqResult of
         -- The trivial body satisfies the contracts → spec is weak. Per
         -- §4.4.6, this diagnostic raises only under ':strict' (default);
@@ -2931,18 +2963,19 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
             hClose fqH
             writeFileUtf8 fqPath fqText
             -- ABSTRACTION-VERDICT-1: '-q --json' so the UNSAFE ids resolve.
-            (code, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
+            raw <- runFQSolver lfBin ["-q", "--json", fqPath]   -- VERIFY-BUDGET-1
             removeFile fqPath
             -- DIVERGE-NOSOLVER-1: only UNSAFE refutes. A solver that ran and
             -- returned no verdict was recorded as refuted; it is unavailable.
             -- ABSTRACTION-VERDICT-1: a fill whose only failures need two calls
             -- to one callee to disagree falls back; it is not refuted.
-            let av = applyAbstractionVerdict emitR (parseFQOutcome code (T.pack out <> T.pack err))
+            let av = applyAbstractionVerdict emitR raw
             case aoResult av of
               FQSafe | fname `elem` map fst (aoReclassified av) -> pure FSOutsideFragment
                      | otherwise                                -> pure FSVerified
               FQUnsafe _ -> pure FSRefuted
               FQError _  -> pure FSUnavailable
+              FQResourceLimit _ -> pure FSUnavailable
   where
     -- Context for classifying the fill: sibling helper defs (so their calls
     -- resolve) + type-defs. Drop the shared copy of the hole-fn — `synthetic`
@@ -3477,11 +3510,14 @@ sourceHashOf fpath = do
 -- | Pin the determinism inputs (§4.3): fixpoint + z3 versions and the option set.
 captureSolverMeta :: FilePath -> IO SolverMeta
 captureSolverMeta lfBin = do
+  lim <- getSolverLimits
   fpv <- probe lfBin ["--numeric-version"]
   z3v <- do mz3 <- findExecutable "z3"
             maybe (pure "unavailable") (\z3 -> probe z3 ["--version"]) mz3
   pure SolverMeta { smFixpointVersion = fpv, smZ3Version = z3v
-                  , smOptions = ["-q", "--json"], smResourceLimits = Nothing }
+                  , smOptions = ["-q", "--json"]
+                  -- VERIFY-BUDGET-1: the limits this run's solver ran under.
+                  , smResourceLimits = Just (renderLimits lim) }
   where
     probe bin args = do (_c, o, _e) <- readProcessWithExitCode bin args ""
                         pure (T.strip (T.pack o))
@@ -3490,6 +3526,7 @@ fqToSolverResult :: FQVerifyResult -> SolverResult
 fqToSolverResult FQSafe       = RSafe
 fqToSolverResult (FQUnsafe _) = RUnsafeRefuted
 fqToSolverResult (FQError _)  = RNoVC
+fqToSolverResult (FQResourceLimit _) = RNoVC
 
 -- | Re-project the trust report into the artifact, minting every per-function
 -- record through the §4.1 kernel. A refuted body VC is pre-demoted off the positive
@@ -3627,12 +3664,24 @@ doReplayArtifact json gm artFp = do
           case mLF of
             Nothing -> TIO.putStrLn "ERROR: liquid-fixpoint not on PATH — cannot replay" >> exitWith (ExitFailure 3)
             Just lfBin -> do
-              meta <- captureSolverMeta lfBin
+              -- VERIFY-BUDGET-1: replay under the limits the artifact recorded,
+              -- so its solver metadata matches. An artifact from before the
+              -- guard recorded none; the replay then runs under this run's
+              -- limits and records none either.
+              let recorded = smResourceLimits (paSolver art)
+              forM_ (recorded >>= parseLimits) setSolverLimits
+              meta0 <- captureSolverMeta lfBin
+              let meta = case recorded of
+                    Nothing -> meta0 { smResourceLimits = Nothing }
+                    Just _  -> meta0
               let tmp = "/tmp/llmll-replay-artifact.fq"
               writeFileUtf8 tmp (paVc art)
-              (_c, o, err) <- readProcessWithExitCode lfBin ["-q", "--json", tmp] ""
-              let merged = T.pack o <> T.pack err
-                  rerun  = fqToSolverResult (fromMaybe (parseFQResult merged) (parseFQResultJSON merged))
+              guarded <- runSolverGuarded lfBin ["-q", "--json", tmp]
+              let rerun  = case guarded of
+                    Left _ -> RNoVC
+                    Right (_c, o, err) ->
+                      let merged = T.pack o <> T.pack err
+                      in fqToSolverResult (fromMaybe (parseFQResult merged) (parseFQResultJSON merged))
               case classifyReplayChecked srcChecks recomputed meta rerun art of
                 ReplayReproduced r ->
                   TIO.putStrLn ("\x2705 replay reproduced verdict: " <> T.pack (show r)) >> exitSuccess

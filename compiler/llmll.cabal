@@ -41,6 +41,7 @@ library
       LLMLL.FixpointEmit
       LLMLL.GuardClassifier
       LLMLL.DiagnosticFQ
+      LLMLL.SolverGuard
       LLMLL.AbstractionVerdict
       LLMLL.Serve
       LLMLL.Sketch
