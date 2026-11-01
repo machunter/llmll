@@ -1,0 +1,169 @@
+{
+  "llmll_version": "0.34.0",
+  "schemaVersion": "0.15.0",
+  "statements": [
+    {
+      "capability": {
+        "deterministic": false,
+        "name": "stdout",
+        "path_or_port": ""
+      },
+      "kind": "import",
+      "path": "wasi.io"
+    },
+    {
+      "interface": [
+        {
+          "fn_type": {
+            "kind": "fn-type",
+            "params": [
+              {
+                "name": "",
+                "param_type": {
+                  "kind": "primitive",
+                  "name": "int"
+                }
+              }
+            ],
+            "return_type": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          "name": "rand-of"
+        }
+      ],
+      "kind": "import",
+      "path": "c.stdlib"
+    },
+    {
+      "body": {
+        "fst": {
+          "args": [
+            {
+              "kind": "var",
+              "name": "s"
+            },
+            {
+              "kind": "lit-int",
+              "value": 1
+            }
+          ],
+          "kind": "op",
+          "op": "+"
+        },
+        "kind": "pair",
+        "snd": {
+          "args": [
+            {
+              "kind": "lit-string",
+              "value": "|"
+            }
+          ],
+          "kind": "qual-app",
+          "qual_fn": "wasi.io.stdout"
+        }
+      },
+      "kind": "def-shell",
+      "name": "st",
+      "params": [
+        {
+          "name": "s",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        },
+        {
+          "name": "r",
+          "param_type": {
+            "kind": "named",
+            "name": "Response"
+          }
+        }
+      ],
+      "return_type": {
+        "fst": {
+          "kind": "primitive",
+          "name": "int"
+        },
+        "kind": "pair-type",
+        "snd": {
+          "kind": "command"
+        }
+      }
+    },
+    {
+      "body": {
+        "args": [
+          {
+            "kind": "var",
+            "name": "s"
+          },
+          {
+            "kind": "lit-int",
+            "value": 1
+          }
+        ],
+        "kind": "op",
+        "op": ">="
+      },
+      "kind": "def-shell",
+      "name": "fin",
+      "params": [
+        {
+          "name": "s",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "return_type": {
+        "kind": "primitive",
+        "name": "bool"
+      }
+    },
+    {
+      "done?": {
+        "kind": "var",
+        "name": "fin"
+      },
+      "init": {
+        "fst": {
+          "kind": "lit-int",
+          "value": 0
+        },
+        "kind": "pair",
+        "snd": {
+          "args": [
+            {
+              "args": [
+                {
+                  "args": [
+                    {
+                      "kind": "lit-int",
+                      "value": 5
+                    }
+                  ],
+                  "fn": "rand-of",
+                  "kind": "app"
+                }
+              ],
+              "fn": "int-to-string",
+              "kind": "app"
+            }
+          ],
+          "kind": "qual-app",
+          "qual_fn": "wasi.io.stdout"
+        }
+      },
+      "kind": "def-main",
+      "mode": "cli",
+      "step": {
+        "kind": "var",
+        "name": "st"
+      }
+    }
+  ]
+}

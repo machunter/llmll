@@ -28,6 +28,7 @@ import qualified Data.Foldable as LFold
 import qualified Data.List as LList
 import qualified Data.Map.Strict as Map
 import Control.Exception (try, evaluate, SomeException)
+import qualified Control.Exception as LExc
 import System.IO.Unsafe (unsafePerformIO)
 import qualified GHC.Arr as LArr
 import qualified System.Mem.StableName as LSN
@@ -177,11 +178,17 @@ string_trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 -- builtin's esResultForcers entry) inside the try. evaluate alone reaches
 -- weak head normal form, and a pattern error found after the try returned
 -- would crash the program instead of answering the fallback.
+--
+-- REGEX-ASYNC-1: an asynchronous exception (stack or heap overflow, Ctrl-C)
+-- is rethrown, so the run ends instead of keeping a fallback in the thunk.
+-- Only a synchronous exception (an invalid pattern) answers the fallback.
 llmll_rxTotal :: (a -> ()) -> a -> a -> a
 llmll_rxTotal force fallback v =
   case unsafePerformIO (try (evaluate (force v `seq` v))) of
     Right x -> x
-    Left e  -> const fallback (e :: SomeException)
+    Left e  -> case (LExc.fromException e :: Maybe LExc.SomeAsyncException) of
+      Just _  -> LExc.throw (e :: SomeException)
+      Nothing -> fallback
 
 -- | REGEX-CASE-1: a leading (?i) compiles the rest without regard to case.
 -- (?i) anywhere else stays in the pattern, where regex-tdfa rejects it.

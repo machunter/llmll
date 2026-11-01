@@ -1,0 +1,7 @@
+(import c.stdlib (interface [
+  [rand-of (fn [x: int] -> int)]
+]))
+(def-shell g [x: int] -> int (rand-of x))
+(def-shell twice-g [x: int] -> int
+  (post (= result 0))
+  (- (g x) (g x)))

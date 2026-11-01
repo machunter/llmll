@@ -14525,6 +14525,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             chk x = ev (EApp "string-to-int" [lstr x]) == Just (eitherOf lint (RP.string_to_int x))
         in chk s && chk (show (n :: Integer)) && chk (" " ++ show n) && chk ("(" ++ show n ++ ")")
 
+      -- REGEX-ASYNC-1 (docs/design/ffi-determinism-proposal.md Part 2).
+      it "T6 llmll_rxTotal answers the fallback for a synchronous exception" $
+        CE.evaluate (RP.llmll_rxTotal (const ()) (0 :: Int) (CE.throw (CE.ErrorCall "x")))
+          `shouldReturn` 0
+      it "T7 llmll_rxTotal rethrows UserInterrupt" $
+        CE.evaluate (RP.llmll_rxTotal (const ()) (0 :: Int) (CE.throw CE.UserInterrupt))
+          `shouldThrow` (== CE.UserInterrupt)
+      it "T8 llmll_rxTotal rethrows StackOverflow" $
+        CE.evaluate (RP.llmll_rxTotal (const ()) (0 :: Int) (CE.throw CE.StackOverflow))
+          `shouldThrow` (== CE.StackOverflow)
+      it "T9 an invalid pattern still answers the fallback" $
+        RP.regex_match "[" "a" `shouldBe` False
+
       it "regex-match matches the runtime, invalid patterns included" $ property $ \s0 ->
         let s = norm s0
         in and [ ev (EApp "regex-match" [lstr p, lstr s]) == Just (ELit (LitBool (RP.regex_match p s)))
@@ -22969,6 +22982,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Just m  -> do
           countEdr m `shouldBe` 1
           pragmaBefore "module Main where" m `shouldBe` True
+    -- AT-3 calls generateHaskell directly, below check. `check` refuses every
+    -- c.* import (FFI-TIER2-REFUSE-1); this test keeps the Tier 2 generator
+    -- covered for FFI-TIER2-1.
     it "AT-3 the FFI re-export module and each C stub carry the pragma" $ do
       let imp = SImport (ImportAt "c.mylib" (Just [("ping", TFn [TInt] TInt)]) Nothing Nothing)
           cg  = generateHaskell "at" (imp : parsed mainProg)
@@ -23170,6 +23186,22 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         `shouldBe` [Just "ffi-effect-refused"]
     it "an entry mentioning Promise is ffi-effect-refused" $
       kindsOfIface "haskell.text" [("f", TFn [TPromise TInt] TInt)] `shouldBe` ["ffi-effect-refused"]
+    -- FFI-TIER2-REFUSE-1 (docs/design/ffi-determinism-proposal.md Part 1).
+    it "T1 a c.* import with an interface is ffi-tier2-refused" $
+      kinds ["(import c.stdlib (interface [[rand-of (fn [x: int] -> int)]]))"]
+        `shouldBe` [Just "ffi-tier2-refused"]
+    it "T2 a c.* import with no interface is ffi-tier2-refused" $
+      kinds ["(import c.mylib)"] `shouldBe` [Just "ffi-tier2-refused"]
+    it "T3 W8, a c.* callee behind a def-shell wrapper, is refused at the import" $
+      kinds [ "(import c.stdlib (interface [[rand-of (fn [x: int] -> int)]]))"
+            , "(def-shell g [x: int] -> int (rand-of x))"
+            , "(def-shell twice-g [x: int] -> int (post (= result 0)) (- (g x) (g x)))" ]
+        `shouldBe` [Just "ffi-tier2-refused"]
+    it "T4 a haskell.* import is not ffi-tier2-refused" $
+      kinds [fp1] `shouldBe` []
+    it "T5 the refusal message names the import path" $
+      map snd (errs ["(import c.stdlib)"])
+        `shouldSatisfy` all (T.isPrefixOf "c.stdlib: Tier 2 (C) imports are not supported")
     it "E2 an entry named like a builtin is builtin-redefinition" $
       kinds ["(import haskell.text (interface [[string-length (fn [s: string] -> int)]]))"]
         `shouldBe` [Just "builtin-redefinition"]

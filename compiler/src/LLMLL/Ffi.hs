@@ -85,8 +85,18 @@ camelName n = case T.splitOn "-" n of
       | otherwise            = c
 
 -- | The errors one import raises, as (diagKind, message). Empty for an import
--- that is not @haskell.*@.
+-- that is neither @haskell.*@ nor @c.*@.
+--
+-- FFI-TIER2-REFUSE-1 (docs/design/ffi-determinism-proposal.md Part 1): every
+-- @c.*@ import is refused, with or without an interface list. The Tier 2
+-- generator in CodegenHs stays for FFI-TIER2-1 but no checked program reaches it.
 ffiImportErrors :: Import -> [(Text, Text)]
+ffiImportErrors imp
+  | "c." `T.isPrefixOf` importPath imp =
+      [ ( "ffi-tier2-refused"
+        , importPath imp <> ": Tier 2 (C) imports are not supported. The generated "
+          <> "stub cannot marshal LLMLL types, and no call site can reach it. Use a "
+          <> "haskell.* Tier 1 import or a wasi.* builtin." ) ]
 ffiImportErrors imp = case T.stripPrefix "haskell." (importPath imp) of
   Nothing -> []
   Just pkg
