@@ -13,12 +13,12 @@
     },
     "exit_code": {
       "type": "integer",
-      "enum": [0, 1, 3, 4],
-      "description": "The process exit status. 0 SAFE; 1 refuted, solver error, or a strict-core refusal; 3 solver not on PATH (the proof did not run); 4 a contradiction found by a reporting or prover flag on an otherwise passing run."
+      "enum": [0, 1, 3, 4, 5],
+      "description": "The process exit status. 0 SAFE; 1 refuted, solver error, or a strict-core refusal; 3 solver not on PATH (the proof did not run); 4 a contradiction found by a reporting or prover flag on an otherwise passing run; 5 the solver was stopped at its memory or time limit (the proof did not finish)."
     },
     "solver_verdict": {
-      "enum": ["safe", "refuted", "error", "not-run"],
-      "description": "`not-run` when the run stopped before the solver: the pre-solver `--strict-verified-core` refusal, or no solver on PATH (exit 3)."
+      "enum": ["safe", "refuted", "error", "resource-limit", "not-run"],
+      "description": "`not-run` when the run stopped before the solver: the pre-solver `--strict-verified-core` refusal, or no solver on PATH (exit 3). `resource-limit` when the guard stopped the solver at `--solver-mem-mb` or `--time-limit` (exit 5): nothing is proved or refuted."
     },
     "composed": {
       "type": "object",
@@ -54,6 +54,19 @@
     "body_fallback_causes": { "type": "object", "additionalProperties": { "type": "string" } },
     "body_fallback_constructs": { "type": "object" },
     "abstraction_fallback": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^abstraction:app:" }, "description": "ABSTRACTION-VERDICT-1: present only when non-empty. Each function the solver answered UNSAFE only through constraints holding two or more call results of one callee, mapped to `abstraction:app:<callee>`. Such a function is not refuted: it falls back (cause `abstraction-unsafe`) and its post is assumed. `solver_verdict` is the effective verdict after this reclassification." },
+    "resource_limit": {
+      "type": "object",
+      "required": ["kind", "limit_mb", "limit_s", "peak_mb", "elapsed_s"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["memory", "time"] },
+        "limit_mb": { "type": ["integer", "null"], "description": "--solver-mem-mb; null when the limit is off." },
+        "limit_s": { "type": ["integer", "null"], "description": "--time-limit; null when the limit is off." },
+        "peak_mb": { "type": "integer", "description": "The highest memory of the solver's process group (liquid-fixpoint and z3) that the guard measured." },
+        "elapsed_s": { "type": "number" }
+      },
+      "description": "VERIFY-BUDGET-1: present only when solver_verdict is resource-limit."
+    },
     "fallback_causes": { "type": "object", "additionalProperties": { "type": "string" } },
     "fn_kinds": { "type": "object", "additionalProperties": { "type": "string" } },
     "file": { "type": "string" },

@@ -121,3 +121,27 @@ def test_vs_type_error_prints_the_diagnostics_object(tmp_path, cmd):
     doc = json.loads(r.stdout)
     assert doc["success"] is False
     assert [d["kind"] for d in doc["diagnostics"]] == ["core-grammar-violation"]
+
+
+def test_vs_resource_limit_validates(tmp_path):
+    """VERIFY-BUDGET-1: a run the guard stopped (exit 5) validates too.
+
+    A fake liquid-fixpoint that only sleeps is first on PATH, so the time limit
+    fires without a real solver run.
+    """
+    bindir = tmp_path / "fake-bin"
+    bindir.mkdir()
+    fake = bindir / "liquid-fixpoint"
+    fake.write_text("#!/bin/sh\nsleep 60\n")
+    fake.chmod(0o755)
+    env = dict(os.environ, PATH=f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    f = tmp_path / "subject.llmll"
+    f.write_text(INC_CORRECT)
+    r = subprocess.run(
+        [os.environ["LLMLL_BIN"], "--json", "--time-limit", "1", "verify", f.name],
+        cwd=tmp_path, capture_output=True, text=True, env=env, timeout=60,
+    )
+    doc = json.loads(r.stdout)
+    _assert_valid(doc, r.returncode)
+    assert (doc["solver_verdict"], doc["exit_code"]) == ("resource-limit", 5)
+    assert doc["resource_limit"]["kind"] == "time"
