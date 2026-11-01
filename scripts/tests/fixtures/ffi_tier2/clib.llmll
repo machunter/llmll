@@ -1,0 +1,4 @@
+(import c.stdlib (interface [
+  [rand-of (fn [x: int] -> int)]
+]))
+(def-shell roll [x: int] -> int (rand-of x))

@@ -1,0 +1,2 @@
+(import clib (interface [[roll (fn [x: int] -> int)]]))
+(def-shell twice [x: int] -> int (+ (roll x) (roll x)))
