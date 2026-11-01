@@ -4,6 +4,43 @@
 
 <a id="Latest"></a>
 
+## v0.34.1: `check` refuses C imports; regex calls stop on an interrupt (2026-11-01)
+
+### `FFI-TIER2-REFUSE-1`: a `c.*` import fails `check`
+
+- **`check` refuses every `c.*` import** with the new diagnostic kind `ffi-tier2-refused`, with
+  or without an `interface` list, in S-expression and in JSON-AST. A module that imports a
+  module with a `c.*` import also fails `check`. The message is `c.stdlib: Tier 2 (C) imports
+  are not supported. The generated stub cannot marshal LLMLL types, and no call site can reach
+  it. Use a haskell.* Tier 1 import or a wasi.* builtin.`
+- Before this release a `c.*` import passed `check`, and no `c.*` program built: GHC cannot
+  marshal `Integer`, the `ccall` name was the LLMLL name, and nothing imported the stub module.
+  The trust report also gave a `c.*` caller no `ffi_assumptions` row. No tracked program
+  imports `c.*`.
+- The Tier 2 stub generator stays in `CodegenHs.hs`, unused, for `FFI-TIER2-1`.
+- **`LLMLL.md` §7:** the Tier table, the Tier 2 example and the Tier 2 pitfall now say that
+  `check` refuses `c.*`. The reach table gains `System.Directory.exeExtension` and
+  `System.Process.showCommandForUser`, which are pure (`FFI-DOC-DRIFT-1`).
+
+### `REGEX-ASYNC-1`: an asynchronous exception during a match ends the program
+
+- **A regex builtin rethrows an asynchronous exception** (a stack overflow, a heap overflow or
+  Ctrl-C) instead of returning its fallback value. Before, the program continued with the
+  fallback, and GHC kept that value in the thunk, so two equal regex calls could give different
+  answers in one run. An invalid pattern still returns the fallback (`False`, `[]`, or the
+  subject unchanged).
+- `llmll_rxTotal` changes identically in the generated preamble and in `LLMLL.RuntimePure`. The
+  preamble imports the names it needs through `import qualified Control.Exception as LExc`, so
+  no new user name is reserved.
+
+Both rows are prerequisites of `CALL-CONGRUENCE-1` (design record
+[`docs/design/ffi-determinism-proposal.md`](docs/design/ffi-determinism-proposal.md) Rev 1). No
+schema changes: JSON-AST 0.15.0, `checker_soundness_version` `"6"`, `verify_json_version`
+`1.0.0`, `trust_report_version` `1.10.0`.
+
+**Tests (measured on the fix branch):** hspec 2928 → 2937, 0 failures; Python 664 → 668 passed,
+5 skipped.
+
 ## v0.34.0: Two calls to one callee no longer give a false `refuted` (2026-10-31)
 
 ### `ABSTRACTION-VERDICT-1`: an UNSAFE answer that needs two calls to disagree falls back

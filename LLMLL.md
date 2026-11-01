@@ -1,8 +1,8 @@
-# LLMLL: Large Language Model Logical Language (v0.34.0)
+# LLMLL: Large Language Model Logical Language (v0.34.1)
 
 **`llmll`** is a programming language designed specifically for AI-to-AI implementation under human direction. It prioritizes contract clarity, token efficiency, and ambiguity resolution over human readability.
 
-> **Current version: v0.34.0.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
+> **Current version: v0.34.1.** See [`CHANGELOG.md`](CHANGELOG.md) for release notes and [`ROADMAP.md`](ROADMAP.md) for the roadmap.
 
 > **For AI code generators:** Every section contains at least one complete, compilable example. When generating LLMLL code, you must use only the constructs defined in this document. If a required construct is missing, emit a named `?hole` and document the gap — do not invent syntax.
 
@@ -1341,7 +1341,7 @@ Capabilities can carry the `:deterministic` flag. The flag is **reserved**: the 
 > environment is replayable in its control flow and is **not** replayable in that value, because a
 > replayed run reads the live environment.
 
-**External Bridge (FFI):** A program reaches existing Haskell packages or C libraries through a **declared interface**: an `import` with the `haskell.*` or `c.*` prefix whose `interface` list gives each function an LLMLL name and an LLMLL type. The program calls the function by that name.
+**External Bridge (FFI):** A program reaches existing Haskell packages through a **declared interface**: an `import` with the `haskell.*` prefix whose `interface` list gives each function an LLMLL name and an LLMLL type. The program calls the function by that name. `check` refuses a C library import (`c.*`, Tier 2) with `ffi-tier2-refused`.
 
 ```lisp
 (import haskell.filepath (interface [
@@ -1358,7 +1358,7 @@ In LLMLL, FFI imports are resolved through a **two-tier lookup**. The compiler c
 | Tier | Prefix | Mechanism | Stub generated? |
 |------|--------|-----------|----------------|
 | **1 — Hackage** | `haskell.*` | Qualified GHC `import` of the package's module (`import qualified System.FilePath`); package added to `package.yaml`; each interface entry becomes one forced, typed binding in `Lib.hs`. | No |
-| **2 — C libraries** | `c.*` | GHC `foreign import ccall`; compiler generates `src/FFI/<lib>.hs` with typed stub. | Yes |
+| **2 — C libraries** | `c.*` | Refused at `check` with `ffi-tier2-refused` (v0.34.1). No `c.*` program built before, because the generated stub could not marshal LLMLL types. Proper C support is `FFI-TIER2-1`. | — |
 
 > There is no `rust.*` namespace. Tier 1 accepts the nine Hackage packages below and no other.
 
@@ -1437,8 +1437,8 @@ The line is correct; the column counts characters in the generated Haskell, not 
 | time | `Data.Time` | `isLeapYear` (`Year` is `Integer`); nothing that takes or returns a `Day` (M: `Day` is abstract) | `Day` needs `FFI-OPAQUE-1`; `Int` arguments (`gregorianMonthLength`) need `FFI-NARROW-1` |
 | aeson | `Data.Aeson` | none (M: lazy `ByteString`, `Value`, type classes) | `FFI-OPAQUE-1`; the native `Json` operations (§13.13) cover the common case |
 | vector | `Data.Vector` | none (M: `Vector` is abstract) | `FFI-OPAQUE-1` |
-| directory | `System.Directory` | none | every export is IO |
-| process | `System.Process` | none | every export is IO |
+| directory | `System.Directory` | `exeExtension` (a `string` constant) | every other export is IO |
+| process | `System.Process` | `showCommandForUser` | every other export is IO |
 
 `Data.Text.splitOn` calls `error` when the delimiter is empty, and `Data.Text.replace` calls `error` when the needle is empty. Both pass `check`. The failure appears at the first use of the result, and the program exits 1 with `Data.Text.splitOn: empty input` (or the `replace` equivalent). Guard the argument in the calling `def-shell` until `FFI-CONTRACT-1` lets the entry carry a `pre`.
 
@@ -1449,23 +1449,21 @@ The line is correct; the column counts characters in the generated Haskell, not 
   "ffi_assumptions": [ { "export": "takeExtension", "origin": "ma.exta", "package": "filepath" } ] }
 ```
 
-**Tier 2 example — C FFI stub generated:**
+**Tier 2 — refused.** `check` refuses every `c.*` import, with or without an `interface` list, in S-expression and in JSON-AST, and in an imported module (the importer then fails `check`):
 
 ```lisp
-;; Compiler generates src/FFI/Libsodium.hs with foreign import ccall stubs
-(import c.libsodium (interface [
-  [crypto-sign (fn [msg: bytes[64] key: bytes[32]] -> bytes[96])]
+(import c.stdlib (interface [
+  [rand-of (fn [x: int] -> int)]
 ]))
 ```
 
-> [!CAUTION]
-> **FFI stubs are NOT `?delegate` holes.**
-> Tier 2 C stubs (`src/FFI/*.hs`) are resolved **by the developer writing Haskell FFI code** against the C library.
-> `?delegate` holes are resolved **by the Lead-AI/Human reviewer writing LLMLL code** inside the `.llmll` source file. A `?delegate` must NEVER be manually implemented in generated code — that bypasses the verifier entirely.
+`llmll check` exits 1 with this error; `--json` gives it the kind `ffi-tier2-refused`:
 
-> [!WARNING]
-> **Pitfall: Declaring a C interface you don't fully implement.**
-> If you declare `(import c.mylib (interface [...]))` but leave the generated `src/FFI/Mylib.hs` stub unimplemented, **the code will compile but fail at link time or panic at runtime**. Every `(import c.* ...)` you write must have a fully implemented stub before running the service.
+```
+error: c.stdlib: Tier 2 (C) imports are not supported. The generated stub cannot marshal LLMLL types, and no call site can reach it. Use a haskell.* Tier 1 import or a wasi.* builtin.
+```
+
+Before v0.34.1 such an import passed `check`, and `build` failed: GHC cannot marshal `Integer`, the `ccall` name was the LLMLL name, and nothing imported the stub module. The trust report also gave a `c.*` caller no `ffi_assumptions` row. Design record: [`docs/design/ffi-determinism-proposal.md`](docs/design/ffi-determinism-proposal.md) Part 1.
 
 
 
@@ -2958,7 +2956,7 @@ The `=` operator is **polymorphic structural equality** defined over every type 
 | `path-normalize` | `string -> string` | Lexical POSIX path normalization, Python's `posixpath.normpath` with one difference: `.` and empty segments are dropped, and a `..` removes the segment before it when there is one that is not `..`. A relative path keeps a leading `..` (`../../a` stays `../../a`); an absolute path drops it (`/../a` is `/a`). A trailing `/` is dropped (`a/` is `a`), the empty string answers `"."`, and a leading `//` becomes `/` where Python keeps it. Pure and total; callable from a `def`. See the note below |
 
 > [!NOTE]
-> **Regex patterns are POSIX ERE, not PCRE.** Matching is leftmost-longest, capture groups included: `(regex-find "(a|ab)(b?)" "ab")` is `["ab" "ab" ""]`, where PCRE gives `a` and `b`. Matching is newline-sensitive: `.` and `[^…]` do not match a newline, and `^` and `$` match at each line. A leading `(?i)` is the only inline flag. Non-greedy `*?`, `(?:…)` and lookaround do not exist, and `\d`, `\w`, `\s` and `\n` mean the letters d, w, s and n: write `[0-9]`, `[[:alnum:]_]` and `[[:space:]]`. `\b` is a word boundary. A pattern `check` can see (a string literal, or the literal body of a nullary local definition) is compiled at check time; one that fails, or escapes a letter as above, is the error `invalid-regex`, with the POSIX form as the hint. A computed pattern is not seen, and an invalid one answers `False` or `[]` at run time; `regex-replace-all` answers the subject unchanged. To match without regard to case, use `(?i)`; to normalize before comparing or storing, use `string-lower`. `(regex-find "[A-Z]+" (string-lower s))` never matches.
+> **Regex patterns are POSIX ERE, not PCRE.** Matching is leftmost-longest, capture groups included: `(regex-find "(a|ab)(b?)" "ab")` is `["ab" "ab" ""]`, where PCRE gives `a` and `b`. Matching is newline-sensitive: `.` and `[^…]` do not match a newline, and `^` and `$` match at each line. A leading `(?i)` is the only inline flag. Non-greedy `*?`, `(?:…)` and lookaround do not exist, and `\d`, `\w`, `\s` and `\n` mean the letters d, w, s and n: write `[0-9]`, `[[:alnum:]_]` and `[[:space:]]`. `\b` is a word boundary. A pattern `check` can see (a string literal, or the literal body of a nullary local definition) is compiled at check time; one that fails, or escapes a letter as above, is the error `invalid-regex`, with the POSIX form as the hint. A computed pattern is not seen, and an invalid one answers `False` or `[]` at run time; `regex-replace-all` answers the subject unchanged. To match without regard to case, use `(?i)`; to normalize before comparing or storing, use `string-lower`. `(regex-find "[A-Z]+" (string-lower s))` never matches. The fallback answer (`False`, `[]`, or the subject unchanged) is for an invalid pattern only: a stack overflow, a heap overflow or an interrupt (Ctrl-C) during a match ends the program (`REGEX-ASYNC-1`, v0.34.1).
 
 > [!NOTE]
 > **`path-normalize` reads no filesystem.** It works on the text of the path, so `a/link/../c` answers `a/c` whatever `link` points to, which is the answer Python's `normpath` gives and the one its documentation warns about. Normalizing twice gives the same result as normalizing once. To ask what a path names on disk, issue `wasi.fs.exists` (§13.9).
