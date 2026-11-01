@@ -1,0 +1,4 @@
+;; ABSTRACTION-VERDICT-1 A3: one call. The post is true for this g but not
+;; implied by its contract, so the modular refutation stands.
+(def-shell g [x: int] -> int (post (>= result 0)) (if (< x 0) (- 0 x) x))
+(def-shell h1 [a: int] -> int (post (>= result (- 0 a))) (g a))

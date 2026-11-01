@@ -53,6 +53,7 @@
     "body_fallback": { "type": "array", "items": { "type": "string" } },
     "body_fallback_causes": { "type": "object", "additionalProperties": { "type": "string" } },
     "body_fallback_constructs": { "type": "object" },
+    "abstraction_fallback": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^abstraction:app:" }, "description": "ABSTRACTION-VERDICT-1: present only when non-empty. Each function the solver answered UNSAFE only through constraints holding two or more call results of one callee, mapped to `abstraction:app:<callee>`. Such a function is not refuted: it falls back (cause `abstraction-unsafe`) and its post is assumed. `solver_verdict` is the effective verdict after this reclassification." },
     "fallback_causes": { "type": "object", "additionalProperties": { "type": "string" } },
     "fn_kinds": { "type": "object", "additionalProperties": { "type": "string" } },
     "file": { "type": "string" },

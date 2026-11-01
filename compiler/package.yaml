@@ -100,6 +100,9 @@ library:
     - LLMLL.FixpointEmit
     - LLMLL.GuardClassifier
     - LLMLL.DiagnosticFQ
+    # ABSTRACTION-VERDICT-1: an UNSAFE answer that rests on two unrelated calls
+    # to one callee is a fallback, not a refutation. Read after the solver.
+    - LLMLL.AbstractionVerdict
     # D5: HTTP serve endpoint
     - LLMLL.Serve
     # D5: Sketch output contract

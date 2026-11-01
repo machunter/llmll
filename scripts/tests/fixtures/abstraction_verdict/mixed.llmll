@@ -1,0 +1,5 @@
+;; ABSTRACTION-VERDICT-1 mixed: h falls back (two calls to g), gw stays refuted
+;; (one call through a parameter, a false post). Exit 1.
+(def-shell g [x: int] -> int (post (>= result 0)) (if (< x 0) (- 0 x) x))
+(def-shell h [a: int] -> int (post (= result 0)) (- (g a) (g a)))
+(def-shell gw [mn: (fn [int int] -> int) a: int b: int] -> int (post (<= result a)) (mn a b))

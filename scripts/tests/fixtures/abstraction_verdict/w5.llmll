@@ -1,0 +1,3 @@
+;; ABSTRACTION-VERDICT-1 W5: the same call through a function-typed parameter
+;; twice. True post; falls back as abstraction:app:le.
+(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))

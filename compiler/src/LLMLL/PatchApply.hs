@@ -33,6 +33,7 @@ module LLMLL.PatchApply
   , toPatchOpInfos
   , hasContracts     -- v0.10: exported for testing
   , patchTargetFns   -- R8: patched-function re-verify slice, exported for testing
+  , notProvedMessage -- ABSTRACTION-VERDICT-1: exported for testing
   -- v0.10: SHA-256 hashing (used by Main.hs for checkout staleness)
   , hashFile
   ) where
@@ -56,7 +57,8 @@ import LLMLL.LoadClosure (loadImportClosure)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch, writeFileUtf8)
 import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, Type, normalizeDefStmt)
 import LLMLL.ObligationAssembly (exprToSExpr)
-import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), renderFallbackCause)
+import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict)
 import LLMLL.DiagnosticFQ (parseFQOutcome, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
@@ -694,10 +696,15 @@ reVerify fp cache retTypes stmts bodyTargets
               merged   = outT <> T.pack err
               -- VERDICT-UNSTABLE-1: same rule as 'doVerify'. A dead solver
               -- must not reject a patch as if the contract were refuted.
-              fqResult = parseFQOutcome lfCode merged
+              -- ABSTRACTION-VERDICT-1: the effective verdict, as 'doVerify'
+              -- reads it. A patched function whose only failures need two
+              -- calls to one callee to disagree is written, and reported
+              -- through 'notProved' as a fallback, not rejected as refuted.
+              av       = applyAbstractionVerdict emitR (parseFQOutcome lfCode merged)
+              fqResult = aoResult av
               fqReport = fqResultToReport fp table fqResult
           case fqResult of
-            FQSafe          -> pure (Right (Right (patchedOutcomes bodyTargets emitR)))  -- SAFE → proceed with write
+            FQSafe          -> pure (Right (Right (patchedOutcomes bodyTargets (aoEmit av))))  -- SAFE → proceed with write
             FQUnsafe failed -> pure (Right (Left (fqReport, calleePreUnmet stmts table failed)))
             FQError e       -> pure (Left (SolverFailed e))  -- no verdict: do not write
 
@@ -707,6 +714,16 @@ notProved :: PatchedFn -> Bool
 notProved f = not (pfBodyFaithful f) && pfCause f /= Just "no-post"
 
 notProvedMessage :: PatchedFn -> Text
+notProvedMessage f
+  -- ABSTRACTION-VERDICT-1: the solver did answer UNSAFE here, so "passed the
+  -- solver" would be false; and the construct is a callee, not a construct to
+  -- rewrite away.
+  | pfCause f == Just (renderFallbackCause FallbackAbstraction)
+  , (c : _) <- pfConstructs f
+  , let g = fromMaybe c (T.stripPrefix "abstraction:app:" c) =
+  "'" <> pfName f <> "' was not proved: the counterexample needs two calls to '"
+    <> g <> "' to return different values, which the verifier does not rule out ("
+    <> c <> "). Its postcondition was assumed."
 notProvedMessage f =
   "'" <> pfName f <> "' passed the solver but was not proved: "
     <> fromMaybe "fallback" (pfCause f)

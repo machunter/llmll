@@ -1,5 +1,5 @@
 ;; MINMAX-GUARD-1: guard.llmll with the wrong branch in each body. `verify`
-;; refutes all four.
+;; refutes the first three; the fourth falls back (see below).
 
 (def-shell clamp [a: int b: int] -> int
   (post (>= result 0))
@@ -14,7 +14,10 @@
   (if (> (abs a) 10) 10 a))
 
 ;; A parameter named `min` is not the builtin: the guard and the then-branch
-;; are opaque calls through it, so the post is refuted, never proved.
+;; are opaque calls through it. The post holds for every pure `min` (the
+;; then-branch is guarded by the same call), but the VC does not know two
+;; equal calls agree, so it falls back as abstraction:app:min, never proved
+;; (ABSTRACTION-VERDICT-1).
 (def-shell gs [min: (fn [int int] -> int) a: int b: int] -> int
   (post (<= result a))
   (if (<= (min a b) a) (min a b) a))

@@ -83,6 +83,9 @@ KNOWN_CAUSES = (
     "no-post",
     "map-result-components-unbound",
     "constraint-symbols-unbound",
+    # ABSTRACTION-VERDICT-1: decided after the solver. The post is assumed, so
+    # it stays in the ratio's denominator.
+    "abstraction-unsafe",
 )
 
 # Outcomes worth confirming alone before they are believed: each depends on the
