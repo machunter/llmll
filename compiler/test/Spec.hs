@@ -91,7 +91,8 @@ import LLMLL.DivergenceCheck
   , DivergenceReport(..), DivergenceVerdict(..), VerifiedBucket(..)
   , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson, fillStatusLabel
   , verdictLabel, probeSet )
-import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchedFn(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, applyPatchWithMode, PatchScopeMode(..), hasContracts, patchTargetFns)
+import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchedFn(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, applyPatchWithMode, PatchScopeMode(..), hasContracts, patchTargetFns, notProvedMessage)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
 import LLMLL.CDP
@@ -22163,17 +22164,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       causeOf "r" er `shouldBe` Nothing
       erBodyFaithfulFns er `shouldBe` ["r"]
 
-    it "the closed vocabulary is ten values and renderFallbackCause stays injective" $ do
+    it "the closed vocabulary is eleven values and renderFallbackCause stays injective" $ do
       -- MAP-RET-POST-1 added the ninth: 'FallbackUnboundMapResult'.
       -- FQ-FREEVAR-GUARD-1 added the tenth: 'FallbackUnboundSymbols', the
       -- general form of the same defect, decided over the assembled file rather
-      -- than at one translator's emission site. The count is pinned on purpose,
+      -- than at one translator's emission site.
+      -- ABSTRACTION-VERDICT-1 added the eleventh: 'FallbackAbstraction', decided
+      -- after the solver ran. The count is pinned on purpose,
       -- so a new cause has to be declared here AND added to KNOWN_CAUSES in
       -- scripts/fallback_census.py, or the census reports it as an unknown
       -- bucket. This cell is what caught the guard's census script edit.
       let cs = [minBound .. maxBound] :: [FallbackCause]
-      length cs `shouldBe` 10
-      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 10
+      length cs `shouldBe` 11
+      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 11
 
     it "a nonlinear post names the operator, not the whole clause" $ do
       -- SIGMA-CONST-ARITH-1: (* n 2) is admitted now; (* n n) is still refused.
@@ -23836,6 +23839,177 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
              [ "(def-shell app2 [f: (fn [int] -> int) x: int] -> int (list-fold (list-map [x] (fn [z: int] (f z))) 0 (fn [acc: int v: int] (+ acc v))))"
              , "(check \"captured\" (for-all [x: int] (= (app2 (fn [y: int] (+ y 1)) x) (+ x 1))))" ]))
       map pbtStatus (pbtResults r) `shouldBe` [PBTPassed]
+
+  -- -----------------------------------------------------------------------
+  -- ABSTRACTION-VERDICT-1 (byte-io-proposal Rev 2, Part 0, clause 2): a
+  -- constraint whose environment holds two or more call results of one
+  -- callee is marked at emission ('erAbstracted'); an UNSAFE answer whose
+  -- every failing id of a function is marked reclassifies that function to
+  -- the fallback outcome ('applyAbstractionVerdict'), not refuted.
+  -- -----------------------------------------------------------------------
+  describe "ABSTRACTION-VERDICT-1 multi-call UNSAFE is a fallback" $ do
+    let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left e   -> error (show e)
+          Right ss -> ss
+        emitSrc src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+        gDef = "(def-shell g [x: int] -> int (post (>= result 0)) (if (< x 0) (- 0 x) x))\n"
+        a1   = gDef ++ "(def-shell h [a: int] -> int (post (= result 0)) (- (g a) (g a)))"
+        a2   = gDef ++ "(def-shell h8 [a: int b: int] -> int (post (>= result 0)) (if (= a b) (- (g a) (g b)) 0))"
+        a3   = gDef ++ "(def-shell h1 [a: int] -> int (post (>= result (- 0 a))) (g a))"
+        a4   = "(def-shell f [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (if (< n 2) n (- (f (- n 1)) (f (- n 2)))))"
+        w3   = "(def-shell gw [min: (fn [int int] -> int) a: int b: int] -> int (post (<= result a)) (min a b))"
+        w5   = "(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))"
+        w5tw = "(def-shell int-le [x: int y: int] -> bool (<= x y))\n(def-shell t2 [a: int b: int] -> int (post (= result 0)) (if (int-le a b) (if (int-le a b) 0 1) 0))"
+        w6   = "(type PositiveInt (where [x: int] (> x 0)))\n(def-shell use-pos [f: (fn [int] -> PositiveInt) a: int] -> int (post (> result 0)) (f a))"
+        dsc  = gDef ++ "(def-shell fd [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (= n 0) 0 (fd (+ (- n 1) (- (g n) (g n))))))"
+        -- (id, function, clause) of every constraint, from the origin table
+        origins er = [ (i, coFunction o, coClause o) | (i, o) <- Map.toList (erConstraintTable er) ]
+        idsOf er fn clauseP = [ i | (i, f, c) <- origins er, f == fn, clauseP c ]
+        isBodyPost c = "body-post" `T.isPrefixOf` c
+        marked er = erAbstracted er
+        -- emit, run the solver, apply the rule; pending without a solver
+        solved src k = do
+          er <- emitSrc src
+          tmp <- getTemporaryDirectory
+          (fqPath, h) <- SIO.openTempFile tmp "abstraction-verdict.fq"
+          SIO.hClose h
+          TIO.writeFile fqPath (erFQText er)
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just lf -> do
+              (code, out, err) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              removeFile fqPath
+              k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
+
+    it "AV-1 A1: h's body-post constraint carries callee g; no constraint of g is marked" $ do
+      er <- emitSrc a1
+      let hPost = idsOf er "h" isBodyPost
+      hPost `shouldSatisfy` (not . null)
+      [ Map.lookup i (marked er) | i <- hPost ] `shouldBe` map (const (Just "g")) hPost
+      [ i | i <- idsOf er "g" (const True), Map.member i (marked er) ] `shouldBe` []
+
+    it "AV-2 A3: a single call marks nothing" $ do
+      er <- emitSrc a3
+      marked er `shouldBe` Map.empty
+
+    it "AV-3 W3: a single call through a function-typed parameter marks nothing" $ do
+      er <- emitSrc w3
+      marked er `shouldBe` Map.empty
+
+    it "AV-4 W5: both then-branch constraints carry le; the else-branch constraint does not" $ do
+      er <- emitSrc w5
+      let thens = idsOf er "t" (== "body-post-then")
+          elses = idsOf er "t" (== "body-post-else")
+      length thens `shouldBe` 2
+      length elses `shouldBe` 1
+      [ Map.lookup i (marked er) | i <- thens ] `shouldBe` [Just "le", Just "le"]
+      [ Map.lookup i (marked er) | i <- elses ] `shouldBe` [Nothing]
+
+    it "AV-5 two bytes-get reads of one array are exact reflections: nothing is marked" $ do
+      er <- emitSrc "(def-shell rd [b: bytes[8]] -> int (post (= result 0)) (- (bytes-get b 0) (bytes-get b 0)))"
+      erBodyFaithfulFns er `shouldSatisfy` elem "rd"
+      length (filter ("_bv_call_bytes_get_" `T.isInfixOf`) (T.lines (erFQText er))) `shouldSatisfy` (>= 2)
+      marked er `shouldBe` Map.empty
+
+    it "AV-6 A4: the body-post id carries f; no call-pre id does (each env holds at most one f binder)" $ do
+      er <- emitSrc a4
+      let posts = idsOf er "f" isBodyPost
+          cpres = idsOf er "f" (== "call-pre:f")
+      length cpres `shouldBe` 2
+      [ i | i <- cpres, Map.member i (marked er) ] `shouldBe` []
+      [ Map.lookup i (marked er) | i <- posts, Map.member i (marked er) ] `shouldBe` [Just "f"]
+
+    it "AV-7 all failing ids marked: FQSafe, h falls back with cause abstraction-unsafe and one W-BODY-FALLBACK" $ do
+      er <- emitSrc a1
+      let ids = idsOf er "h" isBodyPost
+          av  = applyAbstractionVerdict er (FQUnsafe ids)
+          er' = aoEmit av
+      aoResult av `shouldBe` FQSafe
+      aoReclassified av `shouldBe` [("h", "g")]
+      erBodyFaithfulFns er' `shouldNotSatisfy` elem "h"
+      erBodyFaithfulFns er' `shouldSatisfy` elem "g"
+      lookup "h" (erBodyFallbackCauses er') `shouldBe` Just FallbackAbstraction
+      renderFallbackCause FallbackAbstraction `shouldBe` "abstraction-unsafe"
+      lookup "h" (erFallbackConstructs er') `shouldBe` Just ["abstraction:app:g"]
+      let ws = [ d | d <- erDiagnostics er', diagCode d == Just "W-BODY-FALLBACK" ]
+      length ws `shouldBe` 1
+      map diagMessage ws `shouldSatisfy` all (\m -> "abstraction:app:g" `T.isInfixOf` m && "bind one call with let" `T.isInfixOf` m)
+
+    it "AV-8 mixed ids: the unmarked function keeps its id, the marked one is reclassified" $ do
+      er <- emitSrc (a1 ++ "\n" ++ w3)
+      let hIds  = idsOf er "h" isBodyPost
+          gwIds = idsOf er "gw" isBodyPost
+          av    = applyAbstractionVerdict er (FQUnsafe (hIds ++ gwIds))
+      aoResult av `shouldBe` FQUnsafe gwIds
+      map fst (aoReclassified av) `shouldBe` ["h"]
+      erBodyFaithfulFns (aoEmit av) `shouldSatisfy` elem "gw"
+
+    it "AV-9 one function with a marked and an unmarked failing id keeps both and is not reclassified" $ do
+      er <- emitSrc (gDef ++ "(def-shell hm [a: int] -> int (post (= result 0)) (if (> a 0) (- (g a) (g a)) (- 0 1)))")
+      let thenIds = idsOf er "hm" (== "body-post-then")
+          elseIds = idsOf er "hm" (== "body-post-else")
+      [ Map.member i (marked er) | i <- thenIds ++ elseIds ] `shouldBe` [True, False]
+      let av = applyAbstractionVerdict er (FQUnsafe (thenIds ++ elseIds))
+      aoResult av `shouldBe` FQUnsafe (thenIds ++ elseIds)
+      aoReclassified av `shouldBe` []
+      erBodyFaithfulFns (aoEmit av) `shouldSatisfy` elem "hm"
+
+    it "AV-10 an id with no origin is kept; FQUnsafe [] and FQError pass through" $ do
+      er <- emitSrc a1
+      let ids = idsOf er "h" isBodyPost
+      aoResult (applyAbstractionVerdict er (FQUnsafe (ids ++ [9999]))) `shouldBe` FQUnsafe [9999]
+      aoResult (applyAbstractionVerdict er (FQUnsafe [])) `shouldBe` FQUnsafe []
+      aoReclassified (applyAbstractionVerdict er (FQUnsafe [])) `shouldBe` []
+      aoResult (applyAbstractionVerdict er (FQError "boom")) `shouldBe` FQError "boom"
+      aoResult (applyAbstractionVerdict er FQSafe) `shouldBe` FQSafe
+
+    it "AV-11 a marked descent id is a candidate: the function falls back and its descent is not discharged" $ do
+      er <- emitSrc dsc
+      let descIds = idsOf er "fd" (== "descent")
+          cpIds   = idsOf er "fd" (== "call-pre:fd")
+      descIds `shouldSatisfy` (not . null)
+      [ Map.lookup i (marked er) | i <- descIds ++ cpIds ] `shouldSatisfy` all (== Just "g")
+      let av  = applyAbstractionVerdict er (FQUnsafe (cpIds ++ descIds))
+          er' = aoEmit av
+      aoResult av `shouldBe` FQSafe
+      aoReclassified av `shouldBe` [("fd", "g")]
+      descentDischargedFns (parsedOk dsc) (erMeasuredFns er') (Set.fromList (erBodyFaithfulFns er')) True
+        `shouldSatisfy` (not . Set.member "fd")
+      [ d | d <- erDiagnostics er', diagCode d == Just "W-DECREASES-UNDISCHARGED" ] `shouldSatisfy` ((== 1) . length)
+
+    it "AV-12 the patch notProved message for cause abstraction-unsafe names the callee" $ do
+      let m = notProvedMessage (PatchedFn "h" False (Just "abstraction-unsafe") ["abstraction:app:g"])
+      m `shouldBe` "'h' was not proved: the counterexample needs two calls to 'g' to return different values, which the verifier does not rule out (abstraction:app:g). Its postcondition was assumed."
+
+    it "AV-13 solver: A1 and A2 (true posts, two calls to g) reclassify to FQSafe" $ do
+      solved a1 $ \_ av -> do
+        aoResult av `shouldBe` FQSafe
+        aoReclassified av `shouldBe` [("h", "g")]
+      solved a2 $ \_ av -> do
+        aoResult av `shouldBe` FQSafe
+        aoReclassified av `shouldBe` [("h8", "g")]
+
+    it "AV-14 solver: A4 (false post, two self-calls) reclassifies: the stated cost" $
+      solved a4 $ \_ av -> do
+        aoResult av `shouldBe` FQSafe
+        aoReclassified av `shouldBe` [("f", "f")]
+
+    it "AV-15 solver: the W5 twin through a named uncontracted int-le reclassifies" $
+      solved w5tw $ \_ av -> do
+        aoResult av `shouldBe` FQSafe
+        aoReclassified av `shouldBe` [("t2", "int-le")]
+
+    it "AV-16 solver: one call (A3, W6, MMF-6's parameter min) stays refuted" $ do
+      let staysRefuted src fn = solved src $ \er av -> do
+            aoReclassified av `shouldBe` []
+            case aoResult av of
+              FQUnsafe ids -> [ f | i <- ids, Just o <- [Map.lookup i (erConstraintTable er)], let f = coFunction o ] `shouldSatisfy` elem fn
+              r            -> expectationFailure ("expected UNSAFE, got " <> show r)
+      staysRefuted a3 "h1"
+      staysRefuted w6 "use-pos"
+      staysRefuted "(def-shell g [min: (fn [int int] -> int) a: int b: int] -> int (post (<= result a)) (min a b))" "g"
 
   describe "BYTES-LEN-RANGE-1 bytes length range" $ do
     let progKind src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of

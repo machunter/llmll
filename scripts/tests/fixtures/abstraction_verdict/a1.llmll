@@ -1,0 +1,5 @@
+;; ABSTRACTION-VERDICT-1 A1: two equal calls to a contracted g. The post holds
+;; for every pure g, but the VC does not know the two calls agree, so h falls
+;; back as abstraction:app:g (not refuted). g is proved.
+(def-shell g [x: int] -> int (post (>= result 0)) (if (< x 0) (- 0 x) x))
+(def-shell h [a: int] -> int (post (= result 0)) (- (g a) (g a)))

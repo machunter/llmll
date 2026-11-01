@@ -48,6 +48,7 @@ module LLMLL.FixpointEmit
   , renderFallbackCause
   , BuiltinAxiom(..)              -- TRUST-AXIOM: one sealed-builtin axiom a function's evidence rests on
   , sealedAxiomBuiltins           -- TRUST-AXIOM: the builtins whose assumed post is an axiom
+  , abstractedBuiltins            -- ABSTRACTION-VERDICT-1 clause 1: partially reflected builtins (empty)
   , injectRangeFactsLabeled       -- TRUST-AXIOM family C: facts plus the families they belong to
   , arrayTheorySyms               -- FQ-FREEVAR-GUARD-1: the solver's interpreted symbols
   , hasHole                       -- FALLBACK-CENSUS-1: shared hole walker (defined in Syntax)
@@ -92,6 +93,7 @@ module LLMLL.FixpointEmit
   , collectBranchBinders         -- COMP-3b-general: match-binder tree-walk
   , collectCallSites             -- COMP-4 (b): call sites for payload-subtyping
   , collectBuiltinAxioms         -- TRUST-AXIOM: sealed-builtin axioms from the emitted BodyVC
+  , collectCallBinders           -- ABSTRACTION-VERDICT-1: call-result binders and their callees
   , payloadRefinement            -- COMP-4 (b): payload type → (bindingVar, pred)
   , payloadArms                  -- COMP-4 (b): two-arm payload types per arm key
   , admissibleDatatype           -- COMP-4 (a): acyclic-closure admissibility
@@ -233,6 +235,16 @@ data FallbackCause
   -- catches the rest, and it names no single mechanism because it is decided
   -- over the assembled file rather than over one translator's inputs.
   | FallbackUnboundSymbols -- ^ an emitted constraint names a symbol its environment lacks
+  -- ABSTRACTION-VERDICT-1 (byte-io-proposal Rev 2, Part 0, clause 2): the
+  -- solver answered UNSAFE, but every failing constraint of the function holds
+  -- two or more call results of one callee in its environment. The VC gives
+  -- each call a fresh result and no congruence, so the counterexample may need
+  -- two equal calls to disagree, which no pure function does. The function is
+  -- not reported refuted; it falls back and its post is assumed. Decided after
+  -- the solver ran ('LLMLL.AbstractionVerdict'), never by the emitter. The
+  -- callee rides 'erFallbackConstructs' as @abstraction:app:<callee>@, so this
+  -- bucket stays one closed string.
+  | FallbackAbstraction    -- ^ UNSAFE only through two or more unrelated calls to one callee
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 renderFallbackCause :: FallbackCause -> Text
@@ -246,6 +258,7 @@ renderFallbackCause FallbackHole         = "unfilled-hole"
 renderFallbackCause FallbackNoPost       = "no-post"
 renderFallbackCause FallbackUnboundMapResult = "map-result-components-unbound"
 renderFallbackCause FallbackUnboundSymbols   = "constraint-symbols-unbound"
+renderFallbackCause FallbackAbstraction      = "abstraction-unsafe"
 
 -- | LEVER-A1: the array-theory operation symbols are INTERPRETED by the solver
 -- (native map theory). Declaring them as UF constants would shadow the theory,
@@ -284,6 +297,16 @@ data EmitResult = EmitResult
   , erMeasuredFns        :: [Text]          -- ^ REC-DESCENT: def-shells with a translatable k=1 decreases measure (the descent-discharge candidate set; on SAFE + whole-SCC-measured ⇒ termination-verified)
   , erBuiltinAxioms      :: [(Text, [BuiltinAxiom])] -- ^ TRUST-AXIOM: per function, the sealed-builtin axioms its body VC assumed
   , erGroundFactFamilies :: [(Text, [Text])]  -- ^ TRUST-AXIOM family C: per function, the ground-fact families its constraints assumed
+  , erAbstracted         :: Map FQConstraintId Name
+    -- ^ ABSTRACTION-VERDICT-1: each emitted constraint whose environment holds
+    -- two or more distinct call results of one callee, mapped to that callee
+    -- (the first such callee by name). Metadata only: the .fq does not change.
+    -- 'LLMLL.AbstractionVerdict' reads it after the solver ran.
+  , erMeasuredRecursive  :: [(Text, Int)]
+    -- ^ ABSTRACTION-VERDICT-1: the self-recursive def-shells that declare a
+    -- measure, with their statement index. A function the verdict layer moves
+    -- to the fallback outcome gets the W-DECREASES-UNDISCHARGED warning the
+    -- emitter gives every other fallback of such a function (DECREASES-LEN-1).
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
@@ -333,6 +356,16 @@ data BuiltinAxiom = BuiltinAxiom
 -- a mirrored gate drifted once already.
 sealedAxiomBuiltins :: Set.Set Name
 sealedAxiomBuiltins = Set.fromList ["bytes-get", "bytes-set", "bytes-zero", "map-get"]
+
+-- | ABSTRACTION-VERDICT-1, clause 1 of docs/design/byte-io-proposal.md Rev 2
+-- (Part 0): the builtins whose result the VC reflects only PARTIALLY (a UF with
+-- a range fact, not an exact definition), so an UNSAFE answer that rests on one
+-- may be a model no implementation realizes. EMPTY in this ticket: the first
+-- members (the @strCode@ UF of @string-code@ and its facts) arrive with the
+-- step 1 ticket (BITWISE-1 / CHAR-CODE-1), which fills this set. Clause 2 (two
+-- calls to one callee) is 'erAbstracted' and does not read it.
+abstractedBuiltins :: Set.Set Name
+abstractedBuiltins = Set.empty
 
 -- | TRUST-AXIOM: the function a constraint belongs to. 'conTag' carries
 -- @[name, clause]@ at every emission site, so the head is the function name.
@@ -734,6 +767,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   builtinAxiomsRef <- newIORef ([] :: [(Text, [BuiltinAxiom])])  -- TRUST-AXIOM: per-fn sealed-builtin axioms
   groundFactsRef <- newIORef ([] :: [(Text, [Text])])  -- TRUST-AXIOM family C: per-fn ground-fact families
   bytesArrsRef <- newIORef (Map.empty :: Map Text (Set.Set Text))  -- ARR-RANGE-NAME: per-fn bytes evidence set
+  callBindersRef <- newIORef (Map.empty :: Map Text (Map Name (Name, Name)))  -- ABSTRACTION-VERDICT-1: per-fn binder → (callee, call result)
 
   let freshCid = do
         n <- readIORef ctrRef
@@ -788,6 +822,11 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- map-free module keeps an empty list and emits no disclosure key.
   let addBuiltinAxioms n axs =
         unless (null axs) $ modifyIORef' builtinAxiomsRef (++ [(n, axs)])
+  -- ABSTRACTION-VERDICT-1: the call-result binders of one function's emitted
+  -- body VC, each with its callee and the call result it belongs to.
+  let addCallBinders n cbs =
+        unless (null cbs) $ modifyIORef' callBindersRef
+          (Map.insertWith Map.union n (Map.fromList [ (b, (c, r)) | (b, c, r) <- cbs ]))
   -- TRUST-AXIOM family C: the per-function recorder the bool-value wrapper uses.
   let addGroundFacts n fams =
         unless (null fams) $ modifyIORef' groundFactsRef (++ [(n, fams)])
@@ -819,20 +858,20 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract Nothing (Just dec) idx
 
       -- LT-INV (v0.11): SDef and SDefShell emit constraints identically to SDefLogic.
       SDef name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- REC-DESCENT (v0.14.25): a def-shell's k=1 measure is threaded as 'mDec'
@@ -857,14 +896,14 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
             <> "' declares a decreases measure but is not self-recursive; no descent obligation is emitted."
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- v0.12.1: def-invariant emits constraints identically to SDefLogic.
       SDefInvariant name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       _ -> pure ()
@@ -922,6 +961,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   callPre   <- readIORef callPreRef
   ovTainted <- readIORef overflowTaintedRef
   builtinAxioms <- readIORef builtinAxiomsRef  -- TRUST-AXIOM
+  callBinders <- readIORef callBindersRef      -- ABSTRACTION-VERDICT-1
   groundFacts <- readIORef groundFactsRef      -- TRUST-AXIOM family C
   -- NIW (v0.12): declare a UF constant for each measure symbol actually used in
   -- any constraint or binder. None used → empty section → byte-identical .fq.
@@ -1018,6 +1058,29 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
         | (n, cause) <- bfallback'
         , n `Set.member` recursiveNames
         , Just i <- [Map.lookup n measuredIdx] ]
+      -- ABSTRACTION-VERDICT-1 (byte-io-proposal Rev 2, Part 0, clause 2). A
+      -- constraint is marked when its environment holds two or more DISTINCT
+      -- call results of one callee. The VC gives every call a fresh result and
+      -- no congruence, so an UNSAFE answer on such a constraint may be a model
+      -- no pure function realizes. Computed over the KEPT constraints, after
+      -- the FREEVAR routing above. The environment is already path-precise
+      -- (each flattened path binds exactly the calls on it), so the whole env
+      -- is the coarse form the design allows, not the cone of influence.
+      -- Binders map to callees through the emitted BodyVC
+      -- ('collectCallBinders'), never by parsing names; a map-returning call's
+      -- $has/$val components count as the one call they belong to.
+      bindNames = Map.fromList [ (bindId b, bindName b) | b <- binds ]
+      abstracted = Map.fromList
+        [ (conId c, callee)
+        | c <- keptCons
+        , Just owner <- [ownerOf c]
+        , Just bmap <- [Map.lookup owner callBinders]
+        , let perCallee = Map.fromListWith Set.union
+                [ (cal, Set.singleton root)
+                | bid <- conEnv c
+                , Just nm <- [Map.lookup bid bindNames]
+                , Just (cal, root) <- [Map.lookup nm bmap] ]
+        , (callee, _) : _ <- [ [ x | x@(_, roots) <- Map.toAscList perCallee, Set.size roots >= 2 ] ] ]
   return EmitResult
     { erFQFile            = fqFile
     , erFQText            = emitFQFile fqFile
@@ -1049,6 +1112,9 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
         | n <- nub (map fst groundFacts)
         , not (T.null n), not (n `Set.member` routed)
         , let fams = nub (concat [ fs | (m, fs) <- groundFacts, m == n ]) ]
+    , erAbstracted         = abstracted
+    , erMeasuredRecursive  =
+        [ (n, i) | (n, i) <- Map.toList measuredIdx, n `Set.member` recursiveNames ]
     }
 
 -- ---------------------------------------------------------------------------
@@ -1073,6 +1139,7 @@ emitFnConstraints
   -> (Text -> IO ())       -- v0.9.0: record call-pre obligation
   -> (Text -> IO ())       -- INT-1: record overflow-tainted function
   -> (Text -> [BuiltinAxiom] -> IO ())  -- TRUST-AXIOM: record the sealed-builtin axioms this body VC assumed
+  -> (Text -> [(Name, Name, Name)] -> IO ())  -- ABSTRACTION-VERDICT-1: record the call-result binders
   -> (Text -> [Text] -> IO ())          -- TRUST-AXIOM family C: record the ground-fact families
   -> (Text -> Set.Set Text -> IO ())   -- ARR-RANGE-NAME: record the bytes-typed array names
   -> IORef Int             -- body-VC alpha-renaming counter
@@ -1091,7 +1158,7 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addGroundFacts addBytesArrs bodyCounterRef aliases cenvAll sccSet measureMap respRefs
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenvAll sccSet measureMap respRefs
     name params mRet contract0 mBody mDec stmtIdx = do
 
   -- FN-SHADOW-1 (fn-param-uf-1-proposal R1): a parameter or local binder
@@ -2133,6 +2200,9 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     -- were emitted from, so the disclosure cannot disagree with
                     -- what reached the solver.
                     addBuiltinAxioms name (collectBuiltinAxioms name bvc)
+                    -- ABSTRACTION-VERDICT-1: the same tree, for the same
+                    -- reason: the binder map cannot disagree with the .fq.
+                    addCallBinders name (collectCallBinders bvc)
 
                     forM_ (collectCallSites bvc) $ \(callee, callArgs) ->
                       case Map.lookup callee cenv of
@@ -5579,6 +5649,23 @@ collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
       , baConjuncts = [ (tag, render p) | (tag, p) <- pParts ]
       }
       where render = emitPred . applySubst (Map.singleton rVar (FQVar "result"))
+
+-- | ABSTRACTION-VERDICT-1: every call-result binder of the emitted tree, as
+-- @(binder, callee, call result)@. A map-returning call's split components
+-- (@rv$has@, @rv$val@) are listed with their call result @rv@, so they count
+-- as one call. The sealed builtins are excluded: their result is pinned by an
+-- exact reflection ('sealedAxiomBuiltins'), so two reads of one array agree in
+-- the theory already. Reads the emitted tree, as 'collectBuiltinAxioms' does,
+-- so it inherits every activation gate of 'bodyToPredM'.
+collectCallBinders :: BodyVC -> [(Name, Name, Name)]
+collectCallBinders (SimpleVC _ _)     = []
+collectCallBinders (BranchVC _ _ t e) = collectCallBinders t ++ collectCallBinders e
+collectCallBinders (CallVC c _ _ _ _ _ rv rs cont)
+  | Set.member c sealedAxiomBuiltins = collectCallBinders cont
+  | otherwise =
+      (rv, c, rv)
+        : [ (rv <> sfx, c, rv) | isMapArrRetSort rs, sfx <- ["$has", "$val"] ]
+        ++ collectCallBinders cont
 
 -- OBLIG-D4: each obligation also carries the call's SURFACE argument vector,
 -- which names the call site (two calls to one callee from one body are

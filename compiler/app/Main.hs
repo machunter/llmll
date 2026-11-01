@@ -68,6 +68,8 @@ import LLMLL.Diagnostic
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap, BuiltinAxiom(..))
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
+-- ABSTRACTION-VERDICT-1: every solver consumer that turns UNSAFE into a claim
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, abstractionConstruct)
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
@@ -1438,10 +1440,14 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             exitWith code
       -- 2. Emit .fq constraints + build ConstraintTable (v0.8.0: body VCs enabled)
       let emitOpts = defaultEmitOptions { emitBodyVCs = True }
-      emitR <- emitFixpointWithCache emitOpts fp _cache retTypes stmts
-      let fqText = erFQText emitR
-          table  = erConstraintTable emitR
-          skipped = erSkipped emitR
+      -- ABSTRACTION-VERDICT-1: 'emitR0' is the emitter's own result. After the
+      -- solver ran, 'emitR' (below) is the same result with each function the
+      -- abstraction rule reclassified moved to the fallback lists; everything
+      -- downstream of the solver reads 'emitR'.
+      emitR0 <- emitFixpointWithCache emitOpts fp _cache retTypes stmts
+      let fqText = erFQText emitR0
+          table  = erConstraintTable emitR0
+          skipped = erSkipped emitR0
 
       -- 3. Write .fq file
       --
@@ -1463,29 +1469,29 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         unless (null skipped) $
           TIO.putStrLn $ "   skipped (non-linear): " <> T.intercalate ", " skipped
         -- v0.8.0: report body-faithful and fallback functions
-        unless (null (erBodyFaithfulFns emitR)) $
-          TIO.putStrLn $ "   body-faithful: " <> T.intercalate ", " (erBodyFaithfulFns emitR)
+        unless (null (erBodyFaithfulFns emitR0)) $
+          TIO.putStrLn $ "   body-faithful: " <> T.intercalate ", " (erBodyFaithfulFns emitR0)
         -- GENERICS-1 (verification step 7): the instantiation count, only for
         -- a program that declares or reaches a generic.
         when (gsDefinitions genStats > 0) $
           TIO.putStrLn $ "   generics: " <> tshow (gsDefinitions genStats) <> " definitions, "
             <> tshow (gsInstances genStats) <> " instances"
-        unless (null (erBodyFallback emitR)) $
-          TIO.putStrLn $ "   body-fallback: " <> T.intercalate ", " (erBodyFallback emitR)
+        unless (null (erBodyFallback emitR0)) $
+          TIO.putStrLn $ "   body-fallback: " <> T.intercalate ", " (erBodyFallback emitR0)
         -- v0.8.0: surface diagnostics (path-limit warnings etc.)
-        mapM_ (\d -> TIO.putStrLn $ "   ⚠️  " <> diagMessage d) (erDiagnostics emitR)
+        mapM_ (\d -> TIO.putStrLn $ "   ⚠️  " <> diagMessage d) (erDiagnostics emitR0)
         -- v0.9.0: report call-pre obligations
-        unless (null (erCallPreFns emitR)) $
-          TIO.putStrLn $ "   call-pre obligations: " <> T.intercalate ", " (erCallPreFns emitR)
+        unless (null (erCallPreFns emitR0)) $
+          TIO.putStrLn $ "   call-pre obligations: " <> T.intercalate ", " (erCallPreFns emitR0)
         -- SHELL-CALL-PRE-1 Part 1: calls from a body with no body VC into a
         -- callee that declares a pre. No call-site obligation exists for them.
-        let unchecked = uncheckedCallPres _cache stmts (erBodyFaithfulFns emitR)
+        let unchecked = uncheckedCallPres _cache stmts (erBodyFaithfulFns emitR0)
         unless (null unchecked) $
           TIO.putStrLn $ "   call-pre unchecked: "
             <> T.intercalate ", " [ f <> " -> " <> c | (f, c) <- unchecked ]
         -- INT-1 (v0.10.8): report overflow-tainted body-faithful functions.
-        unless (null (erOverflowTaintedFns emitR)) $
-          TIO.putStrLn $ "   overflow-tainted: " <> T.intercalate ", " (erOverflowTaintedFns emitR)
+        unless (null (erOverflowTaintedFns emitR0)) $
+          TIO.putStrLn $ "   overflow-tainted: " <> T.intercalate ", " (erOverflowTaintedFns emitR0)
 
       -- v0.9.0 COMP-6 + INT-1 (v0.10.8): --strict-verified-core enforcement.
       -- Refuses both (a) functions that fell back from body-faithful verification
@@ -1494,15 +1500,15 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- categories are mutually exclusive — overflow-taint is gated on
       -- body-faithful success — so a function appears in at most one list.
       when strictCore $ do
-        let fallbacks = erBodyFallback emitR
-            causes    = erBodyFallbackCauses emitR  -- FALLBACK-REASON-CONST-1
-            tainted   = erOverflowTaintedFns emitR
+        let fallbacks = erBodyFallback emitR0
+            causes    = erBodyFallbackCauses emitR0  -- FALLBACK-REASON-CONST-1
+            tainted   = erOverflowTaintedFns emitR0
             -- STRICT-XMOD-1: LLMLL.md §5.3 conjunct (d) across modules. A
             -- body-faithful function whose proof uses an imported contract that
             -- is not proved (asserted, tested, stale, or no sidecar) rests on an
             -- assumption. The fallback check above sees this run's entry emit
             -- only, so before this an imported fallback passed the gate.
-            importDeps = importAssumedOf _cache stmts (erBodyFaithfulFns emitR)
+            importDeps = importAssumedOf _cache stmts (erBodyFaithfulFns emitR0)
             errs :: [(T.Text, [T.Text], T.Text)]
             errs = [ ("fallback", fallbacks
                     , T.pack (show (length fallbacks))
@@ -1542,10 +1548,10 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                          -- solver runs, so without these keys the instrument
                          -- would see the body-faithful set only for files that
                          -- pass, which is the population it is measuring.
-                         ++ [ "body_faithful" .= erBodyFaithfulFns emitR
-                            , "body_fallback" .= erBodyFallback emitR
+                         ++ [ "body_faithful" .= erBodyFaithfulFns emitR0
+                            , "body_fallback" .= erBodyFallback emitR0
                             , "body_fallback_causes" .= toJSON (Map.fromList [ (n, renderFallbackCause c) | (n, c) <- causes ])
-                            , "body_fallback_constructs" .= toJSON (Map.fromList (erFallbackConstructs emitR))
+                            , "body_fallback_constructs" .= toJSON (Map.fromList (erFallbackConstructs emitR0))
                             , "fn_kinds" .= toJSON (fnKindMap stmts)
                             ]
             else mapM_ (\(_cause, _fns, msg) ->
@@ -1599,7 +1605,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- the live source no longer supports.
             (sidecar, _stale, _contra) <- loadCheckedSidecar _cache verifyKe fp stmts Map.empty
             let trustRpt = buildTrustReport _cache trStmts sidecar
-                reportText = assembleReport fp stmts _cache emitR Nothing trustRpt
+                reportText = assembleReport fp stmts _cache emitR0 Nothing trustRpt
             if json then nest "obligation_report" reportText else TIO.putStrLn reportText
           finishVerify (ExitFailure 3)   -- distinct: solver unavailable (proof did not run)
 
@@ -1618,7 +1624,18 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               merged   = outT <> T.pack err
               -- VERDICT-UNSTABLE-1: the exit code is part of the verdict. A
               -- solver that died must not be reported as a refutation.
-              fqResult = parseFQOutcome lfCode merged
+              fqResultRaw = parseFQOutcome lfCode merged
+              -- ABSTRACTION-VERDICT-1 (byte-io-proposal Rev 2, Part 0, clause
+              -- 2): an UNSAFE answer whose every failing constraint of a
+              -- function holds two or more call results of one callee is not a
+              -- disproof. Those functions fall back ('emitR'), their ids leave
+              -- the verdict ('fqResult'), and every reader below sees the
+              -- effective verdict. Only the proof artifact keeps the raw one,
+              -- because its replay re-runs the stored .fq.
+              avOut    = applyAbstractionVerdict emitR0 fqResultRaw
+              fqResult = aoResult avOut
+              emitR    = aoEmit avOut
+              abstractionFns = aoReclassified avOut
               -- VERIFY-RPT-1 (Commit 4): refuted functions = body-faithful fns
               -- named by the constraint-table origin of each unsafe id.
               bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
@@ -1696,6 +1713,15 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               report  = report0
                 { reportDiagnostics = erDiagnostics emitR ++ reportDiagnostics report0 }
 
+          -- ABSTRACTION-VERDICT-1: the 'body-faithful:' line printed before the
+          -- solver named these functions, so say that they fell back, and print
+          -- the W-BODY-FALLBACK warning the verdict layer added.
+          unless (json || null abstractionFns) $ do
+            TIO.putStrLn $ "   abstraction fallback: "
+              <> T.intercalate ", " [ f <> " (" <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
+            mapM_ (\d -> TIO.putStrLn $ "   ⚠️  " <> diagMessage d)
+                  (drop (length (erDiagnostics emitR0)) (erDiagnostics emitR))
+
           -- VERIFY-HEADLINE-1: the proved set behind the SAFE headline and the
           -- '--json' counts. Pure over this run's emit result and the source.
           let headline = headlineCounts (cacheAwareAliasMap stmts _cache) retTypes
@@ -1731,6 +1757,12 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                     FQUnsafe _ -> "refuted"
                     FQError _  -> "error")
                 ]
+                -- ABSTRACTION-VERDICT-1: an optional verdict key, present only
+                -- when the rule reclassified a function ('solver_verdict' is
+                -- the effective verdict).
+                ++ [ "abstraction_fallback" .= object
+                       [ K.fromText f .= abstractionConstruct g | (f, g) <- abstractionFns ]
+                   | not (null abstractionFns) ]
                 -- GENERICS-1 (verification step 7): the JSON twin of the
                 -- count line, only when a generic is declared or reached, so
                 -- every other program's verdict object is unchanged.
@@ -1789,7 +1821,10 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
               let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache trStmts paSidecar)))))))
-              case buildProofArtifact fp srcHash meta fqResult emitR paTrust of
+              -- ABSTRACTION-VERDICT-1: the artifact records the RAW solver
+              -- result, because 'classifyReplay' re-runs the stored .fq and
+              -- compares the raw answer; the functions come from 'emitR'.
+              case buildProofArtifact fp srcHash meta fqResultRaw emitR paTrust of
                 -- SIDECAR-ADMIT-1: the kernel is now the LAST defence, not the
                 -- only one. 'loadCheckedSidecar' has already demoted a tier this
                 -- run contradicts, so 'paTrust' no longer mints a positive tier
@@ -2137,22 +2172,39 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- correctly; this branch just never did.
             let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache trStmts stSidecar cdpResults)))))))
                 refusal  = refutedClosure refutedSet stReport
+                -- ABSTRACTION-VERDICT-1: a function the rule reclassified fell
+                -- back AFTER the pre-solver gate read the fallback list, so
+                -- conjunct (a) is enforced here or not at all.
+                absFns   = map fst abstractionFns
+                absMsg   = T.pack (show (length absFns))
+                  <> " function(s) fell back from body-faithful verification: "
+                  <> T.intercalate ", " [ f <> " (" <> renderFallbackCause FallbackAbstraction <> ", "
+                                          <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
             when (trustReport && not obligationReport) $
               if json
                 then nest "trust_report" (formatTrustReportJson stReport)
                 else TIO.putStr (formatTrustReport stReport)
-            unless (Set.null refusal) $ do
+            unless (Set.null refusal && null absFns) $ do
               if json
                 then nest "strict_errors" . TL.toStrict . encodeToLazyText $
                        [ object
+                           [ "cause" .= ("fallback" :: T.Text)
+                           , "fns"   .= absFns
+                           , "msg"   .= absMsg
+                           ]
+                       | not (null absFns) ]
+                    ++ [ object
                            [ "cause" .= ("refuted" :: T.Text)
                            , "fns"   .= Set.toList refusal
                            , "msg"   .= ("body-faithful function(s) disproved by liquid-fixpoint, or transitively depending on one: "
                                          <> T.intercalate ", " (Set.toList refusal))
                            ]
-                       ]
-                else mapM_ (\n -> TIO.putStrLn $ "ERROR: --strict-verified-core: refuted: " <> n)
-                           (Set.toList refusal)
+                       | not (Set.null refusal) ]
+                else do
+                  unless (null absFns) $
+                    TIO.putStrLn $ "ERROR: --strict-verified-core: " <> absMsg
+                  mapM_ (\n -> TIO.putStrLn $ "ERROR: --strict-verified-core: refuted: " <> n)
+                        (Set.toList refusal)
               postSolverExit (ExitFailure 1)
             -- SIDECAR-ADMIT-1: reached only when the refusal set is empty, so
             -- the run is otherwise heading to the solver's own verdict. Escalate
@@ -2305,10 +2357,16 @@ checkCDPCandidate gm lfBin typeDefs wc = do
       let fqText = erFQText emitR
           fqPath = "/tmp/llmll-cdp-" <> T.unpack (wcFunctionName wc) <> ".fq"
       writeFileUtf8 fqPath fqText
-      (_, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
-      case parseFQResult (T.pack out <> T.pack err) of
-        FQSafe -> pure (Just True)
-        _      -> pure (Just False)
+      -- ABSTRACTION-VERDICT-1: '-q --json' so the UNSAFE ids resolve. A mutant
+      -- killed only by the missing call congruence is not a kill: its solver
+      -- answer is not a disproof, so the candidate is unvalidated.
+      (code, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
+      let av = applyAbstractionVerdict emitR (parseFQOutcome code (T.pack out <> T.pack err))
+      if syntheticName `elem` map fst (aoReclassified av)
+        then pure Nothing
+        else case aoResult av of
+          FQSafe -> pure (Just True)
+          _      -> pure (Just False)
 
 -- | Check a single weakness candidate: emit .fq, run solver, return diagnostic if SAFE.
 checkWeaknessCandidate :: GrammarMode -> FilePath -> Bool -> [Statement] -> WeaknessCandidate -> IO [Diagnostic]
@@ -2872,12 +2930,17 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
             (fqPath, fqH) <- openTempFile tmpDir ("llmll-diverge-" <> T.unpack fname <> ".fq")
             hClose fqH
             writeFileUtf8 fqPath fqText
-            (code, out, err) <- readProcessWithExitCode lfBin [fqPath] ""
+            -- ABSTRACTION-VERDICT-1: '-q --json' so the UNSAFE ids resolve.
+            (code, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
             removeFile fqPath
             -- DIVERGE-NOSOLVER-1: only UNSAFE refutes. A solver that ran and
             -- returned no verdict was recorded as refuted; it is unavailable.
-            case parseFQOutcome code (T.pack out <> T.pack err) of
-              FQSafe     -> pure FSVerified
+            -- ABSTRACTION-VERDICT-1: a fill whose only failures need two calls
+            -- to one callee to disagree falls back; it is not refuted.
+            let av = applyAbstractionVerdict emitR (parseFQOutcome code (T.pack out <> T.pack err))
+            case aoResult av of
+              FQSafe | fname `elem` map fst (aoReclassified av) -> pure FSOutsideFragment
+                     | otherwise                                -> pure FSVerified
               FQUnsafe _ -> pure FSRefuted
               FQError _  -> pure FSUnavailable
   where
