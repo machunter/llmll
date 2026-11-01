@@ -16,6 +16,9 @@ module LLMLL.DiagnosticFQ
   , parseFQResult
   , parseFQResultJSON
   , parseFQOutcome
+  , runFQSolver
+  , resourceStopText
+  , resourceStopValue
     -- * Where the constraint file and the run build directory go
   , fqPathFor
   , runDirFor
@@ -42,6 +45,7 @@ import qualified Crypto.Hash.SHA256 as SHA
 import qualified Data.ByteString as BS
 
 import LLMLL.FixpointIR (FQConstraintId)
+import LLMLL.SolverGuard (ResourceStop(..), SolverLimits(..), renderStopKind, runSolverGuarded)
 import LLMLL.Diagnostic
   ( Diagnostic(..), DiagnosticReport(..), Severity(..)
   , mkError, reportDiagnostics )
@@ -78,7 +82,19 @@ data FQVerifyResult
   = FQSafe
   | FQUnsafe [FQConstraintId]  -- ^ IDs of failed constraints
   | FQError  Text              -- ^ liquid-fixpoint binary error / parse error
+  | FQResourceLimit ResourceStop
+    -- ^ VERIFY-BUDGET-1: the guard stopped the solver at its memory or time
+    -- limit. No verdict exists, so nothing is proved and nothing is refuted.
   deriving (Show, Eq)
+
+-- | VERIFY-BUDGET-1: run the solver on one @.fq@ under the guard and read its
+-- verdict by the 'parseFQOutcome' rule.
+runFQSolver :: FilePath -> [String] -> IO FQVerifyResult
+runFQSolver bin args = do
+  r <- runSolverGuarded bin args
+  pure $ case r of
+    Left stop            -> FQResourceLimit stop
+    Right (code, o, e)   -> parseFQOutcome code (T.pack o <> T.pack e)
 
 -- | Parse liquid-fixpoint stdout into a structured result.
 --
@@ -298,6 +314,13 @@ fqResultToReport fp table (FQUnsafe ids) =
     , reportDiagnostics = diags
     , reportSuccess     = False
     }
+fqResultToReport _fp _table (FQResourceLimit stop) =
+  let d = (mkError Nothing (resourceStopText stop)) { diagKind = Just "resource-limit" }
+  in DiagnosticReport
+    { reportPhase       = "lh-fixpoint"
+    , reportDiagnostics = [d]
+    , reportSuccess     = False
+    }
 fqResultToReport _fp _table (FQError txt) =
   let d = mkError Nothing ("liquid-fixpoint error: " <> txt)
   in DiagnosticReport
@@ -358,3 +381,31 @@ fallbackUnsafeDiag table =
               <> "(liquid-fixpoint UNSAFE; no constraint id resolved to a source location)"
       d     = mkError Nothing msg
   in d { diagPointer = Just ptr, diagKind = Just "lh-unsafe" }
+
+-- | VERIFY-BUDGET-1: one line that says which limit stopped the solver.
+resourceStopText :: ResourceStop -> Text
+resourceStopText s =
+  "liquid-fixpoint stopped at the " <> renderStopKind (rsKind s) <> " limit ("
+    <> limitPart <> "; peak " <> T.pack (show (rsPeakMb s)) <> " MB after "
+    <> T.pack (show (round (rsElapsedS s) :: Int)) <> " s). Nothing was proved. "
+    <> "Raise the limit with --solver-mem-mb or --time-limit (0 turns it off)."
+  where
+    l = rsLimits s
+    limitPart = "memory " <> lim (slMemMb l) " MB" <> ", time " <> lim (slTimeSecs l) " s"
+    lim 0 _ = "off"
+    lim n u = T.pack (show n) <> u
+
+-- | VERIFY-BUDGET-1: the @resource_limit@ object of the @verify --json@
+-- document. A limit of 0 (off) renders as null.
+resourceStopValue :: ResourceStop -> Value
+resourceStopValue s = A.object
+  [ "kind"      A..= renderStopKind (rsKind s)
+  , "limit_mb"  A..= off (slMemMb (rsLimits s))
+  , "limit_s"   A..= off (slTimeSecs (rsLimits s))
+  , "peak_mb"   A..= rsPeakMb s
+  , "elapsed_s" A..= (fromIntegral (round (rsElapsedS s * 10) :: Int) / 10 :: Double)
+  ]
+  where
+    off :: Int -> Maybe Int
+    off 0 = Nothing
+    off n = Just n

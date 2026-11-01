@@ -59,7 +59,7 @@ import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, 
 import LLMLL.ObligationAssembly (exprToSExpr)
 import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause)
 import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict)
-import LLMLL.DiagnosticFQ (parseFQOutcome, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
+import LLMLL.DiagnosticFQ (runFQSolver, resourceStopText, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import Data.List (find, nub)
@@ -68,7 +68,6 @@ import Data.Foldable (toList)
 import Data.Time.Clock (getCurrentTime)
 import System.Directory (doesFileExist, findExecutable)
 import System.FilePath (takeBaseName)
-import System.Process (readProcessWithExitCode)
 import qualified Data.Text.IO as TIO
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.ByteString as BS
@@ -691,22 +690,23 @@ reVerify fp cache retTypes stmts bodyTargets
           -- pointers; fall back to the text scrape if the envelope fails to
           -- parse. Shares 'fqResultToReport', so the Defect-1b fallback
           -- diagnostic applies here too — the payload is never empty on reject.
-          (lfCode, out, err) <- readProcessWithExitCode lfBin ["-q", "--json", fqPath] ""
-          let outT     = T.pack out
-              merged   = outT <> T.pack err
-              -- VERDICT-UNSTABLE-1: same rule as 'doVerify'. A dead solver
+          -- VERIFY-BUDGET-1: through the guard, so a solver over its memory
+          -- or time limit is stopped and the patch is not written.
+          rawResult <- runFQSolver lfBin ["-q", "--json", fqPath]
+          let -- VERDICT-UNSTABLE-1: same rule as 'doVerify'. A dead solver
               -- must not reject a patch as if the contract were refuted.
               -- ABSTRACTION-VERDICT-1: the effective verdict, as 'doVerify'
               -- reads it. A patched function whose only failures need two
               -- calls to one callee to disagree is written, and reported
               -- through 'notProved' as a fallback, not rejected as refuted.
-              av       = applyAbstractionVerdict emitR (parseFQOutcome lfCode merged)
+              av       = applyAbstractionVerdict emitR rawResult
               fqResult = aoResult av
               fqReport = fqResultToReport fp table fqResult
           case fqResult of
             FQSafe          -> pure (Right (Right (patchedOutcomes bodyTargets (aoEmit av))))  -- SAFE → proceed with write
             FQUnsafe failed -> pure (Right (Left (fqReport, calleePreUnmet stmts table failed)))
             FQError e       -> pure (Left (SolverFailed e))  -- no verdict: do not write
+            FQResourceLimit s -> pure (Left (SolverFailed (resourceStopText s)))  -- VERIFY-BUDGET-1: stopped, no verdict
 
 -- | PATCH-PROOF-1: a patched function whose postcondition was assumed, not
 -- proved. A function with no postcondition has nothing to prove.

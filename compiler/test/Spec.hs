@@ -29,7 +29,8 @@ import LLMLL.ObligationAssembly
   , assembleConsumedGuarantees, assembleFunctionLists
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport)
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, runFQSolver, resourceStopText, resourceStopValue)
+import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
@@ -26433,6 +26434,52 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       checkerSoundnessVersion `shouldBe` "6"
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "5")]) `shouldBe` True
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "6")]) `shouldBe` False
+
+  -- -----------------------------------------------------------------------
+  -- VERIFY-BUDGET-1: the solver guard
+  -- -----------------------------------------------------------------------
+  describe "VERIFY-BUDGET-1 solver guard" $ do
+    let stopM = ResourceStop StopMemory (SolverLimits 64 0) 209 1.24
+    it "SG-1: sums the RSS of one process group only" $
+      sumGroupRssKb 42 "   42  1000\n   7  5000\n42 250\n" `shouldBe` 1250
+    it "SG-2: skips lines that do not parse" $
+      sumGroupRssKb 42 "garbage\n42\n 42 x\n 42 10\n" `shouldBe` 10
+    it "SG-3: the recorded limits read back" $ do
+      parseLimits (renderLimits defaultSolverLimits) `shouldBe` Just defaultSolverLimits
+      parseLimits (renderLimits (SolverLimits 0 0)) `shouldBe` Just (SolverLimits 0 0)
+      parseLimits "mem=-1MB;time=5s" `shouldBe` Nothing
+      parseLimits "nonsense" `shouldBe` Nothing
+    it "SG-4: a stopped run reports kind resource-limit and does not succeed" $ do
+      let r = fqResultToReport "f.llmll" Map.empty (FQResourceLimit stopM)
+      reportSuccess r `shouldBe` False
+      map diagKind (reportDiagnostics r) `shouldBe` [Just "resource-limit"]
+    it "SG-5: the JSON object renders a limit that is off as null" $
+      resourceStopValue stopM `shouldBe` object
+        [ "kind" .= ("memory" :: T.Text), "limit_mb" .= (64 :: Int), "limit_s" .= Null
+        , "peak_mb" .= (209 :: Int), "elapsed_s" .= (1.2 :: Double) ]
+    it "SG-6: the message names the limit and says nothing was proved" $ do
+      let t = resourceStopText stopM
+      t `shouldSatisfy` T.isInfixOf "memory limit (memory 64 MB, time off"
+      t `shouldSatisfy` T.isInfixOf "Nothing was proved"
+    it "SG-7: a run under its limits returns the exit code and output" $ do
+      setSolverLimits defaultSolverLimits
+      r <- runSolverGuarded "sh" ["-c", "echo out; echo err >&2; exit 3"]
+      r `shouldBe` Right (ExitFailure 3, "out\n", "err\n")
+    it "SG-8: a run over its time limit is stopped" $ do
+      setSolverLimits (SolverLimits 0 1)
+      r <- runSolverGuarded "sh" ["-c", "sleep 30 & sleep 30"]
+      setSolverLimits defaultSolverLimits
+      case r of
+        Left s  -> do rsKind s `shouldBe` StopTime
+                      rsElapsedS s `shouldSatisfy` (< 5)
+        Right _ -> expectationFailure "the guard did not stop the run"
+    it "SG-9: a stopped solver reads FQResourceLimit, not an error or a refutation" $ do
+      setSolverLimits (SolverLimits 0 1)
+      r <- runFQSolver "sh" ["-c", "sleep 30"]
+      setSolverLimits defaultSolverLimits
+      case r of
+        FQResourceLimit s -> rsKind s `shouldBe` StopTime
+        other             -> expectationFailure ("expected FQResourceLimit, got " ++ show other)
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

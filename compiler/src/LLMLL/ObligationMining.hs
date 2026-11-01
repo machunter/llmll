@@ -88,6 +88,7 @@ mineObligations
   -> [ObligationSuggestion]
 mineObligations _table FQSafe _report _stmts = []
 mineObligations _table (FQError _) _report _stmts = []
+mineObligations _table (FQResourceLimit _) _report _stmts = []
 mineObligations table (FQUnsafe cids) report stmts =
   concatMap (suggestForConstraint table report stmts) cids
 
