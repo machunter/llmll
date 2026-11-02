@@ -35,6 +35,7 @@ module LLMLL.FixpointIR
   , emptyFQFile
     -- * Emission to text
   , emitFQFile
+  , qualifiersToBraces    -- FIXPOINT-UPGRADE-1
     -- * Predicate emission
   , emitPred
   , emitSort              -- JSON-1: sort-rendering test
@@ -430,6 +431,31 @@ emitQualifier q =
   <> ": (" <> emitPred (qualBody q) <> ")"
   where
     emitParam (nm, srt) = sanitizeFQId nm <> " : " <> emitSort srt
+
+-- | FIXPOINT-UPGRADE-1: rewrite the qualifier lines of a @.fq@ text into the
+-- syntax of liquid-fixpoint 0.9.6.3.4 and later.
+--
+-- 'emitQualifier' writes @qualif N(v : int): (p)@, the syntax up to 0.9.6.3.3.
+-- From 0.9.6.3.4 the parser reads @qualif N(v : int) { p }@ and rejects the
+-- colon. Neither version reads the other form, so the text stays in the old
+-- form everywhere (proof artifacts, hashes, @--fq-out@ for an old solver) and
+-- 'LLMLL.SolverGuard' applies this function to the file only when a probe of
+-- the solver says it needs braces.
+--
+-- 'emitQualifier' puts each qualifier on one line, and its parameter list
+-- holds no @)@, so the first @"): "@ ends the parameters. A line that does not
+-- have that shape, including one already in the brace form, is unchanged, so
+-- the function is idempotent.
+qualifiersToBraces :: Text -> Text
+qualifiersToBraces = T.intercalate "\n" . map line . T.splitOn "\n"
+  where
+    line l
+      | "qualif " `T.isPrefixOf` l
+      , (params, rest) <- T.breakOn "): " l
+      , Just body <- T.stripPrefix "): " rest
+      , "(" `T.isPrefixOf` body
+      = params <> ") { " <> body <> " }"
+      | otherwise = l
 
 emitDataDecl :: FQDataDecl -> Text
 emitDataDecl d =
