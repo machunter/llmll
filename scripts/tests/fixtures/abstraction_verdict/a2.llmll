@@ -1,4 +1,4 @@
 ;; ABSTRACTION-VERDICT-1 A2: two calls to g whose arguments are equal only under
-;; the guard. True post; falls back as abstraction:app:g.
+;; the guard. True post; verified since CALL-CONGRUENCE-1.
 (def-shell g [x: int] -> int (post (>= result 0)) (if (< x 0) (- 0 x) x))
 (def-shell h8 [a: int b: int] -> int (post (>= result 0)) (if (= a b) (- (g a) (g b)) 0))

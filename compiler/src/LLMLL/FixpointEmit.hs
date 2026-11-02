@@ -94,6 +94,10 @@ module LLMLL.FixpointEmit
   , collectCallSites             -- COMP-4 (b): call sites for payload-subtyping
   , collectBuiltinAxioms         -- TRUST-AXIOM: sealed-builtin axioms from the emitted BodyVC
   , collectCallBinders           -- ABSTRACTION-VERDICT-1: call-result binders and their callees
+  , addCongruence                -- CALL-CONGRUENCE-1: Ackermann facts over same-key call pairs
+  , conjoinAll
+  , congruenceFact
+  , CongKey
   , payloadRefinement            -- COMP-4 (b): payload type → (bindingVar, pred)
   , payloadArms                  -- COMP-4 (b): two-arm payload types per arm key
   , admissibleDatatype           -- COMP-4 (a): acyclic-closure admissibility
@@ -425,8 +429,19 @@ data BodyVC
     , cvResultVar      :: Name           -- ^ fresh result variable (_call_g_N)
     , cvResultSort     :: FQSort         -- ^ sort of the result
     , cvContinuation   :: BodyVC         -- ^ rest of the body after the call
+    , cvCongKey        :: Maybe CongKey
+      -- ^ CALL-CONGRUENCE-1 (docs/design/ffi-determinism-proposal.md Part 3):
+      -- the callee's alpha-renamed binder and parameter sorts when this call
+      -- takes part in congruence, or Nothing. Just only for a user or function-parameter
+      -- callee whose parameter and return types are all int, bool or string
+      -- (R2). Two calls pair only when their keys are equal (R3), so a
+      -- shadowed parameter name never pairs with the parameter.
     }
   deriving (Show, Eq)
+
+-- | CALL-CONGRUENCE-1: a call's congruence key, the callee's alpha-renamed
+-- binder and the sort of each parameter (int, bool or string only).
+type CongKey = (Name, [FQSort])
 
 -- | A single let-binding in the body VC.
 data LetBinding = LetBinding
@@ -1327,7 +1342,12 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             , maybe Set.empty ctorArgVars mBody
             -- TAIL-VAR-1: a string param returned as a result leaf, `s` or
             -- `(if c s "x")`, needs the carrier too, for the same reason.
-            , maybe Set.empty tailVars mBody ] ]
+            , maybe Set.empty tailVars mBody
+            -- CALL-CONGRUENCE-1: a string param passed to a callee the body
+            -- calls twice or more is named by the congruence fact
+            -- ('addCongruence'), so it needs the carrier too. Without it
+            -- FQ-FREEVAR-GUARD-1 withdraws a body that verified before.
+            , maybe Set.empty (congStrArgVars cenv) mBody ] ]
       isStrParam n = any (\(p, t) -> p == n && isStrLike aliases t) params
       measureParams = [ (n, t) | (n, t) <- params
                       , n `Set.member` measureVars
@@ -1736,13 +1756,16 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             -- constructor axiom's length arrives as a literal argument instead
             -- (see 'reifyBytesZeroLen'). Identity on every other body.
             seed <- readIORef bodyCounterRef
-            let (newSeed, mBodyVC) =
+            let (newSeed, mBodyVC0) =
                   if isJust mMapRetPair
                     then (seed, Nothing)
                     else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts (buildCtorSums aliases, pairParamSorts aliases params) cenv sccSet
                            (markIntBuiltins (Set.fromList (map fst params) `Set.union` Map.keysSet cenv)
                                             (reifyBytesZeroLen mRet body'))
             writeIORef bodyCounterRef newSeed
+            -- CALL-CONGRUENCE-1: the facts go in once, here, so every reader
+            -- of the tree below (paths, call-pre, descent, binder map) agrees.
+            let mBodyVC = fmap addCongruence mBodyVC0
             forM_ mBodyVC $ \bvc ->
               addBytesArrs name (bytesArrsOfVC aliases cenv bytesSeed bvc)
             case (mMapRetPair, mBodyVC) of
@@ -4665,6 +4688,22 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
                     then Nothing                    -- uncovered component → not assumed
                     else Just (applySubst postSubst p)
                 retSort = calleeRetSort
+                -- CALL-CONGRUENCE-1 (R2): the sort rule reads the DECLARED
+                -- LLMLL types, not the FQ sorts, because 'typeToSort' maps
+                -- several types to FQInt. Only int, bool and string have
+                -- run-time equality that model equality matches; float is out
+                -- on both sides. An alias-hidden type is out too: this arm has
+                -- no AliasMap (the PAIR-RET-2 precedent). (R3): the key is the
+                -- callee's alpha-renamed binder, not the surface name.
+                congSort t = case t of
+                  TInt    -> Just FQInt
+                  TBool   -> Just FQBool
+                  TString -> Just FQStr
+                  _       -> Nothing
+                congKey = do
+                  pSorts <- mapM (congSort . snd) params
+                  _      <- mRetType >>= congSort
+                  pure (fromMaybe fname (Map.lookup fname env), pSorts)
             -- Issue 3 resolution: return CallVC directly (Option A)
             -- The enclosing ELet case fills the real continuation.
             return $ Just $ CallVC
@@ -4680,6 +4719,7 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
               , cvResultVar      = resultVar
               , cvResultSort     = retSort
               , cvContinuation   = SimpleVC [] (FQVar resultVar)
+              , cvCongKey        = congKey
               }
 
 -- MINMAX-FRAG-1: `min`, `max` and `abs` reflect as their `if` definitions, as an
@@ -4804,7 +4844,7 @@ bodyToPredM env se cenv sccSet (EApp "bytes-get" [EVar b, iE]) = do
           -- routing the post through the parts changes no emitted constraint.
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-get" [bP, iP] [] (Just pre) (Just post) parts
-                             r FQInt (SimpleVC [] (FQVar r))
+                             r FQInt (SimpleVC [] (FQVar r)) Nothing
     _ -> return Nothing
 
 -- `bytes-set b i v` → the same exact-pinning shape at the array sort. The
@@ -4830,7 +4870,7 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
                   , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQApp "bytesLen" [bP])) ]
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-set" [bP, iP, vP] [] (Just pre) (Just post) parts
-                             r byteArraySort (SimpleVC [] (FQVar r))
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing
     _ -> return Nothing
 
 -- FACT-AG-LEN Stage 2 — `(bytes-zero)` at a declared `-> bytes[n]` return: the
@@ -4867,7 +4907,7 @@ bodyToPredM _ _ _ _ (EApp "bytes-zero" [ELit (LitInt n)]) = do
               , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit n)) ]
       post = conjoinAll (map snd parts)
   return . Just $ CallVC "bytes-zero" [] [] Nothing (Just post) parts
-                         r byteArraySort (SimpleVC [] (FQVar r))
+                         r byteArraySort (SimpleVC [] (FQVar r)) Nothing
 
 -- Un-reified `(bytes-zero)` → the bare const array (probe p4). Dead on the
 -- PRODUCTION path: 'bodyToPredFromR' has exactly one production caller (the
@@ -4915,7 +4955,7 @@ bodyToPredM env se _ _ (EApp "map-get" [mE, kE]) =
           parts = [("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_select" [vl, k]))]
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "map-get" [h, vl, k] [] (Just pre) (Just post) parts
-                             r (mapSelValSort se vl) (SimpleVC [] (FQVar r))
+                             r (mapSelValSort se vl) (SimpleVC [] (FQVar r)) Nothing
     _ -> return Nothing
 
 -- Normalize EOp to EApp
@@ -4979,10 +5019,10 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
         mt <- graftLeaves seB t
         me <- graftLeaves seB e
         return (BranchVC g bs <$> mt <*> me)
-      graftLeaves seAcc (CallVC cal cargs cargEs mPre mPost pParts rVar rSort cont) = do
+      graftLeaves seAcc (CallVC cal cargs cargEs mPre mPost pParts rVar rSort cont ck) = do
         let seC = Map.insert rVar rSort seAcc
         mc <- graftLeaves seC cont
-        return ((\k -> CallVC cal cargs cargEs mPre mPost pParts rVar rSort k) <$> mc)
+        return ((\k -> CallVC cal cargs cargEs mPre mPost pParts rVar rSort k ck) <$> mc)
   case mRhsVC of
     Nothing -> return Nothing
     Just (SimpleVC [] rhsPred) -> do
@@ -5017,7 +5057,7 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
     -- user-written nested let — has a non-identity continuation; aliasing `v` to
     -- rVar there dropped the continuation and bound `v` to the bare call result
     -- (a false SAFE). Those RHS shapes take the leaf-graft path below.
-    Just (CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort cont)
+    Just (CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort cont ck)
       | isIdentityCont rVar cont -> do
       -- LEVER-A2.1: a map-returning callee (rSort == mapArraySort, the
       -- cross-call marker) binds its result as a SPLIT component pair — seed
@@ -5037,7 +5077,7 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
       mBodyVC <- bodyToPredM env' se' cenv sccSet body
       case mBodyVC of
         Nothing -> return Nothing
-        Just bvc -> return $ Just $ CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort bvc
+        Just bvc -> return $ Just $ CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort bvc ck
     -- LET-CALL-CONT-1: a call RHS with a non-identity continuation — the call
     -- node stays in place and the let body is grafted at each leaf of its
     -- continuation, each leaf binding `v` to what the RHS actually evaluates to.
@@ -5517,7 +5557,7 @@ flattenBodyVC (BranchVC guard _ thenVC elseVC) =
 -- result variable as let-binding into the continuation paths.
 -- The precondition obligation is emitted separately during constraint
 -- emission — it is NOT folded into the body-post constraint.
-flattenBodyVC (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultSort cont) =
+flattenBodyVC (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultSort cont _) =
   let contPaths = flattenBodyVC cont
       -- Add result variable as a let-binding and postcondition as guard
       resultLB = LetBinding resultVar resultSort (FQVar resultVar)
@@ -5568,7 +5608,7 @@ pathBranchSides (SimpleVC _ _)             = [Nothing]
 pathBranchSides (BranchVC _ _ thenVC elseVC) =
   [Just True  | _ <- flattenBodyVC thenVC] ++
   [Just False | _ <- flattenBodyVC elseVC]
-pathBranchSides (CallVC _ _ _ _ _ _ _ _ cont)  = pathBranchSides cont
+pathBranchSides (CallVC _ _ _ _ _ _ _ _ cont _)  = pathBranchSides cont
 
 -- | Count paths in a BodyVC tree with an upper bound.
 -- Stops counting once the limit is exceeded (avoids state explosion).
@@ -5581,7 +5621,7 @@ countPathsBounded limit = go
       in if tc >= limit then tc
          else let ec = go evc
               in min limit (tc + ec)
-    go (CallVC _ _ _ _ _ _ _ _ cont) = go cont  -- v0.9.0: paths determined by continuation
+    go (CallVC _ _ _ _ _ _ _ _ cont _) = go cont  -- v0.9.0: paths determined by continuation
 
 -- | v0.9.0: Collect all call-pre obligations from a BodyVC tree.
 -- Returns (calleeName, preconditionPred, pathGuard) for each CallVC
@@ -5601,7 +5641,7 @@ countPathsBounded limit = go
 collectCallSites :: BodyVC -> [(Name, [FQPred])]
 collectCallSites (SimpleVC _ _)               = []
 collectCallSites (BranchVC _ _ t e)           = collectCallSites t ++ collectCallSites e
-collectCallSites (CallVC c args _ _ _ _ _ _ cont) = (c, args) : collectCallSites cont
+collectCallSites (CallVC c args _ _ _ _ _ _ cont _) = (c, args) : collectCallSites cont
 
 -- | TRUST-AXIOM: the sealed-builtin axioms this body VC assumed.
 --
@@ -5628,7 +5668,7 @@ collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
   where
     go (SimpleVC _ _)     = []
     go (BranchVC _ _ t e) = go t ++ go e
-    go (CallVC c _ _ _ mPost pParts rVar _ cont)
+    go (CallVC c _ _ _ mPost pParts rVar _ cont _)
       | Set.member c sealedAxiomBuiltins
       , Just post <- mPost = row c rVar post pParts : go cont
       | otherwise          = go cont
@@ -5650,6 +5690,44 @@ collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
       }
       where render = emitPred . applySubst (Map.singleton rVar (FQVar "result"))
 
+-- | CALL-CONGRUENCE-1 (docs/design/ffi-determinism-proposal.md Part 3): add
+-- the Ackermann fact @(args_i = args_j) => (r_i = r_j)@ (professor P18) for
+-- each pair of calls with one congruence key on one path. The fact is
+-- conjoined into the LATER call's assumed post, so every consumer of
+-- 'cvPostAssumption' (the flattened body-post paths, the call-site
+-- precondition walk and the descent walk) reads it with no change. It
+-- relates two call results that exist, so it is sound under partial
+-- correctness and strict evaluation, given a deterministic callee (D9).
+addCongruence :: BodyVC -> BodyVC
+addCongruence = go []
+  where
+    go _ vc@(SimpleVC _ _) = vc
+    go prior (BranchVC g bs t e) = BranchVC g bs (go prior t) (go prior e)
+    go prior (CallVC c args argEs mPre mPost pParts rv rs cont ck) =
+      let facts = case ck of
+            Nothing -> []
+            Just k  -> [ congruenceFact (snd k) args pArgs rv pRv
+                       | (k', pArgs, pRv) <- prior, k' == k
+                       , length pArgs == length args ]
+          mPost' | null facts = mPost
+                 | otherwise  = Just (conjoinAll (maybe [] pure mPost ++ facts))
+          prior' = maybe prior (\k -> prior ++ [(k, args, rv)]) ck
+      in CallVC c args argEs mPre mPost' pParts rv rs (go prior' cont) ck
+
+-- | CALL-CONGRUENCE-1: @not (a1 = b1 && ...) || r = r'@. A bool argument is
+-- compared by its iff encoding, because an argument term may be a predicate.
+congruenceFact :: [FQSort] -> [FQPred] -> [FQPred] -> Name -> Name -> FQPred
+congruenceFact sorts as bs r r' =
+  let argEq srt a b
+        | srt == FQBool = FQOr [FQAnd [a, b], FQAnd [FQNot a, FQNot b]]
+        | otherwise     = FQBinPred FQEq a b
+      resEq = FQBinPred FQEq (FQVar r) (FQVar r')
+      -- A syntactically equal pair is trivially equal: dropping it keeps the
+      -- fact free of names the constraint may not declare.
+  in case [ argEq srt a b | (srt, a, b) <- zip3 sorts as bs, a /= b ] of
+       []  -> resEq
+       eqs -> FQOr [FQNot (conjoinAll eqs), resEq]
+
 -- | ABSTRACTION-VERDICT-1: every call-result binder of the emitted tree, as
 -- @(binder, callee, call result)@. A map-returning call's split components
 -- (@rv$has@, @rv$val@) are listed with their call result @rv@, so they count
@@ -5660,8 +5738,12 @@ collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
 collectCallBinders :: BodyVC -> [(Name, Name, Name)]
 collectCallBinders (SimpleVC _ _)     = []
 collectCallBinders (BranchVC _ _ t e) = collectCallBinders t ++ collectCallBinders e
-collectCallBinders (CallVC c _ _ _ _ _ rv rs cont)
+collectCallBinders (CallVC c _ _ _ _ _ rv rs cont ck)
   | Set.member c sealedAxiomBuiltins = collectCallBinders cont
+  -- CALL-CONGRUENCE-1: a call with a congruence key has a fact for every
+  -- earlier same-key call on its path ('addCongruence'), so a pair of such
+  -- calls is not abstracted and never marks a constraint.
+  | isJust ck = collectCallBinders cont
   | otherwise =
       (rv, c, rv)
         : [ (rv <> sfx, c, rv) | isMapArrRetSort rs, sfx <- ["$has", "$val"] ]
@@ -5676,7 +5758,7 @@ collectCallPreObligations = go FQTrue []
     go _guard _calls (SimpleVC _ _) = []
     go guard calls (BranchVC g _ thenVC elseVC) =
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
-    go guard calls (CallVC callee _args argEs mPre mPost _pParts rVar rSort cont) =
+    go guard calls (CallVC callee _args argEs mPre mPost _pParts rVar rSort cont _) =
       let preObligs = case mPre of
             -- F-NIW-4b: attach the path's let-bindings (which prependLB has pushed
             -- into the leaf of `cont`) so a precondition referencing a let-bound
@@ -5700,7 +5782,7 @@ collectDescentSites = go FQTrue []
     go _guard _calls (SimpleVC _ _) = []
     go guard calls (BranchVC g _ thenVC elseVC) =
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
-    go guard calls (CallVC callee args _argEs _mPre mPost _pParts rVar rSort cont) =
+    go guard calls (CallVC callee args _argEs _mPre mPost _pParts rVar rSort cont _) =
       let here    = [(callee, args, guard, calls, subtreeLbs cont)]
           calls'  = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
       in here ++ go guard calls' cont
@@ -5755,7 +5837,7 @@ renderCallSite params args =
 subtreeLbs :: BodyVC -> [LetBinding]
 subtreeLbs (SimpleVC lbs _)          = lbs
 subtreeLbs (BranchVC _ _ t e)        = subtreeLbs t ++ subtreeLbs e
-subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont) = subtreeLbs cont
+subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont _) = subtreeLbs cont
 
 -- | COMP-3b-general: every match-introduced binder (synthetic guard + arm
 -- payloads) carried in a 'BranchVC' binder field across the whole VC tree, so the
@@ -5769,7 +5851,7 @@ subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont) = subtreeLbs cont
 collectBranchBinders :: BodyVC -> [(Name, FQSort, FQPred)]
 collectBranchBinders (SimpleVC _ _)            = []
 collectBranchBinders (BranchVC _ bs t e)       = bs ++ collectBranchBinders t ++ collectBranchBinders e
-collectBranchBinders (CallVC _ _ _ _ _ _ _ _ cont) = collectBranchBinders cont
+collectBranchBinders (CallVC _ _ _ _ _ _ _ _ cont _) = collectBranchBinders cont
 
 -- | F-NIW-4b: the subset of candidate let-bindings whose RHS free variables are
 -- all already in scope (params ∪ prior-call results ∪ already-included lbs),
@@ -6450,12 +6532,39 @@ collectCallArgCarrierVars am cenv = go
       EDo steps     -> Set.unions [go x | DoStep _ x _ <- steps]
       _             -> Set.empty
 
+-- | CALL-CONGRUENCE-1: the variables passed directly, at a string-typed
+-- parameter position, to a contract-environment callee that the expression
+-- calls two or more times. Only such calls can receive a congruence fact.
+congStrArgVars :: ContractEnv -> Expr -> Set.Set Name
+congStrArgVars cenv e0 =
+  Set.fromList
+    [ v
+    | (f, args) <- calls
+    , Map.findWithDefault (0 :: Int) f counts >= 2
+    , Just (ps, _, _) <- [Map.lookup f cenv]
+    , (EVar v, (_, TString)) <- zip args ps ]
+  where
+    calls  = go e0
+    counts = Map.fromListWith (+) [ (f, 1) | (f, _) <- calls ]
+    go e = case e of
+      EApp f args ->
+        [ (f, args) | Map.member f cenv ] ++ concatMap go args
+      EOp _ args    -> concatMap go args
+      EIf a b c     -> concatMap go [a, b, c]
+      ELet bs body  -> go body ++ concat [ go r | (_, _, r) <- bs ]
+      EMatch sc arms -> go sc ++ concatMap (go . snd) arms
+      EPair a b     -> go a ++ go b
+      ELambda _ b   -> go b
+      EAwait a      -> go a
+      EDo steps     -> concat [ go x | DoStep _ x _ <- steps ]
+      _             -> []
+
 -- | Prepend a let-binding to a BodyVC.
 prependLB :: LetBinding -> BodyVC -> BodyVC
 prependLB lb (SimpleVC lbs r) = SimpleVC (lb : lbs) r
 prependLB lb (BranchVC g bs t e) = BranchVC g bs (prependLB lb t) (prependLB lb e)
-prependLB lb (CallVC cal args argEs mPre mPost pParts rVar rSort cont) =
-  CallVC cal args argEs mPre mPost pParts rVar rSort (prependLB lb cont)  -- v0.9.0
+prependLB lb (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck) =
+  CallVC cal args argEs mPre mPost pParts rVar rSort (prependLB lb cont) ck  -- v0.9.0
 
 prependLBs :: [LetBinding] -> BodyVC -> BodyVC
 prependLBs lbs bvc = foldr prependLB bvc lbs
@@ -6473,9 +6582,9 @@ prependLBs lbs bvc = foldr prependLB bvc lbs
 -- mismatch the input is returned unchanged; the caller checks
 -- 'isIdentityCont' first and falls back.
 setCallVCContinuation :: BodyVC -> BodyVC -> BodyVC
-setCallVCContinuation (CallVC cal args argEs mPre mPost pParts rVar rSort cont) newCont
+setCallVCContinuation (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck) newCont
   | isIdentityCont rVar cont =
-  CallVC cal args argEs mPre mPost pParts rVar rSort newCont
+  CallVC cal args argEs mPre mPost pParts rVar rSort newCont ck
 setCallVCContinuation bvc _newCont = bvc  -- no-op for non-CallVC (shouldn't happen)
 
 -- | LET-CALL-CONT-1: is this CallVC continuation the identity — no let

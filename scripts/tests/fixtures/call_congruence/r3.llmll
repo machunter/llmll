@@ -1,0 +1,4 @@
+;; CALL-CONGRUENCE-1 R3: a shadowed function-typed parameter. The two calls name
+;; different binders, so they never pair; k is never verified. (Today the let
+;; that binds a function value falls back first.)
+(def-shell k [f: (fn [int] -> int) h: (fn [int] -> int) x: int] -> int (post (= result 0)) (- (f x) (let [[f h]] (f x))))

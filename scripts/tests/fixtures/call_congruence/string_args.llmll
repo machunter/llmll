@@ -1,0 +1,6 @@
+;; CALL-CONGRUENCE-1: string arguments. hs needs the fact under the guard
+;; (= a b); us passes two string params to a callee called twice and must keep
+;; verifying (each param gets its Str binder, so the fact is well scoped).
+(def-shell gs1 [s: string] -> int (post (>= result 0)) 0)
+(def-shell hs [a: string b: string] -> int (post (= result 0)) (if (= a b) (- (gs1 a) (gs1 b)) 0))
+(def-shell us [a: string b: string] -> int (post (>= result 0)) (+ (gs1 a) (gs1 b)))

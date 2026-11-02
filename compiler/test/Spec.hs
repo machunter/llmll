@@ -126,6 +126,7 @@ import qualified LLMLL.CallGraph as FSCG
 import LLMLL.HoleAnalysis (extractCallsScoped)
 import LLMLL.TrustReport (uncheckedCallPres)
 import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames)
+import LLMLL.FixpointEmit (addCongruence, congruenceFact, conjoinAll)
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
 import Test.QuickCheck (property, choose)
@@ -11460,7 +11461,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             body = EApp "g" [ELit (LitInt 42)]
             (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
         case result of
-          Just (CallVC callee args _argEs mPre _mPost _pParts _rVar rSort _cont) -> do
+          Just (CallVC callee args _argEs mPre _mPost _pParts _rVar rSort _cont _) -> do
             callee `shouldBe` "g"
             args `shouldBe` [FQLit 42]
             mPre `shouldBe` Just (FQBinPred FQGe (FQLit 42) (FQLit 0))
@@ -11489,7 +11490,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             body = EApp "g" [ELit (LitInt 42)]
             (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
         case result of
-          Just (CallVC _ _ _ mPre mPost _ _ _ _) -> do
+          Just (CallVC _ _ _ mPre mPost _ _ _ _ _) -> do
             mPre `shouldBe` Nothing
             mPost `shouldSatisfy` isJust
           other -> expectationFailure $ "Expected CallVC, got: " ++ show other
@@ -11501,7 +11502,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
                     []
                     "_r" FQInt
-                    (SimpleVC [] (FQVar "_r"))
+                    (SimpleVC [] (FQVar "_r")) Nothing
             obligs = collectCallPreObligations bvc
         length obligs `shouldBe` 1
         let (callee, prePred, guard, ctxCalls, _pathLbs, _argEs) = head obligs
@@ -11515,7 +11516,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
                     []
                     "_r" FQInt
-                    (SimpleVC [] (FQVar "_r"))
+                    (SimpleVC [] (FQVar "_r")) Nothing
         collectCallPreObligations bvc `shouldBe` []
 
       -- F-NIW-4: a later call's obligation carries the prior call's (rVar, sort,
@@ -11526,10 +11527,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             inner = CallVC "g" [FQVar "_r1"] []
                       (Just (FQBinPred FQGe (FQVar "_r1") (FQLit 5)))  -- 2nd pre references _r1
                       (Just (FQBinPred FQGe (FQVar "_r2") (FQLit 0)))
-                      [] "_r2" FQInt (SimpleVC [] (FQVar "_r2"))
+                      [] "_r2" FQInt (SimpleVC [] (FQVar "_r2")) Nothing
             outer = CallVC "f" [FQLit 9] []
                       (Just (FQBinPred FQGe (FQLit 9) (FQLit 0)))
-                      (Just post1) [] "_r1" FQInt inner
+                      (Just post1) [] "_r1" FQInt inner Nothing
             obligs = collectCallPreObligations outer
         length obligs `shouldBe` 2
         let (_, _, _, ctx0, _, _) = obligs !! 0
@@ -11671,7 +11672,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = Map.fromList [("x", FQInt)] :: SortEnv
             (_, result) = bodyToPredFrom 0 se cenv Set.empty body
         case result of
-          Just (CallVC callee _ _ _ _ _ _ _ cont) -> do
+          Just (CallVC callee _ _ _ _ _ _ _ cont _) -> do
             callee `shouldBe` "g"
             -- Continuation should be a BranchVC (the match)
             case cont of
@@ -23342,7 +23343,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         blockOf n txt = case dropWhile (/= ("  " <> n <> ":")) (T.lines txt) of
           (h : rest) -> h : takeWhile ("    " `T.isPrefixOf`) rest
           []         -> []
-        ffiNoteT = " (ASSUMED, not proved: a Hackage export, taken as total with no hidden effects at the declared type)"
+        ffiNoteT = " (ASSUMED, not proved: a Hackage export, taken as deterministic within one run at the declared type (equal arguments give equal results), total, and with no hidden effects)"
         isFfiLine l = any (`T.isPrefixOf` l) ["    ≈ assumes haskell.", "    ≈ inherits haskell."]
     it "FFI-TRUST-TEXT-1 E12 the text report names the export as own and inherited" $ do
       let txt = formatTrustReport (buildTrustReport Map.empty e12 Map.empty)
@@ -23830,8 +23831,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erBodyFaithfulFns er `shouldSatisfy` elem "g"
       T.count "bind" (T.unlines (filter (T.isInfixOf "_bv_call_f_") (T.lines (erFQText er)))) `shouldSatisfy` (>= 2)
 
-    it "FP-W5 two equal calls are unrelated (no congruence): a post that needs it is refuted" $
-      () <$ (solverSays "w5" "(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))" "Unsafe")
+    -- CALL-CONGRUENCE-1: before it, two equal calls were unrelated binders and
+    -- this post was refuted; the congruence fact now relates them.
+    it "FP-W5 two equal calls through a function parameter are congruent: a post that needs it proves" $
+      () <$ (solverSays "w5" "(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))" "Safe")
 
     it "FP-W6 a refinement on the parameter's return type is not assumed: refuted" $ do
       er <- solverSays "w6" (unlines
@@ -23907,22 +23910,26 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- callee is marked at emission ('erAbstracted'); an UNSAFE answer whose
   -- every failing id of a function is marked reclassifies that function to
   -- the fallback outcome ('applyAbstractionVerdict'), not refuted.
+  -- CALL-CONGRUENCE-1: a call whose callee takes and returns only int, bool
+  -- or string gets a congruence fact and is never marked, so these witnesses
+  -- carry a float parameter `z` (outside the sort rule) to stay the backstop.
+  -- The int-only originals are in the CALL-CONGRUENCE-1 block below.
   -- -----------------------------------------------------------------------
   describe "ABSTRACTION-VERDICT-1 multi-call UNSAFE is a fallback" $ do
     let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
           Left e   -> error (show e)
           Right ss -> ss
         emitSrc src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
-        gDef = "(def-shell g [x: int] -> int (post (>= result 0)) (if (< x 0) (- 0 x) x))\n"
-        a1   = gDef ++ "(def-shell h [a: int] -> int (post (= result 0)) (- (g a) (g a)))"
-        a2   = gDef ++ "(def-shell h8 [a: int b: int] -> int (post (>= result 0)) (if (= a b) (- (g a) (g b)) 0))"
-        a3   = gDef ++ "(def-shell h1 [a: int] -> int (post (>= result (- 0 a))) (g a))"
-        a4   = "(def-shell f [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (if (< n 2) n (- (f (- n 1)) (f (- n 2)))))"
+        gDef = "(def-shell g [x: int z: float] -> int (post (>= result 0)) (if (< x 0) (- 0 x) x))\n"
+        a1   = gDef ++ "(def-shell h [a: int z: float] -> int (post (= result 0)) (- (g a z) (g a z)))"
+        a2   = gDef ++ "(def-shell h8 [a: int b: int z: float] -> int (post (>= result 0)) (if (= a b) (- (g a z) (g b z)) 0))"
+        a3   = gDef ++ "(def-shell h1 [a: int z: float] -> int (post (>= result (- 0 a))) (g a z))"
+        a4   = "(def-shell f [n: int z: float] -> int (pre (>= n 0)) (post (>= result 0)) (if (< n 2) n (- (f (- n 1) z) (f (- n 2) z))))"
         w3   = "(def-shell gw [min: (fn [int int] -> int) a: int b: int] -> int (post (<= result a)) (min a b))"
-        w5   = "(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))"
-        w5tw = "(def-shell int-le [x: int y: int] -> bool (<= x y))\n(def-shell t2 [a: int b: int] -> int (post (= result 0)) (if (int-le a b) (if (int-le a b) 0 1) 0))"
+        w5   = "(def-shell t [le: (fn [int float] -> bool) a: int z: float] -> int (post (= result 0)) (if (le a z) (if (le a z) 0 1) 0))"
+        w5tw = "(def-shell int-le [x: int z: float] -> bool (> x 0))\n(def-shell t2 [a: int z: float] -> int (post (= result 0)) (if (int-le a z) (if (int-le a z) 0 1) 0))"
         w6   = "(type PositiveInt (where [x: int] (> x 0)))\n(def-shell use-pos [f: (fn [int] -> PositiveInt) a: int] -> int (post (> result 0)) (f a))"
-        dsc  = gDef ++ "(def-shell fd [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (= n 0) 0 (fd (+ (- n 1) (- (g n) (g n))))))"
+        dsc  = gDef ++ "(def-shell fd [n: int z: float] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (= n 0) 0 (fd (+ (- n 1) (- (g n z) (g n z))) z)))"
         -- (id, function, clause) of every constraint, from the origin table
         origins er = [ (i, coFunction o, coClause o) | (i, o) <- Map.toList (erConstraintTable er) ]
         idsOf er fn clauseP = [ i | (i, f, c) <- origins er, f == fn, clauseP c ]
@@ -24008,7 +24015,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erBodyFaithfulFns (aoEmit av) `shouldSatisfy` elem "gw"
 
     it "AV-9 one function with a marked and an unmarked failing id keeps both and is not reclassified" $ do
-      er <- emitSrc (gDef ++ "(def-shell hm [a: int] -> int (post (= result 0)) (if (> a 0) (- (g a) (g a)) (- 0 1)))")
+      er <- emitSrc (gDef ++ "(def-shell hm [a: int z: float] -> int (post (= result 0)) (if (> a 0) (- (g a z) (g a z)) (- 0 1)))")
       let thenIds = idsOf er "hm" (== "body-post-then")
           elseIds = idsOf er "hm" (== "body-post-else")
       [ Map.member i (marked er) | i <- thenIds ++ elseIds ] `shouldBe` [True, False]
@@ -24071,6 +24078,104 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       staysRefuted a3 "h1"
       staysRefuted w6 "use-pos"
       staysRefuted "(def-shell g [min: (fn [int int] -> int) a: int b: int] -> int (post (<= result a)) (min a b))" "g"
+
+  -- -----------------------------------------------------------------------
+  -- CALL-CONGRUENCE-1 (docs/design/ffi-determinism-proposal.md Rev 1, Part 3):
+  -- for each pair of calls with one congruence key on one path, the later
+  -- call's assumed post gains (args_i = args_j) => (r_i = r_j). Such calls
+  -- are never marked by ABSTRACTION-VERDICT-1.
+  -- -----------------------------------------------------------------------
+  describe "CALL-CONGRUENCE-1 equal calls agree" $ do
+    let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left e   -> error (show e)
+          Right ss -> ss
+        emitSrc src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+        gDef = "(def-shell g [x: int] -> int (post (>= result 0)) (if (< x 0) (- 0 x) x))\n"
+        a1   = gDef ++ "(def-shell h [a: int] -> int (post (= result 0)) (- (g a) (g a)))"
+        a2   = gDef ++ "(def-shell h8 [a: int b: int] -> int (post (>= result 0)) (if (= a b) (- (g a) (g b)) 0))"
+        a4   = "(def-shell f [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (if (< n 2) n (- (f (- n 1)) (f (- n 2)))))"
+        w5   = "(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))"
+        kInt = Just ("g", [FQInt])
+        leaf r = SimpleVC [] (FQVar r)
+        call k a r p cont = CallVC "g" [a] [] Nothing (Just p) [] r FQInt cont k
+        p1 = FQBinPred FQGe (FQVar "_r1") (FQLit 0)
+        p2 = FQBinPred FQGe (FQVar "_r2") (FQLit 0)
+        postOf (CallVC { cvPostAssumption = m }) = m
+        postOf _ = Nothing
+        contOf (CallVC { cvContinuation = c }) = c
+        contOf c = c
+        solved src k = do
+          er <- emitSrc src
+          tmp <- getTemporaryDirectory
+          (fqPath, h) <- SIO.openTempFile tmp "call-congruence.fq"
+          SIO.hClose h
+          TIO.writeFile fqPath (erFQText er)
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just lf -> do
+              (code, out, err) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              removeFile fqPath
+              k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
+
+    it "CC-1 two same-key calls: the later call's post gains one fact over both results" $ do
+      let vc  = call kInt (FQVar "x") "_r1" p1 (call kInt (FQVar "y") "_r2" p2 (leaf "_r2"))
+          vc' = addCongruence vc
+      postOf vc' `shouldBe` Just p1
+      postOf (contOf vc') `shouldBe`
+        Just (conjoinAll [p2, congruenceFact [FQInt] [FQVar "y"] [FQVar "x"] "_r2" "_r1"])
+
+    it "CC-2 the fact: int args compare by =, bool args by iff, equal terms are dropped" $ do
+      congruenceFact [FQInt] [FQVar "y"] [FQVar "x"] "_r2" "_r1" `shouldBe`
+        FQOr [FQNot (conjoinAll [FQBinPred FQEq (FQVar "y") (FQVar "x")]), FQBinPred FQEq (FQVar "_r2") (FQVar "_r1")]
+      let a = FQBinPred FQGt (FQVar "x") (FQLit 0)
+          b = FQBinPred FQLt (FQLit 0) (FQVar "x")
+      congruenceFact [FQBool] [a] [b] "_r2" "_r1" `shouldBe`
+        FQOr [FQNot (conjoinAll [FQOr [FQAnd [a, b], FQAnd [FQNot a, FQNot b]]]), FQBinPred FQEq (FQVar "_r2") (FQVar "_r1")]
+      congruenceFact [FQInt] [FQVar "x"] [FQVar "x"] "_r2" "_r1" `shouldBe`
+        FQBinPred FQEq (FQVar "_r2") (FQVar "_r1")
+
+    it "CC-3 different keys (a shadowed binder) and a Nothing key get no fact" $ do
+      let other = Just ("f_1", [FQInt])
+          vc1 = call kInt (FQVar "x") "_r1" p1 (call other (FQVar "x") "_r2" p2 (leaf "_r2"))
+          vc2 = call Nothing (FQVar "x") "_r1" p1 (call Nothing (FQVar "x") "_r2" p2 (leaf "_r2"))
+      addCongruence vc1 `shouldBe` vc1
+      addCongruence vc2 `shouldBe` vc2
+
+    it "CC-4 calls on different branches get no fact" $ do
+      let vc = BranchVC (FQVar "c") []
+                 (call kInt (FQVar "x") "_r1" p1 (leaf "_r1"))
+                 (call kInt (FQVar "x") "_r2" p2 (leaf "_r2"))
+      addCongruence vc `shouldBe` vc
+
+    it "CC-5 emission: the int-only A1, A2, A4 and W5 mark nothing" $ do
+      forM_ [a1, a2, a4, w5] $ \src -> do
+        er <- emitSrc src
+        erAbstracted er `shouldBe` Map.empty
+
+    it "CC-6 emission: a list or float argument keeps the backstop mark" $ do
+      erL <- emitSrc "(def-shell gl [xs: list[int]] -> int (post (>= result 0)) (list-length xs))\n(def-shell hl [xs: list[int]] -> int (post (= result 0)) (- (gl xs) (gl xs)))"
+      Map.elems (erAbstracted erL) `shouldSatisfy` (\cs -> not (null cs) && all (== "gl") cs)
+      erF <- emitSrc "(def-shell gf [x: float] -> int (post (>= result 0)) 0)\n(def-shell hf [x: float] -> int (post (= result 0)) (- (gf x) (gf x)))"
+      Map.elems (erAbstracted erF) `shouldSatisfy` (\cs -> not (null cs) && all (== "gf") cs)
+
+    it "CC-7 emission: string params passed to a callee called twice get a Str binder, so the body stays faithful" $ do
+      er <- emitSrc "(def-shell gs1 [s: string] -> int (post (>= result 0)) 0)\n(def-shell us [a: string b: string] -> int (post (>= result 0)) (+ (gs1 a) (gs1 b)))"
+      erBodyFaithfulFns er `shouldSatisfy` elem "us"
+      [ d | d <- erDiagnostics er, diagCode d == Just "W-FQ-FREEVAR" ] `shouldBe` []
+
+    it "CC-8 solver: A1, A2 and W5 are SAFE with nothing reclassified" $
+      forM_ [a1, a2, w5] $ \src -> solved src $ \_ av -> do
+        aoResult av `shouldBe` FQSafe
+        aoReclassified av `shouldBe` []
+
+    it "CC-9 solver: A4 (false post) is UNSAFE at f again, not reclassified" $
+      solved a4 $ \er av -> do
+        aoReclassified av `shouldBe` []
+        case aoResult av of
+          FQUnsafe ids -> [ coFunction o | i <- ids, Just o <- [Map.lookup i (erConstraintTable er)] ] `shouldSatisfy` elem "f"
+          r            -> expectationFailure ("expected UNSAFE, got " <> show r)
 
   describe "BYTES-LEN-RANGE-1 bytes length range" $ do
     let progKind src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of

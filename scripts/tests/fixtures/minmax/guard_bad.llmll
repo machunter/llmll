@@ -15,9 +15,9 @@
 
 ;; A parameter named `min` is not the builtin: the guard and the then-branch
 ;; are opaque calls through it. The post holds for every pure `min` (the
-;; then-branch is guarded by the same call), but the VC does not know two
-;; equal calls agree, so it falls back as abstraction:app:min, never proved
-;; (ABSTRACTION-VERDICT-1).
+;; then-branch is guarded by the same call). Since CALL-CONGRUENCE-1 the VC
+;; knows two equal calls agree, so gs is proved; before, it fell back as
+;; abstraction:app:min (ABSTRACTION-VERDICT-1).
 (def-shell gs [min: (fn [int int] -> int) a: int b: int] -> int
   (post (<= result a))
   (if (<= (min a b) a) (min a b) a))

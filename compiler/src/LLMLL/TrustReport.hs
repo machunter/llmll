@@ -2255,7 +2255,7 @@ formatEntry bodyFallback e =
       -- "inherits ... via" for one reached through a callee. The @haskell.@
       -- prefix repeats the import spelling, so the export does not read as an
       -- LLMLL module function.
-      ffiNote = " (ASSUMED, not proved: a Hackage export, taken as total with no hidden effects at the declared type)"
+      ffiNote = " (ASSUMED, not proved: a Hackage export, taken as deterministic within one run at the declared type (equal arguments give equal results), total, and with no hidden effects)"
       ffiLines = map renderFfi (teFfiAssumptions e)
       renderFfi a
         | faOrigin a == teName e =

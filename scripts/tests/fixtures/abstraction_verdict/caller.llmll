@@ -1,5 +1,5 @@
-;; ABSTRACTION-VERDICT-1 caller: A1 plus k, which calls h once. k is proved
-;; against the post h assumes; it does not depend on a refuted function.
+;; ABSTRACTION-VERDICT-1 caller: A1 plus k, which calls h once. h and k are both
+;; proved since CALL-CONGRUENCE-1; k does not depend on a refuted function.
 (def-shell g [x: int] -> int (post (>= result 0)) (if (< x 0) (- 0 x) x))
 (def-shell h [a: int] -> int (post (= result 0)) (- (g a) (g a)))
 (def-shell k [a: int] -> int (post (= result 1)) (+ (h a) 1))

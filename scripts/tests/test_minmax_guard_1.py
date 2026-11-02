@@ -8,10 +8,10 @@ What a pass here means:
   "Refused by: if", so its post was assumed and not proved.
 * minmax/guard_bad.llmll puts the wrong branch in each body and is refuted at
   all three, exit 1. Its fourth function calls a parameter named `min`, which
-  is not the builtin, so a shadowed `min` never proves. Its post holds for every
-  pure `min`, and the solver's counterexample needs the two calls to disagree,
-  so since ABSTRACTION-VERDICT-1 it falls back as `abstraction:app:min` rather
-  than being reported refuted.
+  is not the builtin, so no fact of the builtin `min` applies. Its post holds for every
+  pure `min`. Since CALL-CONGRUENCE-1 the two equal calls are known to agree,
+  so `gs` is proved (body-faithful, no failure, no fallback). Before that it
+  fell back as `abstraction:app:min` (ABSTRACTION-VERDICT-1).
 """
 
 import os
@@ -70,5 +70,5 @@ def test_minmax_guard_refutes(tmp_path):
     for fn in ["clamp", "pick-hi", "cap"]:
         assert f"body verification of '{fn}' failed" in out, out
     assert "body verification of 'gs' failed" not in out, out
-    assert any("W-BODY-FALLBACK: 'gs'" in ln and "abstraction:app:min" in ln
-               for ln in out.splitlines()), out
+    assert "gs" in _line(out, "body-faithful:"), out
+    assert "W-BODY-FALLBACK: 'gs'" not in out, out

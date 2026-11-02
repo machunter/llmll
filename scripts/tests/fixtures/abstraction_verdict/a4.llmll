@@ -1,4 +1,4 @@
-;; ABSTRACTION-VERDICT-1 A4: the stated cost. The post is false (f 4 = -1),
-;; but its only refutation needs the two self-calls to be unrelated, so it falls
-;; back as abstraction:app:f instead of refuted.
+;; ABSTRACTION-VERDICT-1 A4: a false post (f 4 = -1). Before CALL-CONGRUENCE-1
+;; it fell back as abstraction:app:f, the stated cost. With the congruence fact
+;; the counterexample is a real function, so f is refuted again.
 (def-shell f [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (if (< n 2) n (- (f (- n 1)) (f (- n 2)))))

@@ -1,0 +1,5 @@
+;; ABSTRACTION-VERDICT-1 backstop: float is excluded from congruence on both
+;; sides (docs/design/ffi-determinism-proposal.md Part 3), so two equal calls
+;; to gf still fall back as abstraction:app:gf.
+(def-shell gf [x: float] -> int (post (>= result 0)) 0)
+(def-shell hf [x: float] -> int (post (= result 0)) (- (gf x) (gf x)))

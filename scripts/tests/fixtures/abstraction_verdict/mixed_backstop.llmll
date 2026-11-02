@@ -1,0 +1,5 @@
+;; ABSTRACTION-VERDICT-1 backstop, mixed: hl falls back (two list-argument calls,
+;; no congruence fact), and gw keeps its one-call refutation.
+(def-shell gl [xs: list[int]] -> int (post (>= result 0)) (list-length xs))
+(def-shell hl [xs: list[int]] -> int (post (= result 0)) (- (gl xs) (gl xs)))
+(def-shell gw [mn: (fn [int int] -> int) a: int b: int] -> int (post (<= result a)) (mn a b))
