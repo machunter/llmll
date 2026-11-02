@@ -8432,6 +8432,34 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             t = emitPred p
         t `shouldSatisfy` T.isInfixOf "(not (a || b))"
 
+    -- FQ-FLAT-NEST-1: liquid-fixpoint 0.9.6.3.1 uses memory exponential in the
+    -- nesting of '&&' and '||' (sc-channel.llmll: 4.7-6.8 GB nested, 85 MB
+    -- flat), so nested conjunctions and disjunctions print as one flat chain.
+    describe "FQ-FLAT-NEST-1 flat conjunction chains" $ do
+      let ge x = FQBinPred FQGe (FQVar x) (FQLit 0)
+      it "FN-1: a left-nested conjunction prints as one chain" $
+        emitPred (FQAnd [FQAnd [FQAnd [ge "a", ge "b"], ge "c"], ge "d"])
+          `shouldBe` "(a >= 0) && (b >= 0) && (c >= 0) && (d >= 0)"
+
+      it "FN-2: a right-nested disjunction prints as one chain" $
+        emitPred (FQOr [ge "a", FQOr [ge "b", FQOr [ge "c"]]])
+          `shouldBe` "(a >= 0) || (b >= 0) || (c >= 0)"
+
+      it "FN-3: a disjunction inside a conjunction keeps its parentheses" $
+        emitPred (FQAnd [FQAnd [FQOr [ge "a", ge "b"], ge "c"], FQOr [ge "d", FQAnd [ge "e", ge "f"]]])
+          `shouldBe` "((a >= 0) || (b >= 0)) && (c >= 0) && ((d >= 0) || ((e >= 0) && (f >= 0)))"
+
+      it "FN-4: empty conjuncts and disjuncts drop out, and all-empty is true or false" $ do
+        emitPred (FQAnd [FQAnd [], ge "a", FQAnd [FQAnd []]]) `shouldBe` "(a >= 0)"
+        emitPred (FQAnd [FQAnd [], FQAnd [FQAnd []]]) `shouldBe` "true"
+        emitPred (FQOr [FQOr [], FQOr []]) `shouldBe` "false"
+
+      it "FN-5: a 200-deep conjunction prints with no nested parentheses" $ do
+        let deep = foldl (\acc i -> FQAnd [acc, ge (T.pack ("x" <> show i))]) (ge "x0") [1 .. 199 :: Int]
+            t = emitPred deep
+        length (T.breakOnAll " && " t) `shouldBe` 199
+        t `shouldNotSatisfy` T.isInfixOf "(("
+
     -- NIW (v0.12, Commit A): the .fq IR can represent and render measure-class
     -- uninterpreted-function applications (REF-META-3 §4.2 / REF-META-2 path-a).
     -- These tests cover the inert IR + emission capability; exprToPred does not
@@ -9201,7 +9229,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- callee's pre carries `(bytesLen b) = 8`, so the call site must discharge
         -- it rather than inherit it from an unvalidated declaration (SAFE-ARG).
         -- It discharges here because the caller's own pre supplies the same fact.
-        fq `shouldSatisfy` T.isInfixOf "rhs { v : int | ((3 >= 0) && (3 < (bytesLen buf))) && ((bytesLen buf) = 8) }"
+        fq `shouldSatisfy` T.isInfixOf "rhs { v : int | (3 >= 0) && (3 < (bytesLen buf)) && ((bytesLen buf) = 8) }"  -- FQ-FLAT-NEST-1: printed flat
 
       it "A1-10 FACT-AG-LEN: an ALIASED bytes[n] param earns the same length pre (edge case 5, the CR-01 shape)" $ do
         -- 'bytesLenParamPre' is defined over 'bytesLenOf', which resolves through
@@ -21168,7 +21196,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "MTE-R1: an enum-returning body-post LHS carries result's domain 0..2" $ do
       er <- emitSrc =<< fixture "result-call"
       erBodyFaithfulFns er `shouldSatisfy` elem "use-tot"
-      erFQText er `shouldSatisfy` T.isInfixOf "((result >= 0) && (result <= 2))"
+      erFQText er `shouldSatisfy` T.isInfixOf "(result >= 0) && (result <= 2)"  -- FQ-FLAT-NEST-1: printed flat
 
     it "MTE-R2: an int-returning body-post LHS carries no result domain" $ do
       er <- emitSrc "(def-shell g [x: int] -> int (post (>= result 0)) x)"
@@ -26392,7 +26420,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       callPreLhs fq `shouldBe`
         [ "  lhs { v : int | (not ((not ((Map_select r_has i) = 1)))) }"
         , "  lhs { v : int | ((Map_select r_has i) = 1) }" ]
-      fq `shouldSatisfy` T.isInfixOf "lhs { v : int | ((bytesLen b) >= 0) && (((i >= 0) && (i < 8)) && ((bytesLen b) = 8)) }"
+      fq `shouldSatisfy` T.isInfixOf "lhs { v : int | ((bytesLen b) >= 0) && (i >= 0) && (i < 8) && ((bytesLen b) = 8) }"  -- FQ-FLAT-NEST-1: printed flat
       fq `shouldNotSatisfy` T.isInfixOf "lhs { v : int | true }"
     it "AGP-4 value forms: a bool body and a let-bound and are body-faithful with a guarded call-pre" $ do
       r <- emitG

@@ -1973,6 +1973,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- 'provenCS' (this run's solver records only) stays the CDP
               -- oracle below, unchanged; 'written' is what is on disk.
               pure (provenCS, written)
+            -- STOP-SIDECAR-1: a run stopped at a resource limit proved nothing
+            -- and refuted nothing, so it leaves the sidecar as it was. Before
+            -- this case, a stop fell into the branch below as an unattributed
+            -- result and demoted every positive record of the file.
+            FQResourceLimit _ -> pure (Map.empty, Map.empty)
             -- HASH-PRE-ASYM S4: a run that did not end SAFE keeps no positive
             -- record it contradicted. Refuted constraints name their functions
             -- through the constraint table; anything unattributed (an empty id

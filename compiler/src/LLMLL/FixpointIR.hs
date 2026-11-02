@@ -336,10 +336,21 @@ emitPred (FQBinPred FQNeq l (FQNot r)) = emitPred (FQBinPred FQEq  l r)
 emitPred (FQBinPred FQNeq (FQNot l) r) = emitPred (FQBinPred FQEq  l r)
 emitPred (FQBinPred op l r)   = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
 emitPred (FQBinArith op l r)  = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
-emitPred (FQAnd [])           = "true"
-emitPred (FQAnd ps)           = T.intercalate " && " (map emitPredParens ps)
-emitPred (FQOr  [])           = "false"
-emitPred (FQOr  ps)           = T.intercalate " || " (map emitPredParens ps)
+-- FQ-FLAT-NEST-1: nested conjunctions (and nested disjunctions) are printed as one
+-- flat chain. 'conjoin' builds two-operand pairs, so a body with a chain of calls
+-- reached liquid-fixpoint as '((((a && b) && c) && d) ...)'. liquid-fixpoint
+-- 0.9.6.3.1 itself (not z3) uses memory exponential in that nesting: measured
+-- 2026-11-01 on examples/heartbleed/secure-channel/sc-channel.llmll, the emitted
+-- file peaked at 4.7-6.8 GB over 50-63 s, and the same constraints printed flat
+-- check Safe (304) in 0.9 s at 85 MB. Flattening is associativity only; the
+-- predicate is the same. An empty conjunct is 'true' and an empty disjunct is
+-- 'false', so dropping them keeps the meaning.
+emitPred (FQAnd ps) = case flattenAnd ps of
+  []  -> "true"
+  qs  -> T.intercalate " && " (map emitPredParens qs)
+emitPred (FQOr ps) = case flattenOr ps of
+  []  -> "false"
+  qs  -> T.intercalate " || " (map emitPredParens qs)
 emitPred (FQNot p)            = "(not " <> emitPredParens p <> ")"
 emitPred (FQKVar k args)      = "$" <> sanitizeFQId k <> "(" <> T.intercalate "," (map emitPred args) <> ")"
 -- PAIR-BOOL-COMP-1: fixpoint parses only a term as an application argument, so a
@@ -355,6 +366,18 @@ emitPred (FQApp f args)       = "(" <> sanitizeFQId f <> " " <> T.unwords (map e
     propShaped (FQOr  (_:_))  = True
     propShaped _              = False
 emitPred (FQIte c a b)        = "(if " <> emitPredParens c <> " then " <> emitPredParens a <> " else " <> emitPredParens b <> ")"
+
+-- | FQ-FLAT-NEST-1: splice nested 'FQAnd' operands into one list.
+flattenAnd :: [FQPred] -> [FQPred]
+flattenAnd = concatMap go
+  where go (FQAnd qs) = flattenAnd qs
+        go q          = [q]
+
+-- | FQ-FLAT-NEST-1: splice nested 'FQOr' operands into one list.
+flattenOr :: [FQPred] -> [FQPred]
+flattenOr = concatMap go
+  where go (FQOr qs) = flattenOr qs
+        go q         = [q]
 
 -- | Wrap compound predicates in parentheses to prevent precedence ambiguity.
 -- FQAnd/FQOr/FQNot sub-expressions must be parenthesized when used as operands.
