@@ -7,11 +7,11 @@
 ## Why this run exists
 
 TFTP demonstrated the *last* stage. Its clause inventory, dispositions, and root contracts
-were authored by hand across earlier sessions and by me; only the fill wave was agent-driven.
+were authored by agents outside the driver, across earlier sessions; only the fill wave ran through the driver.
 So the pipeline's headline claim, "given an RFC URL, produce its implementation", was
-demonstrated for one stage and assumed for the other eleven.
+demonstrated for one stage and assumed for the other eleven. (Corrected 2026-11-02: the sentence above said "by hand across earlier sessions and by me", and the next paragraph said "with no human authoring at any step". Agents did this work. No human took part.)
 
-This run put a fresh RFC through all fifteen stages with no human authoring at any step. **I
+This run put a fresh RFC through all fifteen stages, with the driver running every step. **I
 wrote none of these contracts.** Everything from the scope decision to the finished
 implementation came from agents reading the RFC text and the language reference.
 
@@ -57,8 +57,8 @@ honest bound on what "repeatable" currently means.
 ARP.** TFTP counted 14 format rows as carried under `Deployment-modeled` whose own model notes
 say the content is "not represented" / "dropped" / "stays in the decoder"; by the playbook's own
 rule such a row carries no verification evidence and must be excluded. ARP's agent classified
-the identical row shape as excluded under B5, applying the rule more faithfully than the human
-pass did. Corrected, TFTP is **51/65 = 78.5%**, so the real gap is 19-23 points, and the
+the identical row shape as excluded under B5, applying the rule more faithfully than the TFTP
+agent pass did. Corrected, TFTP is **51/65 = 78.5%**, so the real gap is 19-23 points, and the
 residual is structural: TFTP's wire fields are fixed-length while ARP's are length-driven
 (`8 + 2*ar$hln + ar$pln`), which accounts for 22 of ARP's 34 excluded C1-C3 rows. Full working:
 [`../../SUMMARY.md`](../../SUMMARY.md).

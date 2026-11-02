@@ -76,8 +76,8 @@ weaker. Report detection yield, with witnesses.
 ## The worked instances
 
 **TFTP** (RFC 1350 + RFC 1123 §4.2.3.1) is where the playbook and this driver come from; its
-contracts were authored by hand and only the fill wave was agent-driven. **ARP** (RFC 826) is
-the first run where agents did every stage, contracts included:
+contracts were authored by agents outside the driver, and only the fill wave ran through the
+driver. **ARP** (RFC 826) is the first run where the driver ran every stage, contracts included:
 [`runs/rfc826/RESULTS.md`](runs/rfc826/RESULTS.md).
 
 | Artifact | |
