@@ -107,13 +107,20 @@
                                   (pair (first acc) false)))
                             acc)))))
 
-  ;; The character one past the bound is still in the alphabet, so the run was
-  ;; cut off rather than ended. A saturated run is discarded rather than
-  ;; returned truncated: a truncation of "0.14.876543210123456789" is still a
-  ;; well-formed semver, which is the failure mode a bound has and a scanner
-  ;; does not.
+  ;; The run filled the whole bound AND the character one past it is still in
+  ;; the alphabet, so the run was cut off rather than ended. A saturated run is
+  ;; discarded rather than returned truncated: a truncation of
+  ;; "0.14.876543210123456789" is still a well-formed semver, which is the
+  ;; failure mode a bound has and a scanner does not.
+  ;;
+  ;; Both conjuncts are needed. With only the second, a run that ENDED early
+  ;; read as cut off whenever a digit happened to sit at index 24. The v0.35.1
+  ;; heading "## v0.35.1: liquid-fixpoint 0.9.6.3.7 ..." has the "0" of
+  ;; 0.9.6.3.7 there, so the port skipped it and read v0.35.0 from the next
+  ;; heading, while the shell gate read v0.35.1 (cover cell V15).
   (def-shell run-saturated? [s: string alphabet: string] -> bool
-    (in-alphabet? alphabet (string-char-at s 24)))
+    (and (= (string-length (leading-run s alphabet)) 24)
+         (in-alphabet? alphabet (string-char-at s 24))))
 
   (def-shell digits [] -> string "0123456789")
   (def-shell digits-and-dots [] -> string "0123456789.")

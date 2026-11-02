@@ -6,8 +6,8 @@ IDENTICALLY: same exit code, same message, byte for byte. The shell script is
 the reference, so any divergence is the port's defect until argued otherwise.
 
 AGREEMENT ON A PASSING TREE IS NOT EVIDENCE, which is why the clean tree is one
-cell out of fifteen and the other fourteen are mutants. Each names the
-criterion it breaks, and each is asserted to FAIL: a battery where both
+cell out of sixteen. V13 and V15 are negative controls, and the other thirteen
+are mutants. Each mutant names the criterion it breaks, and each is asserted to FAIL: a battery where both
 implementations pass everything agrees perfectly and detects nothing. The
 suite fails if a mutant is not caught, separately from failing if the two
 disagree, so a port that always returned "" would be caught by the first check
@@ -276,6 +276,20 @@ def v14(tree):
     # enum must fail as an extraction error, not pass for want of a list.
     edit(tree, "docs/llmll-ast.schema.json", '"enum": ["0.15.0", ',
          '"enum_removed": ["0.15.0", ')
+
+
+@cell("V15", "a later dotted number at offset 24 of the heading is NOT a cut-off version",
+      expect_fail=False)
+def v15(tree):
+    # A negative control for the port's 24-character window. The heading's
+    # title holds another dotted number whose first digit sits exactly at
+    # index 24 of the text after `## v`. The port used to read that digit as
+    # "the version runs past the window", drop the real version and take the
+    # next heading's. The v0.35.1 heading ("liquid-fixpoint 0.9.6.3.7") did
+    # exactly that in CI. The shell gate reads the first heading correctly.
+    pad = 24 - len(BANNER) - 1
+    edit(tree, "CHANGELOG.md", f"## v{BANNER}",
+         f"## v{BANNER}:" + " " * pad + "0.9.6.3.7 title")
 
 
 @cell("V13", "the whole banner moves together, and that is NOT a failure",
