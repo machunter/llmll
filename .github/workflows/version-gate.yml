@@ -61,6 +61,12 @@ on:
   pull_request:
     branches: [main]
 
+# FIXPOINT-UPGRADE-1: the liquid-fixpoint the gate builds. It is in the cache key
+# below as well as in the install step, so changing it cannot restore a binary
+# built from the old pin.
+env:
+  LIQUID_FIXPOINT_VERSION: 0.9.6.3.7
+
 jobs:
   version-gate:
     name: C1-C4 banner / schema + pytest
@@ -399,7 +405,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.local/bin/fixpoint
-          key: fixpoint-${{ runner.os }}-${{ hashFiles('scripts/fixpoint.stack.yaml') }}
+          key: fixpoint-${{ runner.os }}-${{ env.LIQUID_FIXPOINT_VERSION }}-${{ hashFiles('scripts/fixpoint.stack.yaml') }}
 
       # Expensive once, then restored as a single binary. The recipe is copied
       # from Dockerfile:40-49 rather than invented, which is what makes it a
@@ -412,8 +418,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.local/bin"
+          # ~/.stack is restored from cache, so its package index can predate
+          # the pinned release; without the update stack cannot find it.
+          stack update
           stack --stack-yaml scripts/fixpoint.stack.yaml \
-            install liquid-fixpoint-0.9.6.3.1 --local-bin-path "$HOME/.local/bin"
+            install "liquid-fixpoint-$LIQUID_FIXPOINT_VERSION" --local-bin-path "$HOME/.local/bin"
 
       # Separate step because GITHUB_PATH takes effect in SUBSEQUENT steps, not
       # the one that writes it. The assertion is here rather than left to the

@@ -2,20 +2,21 @@
 #
 # Copied from Dockerfile:40-49, deliberately and not invented. lts-22.43 does
 # not ship smtlib-backends or smtlib-backends-process, so both are supplied as
-# pinned extra-deps; everything else liquid-fixpoint-0.9.6.3.1 needs resolves
+# pinned extra-deps; everything else liquid-fixpoint-0.9.6.3.7 needs resolves
 # from the snapshot. The snapshot matches compiler/stack.yaml's resolver, so the
 # GHC that `stack build llmll` already provisioned is reused instead of a second
 # one being downloaded.
 #
 # `packages: []` is not an oversight. This project builds nothing of its own and
-# exists only to give `stack install liquid-fixpoint-0.9.6.3.1` a resolver and an
+# exists only to give `stack install liquid-fixpoint-0.9.6.3.7` a resolver and an
 # extra-deps set to resolve against.
 #
 # THIS IS A FILE RATHER THAN A HEREDOC FOR ONE REASON: it is hashed into the CI
 # cache key (.github/workflows/version-gate.yml, "Cache fixpoint binary"), so
 # changing the pin invalidates the cached binary. Inlined in the workflow, the
 # pin and the key would drift and a changed pin would silently keep restoring a
-# `fixpoint` built from the old one.
+# `fixpoint` built from the old one. The version itself is in the workflow
+# (LIQUID_FIXPOINT_VERSION), which also puts it in the key.
 snapshot: lts-22.43
 packages: []
 extra-deps:

@@ -13,7 +13,7 @@
 | Tool | Version | Purpose |
 |------|---------|---------|
 | GHC + Stack | `ghc >= 9.4`, `stack >= 2.9` | Build compiler and generated Haskell code |
-| `fixpoint` (liquid-fixpoint) + `z3` | `liquid-fixpoint-0.9.6.3.1`, any stable `z3`. 0.9.6.3.7 also works on `main` (not yet released) | Needed by `llmll verify` only (without them it exits 3, `SOLVER NOT FOUND`). `verify` stops the solver above 2 GB or after 120 s and exits 5; change the limits with the global flags `--solver-mem-mb` and `--time-limit` (LLMLL.md §4.4.4); `check`, `build` and `run` work without them. See [Install the solver](#install-the-solver-verify-only) |
+| `fixpoint` (liquid-fixpoint) + `z3` | `liquid-fixpoint-0.9.6.3.7`, any stable `z3`. 0.9.6.3.1 also works | Needed by `llmll verify` only (without them it exits 3, `SOLVER NOT FOUND`). `verify` stops the solver above 2 GB or after 120 s and exits 5; change the limits with the global flags `--solver-mem-mb` and `--time-limit` (LLMLL.md §4.4.4); `check`, `build` and `run` work without them. See [Install the solver](#install-the-solver-verify-only) |
 
 ### Run without a toolchain (Docker)
 
@@ -99,7 +99,8 @@ extra-deps:
   - smtlib-backends-0.4@sha256:a7ae228f4464727a8c725341cf9b6690577f5289c80a33e8960264e296fb9a47,1258
   - smtlib-backends-process-0.3@sha256:bb730a55c5974eeb24112b560d30c49d518d6de45148723435219baa269f8b5e,1676
 YAML
-stack --stack-yaml ~/.llmll-fixpoint/stack.yaml install liquid-fixpoint-0.9.6.3.1
+stack update           # the index must include the pinned release
+stack --stack-yaml ~/.llmll-fixpoint/stack.yaml install liquid-fixpoint-0.9.6.3.7
 brew install z3        # Debian/Ubuntu: apt-get install z3
 ```
 

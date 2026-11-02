@@ -33,8 +33,9 @@ RUN cd compiler \
 # turn shells out to z3 (smtlib-backends-process).
 #
 # lts-22.43 does NOT ship smtlib-backends / smtlib-backends-process, so the two
-# must be supplied as extra-deps (everything else liquid-fixpoint-0.9.6.3.1
-# needs resolves from the snapshot). The pinned cabal-revision hashes below are
+# must be supplied as extra-deps (everything else liquid-fixpoint-0.9.6.3.7
+# needs resolves from the snapshot). `stack update` first: a cached layer can
+# hold a package index older than the pinned release. The pinned cabal-revision hashes below are
 # the exact set proven to build this liquid-fixpoint on a clean tree; they are
 # what a bare-snapshot `stack install` is otherwise missing.
 RUN mkdir -p /build && printf '%s\n' \
@@ -44,8 +45,9 @@ RUN mkdir -p /build && printf '%s\n' \
       '  - smtlib-backends-0.4@sha256:a7ae228f4464727a8c725341cf9b6690577f5289c80a33e8960264e296fb9a47,1258' \
       '  - smtlib-backends-process-0.3@sha256:bb730a55c5974eeb24112b560d30c49d518d6de45148723435219baa269f8b5e,1676' \
       > /build/fixpoint.stack.yaml \
+ && stack update \
  && stack --stack-yaml /build/fixpoint.stack.yaml --system-ghc \
-      install liquid-fixpoint-0.9.6.3.1 --local-bin-path /out
+      install liquid-fixpoint-0.9.6.3.7 --local-bin-path /out
 
 # Fail the build here if either binary has an unsatisfiable shared-library set —
 # the classic "the slim runtime can't exec the copied GHC binary" trap. The
