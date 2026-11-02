@@ -17,7 +17,7 @@
 
 | | **TFTP** (RFC 1350 + 1123) | **ARP** (RFC 826) | **Base-N** (RFC 4648) |
 |---|---|---|---|
-| who wrote the contracts | **a human (me)** | **agents, unaided** | agents; never reached |
+| who wrote the contracts | **agents, outside the driver** | **agents, unaided** | agents; never reached |
 | stages run by the driver | the wave only | **all fifteen** | **A-I, then halted** |
 | dual-extraction Jaccard | 0.8655 / 0.725 | 0.8551 | **0.9732** |
 | rule agreement (kappa) | 0.9378 | 0.824 | 0.8057 |
@@ -110,7 +110,7 @@ represented"*, *"byte widths are not represented"*, *"ErrMsg and its zero byte a
 the model cannot exercise carries no verification evidence and must be excluded rather than
 counted. No mutant can get *"the opcode field is 2 bytes"* wrong in a model with no byte
 widths. **ARP's agent classified the identical row shape as excluded under B5, and applied our
-rule more faithfully than the human pass did.**
+rule more faithfully than the TFTP agent pass did.**
 
 Correcting TFTP on the 11 unambiguous cases (3 more are borderline, pinning a value while
 dropping the layout):

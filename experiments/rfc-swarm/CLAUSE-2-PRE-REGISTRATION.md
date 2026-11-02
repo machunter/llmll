@@ -27,11 +27,11 @@ fact is not its file count.**
 
 `runs/rfc4648/` stopped at gate J, so it never reached the wave or the mutation stages.
 `runs/tftp` (in `examples/tftp_rfc1350/`) is disqualified by its own record: RESULTS.md:9-10
-says its inventory, dispositions and root contracts "were authored by hand across earlier
-sessions and by me; only the fill wave was agent-driven."
+says its inventory, dispositions and root contracts "were authored by agents outside the
+driver, across earlier sessions; only the fill wave ran through the driver." (Corrected 2026-11-02: the original quote said "by hand across earlier sessions and by me", and the quote below said "with no human authoring at any step". Agents did this work. No human took part. Both quotes now match the corrected RESULTS.md.)
 
 `runs/rfc826/` states the opposite at RESULTS.md:13-16: "This run put a fresh RFC through
-all fifteen stages with no human authoring at any step. **I wrote none of these
+all fifteen stages, with the driver running every step. **I wrote none of these
 contracts.**"
 
 **Pinned by the oracle:** 2026-07-25, compiler v0.14.67, driver
