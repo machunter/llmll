@@ -9,9 +9,9 @@
 TFTP demonstrated the *last* stage. Its clause inventory, dispositions, and root contracts
 were authored by agents outside the driver, across earlier sessions; only the fill wave ran through the driver.
 So the pipeline's headline claim, "given an RFC URL, produce its implementation", was
-demonstrated for one stage and assumed for the other eleven. (Corrected 2026-11-02: the sentence above said "by hand across earlier sessions and by me", and the next paragraph said "with no human authoring at any step". Agents did this work. No human took part.)
+demonstrated for one stage and assumed for the other eleven. (Corrected 2026-11-02: the sentence above said "by hand across earlier sessions and by me", and the next paragraph said "with no human authoring at any step"; "I wrote none of these contracts" now names the agent that ran the driver. Agents did this work. No human took part.)
 
-This run put a fresh RFC through all fifteen stages, with the driver running every step. **I
+This run put a fresh RFC through all fifteen stages, with the driver running every step. **The agent that ran the driver
 wrote none of these contracts.** Everything from the scope decision to the finished
 implementation came from agents reading the RFC text and the language reference.
 
