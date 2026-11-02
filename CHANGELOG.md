@@ -4,6 +4,47 @@
 
 <a id="Latest"></a>
 
+## v0.35.1: liquid-fixpoint 0.9.6.3.7 is the pinned solver; CI is green again (2026-11-02)
+
+### `FIXPOINT-UPGRADE-1`: `llmll` runs on liquid-fixpoint 0.9.6.3.4 and later
+
+- **Two changes in liquid-fixpoint 0.9.6.3.4 broke `verify` on newer solvers.** The qualifier
+  syntax became `qualif N(v : int) { p }` (it was `qualif N(v : int): (p)`), and neither form
+  parses on the other version. The `-q --json` verdict moved under a `status` key, so an UNSAFE
+  verdict lost its constraint ids and a refutation had no source pointer.
+- **The solver guard probes each solver once per run** with a one-line `.fq`, and only when the
+  file to solve has a qualifier. For a solver that reads braces, it rewrites the qualifier lines
+  of every file argument, whatever its extension (`verify --fq-out out.bin` included). On
+  0.9.6.3.3 and earlier the file is unchanged. The emitted text, proof artifacts and hashes keep
+  the colon form, so existing `.verified.json` files stay valid. The JSON reader takes both
+  verdict shapes.
+- **0.9.6.3.7 is now the pinned solver** in `docs/getting-started.md`, the root `Dockerfile` and
+  the CI gate. Each install runs `stack update` first: a package index older than the release
+  cannot find it. The CI solver cache key now holds the version (`LIQUID_FIXPOINT_VERSION`), so
+  a changed pin cannot restore a binary built from the old one. 0.9.6.3.1 still works.
+- **Measured:** 0.9.6.3.7 does not have the nesting blowup that `FQ-FLAT-NEST-1` worked around
+  (one heartbleed constraint: 44 MB, against more than 1.5 GB on 0.9.6.3.1). The 278-file fallback
+  census at `--jobs 1` has 0 files that differ between 0.9.6.3.1 and 0.9.6.3.7, and its slowest
+  files are faster on 0.9.6.3.7 (`session-pay`: 7 s to 1 s or less).
+- **0.9.6.3.7 prints its version for `--numeric-version`**; 0.9.6.3.1 prints `2009-15`. Proof
+  artifacts still record what the solver prints (`FIXPOINT-VERSION-1`).
+
+### CI
+
+- **The `TRUST-REPORT-GATE-1` step expects 69 passed cells.** The v0.35.0 doc pass added a 69th
+  cell and left the count at 68, so the C5 job failed on every push to `main` from 2026-11-01,
+  the v0.35.0 release included. All 69 cells passed; only the count check failed.
+- hspec examples that run the solver now go through the solver guard, as `llmll` does.
+
+### Documentation
+
+- **The rfc-swarm records say agents did the TFTP pass.** Eleven places said a human wrote the
+  TFTP inventory, dispositions and root contracts, or did it "by hand". Agents did this work, and
+  no human took part. The true difference from the ARP run is that only TFTP's fill wave ran
+  through the driver. The pre-registration and the run record carry a dated correction note.
+
+**Tests:** 2960 → 2968 Haskell examples, 0 failures; Python 693 passed, 6 skipped on liquid-fixpoint 0.9.6.3.7 (the colon-form test also passes on 0.9.6.3.1).
+
 ## v0.35.0: Solver limits; heartbleed verifies in 2 s; equal calls return equal results (2026-11-01)
 
 ### `VERIFY-BUDGET-1`: every solver run has a memory limit and a time limit
