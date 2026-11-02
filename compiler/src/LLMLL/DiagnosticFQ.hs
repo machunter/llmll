@@ -135,6 +135,8 @@ parseFQResult out
 -- Envelope shape is tag-keyed and heterogeneous in @contents@:
 --   @{"tag":"Safe","contents":{stats}}@
 --   @{"tag":"Unsafe","contents":[{stats},[ids]]}@
+-- From liquid-fixpoint 0.9.6.3.4 the same object is under a @status@ key
+-- (FIXPOINT-UPGRADE-1); both shapes decode.
 -- With @-q@ the output is a single clean JSON line; without it the line is
 -- ANSI-prefixed and preceded by banner noise, so we strip ANSI and scan for a
 -- JSON-object line as a robustness fallback. Returns 'Nothing' on any parse
@@ -150,6 +152,14 @@ parseFQResultJSON txt =
       A.decode (BL.fromStrict (TE.encodeUtf8 (T.strip s))) >>= envelopeToResult
 
     envelopeToResult :: Value -> Maybe FQVerifyResult
+    -- FIXPOINT-UPGRADE-1: from liquid-fixpoint 0.9.6.3.4 the envelope is
+    -- @{"status":{"tag":..,"contents":..},"solution":[..],"nonCutsSolution":[..]}@.
+    -- Without this case the decode fails, the text scrape runs, and an UNSAFE
+    -- verdict loses its constraint ids, so a refutation has no source pointer.
+    envelopeToResult (Object o)
+      | Nothing <- KM.lookup "tag" o
+      , Just st@(Object _) <- KM.lookup "status" o
+      = envelopeToResult st
     envelopeToResult (Object o) =
       case KM.lookup "tag" o of
         Just (String "Safe")   -> Just FQSafe

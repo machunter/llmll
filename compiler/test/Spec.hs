@@ -30,9 +30,9 @@ import LLMLL.ObligationAssembly
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, runFQSolver, resourceStopText, resourceStopValue)
-import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb)
+import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody)
-import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkTrustGapDeclaredWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8, formatParseDiagSExp)
@@ -8432,6 +8432,50 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let p = FQNot (FQOr [FQVar "a", FQVar "b"])
             t = emitPred p
         t `shouldSatisfy` T.isInfixOf "(not (a || b))"
+
+    -- FIXPOINT-UPGRADE-1: liquid-fixpoint 0.9.6.3.4 changed the qualifier
+    -- syntax (braces, not a colon) and moved the JSON verdict under "status".
+    describe "FIXPOINT-UPGRADE-1 solver syntax and output" $ do
+      let qualText qs = emitFQFile emptyFQFile { fqQualifiers = qs }
+          gez = FQQualifier "GEZ" [("v", FQInt)] (FQBinPred FQGe (FQVar "v") (FQLit 0))
+          two = FQQualifier "Le2" [("v", FQInt), ("x", FQInt)] (FQBinPred FQLe (FQVar "v") (FQVar "x"))
+      it "FU-1: the emitter still writes the colon form" $
+        T.lines (qualText [gez]) `shouldContain` ["qualif GEZ(v : int): ((v >= 0))"]
+
+      it "FU-2: a one-parameter qualifier becomes the brace form" $
+        qualifiersToBraces "qualif GEZ(v : int): ((v >= 0))"
+          `shouldBe` "qualif GEZ(v : int) { ((v >= 0)) }"
+
+      it "FU-3: a two-parameter qualifier becomes the brace form" $
+        T.lines (qualifiersToBraces (qualText [two]))
+          `shouldContain` ["qualif Le2(v : int, x : int) { ((v <= x)) }"]
+
+      it "FU-4: the rewrite is idempotent and keeps every other line" $ do
+        let t = qualText [gez, two] <> "constraint:\n  lhs {v : int | (f(a): (b))}\n"
+            once = qualifiersToBraces t
+        qualifiersToBraces once `shouldBe` once
+        filter (not . ("qualif " `T.isPrefixOf`)) (T.lines once)
+          `shouldBe` filter (not . ("qualif " `T.isPrefixOf`)) (T.lines t)
+        length (filter (" { " `T.isInfixOf`) (T.lines once)) `shouldBe` 2
+
+      it "FU-5: the 0.9.6.3.4 Safe envelope decodes as Safe" $
+        parseFQResultJSON "{\"nonCutsSolution\":[],\"solution\":[],\"status\":{\"contents\":{\"numVald\":3},\"tag\":\"Safe\"}}"
+          `shouldBe` Just FQSafe
+
+      it "FU-6: the 0.9.6.3.4 Unsafe envelope keeps its constraint ids" $
+        parseFQResultJSON "{\"nonCutsSolution\":[],\"solution\":[],\"status\":{\"contents\":[{\"numVald\":0},[260]],\"tag\":\"Unsafe\"}}"
+          `shouldBe` Just (FQUnsafe [260])
+
+      it "FU-7: the old envelope still decodes" $ do
+        parseFQResultJSON "{\"contents\":{\"numVald\":3},\"tag\":\"Safe\"}" `shouldBe` Just FQSafe
+        parseFQResultJSON "{\"contents\":[{\"numVald\":0},[7]],\"tag\":\"Unsafe\"}" `shouldBe` Just (FQUnsafe [7])
+
+      it "FU-8: the probe reads braces from exit 0, colon from the parse error, nothing otherwise" $ do
+        decideQualSyntax (Right (ExitSuccess, "{}", "")) `shouldBe` Just QualBraces
+        decideQualSyntax (Right (ExitFailure 2, "", "probe.fq:1:28:\n  unexpected '{'\n  expecting ':'"))
+          `shouldBe` Just QualColon
+        decideQualSyntax (Right (ExitFailure 2, "", "Crash!")) `shouldBe` Nothing
+        decideQualSyntax (Left (ResourceStop StopTime defaultSolverLimits 0 1.0)) `shouldBe` Nothing
 
     -- FQ-FLAT-NEST-1: liquid-fixpoint 0.9.6.3.1 uses memory exponential in the
     -- nesting of '&&' and '||' (sc-channel.llmll: 4.7-6.8 GB nested, 85 MB

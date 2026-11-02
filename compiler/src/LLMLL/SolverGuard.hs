@@ -22,6 +22,8 @@ module LLMLL.SolverGuard
   , renderStopKind
   , ResourceStop(..)
   , runSolverGuarded
+  , QualSyntax(..)
+  , decideQualSyntax
   , sumGroupRssKb
   , installSolverSignalHandlers
   ) where
@@ -29,8 +31,13 @@ module LLMLL.SolverGuard
 import Control.Concurrent (forkIO, myThreadId, threadDelay, throwTo)
 import Control.Concurrent.MVar
 import Control.Exception (AsyncException(UserInterrupt), SomeException, evaluate, onException, try, mask, throwIO)
-import Control.Monad (forM_, void)
+import Control.Monad (forM_, void, when)
+import qualified Data.ByteString as BS
 import Data.IORef
+import Data.List (isSuffixOf)
+import qualified Data.Map.Strict as Map
+import qualified Data.Text.Encoding as TE
+import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -43,6 +50,8 @@ import System.Posix.Types (CPid)
 import System.Process
 import System.Timeout (timeout)
 import Text.Read (readMaybe)
+
+import LLMLL.FixpointIR (qualifiersToBraces)
 
 -- | The two limits. 0 turns a limit off.
 data SolverLimits = SolverLimits
@@ -145,6 +154,84 @@ groupRssKb g = do
 -- no verdict.
 runSolverGuarded :: FilePath -> [String] -> IO (Either ResourceStop (ExitCode, String, String))
 runSolverGuarded bin args = do
+  adaptQualifiers bin args
+  runGuardedRaw bin args
+
+-- | FIXPOINT-UPGRADE-1: which qualifier syntax the solver reads.
+-- 'QualColon' is @qualif N(v : int): (p)@ (liquid-fixpoint up to 0.9.6.3.3),
+-- 'QualBraces' is @qualif N(v : int) { p }@ (0.9.6.3.4 and later).
+data QualSyntax = QualColon | QualBraces
+  deriving (Show, Eq)
+
+-- | The probe file holds one qualifier in the brace form and nothing else. A
+-- solver that reads braces answers Safe with exit 0. A solver that reads only
+-- the colon form exits with a parse error. Anything else (a crash, a stop)
+-- gives no answer: 'Nothing', and the caller keeps the colon form, which is
+-- the form the compiler writes.
+decideQualSyntax :: Either ResourceStop (ExitCode, String, String) -> Maybe QualSyntax
+decideQualSyntax (Right (ExitSuccess, _, _)) = Just QualBraces
+decideQualSyntax (Right (ExitFailure _, out, err))
+  | "unexpected '{'" `T.isInfixOf` T.pack (out <> err) = Just QualColon
+decideQualSyntax _ = Nothing
+
+probeFqText :: Text
+probeFqText = "qualif LlmllProbe(v : int) { (v >= 0) }\n"
+
+-- | The probe answer for each solver path, found once per llmll run.
+{-# NOINLINE qualSyntaxRef #-}
+qualSyntaxRef :: IORef (Map.Map FilePath QualSyntax)
+qualSyntaxRef = unsafePerformIO (newIORef Map.empty)
+
+qualSyntaxFor :: FilePath -> IO QualSyntax
+qualSyntaxFor bin = do
+  cached <- Map.lookup bin <$> readIORef qualSyntaxRef
+  case cached of
+    Just q  -> pure q
+    Nothing -> do
+      dir <- getTemporaryDirectory
+      (path, h) <- openTempFile dir "llmll-qualprobe.fq"
+      hSetEncoding h utf8
+      hPutStr h (T.unpack probeFqText)
+      hClose h
+      r <- runGuardedRaw bin ["-q", "--json", path]
+      removeFile path `catchAny` pure ()
+      q <- case decideQualSyntax r of
+        Just q  -> pure q
+        Nothing -> do
+          hPutStrLn stderr $ "llmll: could not tell which qualifier syntax " <> bin
+            <> " reads; writing the colon form (liquid-fixpoint 0.9.6.3.3 and earlier)"
+          pure QualColon
+      atomicModifyIORef' qualSyntaxRef (\m -> (Map.insert bin q m, ()))
+      pure q
+  where
+    catchAny act h = do
+      r <- try act
+      case r of
+        Left (_ :: SomeException) -> h
+        Right x                   -> pure x
+
+-- | Rewrite each existing @.fq@ argument into the solver's qualifier syntax.
+-- The probe runs only when a file has a qualifier, so a qualifier-free solve
+-- costs no extra solver start.
+adaptQualifiers :: FilePath -> [String] -> IO ()
+adaptQualifiers bin args =
+  forM_ (filter (".fq" `isSuffixOf`) args) $ \path -> do
+    ok <- doesFileExist path
+    when ok $ do
+      bytes <- BS.readFile path
+      case TE.decodeUtf8' bytes of
+        Left _    -> pure ()
+        Right txt -> when (hasQualifier txt) $ do
+          q <- qualSyntaxFor bin
+          let txt' = qualifiersToBraces txt
+          when (q == QualBraces && txt' /= txt) $
+            BS.writeFile path (TE.encodeUtf8 txt')
+  where
+    hasQualifier t = "qualif " `T.isPrefixOf` t || "\nqualif " `T.isInfixOf` t
+
+-- | The guard itself, with no change to the @.fq@ file.
+runGuardedRaw :: FilePath -> [String] -> IO (Either ResourceStop (ExitCode, String, String))
+runGuardedRaw bin args = do
   lim <- getSolverLimits
   t0  <- getMonotonicTime
   let cp = (proc bin args)
