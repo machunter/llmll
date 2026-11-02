@@ -13,7 +13,7 @@
 | Tool | Version | Purpose |
 |------|---------|---------|
 | GHC + Stack | `ghc >= 9.4`, `stack >= 2.9` | Build compiler and generated Haskell code |
-| `fixpoint` (liquid-fixpoint) + `z3` | `liquid-fixpoint-0.9.6.3.1`, any stable `z3` | Needed by `llmll verify` only (without them it exits 3, `SOLVER NOT FOUND`). `verify` stops the solver above 2 GB or after 120 s and exits 5; change the limits with the global flags `--solver-mem-mb` and `--time-limit` (LLMLL.md §4.4.4); `check`, `build` and `run` work without them. See [Install the solver](#install-the-solver-verify-only) |
+| `fixpoint` (liquid-fixpoint) + `z3` | `liquid-fixpoint-0.9.6.3.1`, any stable `z3`. 0.9.6.3.7 also works on `main` (not yet released) | Needed by `llmll verify` only (without them it exits 3, `SOLVER NOT FOUND`). `verify` stops the solver above 2 GB or after 120 s and exits 5; change the limits with the global flags `--solver-mem-mb` and `--time-limit` (LLMLL.md §4.4.4); `check`, `build` and `run` work without them. See [Install the solver](#install-the-solver-verify-only) |
 
 ### Run without a toolchain (Docker)
 
