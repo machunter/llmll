@@ -2277,7 +2277,7 @@ main = hspec $ do
           case mLF of
             Nothing -> pure Nothing
             Just lf -> do
-              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
               pure (Just (T.pack out))
         dlDiags tag er = [ d | d <- erDiagnostics er, tag `T.isPrefixOf` diagMessage d ]
         dlListBad  = "(def-shell g [n: int xs: list[int]] -> int (pre (>= n 0)) (post (>= result 0)) (decreases (list-length xs)) (if (= n 0) 0 (+ 1 (g (- n 1) xs))))"
@@ -8814,7 +8814,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             case mLF of
               Nothing -> pure Nothing
               Just lf -> do
-                (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+                (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
                 pure (Just (T.pack out))
 
       it "ENUM-EQ-1 if-body: ctor-equality atoms on a nullary-enum param in the post are body-faithful" $ do
@@ -8946,7 +8946,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             case mLF of
               Nothing -> pure Nothing
               Just lf -> do
-                (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+                (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
                 pure (Just (T.pack out))
 
       it "A1-1 the crux emits body-faithful with the array sort, exact pinning, and byte-range facts; FACT-AG-LEN puts the length in the PRE, not the binder" $ do
@@ -9319,7 +9319,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             case mLF of
               Nothing -> pure Nothing
               Just lf -> do
-                (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+                (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
                 pure (Just (T.pack out))
           cachePutSrc bdy = unlines
             [ "(def cache-put [m: map[int,int] k: int v: int] -> map[int,int]"
@@ -10430,7 +10430,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             case mLF of
               Nothing -> pure Nothing
               Just lf -> do
-                (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+                (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
                 pure (Just (T.pack out))
 
       it "STRLIT-1 emission: a string-literal contract declares nullary Str constants + a ground distinctness fact" $ do
@@ -12185,7 +12185,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             case mLF of
               Nothing -> pure Nothing
               Just lf -> do
-                (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+                (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
                 pure (Just (T.pack out))
           negPair proj = unlines
             [ "(def negpair [x: int] -> (int, int)"
@@ -21230,7 +21230,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           case mLF of
             Nothing -> pure Nothing
             Just lf -> do
-              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
               pure (Just (T.pack out))
         solverSays tag er want = do
           m <- solve tag er
@@ -21281,7 +21281,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           case mLF of
             Nothing -> pure Nothing
             Just lf -> do
-              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
               pure (Just (T.pack out))
         solverSays tag er want = do
           m <- solve tag er
@@ -21490,7 +21490,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           case mLF of
             Nothing -> pure Nothing
             Just lf -> do
-              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
               pure (Just (T.pack out))
         solverSays tag er want = do
           m <- solveFq tag er
@@ -22059,7 +22059,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           case mLF of
             Nothing -> pure Nothing
             Just lf -> do
-              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
               pure (Just (T.pack out))
         expectSolver er tag = do
           mOut <- solve er
@@ -23741,7 +23741,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case mLF of
         Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
         Just lf -> do
-          (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+          (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
           T.pack out `shouldSatisfy` T.isInfixOf "Unsafe"
 
     it "FS-2 S2: a let-bound function value named pick is not the top-level pick" $ do
@@ -23853,7 +23853,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           case mLF of
             Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
             Just lf -> do
-              (_, out, _) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
               T.pack out `shouldSatisfy` T.isInfixOf want
           pure er
         minBy = "(def-shell min2-by [le: (fn [int int] -> bool) a: int b: int] -> int (post (or (= result a) (= result b))) (if (le a b) a b))\n"
@@ -23991,7 +23991,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           case mLF of
             Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
             Just lf -> do
-              (code, out, err) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
               removeFile fqPath
               k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
 
@@ -24159,7 +24159,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           case mLF of
             Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
             Just lf -> do
-              (code, out, err) <- readProcessWithExitCode lf ["-q", "--json", fqPath] ""
+              (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
               removeFile fqPath
               k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
 
@@ -26671,3 +26671,11 @@ data GpV = GpI Integer | GpB Bool | GpP GpV GpV
 -- | GENERIC-COMPARE-PAIR-1 (GP-4): a sample of ((int, bool), int) values.
 gpVals :: [((Integer, Bool), Integer)]
 gpVals = [ ((a, b), c) | a <- [0, 1], b <- [False, True], c <- [-1, 1] ]
+
+-- | FIXPOINT-UPGRADE-1: run the solver the way llmll does, through
+-- 'runSolverGuarded', which rewrites the qualifier lines for liquid-fixpoint
+-- 0.9.6.3.4 and later. A direct 'readProcessWithExitCode' handed those solvers
+-- the colon form, and 128 examples failed on 0.9.6.3.7 with a parse error. A
+-- guard stop reads as exit 137 with no output, which no example accepts.
+solverRun :: FilePath -> [String] -> IO (ExitCode, String, String)
+solverRun lf args = either (const (ExitFailure 137, "", "")) id <$> runSolverGuarded lf args
