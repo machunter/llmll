@@ -1,0 +1,6 @@
+;; CALL-CONGRUENCE-1 W-WRAP (docs/design/ffi-determinism-proposal.md): a
+;; def-shell wrapper around a Tier 1 export, called twice with one argument.
+;; twice-g is verified, and keeps its inherited haskell.text assumption row.
+(import haskell.text (interface [[length (fn [s: hs-text] -> hs-int)]]))
+(def-shell g [s: string] -> int (length s))
+(def-shell twice-g [s: string] -> int (post (= result 0)) (- (g s) (g s)))

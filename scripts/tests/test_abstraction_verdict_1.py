@@ -8,11 +8,17 @@ reported refuted: it falls back with cause `abstraction-unsafe` and the
 construct `abstraction:app:<callee>`, and its post is assumed. One call keeps
 the refutation. Design: docs/design/byte-io-proposal.md Rev 2, Part 0.
 
+Since CALL-CONGRUENCE-1, calls whose callee takes and returns only int, bool
+or string get a congruence fact and are never marked; the rule is the
+backstop for every other pair. The congruence side (a1, a2, w5, a4, caller,
+mixed) is tested in test_call_congruence_1.py.
+
 What a pass here means:
 
-* a1, a2, w5 (true posts) exit 0 with the function in `abstraction_fallback`;
-  a4 (a false post, the stated cost) does too; a3 (one call) stays refuted.
-* `mixed` keeps the refutation of its one-call function and exit 1.
+* backstop_list (a list[int] argument) and backstop_float (float, excluded on
+  both sides) exit 0 with the function in `abstraction_fallback`; a3 (one call)
+  stays refuted.
+* `mixed_backstop` keeps the refutation of its one-call function and exit 1.
 * `--strict-verified-core` refuses the reclassified function after the solver.
 * the trust report, the sidecar, a caller, and the proof artifact (whose
   `solver_result` stays the raw answer and still replays) all agree.
@@ -69,9 +75,8 @@ def _failed_fns(doc: dict) -> set:
 
 
 @pytest.mark.parametrize("name,fn,callee", [
-    ("a1.llmll", "h", "g"),
-    ("a2.llmll", "h8", "g"),
-    ("w5.llmll", "t", "le"),
+    ("backstop_list.llmll", "hl", "gl"),
+    ("backstop_float.llmll", "hf", "gf"),
 ])
 def test_av_true_post_falls_back(tmp_path, name, fn, callee):
     p = _run(tmp_path, name)
@@ -88,13 +93,6 @@ def test_av_true_post_falls_back(tmp_path, name, fn, callee):
     assert f"abstraction fallback: {fn} (abstraction:app:{callee})" in out, out
 
 
-def test_av_a4_false_post_falls_back_the_stated_cost(tmp_path):
-    p = _run(tmp_path, "a4.llmll")
-    doc = _doc(p)
-    assert p.returncode == 0, p.stdout
-    assert doc["abstraction_fallback"] == {"f": "abstraction:app:f"}
-
-
 def test_av_a3_single_call_stays_refuted(tmp_path):
     p = _run(tmp_path, "a3.llmll")
     doc = _doc(p)
@@ -105,40 +103,40 @@ def test_av_a3_single_call_stays_refuted(tmp_path):
 
 
 def test_av_mixed_keeps_the_one_call_refutation(tmp_path):
-    p = _run(tmp_path, "mixed.llmll")
+    p = _run(tmp_path, "mixed_backstop.llmll")
     doc = _doc(p)
     assert p.returncode == 1, p.stdout
     assert doc["solver_verdict"] == "refuted"
-    assert doc["abstraction_fallback"] == {"h": "abstraction:app:g"}
+    assert doc["abstraction_fallback"] == {"hl": "abstraction:app:gl"}
     assert _failed_fns(doc) == {"gw"}
 
 
 def test_av_strict_core_refuses_the_reclassified_function(tmp_path):
-    p = _run(tmp_path, "a1.llmll", "--strict-verified-core")
+    p = _run(tmp_path, "backstop_list.llmll", "--strict-verified-core")
     doc = _doc(p)
     assert p.returncode == 1, p.stdout
     errs = _nested(doc, "strict_errors")
-    assert any(e["cause"] == "fallback" and e["fns"] == ["h"] for e in errs), errs
+    assert any(e["cause"] == "fallback" and e["fns"] == ["hl"] for e in errs), errs
 
 
 def test_av_trust_report_marks_fallback_not_refuted(tmp_path):
-    p = _run(tmp_path, "a1.llmll", "--trust-report")
+    p = _run(tmp_path, "backstop_list.llmll", "--trust-report")
     doc = _doc(p)
     assert p.returncode == 0, p.stdout
     tr = _nested(doc, "trust_report")
     assert tr["refuted_fns"] == []
-    h = next(e for e in tr["entries"] if e["name"] == "h")
+    h = next(e for e in tr["entries"] if e["name"] == "hl")
     assert h["body_fallback"]["cause"] == "abstraction-unsafe"
-    assert h["body_fallback"]["constructs"] == ["abstraction:app:g"]
+    assert h["body_fallback"]["constructs"] == ["abstraction:app:gl"]
     assert not h.get("refuted", False)
 
 
 def test_av_sidecar_g_verified_h_asserted(tmp_path):
-    p = _run(tmp_path, "a1.llmll")
+    p = _run(tmp_path, "backstop_list.llmll")
     assert p.returncode == 0, p.stdout
-    side = json.loads((tmp_path / "a1.llmll.verified.json").read_text())
-    assert side["g"]["post"]["display_level"]["level"] == "verified"
-    assert side["h"]["post"]["display_level"]["level"] == "asserted"
+    side = json.loads((tmp_path / "backstop_list.llmll.verified.json").read_text())
+    assert side["gl"]["post"]["display_level"]["level"] == "verified"
+    assert side["hl"]["post"]["display_level"]["level"] == "asserted"
 
 
 def test_av_caller_is_proved_and_not_depending_on_refuted(tmp_path):
@@ -153,23 +151,25 @@ def test_av_caller_is_proved_and_not_depending_on_refuted(tmp_path):
 
 
 def test_av_proof_artifact_keeps_raw_result_and_replays(tmp_path):
-    p = _run(tmp_path, "a1.llmll", "--proof-artifact", "a1.pa.json", json_mode=False)
+    p = _run(tmp_path, "backstop_list.llmll", "--proof-artifact", "bl.pa.json", json_mode=False)
     assert p.returncode == 0, p.stdout + p.stderr
-    art = json.loads((tmp_path / "a1.pa.json").read_text())
+    art = json.loads((tmp_path / "bl.pa.json").read_text())
     assert art["solver_result"] == "unsafe-refuted"
-    h = next(f for f in art["functions"] if f["name"] == "h")
+    h = next(f for f in art["functions"] if f["name"] == "hl")
     assert h["fallback_reason"] == "abstraction-unsafe"
     assert h["refuted"] is False
     jsonschema = pytest.importorskip("jsonschema")
     jsonschema.Draft202012Validator(ARTIFACT_SCHEMA).validate(art)
-    r = subprocess.run([*shlex.split(os.environ["LLMLL_BIN"]), "replay-artifact", "a1.pa.json"],
+    r = subprocess.run([*shlex.split(os.environ["LLMLL_BIN"]), "replay-artifact", "bl.pa.json"],
                        capture_output=True, text=True, timeout=120, cwd=str(tmp_path))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "reproduced" in r.stdout, r.stdout
 
 
 @pytest.mark.parametrize("name", ["a1.llmll", "a2.llmll", "a3.llmll", "a4.llmll",
-                                  "w5.llmll", "mixed.llmll", "caller.llmll"])
+                                  "w5.llmll", "mixed.llmll", "caller.llmll",
+                                  "backstop_list.llmll", "backstop_float.llmll",
+                                  "mixed_backstop.llmll"])
 def test_av_verify_json_validates(tmp_path, name):
     jsonschema = pytest.importorskip("jsonschema")
     referencing = pytest.importorskip("referencing")

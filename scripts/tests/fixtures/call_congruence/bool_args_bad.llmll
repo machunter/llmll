@@ -1,0 +1,4 @@
+;; CALL-CONGRUENCE-1: (> x 0) and (> x 1) differ at x = 1, so the fact does not
+;; apply and the false post stays refuted.
+(def-shell gb [p: bool] -> int (post (>= result 0)) (if p 1 0))
+(def-shell hb [x: int] -> int (post (= result 0)) (- (gb (> x 0)) (gb (> x 1))))

@@ -1,0 +1,6 @@
+;; ABSTRACTION-VERDICT-1 backstop: two equal calls to a callee with a list[int]
+;; parameter. CALL-CONGRUENCE-1 adds no fact for a list argument (the sort rule
+;; admits int, bool and string only), so the true post still falls back as
+;; abstraction:app:gl. gl is proved.
+(def-shell gl [xs: list[int]] -> int (post (>= result 0)) (list-length xs))
+(def-shell hl [xs: list[int]] -> int (post (= result 0)) (- (gl xs) (gl xs)))

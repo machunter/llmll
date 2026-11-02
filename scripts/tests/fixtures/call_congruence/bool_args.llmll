@@ -1,0 +1,4 @@
+;; CALL-CONGRUENCE-1: bool arguments compare by iff. (> x 0) and (< 0 x) are
+;; different terms with equal values, so hb is verified.
+(def-shell gb [p: bool] -> int (post (>= result 0)) (if p 1 0))
+(def-shell hb [x: int] -> int (post (= result 0)) (- (gb (> x 0)) (gb (< 0 x))))
