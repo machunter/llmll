@@ -4,6 +4,59 @@
 
 <a id="Latest"></a>
 
+## v0.35.0: Solver limits; heartbleed verifies in 2 s; equal calls return equal results (2026-11-01)
+
+### `VERIFY-BUDGET-1`: every solver run has a memory limit and a time limit
+
+- **`llmll` stops liquid-fixpoint at a limit.** It starts the solver in its own process group,
+  measures the memory of the whole group (z3 included) about twice a second, and kills the
+  group above `--solver-mem-mb` megabytes (default 2048) or after `--time-limit` seconds
+  (default 120). A value of 0 turns that limit off. The flags are global, so they go before the
+  command: `llmll --solver-mem-mb 4096 verify program.llmll`.
+- **A stopped run has no verdict.** `verify` exits 5 and prints
+  `STOPPED AT RESOURCE LIMIT -- NOTHING WAS PROVEN` with the limit and the peak memory.
+  `verify --json` reports `solver_verdict: "resource-limit"` and a `resource_limit` object
+  (`kind`, `limit_mb`, `limit_s`, `peak_mb`, `elapsed_s`). `docs/llmll-verify.schema.json` adds
+  exit code 5, the verdict and the key; its version stays 1.0.0.
+- **A stopped run does not write or change `.verified.json`** (`STOP-SIDECAR-1`).
+- All seven places that start the solver use the limits: `verify`, `--cdp`, `--weakness-check`,
+  `diverge-report`, `patch`, `replay-artifact` and the `refine` reuse check. The other six read
+  a stop as no answer. Proof artifacts record the limits under `resource_limits`, and
+  `replay-artifact` runs under them. SIGINT and SIGTERM kill every live solver group.
+
+### `FQ-FLAT-NEST-1`: the `.fq` prints conjunctions flat
+
+- **Nested `&&` and nested `||` are printed as one chain.** Two-operand conjunctions reached
+  liquid-fixpoint as `((((a && b) && c) && d) ...)`, and liquid-fixpoint 0.9.6.3.1 itself, not
+  z3, uses memory exponential in that nesting. In
+  `examples/heartbleed/secure-channel/sc-channel.llmll`, three constraints from chains of
+  `gate-on-flag` calls carried the whole cost. Flattening changes the layout, not the predicate.
+- **Measured:** `sc-channel.llmll` verifies safe in 2.0 s with a solver peak of 78 MB (before:
+  50 to 63 s and 4.7 to 6.8 GB), and `agent-fill/sc-channel-agentfilled.llmll` in 0.9 s (before:
+  5.34 GB). The fallback census runs its 278 files in 85 s at `--jobs 1`. Closes
+  `VERIFY-MEMORY-1`.
+
+### `CALL-CONGRUENCE-1`: two calls with equal arguments return equal results
+
+- **For each pair of calls to one callee on one path, the later call assumes
+  `(not (a1 = b1 && ...)) || (r1 = r2)`.** This covers a named callee, contracted or not
+  (self-calls included), and a call through a function-typed parameter, when every declared
+  parameter type and the declared return type is `int`, `bool` or `string`.
+  `(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))`
+  now proves.
+- Functions that fell back as `abstraction:app:<callee>` because two equal calls were unrelated
+  now verify, for example `gs` in `scripts/tests/fixtures/minmax/guard_bad.llmll`. The
+  abstraction verdict (`ABSTRACTION-VERDICT-1`) stays for calls the rule does not cover.
+- The rule needs a deterministic callee. The trust report's FFI note and the `ffi_assumptions`
+  description in `docs/llmll-trust-report.schema.json` now say a `haskell.*` export is assumed
+  deterministic within one run at the declared type; `trust_report_version` does not change.
+- Cost: `sc-channel.llmll` takes 2.5 s instead of 2.0 s; the census gives the same outcome for
+  every file. The six committed `.verified.json` files are unchanged.
+- **`LLMLL.md`:** §5.3.3 states the rule, §5.3.4 limits the abstraction verdict to calls the rule
+  does not cover, and §7 adds determinism to what an `ffi_assumptions` row assumes.
+
+**Tests:** 2960 Haskell examples, 0 failures; Python 689 passed, 5 skipped.
+
 ## v0.34.1: `check` refuses C imports; regex calls stop on an interrupt (2026-11-01)
 
 ### `FFI-TIER2-REFUSE-1`: a `c.*` import fails `check`
