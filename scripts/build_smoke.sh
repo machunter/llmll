@@ -1218,7 +1218,7 @@ if [ -f "$VG_SRC" ]; then
     fail "the LLMLL version gate rejected this tree."
   fi
   grep -v '^$' "$OUTDIR/.versiongate-live.log" || true
-  echo "BUILD-GATE-1 PASS: DRIFT-CI-1 decided by an LLMLL program (14 cover cells + the live tree)"
+  echo "BUILD-GATE-1 PASS: DRIFT-CI-1 decided by an LLMLL program (16 cover cells + the live tree)"
 fi
 
 exit 0
