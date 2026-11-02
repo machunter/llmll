@@ -101,6 +101,18 @@ def test_fq_out_is_in_brace_form_on_new_solver(tmp_path):
     assert all(") { " in l and l.endswith(" }") for l in lines), lines
 
 
+@needs_new
+def test_fq_out_without_fq_extension_on_new_solver(tmp_path):
+    """--fq-out takes any path; the rewrite must not depend on a .fq suffix."""
+    shutil.copytree(BANKING, tmp_path / "b")
+    out = tmp_path / "out.bin"
+    p = _verify(tmp_path / "b", "banking.llmll", NEW_DIR, ["--fq-out", str(out)])
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert json.loads(p.stdout)["solver_verdict"] == "safe", p.stdout
+    lines = _qualif_lines(out)
+    assert lines and all(") { " in l for l in lines), lines
+
+
 def test_fq_out_stays_in_colon_form_on_old_solver(tmp_path):
     exe = shutil.which("fixpoint") or shutil.which("liquid-fixpoint")
     if exe is None:
