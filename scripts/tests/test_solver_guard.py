@@ -15,6 +15,11 @@ uses memory. What a pass here means:
 * a fake solver whose child holds about 200 MB, under --solver-mem-mb 64:
   verify exits 5 with kind "memory", and the child is gone.
 * the real solver, both limits off: the fixture still verifies (exit 0).
+* STOP-SIDECAR-1: a stop leaves an existing .verified.json byte-for-byte as it
+  was. A stop proves nothing and refutes nothing; it used to demote every
+  positive record of the file.
+* FQ-FLAT-NEST-1: the heartbleed flagship, which used 4.7-6.8 GB before the
+  emitter printed conjunctions flat, verifies SAFE under the default limits.
 """
 
 import json
@@ -63,21 +68,23 @@ def _fake_solver(tmp_path: Path, body: str) -> tuple[Path, Path]:
     return bindir, pidfile
 
 
-def _verify(tmp_path: Path, *flags: str, path_prefix: Optional[Path] = None):
-    shutil.copy(SRC, tmp_path / SRC.name)
+def _verify(tmp_path: Path, *flags: str, path_prefix: Optional[Path] = None,
+            src: Path = SRC, timeout: int = 60):
+    if not (tmp_path / src.name).exists():
+        shutil.copy(src, tmp_path / src.name)
     env = dict(os.environ)
     if path_prefix is not None:
         env["PATH"] = f"{path_prefix}{os.pathsep}{env['PATH']}"
     # Own session, so a hang is killed with everything it started.
-    p = subprocess.Popen([*shlex.split(os.environ["LLMLL_BIN"]), *flags, "--json", "verify", SRC.name],
+    p = subprocess.Popen([*shlex.split(os.environ["LLMLL_BIN"]), *flags, "--json", "verify", src.name],
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                          cwd=str(tmp_path), env=env, start_new_session=True)
     try:
-        out, _ = p.communicate(timeout=60)
+        out, _ = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         os.killpg(p.pid, signal.SIGKILL)
         p.communicate()
-        pytest.fail("verify did not stop within 60 s")
+        pytest.fail(f"verify did not stop within {timeout} s")
     return p.returncode, json.loads(out)
 
 
@@ -102,7 +109,7 @@ def test_time_limit_stops_the_solver_and_its_child(tmp_path):
     assert any(d.get("kind") == "resource-limit" for d in doc["diagnostics"])
     time.sleep(0.5)
     assert not _alive(pidfile), "the solver's child process outlived the run"
-    assert not (tmp_path / "a1.verified.json").exists()
+    assert not (tmp_path / "a1.llmll.verified.json").exists()
 
 
 def test_memory_limit_stops_the_solver(tmp_path):
@@ -116,12 +123,38 @@ def test_memory_limit_stops_the_solver(tmp_path):
     assert not _alive(pidfile), "the memory-holding child outlived the run"
 
 
-@pytest.mark.skipif(
+needs_solver = pytest.mark.skipif(
     shutil.which("liquid-fixpoint") is None and shutil.which("fixpoint") is None,
     reason="needs liquid-fixpoint on PATH",
 )
+
+
+@needs_solver
 def test_limits_off_real_solver_still_verifies(tmp_path):
     code, doc = _verify(tmp_path, "--solver-mem-mb", "0", "--time-limit", "0")
     assert code == 0, doc
     assert doc["solver_verdict"] == "safe"
     assert "resource_limit" not in doc
+
+
+@needs_solver
+def test_stop_leaves_the_sidecar_unchanged(tmp_path):
+    code, doc = _verify(tmp_path, "--solver-mem-mb", "0", "--time-limit", "0")
+    assert code == 0, doc
+    sidecar = tmp_path / "a1.llmll.verified.json"
+    before = sidecar.read_bytes()
+    assert b'"verified"' in before
+    bindir, _ = _fake_solver(tmp_path, SLOW)
+    code, doc = _verify(tmp_path, "--time-limit", "2", path_prefix=bindir)
+    assert code == 5, doc
+    assert sidecar.read_bytes() == before
+
+
+HEARTBLEED = REPO_ROOT / "examples" / "heartbleed" / "secure-channel" / "sc-channel.llmll"
+
+
+@needs_solver
+def test_heartbleed_verifies_under_default_limits(tmp_path):
+    code, doc = _verify(tmp_path, src=HEARTBLEED, timeout=180)
+    assert code == 0, doc
+    assert doc["solver_verdict"] == "safe"
