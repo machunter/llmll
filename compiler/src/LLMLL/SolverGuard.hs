@@ -34,7 +34,7 @@ import Control.Exception (AsyncException(UserInterrupt), SomeException, evaluate
 import Control.Monad (forM_, void, when)
 import qualified Data.ByteString as BS
 import Data.IORef
-import Data.List (isSuffixOf)
+import Data.List (isPrefixOf)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text.Encoding as TE
 import System.Directory (doesFileExist, getTemporaryDirectory, removeFile)
@@ -210,12 +210,17 @@ qualSyntaxFor bin = do
         Left (_ :: SomeException) -> h
         Right x                   -> pure x
 
--- | Rewrite each existing @.fq@ argument into the solver's qualifier syntax.
--- The probe runs only when a file has a qualifier, so a qualifier-free solve
--- costs no extra solver start.
+-- | Rewrite each file argument into the solver's qualifier syntax.
+--
+-- Every argument that is not a flag and names an existing file is a candidate,
+-- whatever its extension: @verify --fq-out@ takes any path, and a filter on
+-- @.fq@ left @--fq-out out.bin@ in the colon form, which 0.9.6.3.4 and later
+-- cannot parse (the CI gate on 0.9.6.3.7 caught it). Only a UTF-8 file that
+-- holds a qualifier line is touched. The probe runs only then, so a
+-- qualifier-free solve costs no extra solver start.
 adaptQualifiers :: FilePath -> [String] -> IO ()
 adaptQualifiers bin args =
-  forM_ (filter (".fq" `isSuffixOf`) args) $ \path -> do
+  forM_ (filter (not . ("-" `isPrefixOf`)) args) $ \path -> do
     ok <- doesFileExist path
     when ok $ do
       bytes <- BS.readFile path
