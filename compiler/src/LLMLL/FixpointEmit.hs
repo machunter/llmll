@@ -94,6 +94,7 @@ module LLMLL.FixpointEmit
   , collectCallSites             -- COMP-4 (b): call sites for payload-subtyping
   , collectBuiltinAxioms         -- TRUST-AXIOM: sealed-builtin axioms from the emitted BodyVC
   , collectCallBinders           -- ABSTRACTION-VERDICT-1: call-result binders and their callees
+  , CallBinder(..)               -- CALLEE-POST-UNASSUMED-1: one call-result binder with both marks' inputs
   , addCongruence                -- CALL-CONGRUENCE-1: Ackermann facts over same-key call pairs
   , conjoinAll
   , congruenceFact
@@ -249,6 +250,15 @@ data FallbackCause
   -- callee rides 'erFallbackConstructs' as @abstraction:app:<callee>@, so this
   -- bucket stays one closed string.
   | FallbackAbstraction    -- ^ UNSAFE only through two or more unrelated calls to one callee
+  -- CALLEE-POST-UNASSUMED-1 (post-conj-split professor review P1, P8): the
+  -- solver answered UNSAFE, but every failing constraint of the function holds
+  -- the result of a call whose callee post exists and was NOT assumed at that
+  -- call (outside the fragment, or dropped by a call-site sort guard). The
+  -- verifier dropped an authored hypothesis, so the counterexample may need a
+  -- fact from that post and is not a disproof. Decided after the solver, on
+  -- the same path as 'FallbackAbstraction'. The callee rides
+  -- 'erFallbackConstructs' as @post-unassumed:app:<callee>@.
+  | FallbackCalleePostUnassumed -- ^ UNSAFE only through calls whose callee post was not assumed
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 renderFallbackCause :: FallbackCause -> Text
@@ -263,6 +273,7 @@ renderFallbackCause FallbackNoPost       = "no-post"
 renderFallbackCause FallbackUnboundMapResult = "map-result-components-unbound"
 renderFallbackCause FallbackUnboundSymbols   = "constraint-symbols-unbound"
 renderFallbackCause FallbackAbstraction      = "abstraction-unsafe"
+renderFallbackCause FallbackCalleePostUnassumed = "callee-post-unassumed"
 
 -- | LEVER-A1: the array-theory operation symbols are INTERPRETED by the solver
 -- (native map theory). Declaring them as UF constants would shadow the theory,
@@ -305,6 +316,12 @@ data EmitResult = EmitResult
     -- ^ ABSTRACTION-VERDICT-1: each emitted constraint whose environment holds
     -- two or more distinct call results of one callee, mapped to that callee
     -- (the first such callee by name). Metadata only: the .fq does not change.
+    -- 'LLMLL.AbstractionVerdict' reads it after the solver ran.
+  , erPostUnassumed      :: Map FQConstraintId Name
+    -- ^ CALLEE-POST-UNASSUMED-1: each emitted constraint whose environment
+    -- holds the result of a call whose callee post exists and was not assumed
+    -- at that call ('cvPostUnassumed'), mapped to that callee (the first by
+    -- name). Metadata only: the .fq does not change.
     -- 'LLMLL.AbstractionVerdict' reads it after the solver ran.
   , erMeasuredRecursive  :: [(Text, Int)]
     -- ^ ABSTRACTION-VERDICT-1: the self-recursive def-shells that declare a
@@ -436,6 +453,18 @@ data BodyVC
       -- callee whose parameter and return types are all int, bool or string
       -- (R2). Two calls pair only when their keys are equal (R3), so a
       -- shadowed parameter name never pairs with the parameter.
+    , cvPostUnassumed  :: Bool
+      -- ^ CALLEE-POST-UNASSUMED-1: True when the callee's contract HAS a
+      -- post and the post was NOT assumed at this call (outside the
+      -- fragment, or dropped by a call-site sort guard). Set once, where the
+      -- user-call arm of 'bodyToPredM' builds the node, BEFORE
+      -- 'addCongruence' runs: a congruence fact can later fill
+      -- 'cvPostAssumption', so @isNothing cvPostAssumption@ is not this flag.
+      -- Every rebuild ('graftLeaves', the scrutinee rebuild,
+      -- 'addCongruence', 'prependLB', 'setCallVCContinuation') must pass it
+      -- through, never reset it. A future drop site added after the node is
+      -- built must set it too. False for the sealed builtins and for a callee
+      -- with no post (no authored hypothesis was dropped).
     }
   deriving (Show, Eq)
 
@@ -782,7 +811,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   builtinAxiomsRef <- newIORef ([] :: [(Text, [BuiltinAxiom])])  -- TRUST-AXIOM: per-fn sealed-builtin axioms
   groundFactsRef <- newIORef ([] :: [(Text, [Text])])  -- TRUST-AXIOM family C: per-fn ground-fact families
   bytesArrsRef <- newIORef (Map.empty :: Map Text (Set.Set Text))  -- ARR-RANGE-NAME: per-fn bytes evidence set
-  callBindersRef <- newIORef (Map.empty :: Map Text (Map Name (Name, Name)))  -- ABSTRACTION-VERDICT-1: per-fn binder → (callee, call result)
+  callBindersRef <- newIORef (Map.empty :: Map Text (Map Name CallBinder))  -- ABSTRACTION-VERDICT-1, CALLEE-POST-UNASSUMED-1: per-fn binder → call
 
   let freshCid = do
         n <- readIORef ctrRef
@@ -837,11 +866,11 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- map-free module keeps an empty list and emits no disclosure key.
   let addBuiltinAxioms n axs =
         unless (null axs) $ modifyIORef' builtinAxiomsRef (++ [(n, axs)])
-  -- ABSTRACTION-VERDICT-1: the call-result binders of one function's emitted
-  -- body VC, each with its callee and the call result it belongs to.
+  -- ABSTRACTION-VERDICT-1, CALLEE-POST-UNASSUMED-1: the call-result binders
+  -- of one function's emitted body VC, each with its call ('CallBinder').
   let addCallBinders n cbs =
         unless (null cbs) $ modifyIORef' callBindersRef
-          (Map.insertWith Map.union n (Map.fromList [ (b, (c, r)) | (b, c, r) <- cbs ]))
+          (Map.insertWith Map.union n (Map.fromList cbs))
   -- TRUST-AXIOM family C: the per-function recorder the bool-value wrapper uses.
   let addGroundFacts n fams =
         unless (null fams) $ modifyIORef' groundFactsRef (++ [(n, fams)])
@@ -1094,8 +1123,29 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                 [ (cal, Set.singleton root)
                 | bid <- conEnv c
                 , Just nm <- [Map.lookup bid bindNames]
-                , Just (cal, root) <- [Map.lookup nm bmap] ]
+                , Just b <- [Map.lookup nm bmap]
+                , cbAbstractable b
+                , let (cal, root) = (cbCallee b, cbRoot b) ]
         , (callee, _) : _ <- [ [ x | x@(_, roots) <- Map.toAscList perCallee, Set.size roots >= 2 ] ] ]
+      -- CALLEE-POST-UNASSUMED-1 (post-conj-split professor review P1, P8). A
+      -- constraint is marked when its environment holds the result of a call
+      -- whose callee post exists and was not assumed at that call
+      -- ('cvPostUnassumed'). The verifier dropped an authored hypothesis, so
+      -- an UNSAFE answer on it is a may-counterexample, not a disproof. The
+      -- whole (path-precise) environment, as 'abstracted' above, not the cone
+      -- of influence: the stated cost is that a wrong caller of such a callee
+      -- falls back too. The first marking callee by name is kept.
+      postUnassumed = Map.fromList
+        [ (conId c, callee)
+        | c <- keptCons
+        , Just owner <- [ownerOf c]
+        , Just bmap <- [Map.lookup owner callBinders]
+        , Just callee <- [ Set.lookupMin (Set.fromList
+                             [ cbCallee b
+                             | bid <- conEnv c
+                             , Just nm <- [Map.lookup bid bindNames]
+                             , Just b <- [Map.lookup nm bmap]
+                             , cbUnassumed b ]) ] ]
   return EmitResult
     { erFQFile            = fqFile
     , erFQText            = emitFQFile fqFile
@@ -1128,6 +1178,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
         , not (T.null n), not (n `Set.member` routed)
         , let fams = nub (concat [ fs | (m, fs) <- groundFacts, m == n ]) ]
     , erAbstracted         = abstracted
+    , erPostUnassumed      = postUnassumed
     , erMeasuredRecursive  =
         [ (n, i) | (n, i) <- Map.toList measuredIdx, n `Set.member` recursiveNames ]
     }
@@ -1154,7 +1205,7 @@ emitFnConstraints
   -> (Text -> IO ())       -- v0.9.0: record call-pre obligation
   -> (Text -> IO ())       -- INT-1: record overflow-tainted function
   -> (Text -> [BuiltinAxiom] -> IO ())  -- TRUST-AXIOM: record the sealed-builtin axioms this body VC assumed
-  -> (Text -> [(Name, Name, Name)] -> IO ())  -- ABSTRACTION-VERDICT-1: record the call-result binders
+  -> (Text -> [(Name, CallBinder)] -> IO ())  -- ABSTRACTION-VERDICT-1: record the call-result binders
   -> (Text -> [Text] -> IO ())          -- TRUST-AXIOM family C: record the ground-fact families
   -> (Text -> Set.Set Text -> IO ())   -- ARR-RANGE-NAME: record the bytes-typed array names
   -> IORef Int             -- body-VC alpha-renaming counter
@@ -4720,6 +4771,12 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
               , cvResultSort     = retSort
               , cvContinuation   = SimpleVC [] (FQVar resultVar)
               , cvCongKey        = congKey
+              -- CALLEE-POST-UNASSUMED-1: every drop site above (the PAIR-RET-2
+              -- guard, the LEVER-A1 bytes guard, the CALLEE-DATA-SORT-1 guard,
+              -- an untranslatable post, an uncovered map component) leaves
+              -- 'mPostSubst' Nothing. Read here, before 'addCongruence' can
+              -- fill 'cvPostAssumption' with a congruence fact.
+              , cvPostUnassumed  = isJust (contractPost contract) && isNothing mPostSubst
               }
 
 -- MINMAX-FRAG-1: `min`, `max` and `abs` reflect as their `if` definitions, as an
@@ -4844,7 +4901,7 @@ bodyToPredM env se cenv sccSet (EApp "bytes-get" [EVar b, iE]) = do
           -- routing the post through the parts changes no emitted constraint.
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-get" [bP, iP] [] (Just pre) (Just post) parts
-                             r FQInt (SimpleVC [] (FQVar r)) Nothing
+                             r FQInt (SimpleVC [] (FQVar r)) Nothing False
     _ -> return Nothing
 
 -- `bytes-set b i v` → the same exact-pinning shape at the array sort. The
@@ -4870,7 +4927,7 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
                   , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQApp "bytesLen" [bP])) ]
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-set" [bP, iP, vP] [] (Just pre) (Just post) parts
-                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
     _ -> return Nothing
 
 -- FACT-AG-LEN Stage 2 — `(bytes-zero)` at a declared `-> bytes[n]` return: the
@@ -4907,7 +4964,7 @@ bodyToPredM _ _ _ _ (EApp "bytes-zero" [ELit (LitInt n)]) = do
               , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit n)) ]
       post = conjoinAll (map snd parts)
   return . Just $ CallVC "bytes-zero" [] [] Nothing (Just post) parts
-                         r byteArraySort (SimpleVC [] (FQVar r)) Nothing
+                         r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
 
 -- Un-reified `(bytes-zero)` → the bare const array (probe p4). Dead on the
 -- PRODUCTION path: 'bodyToPredFromR' has exactly one production caller (the
@@ -4955,7 +5012,7 @@ bodyToPredM env se _ _ (EApp "map-get" [mE, kE]) =
           parts = [("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_select" [vl, k]))]
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "map-get" [h, vl, k] [] (Just pre) (Just post) parts
-                             r (mapSelValSort se vl) (SimpleVC [] (FQVar r)) Nothing
+                             r (mapSelValSort se vl) (SimpleVC [] (FQVar r)) Nothing False
     _ -> return Nothing
 
 -- Normalize EOp to EApp
@@ -5019,10 +5076,10 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
         mt <- graftLeaves seB t
         me <- graftLeaves seB e
         return (BranchVC g bs <$> mt <*> me)
-      graftLeaves seAcc (CallVC cal cargs cargEs mPre mPost pParts rVar rSort cont ck) = do
+      graftLeaves seAcc (CallVC cal cargs cargEs mPre mPost pParts rVar rSort cont ck pu) = do
         let seC = Map.insert rVar rSort seAcc
         mc <- graftLeaves seC cont
-        return ((\k -> CallVC cal cargs cargEs mPre mPost pParts rVar rSort k ck) <$> mc)
+        return ((\k -> CallVC cal cargs cargEs mPre mPost pParts rVar rSort k ck pu) <$> mc)
   case mRhsVC of
     Nothing -> return Nothing
     Just (SimpleVC [] rhsPred) -> do
@@ -5057,7 +5114,7 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
     -- user-written nested let — has a non-identity continuation; aliasing `v` to
     -- rVar there dropped the continuation and bound `v` to the bare call result
     -- (a false SAFE). Those RHS shapes take the leaf-graft path below.
-    Just (CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort cont ck)
+    Just (CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort cont ck pu)
       | isIdentityCont rVar cont -> do
       -- LEVER-A2.1: a map-returning callee (rSort == mapArraySort, the
       -- cross-call marker) binds its result as a SPLIT component pair — seed
@@ -5077,7 +5134,7 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
       mBodyVC <- bodyToPredM env' se' cenv sccSet body
       case mBodyVC of
         Nothing -> return Nothing
-        Just bvc -> return $ Just $ CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort bvc ck
+        Just bvc -> return $ Just $ CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort bvc ck pu
     -- LET-CALL-CONT-1: a call RHS with a non-identity continuation — the call
     -- node stays in place and the let body is grafted at each leaf of its
     -- continuation, each leaf binding `v` to what the RHS actually evaluates to.
@@ -5557,7 +5614,7 @@ flattenBodyVC (BranchVC guard _ thenVC elseVC) =
 -- result variable as let-binding into the continuation paths.
 -- The precondition obligation is emitted separately during constraint
 -- emission — it is NOT folded into the body-post constraint.
-flattenBodyVC (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultSort cont _) =
+flattenBodyVC (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultSort cont _ _) =
   let contPaths = flattenBodyVC cont
       -- Add result variable as a let-binding and postcondition as guard
       resultLB = LetBinding resultVar resultSort (FQVar resultVar)
@@ -5608,7 +5665,7 @@ pathBranchSides (SimpleVC _ _)             = [Nothing]
 pathBranchSides (BranchVC _ _ thenVC elseVC) =
   [Just True  | _ <- flattenBodyVC thenVC] ++
   [Just False | _ <- flattenBodyVC elseVC]
-pathBranchSides (CallVC _ _ _ _ _ _ _ _ cont _)  = pathBranchSides cont
+pathBranchSides (CallVC _ _ _ _ _ _ _ _ cont _ _)  = pathBranchSides cont
 
 -- | Count paths in a BodyVC tree with an upper bound.
 -- Stops counting once the limit is exceeded (avoids state explosion).
@@ -5621,7 +5678,7 @@ countPathsBounded limit = go
       in if tc >= limit then tc
          else let ec = go evc
               in min limit (tc + ec)
-    go (CallVC _ _ _ _ _ _ _ _ cont _) = go cont  -- v0.9.0: paths determined by continuation
+    go (CallVC _ _ _ _ _ _ _ _ cont _ _) = go cont  -- v0.9.0: paths determined by continuation
 
 -- | v0.9.0: Collect all call-pre obligations from a BodyVC tree.
 -- Returns (calleeName, preconditionPred, pathGuard) for each CallVC
@@ -5641,7 +5698,7 @@ countPathsBounded limit = go
 collectCallSites :: BodyVC -> [(Name, [FQPred])]
 collectCallSites (SimpleVC _ _)               = []
 collectCallSites (BranchVC _ _ t e)           = collectCallSites t ++ collectCallSites e
-collectCallSites (CallVC c args _ _ _ _ _ _ cont _) = (c, args) : collectCallSites cont
+collectCallSites (CallVC c args _ _ _ _ _ _ cont _ _) = (c, args) : collectCallSites cont
 
 -- | TRUST-AXIOM: the sealed-builtin axioms this body VC assumed.
 --
@@ -5668,7 +5725,7 @@ collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
   where
     go (SimpleVC _ _)     = []
     go (BranchVC _ _ t e) = go t ++ go e
-    go (CallVC c _ _ _ mPost pParts rVar _ cont _)
+    go (CallVC c _ _ _ mPost pParts rVar _ cont _ _)
       | Set.member c sealedAxiomBuiltins
       , Just post <- mPost = row c rVar post pParts : go cont
       | otherwise          = go cont
@@ -5703,7 +5760,7 @@ addCongruence = go []
   where
     go _ vc@(SimpleVC _ _) = vc
     go prior (BranchVC g bs t e) = BranchVC g bs (go prior t) (go prior e)
-    go prior (CallVC c args argEs mPre mPost pParts rv rs cont ck) =
+    go prior (CallVC c args argEs mPre mPost pParts rv rs cont ck pu) =
       let facts = case ck of
             Nothing -> []
             Just k  -> [ congruenceFact (snd k) args pArgs rv pRv
@@ -5712,7 +5769,7 @@ addCongruence = go []
           mPost' | null facts = mPost
                  | otherwise  = Just (conjoinAll (maybe [] pure mPost ++ facts))
           prior' = maybe prior (\k -> prior ++ [(k, args, rv)]) ck
-      in CallVC c args argEs mPre mPost' pParts rv rs (go prior' cont) ck
+      in CallVC c args argEs mPre mPost' pParts rv rs (go prior' cont) ck pu
 
 -- | CALL-CONGRUENCE-1: @not (a1 = b1 && ...) || r = r'@. A bool argument is
 -- compared by its iff encoding, because an argument term may be a predicate.
@@ -5728,26 +5785,49 @@ congruenceFact sorts as bs r r' =
        []  -> resEq
        eqs -> FQOr [FQNot (conjoinAll eqs), resEq]
 
--- | ABSTRACTION-VERDICT-1: every call-result binder of the emitted tree, as
--- @(binder, callee, call result)@. A map-returning call's split components
--- (@rv$has@, @rv$val@) are listed with their call result @rv@, so they count
--- as one call. The sealed builtins are excluded: their result is pinned by an
--- exact reflection ('sealedAxiomBuiltins'), so two reads of one array agree in
--- the theory already. Reads the emitted tree, as 'collectBuiltinAxioms' does,
--- so it inherits every activation gate of 'bodyToPredM'.
-collectCallBinders :: BodyVC -> [(Name, Name, Name)]
+-- | One call-result binder of the emitted tree. ABSTRACTION-VERDICT-1 and
+-- CALLEE-POST-UNASSUMED-1 read the same walk, each through its own flag.
+data CallBinder = CallBinder
+  { cbCallee       :: Name
+    -- ^ the callee as the call wrote it
+  , cbRoot         :: Name
+    -- ^ the call result this binder belongs to (itself, or @rv@ for a
+    -- map-returning call's @rv$has@ / @rv$val@ component)
+  , cbAbstractable :: Bool
+    -- ^ ABSTRACTION-VERDICT-1: not a sealed builtin and no congruence key
+  , cbUnassumed    :: Bool
+    -- ^ CALLEE-POST-UNASSUMED-1: the node's 'cvPostUnassumed'
+  } deriving (Show, Eq)
+
+-- | Every call-result binder of the emitted tree, keyed by binder. A
+-- map-returning call's split components (@rv$has@, @rv$val@) are listed with
+-- their call result @rv@, so they count as one call.
+--
+-- ABSTRACTION-VERDICT-1 ('cbAbstractable'): the sealed builtins are excluded,
+-- because their result is pinned by an exact reflection
+-- ('sealedAxiomBuiltins'), so two reads of one array agree in the theory
+-- already; a call with a congruence key is excluded too (CALL-CONGRUENCE-1:
+-- it has a fact for every earlier same-key call on its path).
+--
+-- CALLEE-POST-UNASSUMED-1 ('cbUnassumed'): every call, congruence-keyed or
+-- not, carries its node's flag. The sealed builtins always assume their
+-- reflection, so the flag is False there by construction.
+--
+-- Reads the emitted tree, as 'collectBuiltinAxioms' does, so it inherits every
+-- activation gate of 'bodyToPredM'.
+collectCallBinders :: BodyVC -> [(Name, CallBinder)]
 collectCallBinders (SimpleVC _ _)     = []
 collectCallBinders (BranchVC _ _ t e) = collectCallBinders t ++ collectCallBinders e
-collectCallBinders (CallVC c _ _ _ _ _ rv rs cont ck)
-  | Set.member c sealedAxiomBuiltins = collectCallBinders cont
-  -- CALL-CONGRUENCE-1: a call with a congruence key has a fact for every
-  -- earlier same-key call on its path ('addCongruence'), so a pair of such
-  -- calls is not abstracted and never marks a constraint.
-  | isJust ck = collectCallBinders cont
-  | otherwise =
-      (rv, c, rv)
-        : [ (rv <> sfx, c, rv) | isMapArrRetSort rs, sfx <- ["$has", "$val"] ]
-        ++ collectCallBinders cont
+collectCallBinders (CallVC c _ _ _ _ _ rv rs cont ck pu) =
+  [ (b, cb) | b <- rv : [ rv <> sfx | isMapArrRetSort rs, sfx <- ["$has", "$val"] ] ]
+    ++ collectCallBinders cont
+  where
+    cb = CallBinder
+      { cbCallee       = c
+      , cbRoot         = rv
+      , cbAbstractable = not (Set.member c sealedAxiomBuiltins) && isNothing ck
+      , cbUnassumed    = pu
+      }
 
 -- OBLIG-D4: each obligation also carries the call's SURFACE argument vector,
 -- which names the call site (two calls to one callee from one body are
@@ -5758,7 +5838,7 @@ collectCallPreObligations = go FQTrue []
     go _guard _calls (SimpleVC _ _) = []
     go guard calls (BranchVC g _ thenVC elseVC) =
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
-    go guard calls (CallVC callee _args argEs mPre mPost _pParts rVar rSort cont _) =
+    go guard calls (CallVC callee _args argEs mPre mPost _pParts rVar rSort cont _ _) =
       let preObligs = case mPre of
             -- F-NIW-4b: attach the path's let-bindings (which prependLB has pushed
             -- into the leaf of `cont`) so a precondition referencing a let-bound
@@ -5782,7 +5862,7 @@ collectDescentSites = go FQTrue []
     go _guard _calls (SimpleVC _ _) = []
     go guard calls (BranchVC g _ thenVC elseVC) =
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
-    go guard calls (CallVC callee args _argEs _mPre mPost _pParts rVar rSort cont _) =
+    go guard calls (CallVC callee args _argEs _mPre mPost _pParts rVar rSort cont _ _) =
       let here    = [(callee, args, guard, calls, subtreeLbs cont)]
           calls'  = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
       in here ++ go guard calls' cont
@@ -5837,7 +5917,7 @@ renderCallSite params args =
 subtreeLbs :: BodyVC -> [LetBinding]
 subtreeLbs (SimpleVC lbs _)          = lbs
 subtreeLbs (BranchVC _ _ t e)        = subtreeLbs t ++ subtreeLbs e
-subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont _) = subtreeLbs cont
+subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont _ _) = subtreeLbs cont
 
 -- | COMP-3b-general: every match-introduced binder (synthetic guard + arm
 -- payloads) carried in a 'BranchVC' binder field across the whole VC tree, so the
@@ -5851,7 +5931,7 @@ subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont _) = subtreeLbs cont
 collectBranchBinders :: BodyVC -> [(Name, FQSort, FQPred)]
 collectBranchBinders (SimpleVC _ _)            = []
 collectBranchBinders (BranchVC _ bs t e)       = bs ++ collectBranchBinders t ++ collectBranchBinders e
-collectBranchBinders (CallVC _ _ _ _ _ _ _ _ cont _) = collectBranchBinders cont
+collectBranchBinders (CallVC _ _ _ _ _ _ _ _ cont _ _) = collectBranchBinders cont
 
 -- | F-NIW-4b: the subset of candidate let-bindings whose RHS free variables are
 -- all already in scope (params ∪ prior-call results ∪ already-included lbs),
@@ -6563,8 +6643,8 @@ congStrArgVars cenv e0 =
 prependLB :: LetBinding -> BodyVC -> BodyVC
 prependLB lb (SimpleVC lbs r) = SimpleVC (lb : lbs) r
 prependLB lb (BranchVC g bs t e) = BranchVC g bs (prependLB lb t) (prependLB lb e)
-prependLB lb (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck) =
-  CallVC cal args argEs mPre mPost pParts rVar rSort (prependLB lb cont) ck  -- v0.9.0
+prependLB lb (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck pu) =
+  CallVC cal args argEs mPre mPost pParts rVar rSort (prependLB lb cont) ck pu  -- v0.9.0
 
 prependLBs :: [LetBinding] -> BodyVC -> BodyVC
 prependLBs lbs bvc = foldr prependLB bvc lbs
@@ -6582,9 +6662,9 @@ prependLBs lbs bvc = foldr prependLB bvc lbs
 -- mismatch the input is returned unchanged; the caller checks
 -- 'isIdentityCont' first and falls back.
 setCallVCContinuation :: BodyVC -> BodyVC -> BodyVC
-setCallVCContinuation (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck) newCont
+setCallVCContinuation (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck pu) newCont
   | isIdentityCont rVar cont =
-  CallVC cal args argEs mPre mPost pParts rVar rSort newCont ck
+  CallVC cal args argEs mPre mPost pParts rVar rSort newCont ck pu
 setCallVCContinuation bvc _newCont = bvc  -- no-op for non-CallVC (shouldn't happen)
 
 -- | LET-CALL-CONT-1: is this CallVC continuation the identity — no let

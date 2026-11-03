@@ -330,6 +330,16 @@ def test_an_unknown_cause_fails_rather_than_folding_silently(tmp_path):
     assert "unknown fallback cause" in r.stdout and "brand-new-cause" in r.stdout
 
 
+def test_the_post_solver_causes_are_known_buckets(tmp_path):
+    # ABSTRACTION-VERDICT-1 and CALLEE-POST-UNASSUMED-1 are decided after the
+    # solver; both are in KNOWN_CAUSES, so neither is reported unknown.
+    files = {"cpu.llmll": ok([], {"use-it": "callee-post-unassumed", "h": "abstraction-unsafe"},
+                             {"use-it": "def-shell", "h": "def-shell"})}
+    repo = make_repo(tmp_path, files)
+    r = run_census(tmp_path, repo, "--no-ratchet")
+    assert "unknown fallback cause" not in r.stdout, r.stdout
+
+
 def test_a_missing_baseline_fails_rather_than_skipping(tmp_path):
     repo = make_repo(tmp_path, POPULATION)
     r = run_census(tmp_path, repo)

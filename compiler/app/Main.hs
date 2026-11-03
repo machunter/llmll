@@ -70,7 +70,7 @@ import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache
 import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, runFQSolver, resourceStopText, resourceStopValue, fqPathFor, runDirFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, getSolverLimits, renderLimits, parseLimits, runSolverGuarded, installSolverSignalHandlers)
 -- ABSTRACTION-VERDICT-1: every solver consumer that turns UNSAFE into a claim
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, abstractionConstruct)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns, abstractionConstruct, postUnassumedConstruct)
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
@@ -1655,6 +1655,10 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               fqResult = aoResult avOut
               emitR    = aoEmit avOut
               abstractionFns = aoReclassified avOut
+              -- CALLEE-POST-UNASSUMED-1: the functions the same rule moved
+              -- because a failing constraint holds a call whose callee post
+              -- was not assumed.
+              unassumedFns   = aoUnassumed avOut
               -- VERIFY-RPT-1 (Commit 4): refuted functions = body-faithful fns
               -- named by the constraint-table origin of each unsafe id.
               bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
@@ -1735,9 +1739,14 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- ABSTRACTION-VERDICT-1: the 'body-faithful:' line printed before the
           -- solver named these functions, so say that they fell back, and print
           -- the W-BODY-FALLBACK warning the verdict layer added.
-          unless (json || null abstractionFns) $ do
-            TIO.putStrLn $ "   abstraction fallback: "
-              <> T.intercalate ", " [ f <> " (" <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
+          -- CALLEE-POST-UNASSUMED-1: the same for the second cause.
+          unless (json || (null abstractionFns && null unassumedFns)) $ do
+            unless (null abstractionFns) $
+              TIO.putStrLn $ "   abstraction fallback: "
+                <> T.intercalate ", " [ f <> " (" <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
+            unless (null unassumedFns) $
+              TIO.putStrLn $ "   callee-post fallback: "
+                <> T.intercalate ", " [ f <> " (" <> postUnassumedConstruct g <> ")" | (f, g) <- unassumedFns ]
             mapM_ (\d -> TIO.putStrLn $ "   ⚠️  " <> diagMessage d)
                   (drop (length (erDiagnostics emitR0)) (erDiagnostics emitR))
 
@@ -1786,6 +1795,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 ++ [ "abstraction_fallback" .= object
                        [ K.fromText f .= abstractionConstruct g | (f, g) <- abstractionFns ]
                    | not (null abstractionFns) ]
+                -- CALLEE-POST-UNASSUMED-1: the twin key for the second cause,
+                -- present only when non-empty.
+                ++ [ "post_unassumed_fallback" .= object
+                       [ K.fromText f .= postUnassumedConstruct g | (f, g) <- unassumedFns ]
+                   | not (null unassumedFns) ]
                 -- GENERICS-1 (verification step 7): the JSON twin of the
                 -- count line, only when a generic is declared or reached, so
                 -- every other program's verdict object is unchanged.
@@ -2211,11 +2225,16 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 -- ABSTRACTION-VERDICT-1: a function the rule reclassified fell
                 -- back AFTER the pre-solver gate read the fallback list, so
                 -- conjunct (a) is enforced here or not at all.
-                absFns   = map fst abstractionFns
+                -- CALLEE-POST-UNASSUMED-1: the same for the second cause, each
+                -- function rendered with its own cause and construct.
+                absFns   = aoFallbackFns avOut
                 absMsg   = T.pack (show (length absFns))
                   <> " function(s) fell back from body-faithful verification: "
-                  <> T.intercalate ", " [ f <> " (" <> renderFallbackCause FallbackAbstraction <> ", "
-                                          <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
+                  <> T.intercalate ", " (
+                       [ f <> " (" <> renderFallbackCause FallbackAbstraction <> ", "
+                           <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
+                    ++ [ f <> " (" <> renderFallbackCause FallbackCalleePostUnassumed <> ", "
+                           <> postUnassumedConstruct g <> ")" | (f, g) <- unassumedFns ])
             when (trustReport && not obligationReport) $
               if json
                 then nest "trust_report" (formatTrustReportJson stReport)
@@ -2398,7 +2417,8 @@ checkCDPCandidate gm lfBin typeDefs wc = do
       -- answer is not a disproof, so the candidate is unvalidated.
       raw <- runFQSolver lfBin ["-q", "--json", fqPath]   -- VERIFY-BUDGET-1
       let av = applyAbstractionVerdict emitR raw
-      if syntheticName `elem` map fst (aoReclassified av)
+      -- CALLEE-POST-UNASSUMED-1: nor is a kill through a dropped callee post.
+      if syntheticName `elem` aoFallbackFns av
         then pure Nothing
         else case aoResult av of
           FQSafe -> pure (Just True)
@@ -2976,7 +2996,8 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
             -- to one callee to disagree falls back; it is not refuted.
             let av = applyAbstractionVerdict emitR raw
             case aoResult av of
-              FQSafe | fname `elem` map fst (aoReclassified av) -> pure FSOutsideFragment
+              -- CALLEE-POST-UNASSUMED-1: either cause, not only abstraction.
+              FQSafe | fname `elem` aoFallbackFns av            -> pure FSOutsideFragment
                      | otherwise                                -> pure FSVerified
               FQUnsafe _ -> pure FSRefuted
               FQError _  -> pure FSUnavailable

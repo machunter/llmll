@@ -304,12 +304,29 @@ mkBodyFallbackWarning fnName cause labels wildCtors =
                else " Bind the payload of " <> T.intercalate ", " (map quoted wildCtors)
                     <> " by name to verify the body."
       msg = "W-BODY-FALLBACK: '" <> fnName <> "' fell back from body-faithful "
-            <> "verification (" <> cause <> "), so its post is assumed and not "
-            <> "proved. Refused by: " <> labelText <> "." <> repair
+            <> "verification (" <> cause <> ")" <> bodyFallbackTail cause
+            <> " Refused by: " <> labelText <> "." <> repair
   in (mkWarning Nothing msg)
        { diagCode = Just "W-BODY-FALLBACK"
        , diagKind = Just "body-fallback-cause"
        }
+
+-- | CALLEE-POST-UNASSUMED-1: the 'W-BODY-FALLBACK' tail after @(<cause>)@,
+-- by rendered cause. "Its post is assumed" is false for a refused post (no
+-- caller assumes it) and only conditionally true for a refused pre or a
+-- signature-level or map-result refusal, so those causes state the call-site
+-- effect instead. Every other cause keeps the original bytes.
+bodyFallbackTail :: Text -> Text
+bodyFallbackTail cause = case cause of
+  "contract-post-outside-fragment" ->
+    ", so its post is not proved, and callers do not assume it."
+  "contract-pre-outside-fragment" ->
+    ", so its post is not proved, and a function that calls it falls back."
+  "contract-signature-outside-fragment" -> conditional
+  "map-result-components-unbound"       -> conditional
+  _ -> ", so its post is assumed and not proved."
+  where
+    conditional = ", so its post is not proved, and a caller assumes it only where the verifier can translate it at the call."
 
 -- | DECREASES-LEN-1 (W-DECREASES-UNDISCHARGED): a self-recursive def-shell
 -- declares a (decreases …) measure, but its body fell back, so no descent

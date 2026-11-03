@@ -1,0 +1,10 @@
+(def-shell all-pos? [xs: list[int]] -> bool
+  (list-fold xs true (fn [acc: bool x: int] (and acc (> x 0)))))
+
+(def-shell pos-or-one [n: int] -> int
+  (post (and (>= result 5) (all-pos? [result])))
+  (if (> n 0) n 1))
+
+(def-shell use-it [n: int] -> int
+  (post (>= result 2))
+  (+ (pos-or-one n) 1))

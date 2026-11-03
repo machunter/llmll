@@ -1,0 +1,4 @@
+(import xlib)
+(def-shell use-it [n: int] -> int
+  (post (>= result 2))
+  (+ (xlib.pos-only n) 1))
