@@ -64,7 +64,7 @@ count of each, measured 2026-08-11:
 | 7 | PROC-BOUNDARY-1 | 59 | argv arrives on `RList`, `:done?` exits 42, a starved program exits 70 |
 | 8 | DRIVER-LL 4a-4c | 24 | the sequencer cover, 11 transition cells and 3 manifest shapes |
 | 9 | DRIVER-LL 4e | 26 | the wave cover, 7 cells |
-| 10 | DRIFT-CI-1 | 34 | `versiongate.llmll` decides the version gate, 14 cover cells |
+| 10 | DRIFT-CI-1 | 34 | `versiongate.llmll` decides the version gate, 16 cover cells |
 
 **Three stages have no number in the subject.** JSON-SCALAR-1 at line 561,
 PROC-MERGE-1 at line 619 and PROC-STDIN-1 at line 686 sit under a bare rule of
