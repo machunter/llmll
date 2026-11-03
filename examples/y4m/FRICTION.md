@@ -192,7 +192,7 @@ Two places need to move between a byte value and text:
 ### F9. Child output only goes to a file; fixed temp paths; capability not checked. new (capability part: CAP-1-REAL)
 
 - `wasi.proc.exec` can send a child's stdout only to a path. So the program
-  writes `/tmp/llmll-y4m-od.txt` and `/tmp/llmll-y4m-hex.txt`. There is no
+  writes two fixed files in /tmp, llmll-y4m-od.txt and llmll-y4m-hex.txt. There is no
   temp-file builtin, so two runs at the same time would overwrite each
   other's files.
 - `main.llmll` declares `(capability exec "/usr/bin/od")` and also runs
