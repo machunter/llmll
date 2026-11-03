@@ -4,6 +4,43 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.35.1)
+
+### `CALLEE-POST-UNASSUMED-1`: a correct caller is not `refuted` when a callee `post` was not assumed
+
+- **A correct caller is no longer reported `refuted` when a callee's `post` was not assumed at
+  the call.** A callee post outside the fragment, or a conjunct a call-site sort guard drops,
+  left the call result with no fact, and the solver's UNSAFE answer was read as a disproof.
+  When every failing constraint of a function holds the result of such a call, the function now
+  falls back with cause `callee-post-unassumed` and its post is assumed. It shares the
+  `ABSTRACTION-VERDICT-1` path; a function whose every failing constraint has the abstraction
+  mark keeps `abstraction-unsafe`.
+- **The construct is `post-unassumed:app:<callee>`**, qualified for an imported callee
+  (`post-unassumed:app:xlib.pos-only`). `verify` prints
+  `callee-post fallback: <fn> (post-unassumed:app:<callee>)`, and `W-BODY-FALLBACK` adds "The
+  solver's counterexample may need a fact from the post of '<callee>', which the verifier did
+  not assume at this call. A callee post is assumed only when all of it is inside the decidable
+  fragment." `verify --json` gains the optional key `post_unassumed_fallback`
+  (`{<fn>: "post-unassumed:app:<callee>"}`). `--strict-verified-core` still refuses such a file
+  (exit 1); in every measured case the callee's own fallback refuses it before the solver runs. `patch --require-proof` refuses such a fill with
+  `PatchNotProved`.
+- **The `W-BODY-FALLBACK` text depends on the cause.** "Its post is assumed" was false for a
+  refused contract. `contract-post-outside-fragment` now ends "so its post is not proved, and
+  callers do not assume it."; `contract-pre-outside-fragment` ends "…and a function that calls
+  it falls back."; `contract-signature-outside-fragment` and `map-result-components-unbound` end
+  "…and a caller assumes it only where the verifier can translate it at the call." Every other
+  cause keeps its text.
+- **The cost:** a caller that is wrong only where the callee's unassumed post would decide it
+  (`scripts/tests/fixtures/callee_post_unassumed/samecons.llmll`) now falls back instead of
+  being refuted. A caller wrong for another reason (`wrongother.llmll`), or whose callee post is
+  assumed in full (`fullwrong.llmll`), is still refuted.
+- `docs/proof-artifact.schema.json` adds `callee-post-unassumed` to the `fallback_reason` enum,
+  and `docs/llmll-verify.schema.json` adds `post_unassumed_fallback`. No version changes:
+  `checker_soundness_version` "6", `verify_json_version` 1.0.0, `trust_report_version` 1.10.0,
+  `proof_artifact_version` 0.1.0, JSON-AST 0.15.0. `scripts/fallback_census.py` knows the cause.
+
+**Tests:** hspec 2968 → 2986, 0 failures; Python 689 → 708 passed, 10 skipped.
+
 ## v0.35.1: liquid-fixpoint 0.9.6.3.7 is the pinned solver; CI is green again (2026-11-02)
 
 ### `FIXPOINT-UPGRADE-1`: `llmll` runs on liquid-fixpoint 0.9.6.3.4 and later
