@@ -724,6 +724,14 @@ notProvedMessage f
   "'" <> pfName f <> "' was not proved: the counterexample needs two calls to '"
     <> g <> "' to return different values, which the verifier does not rule out ("
     <> c <> "). Its postcondition was assumed."
+  -- CALLEE-POST-UNASSUMED-1: the solver answered UNSAFE too, and the construct
+  -- names a callee whose post was dropped, not a construct to rewrite away.
+  | pfCause f == Just (renderFallbackCause FallbackCalleePostUnassumed)
+  , (c : _) <- pfConstructs f
+  , let g = fromMaybe c (T.stripPrefix "post-unassumed:app:" c) =
+  "'" <> pfName f <> "' was not proved: the solver answered UNSAFE, but the failing constraint uses the result of '"
+    <> g <> "', whose post was not assumed at that call (" <> c
+    <> "). Its postcondition was assumed."
 notProvedMessage f =
   "'" <> pfName f <> "' passed the solver but was not proved: "
     <> fromMaybe "fallback" (pfCause f)

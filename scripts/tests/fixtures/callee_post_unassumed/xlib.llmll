@@ -1,0 +1,7 @@
+(module xlib
+  (export all-pos? pos-only)
+  (def-shell all-pos? [xs: list[int]] -> bool
+    (list-fold xs true (fn [acc: bool x: int] (and acc (> x 0)))))
+  (def-shell pos-only [n: int] -> int
+    (post (all-pos? [result]))
+    (if (> n 0) n 1)))

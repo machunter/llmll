@@ -54,6 +54,7 @@
     "body_fallback_causes": { "type": "object", "additionalProperties": { "type": "string" } },
     "body_fallback_constructs": { "type": "object" },
     "abstraction_fallback": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^abstraction:app:" }, "description": "ABSTRACTION-VERDICT-1: present only when non-empty. Each function the solver answered UNSAFE only through constraints holding two or more call results of one callee, mapped to `abstraction:app:<callee>`. Such a function is not refuted: it falls back (cause `abstraction-unsafe`) and its post is assumed. `solver_verdict` is the effective verdict after this reclassification." },
+    "post_unassumed_fallback": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^post-unassumed:app:" }, "description": "CALLEE-POST-UNASSUMED-1: present only when non-empty. Each function the solver answered UNSAFE only through constraints holding the result of a call whose callee `post` the verifier did not assume at that call (and not every failing constraint carrying the abstraction mark), mapped to `post-unassumed:app:<callee>`. Such a function is not refuted: it falls back (cause `callee-post-unassumed`) and its post is assumed. `solver_verdict` is the effective verdict after this reclassification." },
     "resource_limit": {
       "type": "object",
       "required": ["kind", "limit_mb", "limit_s", "peak_mb", "elapsed_s"],

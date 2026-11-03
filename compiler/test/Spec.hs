@@ -35,7 +35,7 @@ import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, 
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
-import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkTrustGapDeclaredWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8, formatParseDiagSExp)
+import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkTrustGapDeclaredWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8, formatParseDiagSExp, mkBodyFallbackWarning)
 import qualified Data.ByteString as BSS
 import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
@@ -93,7 +93,7 @@ import LLMLL.DivergenceCheck
   , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson, fillStatusLabel
   , verdictLabel, probeSet )
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchedFn(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, applyPatchWithMode, PatchScopeMode(..), hasContracts, patchTargetFns, notProvedMessage)
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
 import LLMLL.CDP
@@ -11505,7 +11505,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             body = EApp "g" [ELit (LitInt 42)]
             (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
         case result of
-          Just (CallVC callee args _argEs mPre _mPost _pParts _rVar rSort _cont _) -> do
+          Just (CallVC callee args _argEs mPre _mPost _pParts _rVar rSort _cont _ _) -> do
             callee `shouldBe` "g"
             args `shouldBe` [FQLit 42]
             mPre `shouldBe` Just (FQBinPred FQGe (FQLit 42) (FQLit 0))
@@ -11534,7 +11534,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             body = EApp "g" [ELit (LitInt 42)]
             (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
         case result of
-          Just (CallVC _ _ _ mPre mPost _ _ _ _ _) -> do
+          Just (CallVC _ _ _ mPre mPost _ _ _ _ _ _) -> do
             mPre `shouldBe` Nothing
             mPost `shouldSatisfy` isJust
           other -> expectationFailure $ "Expected CallVC, got: " ++ show other
@@ -11546,7 +11546,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
                     []
                     "_r" FQInt
-                    (SimpleVC [] (FQVar "_r")) Nothing
+                    (SimpleVC [] (FQVar "_r")) Nothing False
             obligs = collectCallPreObligations bvc
         length obligs `shouldBe` 1
         let (callee, prePred, guard, ctxCalls, _pathLbs, _argEs) = head obligs
@@ -11560,7 +11560,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
                     []
                     "_r" FQInt
-                    (SimpleVC [] (FQVar "_r")) Nothing
+                    (SimpleVC [] (FQVar "_r")) Nothing False
         collectCallPreObligations bvc `shouldBe` []
 
       -- F-NIW-4: a later call's obligation carries the prior call's (rVar, sort,
@@ -11571,10 +11571,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             inner = CallVC "g" [FQVar "_r1"] []
                       (Just (FQBinPred FQGe (FQVar "_r1") (FQLit 5)))  -- 2nd pre references _r1
                       (Just (FQBinPred FQGe (FQVar "_r2") (FQLit 0)))
-                      [] "_r2" FQInt (SimpleVC [] (FQVar "_r2")) Nothing
+                      [] "_r2" FQInt (SimpleVC [] (FQVar "_r2")) Nothing False
             outer = CallVC "f" [FQLit 9] []
                       (Just (FQBinPred FQGe (FQLit 9) (FQLit 0)))
-                      (Just post1) [] "_r1" FQInt inner Nothing
+                      (Just post1) [] "_r1" FQInt inner Nothing False
             obligs = collectCallPreObligations outer
         length obligs `shouldBe` 2
         let (_, _, _, ctx0, _, _) = obligs !! 0
@@ -11716,7 +11716,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = Map.fromList [("x", FQInt)] :: SortEnv
             (_, result) = bodyToPredFrom 0 se cenv Set.empty body
         case result of
-          Just (CallVC callee _ _ _ _ _ _ _ cont _) -> do
+          Just (CallVC callee _ _ _ _ _ _ _ cont _ _) -> do
             callee `shouldBe` "g"
             -- Continuation should be a BranchVC (the match)
             case cont of
@@ -22251,7 +22251,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       causeOf "r" er `shouldBe` Nothing
       erBodyFaithfulFns er `shouldBe` ["r"]
 
-    it "the closed vocabulary is eleven values and renderFallbackCause stays injective" $ do
+    it "the closed vocabulary is twelve values and renderFallbackCause stays injective" $ do
       -- MAP-RET-POST-1 added the ninth: 'FallbackUnboundMapResult'.
       -- FQ-FREEVAR-GUARD-1 added the tenth: 'FallbackUnboundSymbols', the
       -- general form of the same defect, decided over the assembled file rather
@@ -22262,8 +22262,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- scripts/fallback_census.py, or the census reports it as an unknown
       -- bucket. This cell is what caught the guard's census script edit.
       let cs = [minBound .. maxBound] :: [FallbackCause]
-      length cs `shouldBe` 11
-      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 11
+      -- CALLEE-POST-UNASSUMED-1 added the twelfth:
+      -- 'FallbackCalleePostUnassumed', decided after the solver on the same
+      -- path as 'FallbackAbstraction'.
+      length cs `shouldBe` 12
+      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 12
 
     it "a nonlinear post names the operator, not the whole clause" $ do
       -- SIGMA-CONST-ARITH-1: (* n 2) is admitted now; (* n n) is still refused.
@@ -24124,6 +24127,215 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       staysRefuted "(def-shell g [min: (fn [int int] -> int) a: int b: int] -> int (post (<= result a)) (min a b))" "g"
 
   -- -----------------------------------------------------------------------
+  -- CALLEE-POST-UNASSUMED-1 (post-conj-split professor review P1, P8): a
+  -- constraint whose environment holds the result of a call whose callee post
+  -- exists and was not assumed at that call is marked at emission
+  -- ('erPostUnassumed'). An UNSAFE answer whose every failing id of a function
+  -- carries a mark (this one or the abstraction one) reclassifies the function
+  -- to the fallback outcome on the ABSTRACTION-VERDICT-1 path. The cause is
+  -- abstraction-unsafe when every failing id carries the abstraction mark,
+  -- and callee-post-unassumed otherwise.
+  -- -----------------------------------------------------------------------
+  describe "CALLEE-POST-UNASSUMED-1 an UNSAFE answer through a dropped callee post is a fallback" $ do
+    let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left e   -> error (show e)
+          Right ss -> ss
+        emitSrc src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+        allPos  = "(def-shell all-pos? [xs: list[int]] -> bool (list-fold xs true (fn [acc: bool x: int] (and acc (> x 0)))))\n"
+        posOnly = "(def-shell pos-only [n: int] -> int (post (all-pos? [result])) (if (> n 0) n 1))\n"
+        useOf g = "(def-shell use-it [n: int] -> int (post (>= result 2)) (+ (" ++ g ++ " n) 1))"
+        posOr k = "(def-shell pos-or-one [n: int] -> int (post (and (>= result " ++ k ++ ") (all-pos? [result]))) (if (> n 0) n 1))\n"
+        whole      = allPos ++ posOnly ++ useOf "pos-only"
+        rneed      = allPos ++ posOr "0" ++ useOf "pos-or-one"
+        splitW     = allPos ++ posOr "1" ++ useOf "pos-or-one"
+        bad        = allPos ++ posOr "5" ++ useOf "pos-or-one"
+        only       = "(def-shell pos-one [n: int] -> int (post (>= result 1)) (if (> n 0) n 1))\n" ++ useOf "pos-one"
+        fullwrong  = "(def-shell pos-one [n: int] -> int (post (>= result 1)) (if (> n 0) n 1))\n(def-shell use-it [n: int] -> int (post (>= result 3)) (+ (pos-one n) 1))"
+        wrongother = allPos ++ posOnly ++ "(def-shell use-it [n: int] -> int (post (>= result 2)) (if (> n 100) 0 (+ (pos-only n) 1)))"
+        samecons   = allPos ++ posOnly ++ "(def-shell use-it [n: int] -> int (post (>= result 2)) (let [[x (pos-only n)]] 0))"
+        sg1        = "(def mk [x: int] -> Result[list[int], string] (post (is-ok result)) (ok [x]))\n(def-shell use [x: int] -> int (post (>= result 1)) (match (mk x) ((Success v) 1) ((Error e) 0)))"
+        twice      = allPos ++ posOnly ++ "(def-shell use2 [n: int] -> int (post (>= result 4)) (+ (pos-only n) (+ (pos-only n) 2)))"
+        origins er = [ (i, coFunction o, coClause o) | (i, o) <- Map.toList (erConstraintTable er) ]
+        idsOf er fn clauseP = [ i | (i, f, c) <- origins er, f == fn, clauseP c ]
+        isBodyPost c = "body-post" `T.isPrefixOf` c
+        marked er = erPostUnassumed er
+        solved src k = do
+          er <- emitSrc src
+          tmp <- getTemporaryDirectory
+          (fqPath, h) <- SIO.openTempFile tmp "callee-post-unassumed.fq"
+          SIO.hClose h
+          TIO.writeFile fqPath (erFQText er)
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just lf -> do
+              (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
+              removeFile fqPath
+              k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
+        fellBack er' fn g = do
+          lookup fn (erBodyFallbackCauses er') `shouldBe` Just FallbackCalleePostUnassumed
+          lookup fn (erFallbackConstructs er') `shouldBe` Just ["post-unassumed:app:" <> g]
+          erBodyFaithfulFns er' `shouldNotSatisfy` elem fn
+
+    it "CPU-1 whole: use-it's body-post id carries callee pos-only; nothing carries the abstraction mark" $ do
+      er <- emitSrc whole
+      let posts = idsOf er "use-it" isBodyPost
+      posts `shouldSatisfy` (not . null)
+      [ Map.lookup i (marked er) | i <- posts ] `shouldBe` map (const (Just "pos-only")) posts
+      erAbstracted er `shouldBe` Map.empty
+      erBodyFaithfulFns er `shouldSatisfy` elem "use-it"
+
+    it "CPU-2 only: a callee post assumed in full marks nothing" $ do
+      er <- emitSrc only
+      marked er `shouldBe` Map.empty
+
+    it "CPU-3 wrongother: the then-branch id (no call on its path) is not marked; the else-branch id is" $ do
+      er <- emitSrc wrongother
+      let thens = idsOf er "use-it" (== "body-post-then")
+          elses = idsOf er "use-it" (== "body-post-else")
+      length thens `shouldBe` 1
+      length elses `shouldBe` 1
+      [ Map.lookup i (marked er) | i <- thens ++ elses ] `shouldBe` [Nothing, Just "pos-only"]
+
+    it "CPU-4 sg1: a post dropped by the CALLEE-DATA-SORT-1 guard marks the match-scrutinee call" $ do
+      er <- emitSrc sg1
+      let posts = idsOf er "use" isBodyPost
+      [ g | i <- posts, Just g <- [Map.lookup i (marked er)] ] `shouldSatisfy` (\gs -> not (null gs) && all (== "mk") gs)
+      erAbstracted er `shouldBe` Map.empty
+
+    it "CPU-5 an uncontracted callee, a function-typed parameter and a map-get read mark nothing" $ do
+      er1 <- emitSrc "(def-shell plain [n: int] -> int (+ n 1))\n(def-shell u1 [n: int] -> int (post (>= result 0)) (plain n))"
+      er2 <- emitSrc "(def-shell gw [min: (fn [int int] -> int) a: int b: int] -> int (post (<= result a)) (min a b))"
+      er3 <- emitSrc "(def-shell mg [m: map[int,int] k: int] -> int (pre (map-has m k)) (post (>= result 0)) (map-get m k))"
+      erBodyFaithfulFns er1 `shouldSatisfy` elem "u1"
+      erBodyFaithfulFns er2 `shouldSatisfy` elem "gw"
+      erBodyFaithfulFns er3 `shouldSatisfy` elem "mg"
+      map marked [er1, er2, er3] `shouldBe` [Map.empty, Map.empty, Map.empty]
+
+    it "CPU-6 two congruence-keyed calls with a refused post: the ids are marked, and not abstracted" $ do
+      er <- emitSrc twice
+      let posts = idsOf er "use2" isBodyPost
+      posts `shouldSatisfy` (not . null)
+      [ Map.lookup i (marked er) | i <- posts ] `shouldBe` map (const (Just "pos-only")) posts
+      [ i | i <- posts, Map.member i (erAbstracted er) ] `shouldBe` []
+
+    it "CPU-7 the CallVC node only: an uncovered map-result component (alias-hidden map return) sets cvPostUnassumed" $ do
+      let post  = EApp "map-has" [EVar "result", ELit (LitInt 1)]
+          c     = Contract Nothing Nothing (Just post) Nothing Nothing [] []
+          cenv  = Map.fromList [("mk", ([("x", TInt)], c, Just (TCustom "M")))]
+          (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty (EApp "mk" [ELit (LitInt 1)])
+      -- the post translates, so the drop is the uncovered-component site
+      fmap (T.isInfixOf "result$has" . T.pack . show) (exprToPred post) `shouldBe` Just True
+      case result of
+        Just CallVC { cvPostAssumption = mp, cvPostUnassumed = pu } -> do
+          mp `shouldBe` Nothing
+          pu `shouldBe` True
+        other -> expectationFailure ("Expected CallVC, got: " ++ show other)
+
+    it "CPU-8 every failing id marked: FQSafe; use-it falls back with cause callee-post-unassumed and one W-BODY-FALLBACK" $ do
+      er <- emitSrc whole
+      let ids = idsOf er "use-it" isBodyPost
+          av  = applyAbstractionVerdict er (FQUnsafe ids)
+          er' = aoEmit av
+      aoResult av `shouldBe` FQSafe
+      aoReclassified av `shouldBe` []
+      aoUnassumed av `shouldBe` [("use-it", "pos-only")]
+      aoFallbackFns av `shouldBe` ["use-it"]
+      renderFallbackCause FallbackCalleePostUnassumed `shouldBe` "callee-post-unassumed"
+      fellBack er' "use-it" "pos-only"
+      let ws = [ diagMessage d | d <- drop (length (erDiagnostics er)) (erDiagnostics er'), diagCode d == Just "W-BODY-FALLBACK" ]
+      ws `shouldBe`
+        [ "W-BODY-FALLBACK: 'use-it' fell back from body-faithful verification (callee-post-unassumed), so its post is assumed and not proved. Refused by: post-unassumed:app:pos-only. The solver's counterexample may need a fact from the post of 'pos-only', which the verifier did not assume at this call. A callee post is assumed only when all of it is inside the decidable fragment." ]
+
+    it "CPU-9 the cause: one abstraction-only id plus one unassumed-only id is callee-post-unassumed; all abstraction ids stay abstraction-unsafe" $ do
+      er <- emitSrc whole
+      case [ (i, o) | i <- idsOf er "use-it" isBodyPost, Just o <- [Map.lookup i (erConstraintTable er)] ] of
+        [(i1, o1)] -> do
+          -- id 9001 is a second failing id of use-it carrying only the
+          -- abstraction mark; i1 carries only the new mark
+          let er2 = er { erAbstracted = Map.fromList [(9001, "g")]
+                       , erPostUnassumed = Map.fromList [(i1, "pos-only")]
+                       , erConstraintTable = Map.insert 9001 o1 (erConstraintTable er) }
+              av2 = applyAbstractionVerdict er2 (FQUnsafe [9001, i1])
+          aoResult av2 `shouldBe` FQSafe
+          aoUnassumed av2 `shouldBe` [("use-it", "pos-only")]
+          aoReclassified av2 `shouldBe` []
+          -- both ids carry the abstraction mark (one also the new mark):
+          -- today's output, unchanged
+          let er3 = er2 { erAbstracted = Map.fromList [(9001, "g"), (i1, "g")] }
+              av3 = applyAbstractionVerdict er3 (FQUnsafe [9001, i1])
+          aoReclassified av3 `shouldBe` [("use-it", "g")]
+          aoUnassumed av3 `shouldBe` []
+          lookup "use-it" (erBodyFallbackCauses (aoEmit av3)) `shouldBe` Just FallbackAbstraction
+          lookup "use-it" (erFallbackConstructs (aoEmit av3)) `shouldBe` Just ["abstraction:app:g"]
+        other -> expectationFailure ("expected one body-post id, got " ++ show (map fst other))
+
+    it "CPU-10 wrongother: the unmarked failing id keeps every id; use-it is not reclassified" $ do
+      er <- emitSrc wrongother
+      let ids = idsOf er "use-it" isBodyPost
+          av  = applyAbstractionVerdict er (FQUnsafe ids)
+      aoResult av `shouldBe` FQUnsafe ids
+      aoFallbackFns av `shouldBe` []
+      erBodyFaithfulFns (aoEmit av) `shouldSatisfy` elem "use-it"
+
+    it "CPU-11 a marked decreases id reclassifies and emits W-DECREASES-UNDISCHARGED" $ do
+      let src = allPos ++ posOnly ++ "(def-shell fd [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (= n 0) 0 (fd (- (+ n (pos-only n)) (pos-only n)))))"
+      er <- emitSrc src
+      let decIds = idsOf er "fd" (== "descent")
+      decIds `shouldSatisfy` (not . null)
+      [ Map.lookup i (marked er) | i <- decIds ] `shouldSatisfy` all (== Just "pos-only")
+      let av  = applyAbstractionVerdict er (FQUnsafe decIds)
+          er' = aoEmit av
+      aoResult av `shouldBe` FQSafe
+      aoUnassumed av `shouldBe` [("fd", "pos-only")]
+      [ d | d <- erDiagnostics er', diagCode d == Just "W-DECREASES-UNDISCHARGED" ] `shouldSatisfy` ((== 1) . length)
+
+    it "CPU-12 W-BODY-FALLBACK states the call-site effect by cause (byte-exact tails)" $ do
+      let msg c = diagMessage (mkBodyFallbackWarning "f" c ["x"] [])
+          pre c = "W-BODY-FALLBACK: 'f' fell back from body-faithful verification (" <> c <> ")"
+      msg "contract-post-outside-fragment" `shouldBe`
+        pre "contract-post-outside-fragment" <> ", so its post is not proved, and callers do not assume it. Refused by: x."
+      msg "contract-pre-outside-fragment" `shouldBe`
+        pre "contract-pre-outside-fragment" <> ", so its post is not proved, and a function that calls it falls back. Refused by: x."
+      forM_ ["contract-signature-outside-fragment", "map-result-components-unbound"] $ \c ->
+        msg c `shouldBe` pre c <> ", so its post is not proved, and a caller assumes it only where the verifier can translate it at the call. Refused by: x."
+      forM_ ["body-outside-fragment", "path-cap-exceeded", "mixed-map-tail", "unfilled-hole", "constraint-symbols-unbound", "abstraction-unsafe", "callee-post-unassumed"] $ \c ->
+        msg c `shouldBe` pre c <> ", so its post is assumed and not proved. Refused by: x."
+
+    it "CPU-13 the patch notProved message for cause callee-post-unassumed names the callee, not a rewrite" $ do
+      let m = notProvedMessage (PatchedFn "use-it" False (Just "callee-post-unassumed") ["post-unassumed:app:pos-only"])
+      m `shouldBe` "'use-it' was not proved: the solver answered UNSAFE, but the failing constraint uses the result of 'pos-only', whose post was not assumed at that call (post-unassumed:app:pos-only). Its postcondition was assumed."
+      m `shouldNotSatisfy` T.isInfixOf "Rewrite the body"
+
+    it "CPU-14 mkFnRecord accepts tier asserted, not refuted, fallback_reason callee-post-unassumed" $
+      isRight (mkFnRecord (FnInputs "use-it" TAsserted [] (Just "callee-post-unassumed") False Nothing)) `shouldBe` True
+
+    it "CPU-15 solver: whole, rneed, split and bad reclassify to FQSafe with cause callee-post-unassumed" $
+      forM_ [(whole, "pos-only"), (rneed, "pos-or-one"), (splitW, "pos-or-one"), (bad, "pos-or-one")] $ \(src, g) ->
+        solved src $ \_ av -> do
+          aoResult av `shouldBe` FQSafe
+          aoUnassumed av `shouldBe` [("use-it", g)]
+          fellBack (aoEmit av) "use-it" g
+
+    it "CPU-16 solver: sg1 (the CALLEE-DATA-SORT-1 drop) reclassifies to FQSafe" $
+      solved sg1 $ \_ av -> do
+        aoResult av `shouldBe` FQSafe
+        aoUnassumed av `shouldBe` [("use", "mk")]
+
+    it "CPU-17 solver: wrongother and fullwrong stay UNSAFE at use-it" $
+      forM_ [wrongother, fullwrong] $ \src -> solved src $ \er av -> do
+        aoFallbackFns av `shouldBe` []
+        case aoResult av of
+          FQUnsafe ids -> [ coFunction o | i <- ids, Just o <- [Map.lookup i (erConstraintTable er)] ] `shouldSatisfy` elem "use-it"
+          r            -> expectationFailure ("expected UNSAFE, got " <> show r)
+
+    it "CPU-18 solver: samecons (a wrong caller whose goal ignores the call) reclassifies: the stated cost" $
+      solved samecons $ \_ av -> do
+        aoResult av `shouldBe` FQSafe
+        aoUnassumed av `shouldBe` [("use-it", "pos-only")]
+
+  -- -----------------------------------------------------------------------
   -- CALL-CONGRUENCE-1 (docs/design/ffi-determinism-proposal.md Rev 1, Part 3):
   -- for each pair of calls with one congruence key on one path, the later
   -- call's assumed post gains (args_i = args_j) => (r_i = r_j). Such calls
@@ -24141,7 +24353,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         w5   = "(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))"
         kInt = Just ("g", [FQInt])
         leaf r = SimpleVC [] (FQVar r)
-        call k a r p cont = CallVC "g" [a] [] Nothing (Just p) [] r FQInt cont k
+        call k a r p cont = CallVC "g" [a] [] Nothing (Just p) [] r FQInt cont k False
         p1 = FQBinPred FQGe (FQVar "_r1") (FQLit 0)
         p2 = FQBinPred FQGe (FQVar "_r2") (FQLit 0)
         postOf (CallVC { cvPostAssumption = m }) = m

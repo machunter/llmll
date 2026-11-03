@@ -1,0 +1,7 @@
+(def-shell pos-one [n: int] -> int
+  (post (>= result 1))
+  (if (> n 0) n 1))
+
+(def-shell use-it [n: int] -> int
+  (post (>= result 3))
+  (+ (pos-one n) 1))

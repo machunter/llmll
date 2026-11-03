@@ -1,0 +1,7 @@
+(def mk [x: int] -> Result[list[int], string]
+  (post (is-ok result))
+  (ok [x]))
+
+(def-shell use [x: int] -> int
+  (post (>= result 1))
+  (match (mk x) ((Success v) 1) ((Error e) 0)))

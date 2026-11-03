@@ -86,6 +86,9 @@ KNOWN_CAUSES = (
     # ABSTRACTION-VERDICT-1: decided after the solver. The post is assumed, so
     # it stays in the ratio's denominator.
     "abstraction-unsafe",
+    # CALLEE-POST-UNASSUMED-1: decided after the solver, on the same path. A
+    # post exists and is assumed, so it stays in the ratio's denominator.
+    "callee-post-unassumed",
 )
 
 # Outcomes worth confirming alone before they are believed: each depends on the
