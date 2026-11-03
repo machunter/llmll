@@ -1,0 +1,203 @@
+;; main — command-line entry for the y4m probe.
+;;
+;;   main info  IN                 width, height, frame rate, frame count
+;;   main frame IN N OUT.pgm       luma plane of frame N (from 0) as binary PGM
+;;   main hflip IN OUT.y4m         mirror every plane left to right
+;;   main crop  IN X Y W H OUT.y4m the W x H window at (X, Y); X and Y even
+;;
+;; LLMLL cannot read or write bytes (FRICTION F1), so the program runs two
+;; helper processes:
+;;   od -An -v -tu1 IN  > /tmp/llmll-y4m-od.txt     bytes -> decimal text
+;;   xxd -r -p /tmp/llmll-y4m-hex.txt OUT           hex text -> bytes
+;;
+;; A `cli` loop over the Command/Response model. State = (phase, (args, msg)):
+;;   phase 0 want args           -> RList args   : run od
+;;   phase 1 od running          -> RCode 0      : read its output
+;;   phase 2 reading od output   -> RText text   : decode, transform, encode;
+;;                                                 info is done here
+;;   phase 3 writing hex         -> RNone        : run xxd
+;;   phase 4 xxd running         -> RCode 0      : done
+;;   phase 5 done, 6 failed
+;; The decisions with a contract worth proving (command lookup, argument
+;; count, frame index, termination, exit status) are defs and verify.
+
+(import wasi.io   (capability stdout :deterministic false))
+(import wasi.fs   (capability read-write "/tmp"))
+(import wasi.proc (capability exec "/usr/bin/od"))
+(import raster)
+(open raster)
+(import hdr)
+(open hdr)
+(import xform)
+(open xform)
+(import y4m)
+(open y4m)
+
+(type State (int, (list[string], string)))
+
+;; ─── Verified decisions ─────────────────────────────────────────────────
+
+;; Command name -> code; 0 = unknown.  1 info  2 frame  3 hflip  4 crop
+(def cmd-code [name: string] -> int
+  (post (and (>= result 0) (and (<= result 4)
+        (and (=> (= name "info") (= result 1))
+        (and (=> (= name "frame") (= result 2))
+        (and (=> (= name "hflip") (= result 3))
+        (and (=> (= name "crop") (= result 4))
+             (=> (= result 0) (and (!= name "info") (and (!= name "frame")
+                                   (and (!= name "hflip") (!= name "crop"))))))))))))
+  (if (= name "info") 1 (if (= name "frame") 2 (if (= name "hflip") 3 (if (= name "crop") 4 0)))))
+
+;; Number of arguments, the command name included.
+(def cmd-argc [code: int] -> int
+  (pre  (and (>= code 1) (<= code 4)))
+  (post (and (=> (= code 1) (= result 2)) (and (=> (= code 2) (= result 4))
+        (and (=> (= code 3) (= result 3)) (=> (= code 4) (= result 7))))))
+  (if (= code 1) 2 (if (= code 2) 4 (if (= code 3) 3 7))))
+
+(def frame-index-ok? [n: int count: int] -> bool
+  (post (= result (and (>= n 0) (< n count))))
+  (and (>= n 0) (< n count)))
+
+(def st-phase [s: State] -> int
+  (post (= result (first s)))
+  (first s))
+
+(def finished? [s: State] -> bool
+  (post (= result (>= (first s) 5)))
+  (>= (first s) 5))
+
+(def exit-code [s: State] -> int
+  (post (and (>= result 0) (and (<= result 255)
+        (and (=> (= (first s) 5) (= result 0)) (=> (= (first s) 6) (= result 1))))))
+  (if (= (first s) 6) 1 0))
+
+;; ─── Glue ───────────────────────────────────────────────────────────────
+
+(def-shell od-path [] -> string "/tmp/llmll-y4m-od.txt")
+(def-shell hex-path [] -> string "/tmp/llmll-y4m-hex.txt")
+
+(def-shell st-args [s: State] -> list[string] (first (second s)))
+(def-shell st-msg  [s: State] -> string (second (second s)))
+(def-shell mk [phase: int args: list[string] msg: string] -> State
+  (pair phase (pair args msg)))
+
+(def-shell arg [args: list[string] i: int] -> string
+  (unwrap-or (list-nth args i) ""))
+
+(def-shell usage [] -> string
+  "usage: main info IN | frame IN N OUT.pgm | hflip IN OUT.y4m | crop IN X Y W H OUT.y4m\n")
+
+;; Decimal digits only (string-to-int alone also accepts a sign).
+(def-shell parse-nat [tok: string] -> Result[int, string]
+  (if (regex-match "^[0-9]+$" tok)
+      (string-to-int tok)
+      (err (string-concat-many ["not a non-negative integer: '" tok "'"]))))
+
+(def-shell nat-arg [args: list[string] i: int] -> int
+  (unwrap-or (parse-nat (arg args i)) -1))
+
+;; Arguments are well formed: a known command, the right count, and the
+;; integer arguments are naturals.
+(def-shell args-problem [args: list[string]] -> string
+  (let [(code (cmd-code (arg args 0)))]
+    (if (= code 0)
+        (usage)
+        (if (not (= (list-length args) (cmd-argc code)))
+            (string-concat-many [(arg args 0) ": wrong number of arguments\n" (usage)])
+            (if (and (= code 2) (< (nat-arg args 2) 0))
+                "frame: N must be a non-negative integer\n"
+                (if (and (= code 4) (or (< (nat-arg args 2) 0) (or (< (nat-arg args 3) 0)
+                                    (or (< (nat-arg args 4) 0) (< (nat-arg args 5) 0)))))
+                    "crop: X Y W H must be non-negative integers\n"
+                    ""))))))
+
+(def-shell info-text [v: Video] -> string
+  (let [(hd (vid-hdr v))]
+    (string-concat-many
+      ["width: " (int-to-string (hdr-w hd)) "\n"
+       "height: " (int-to-string (hdr-h hd)) "\n"
+       "frame rate: " (int-to-string (hdr-rn hd)) "/" (int-to-string (hdr-rd hd)) "\n"
+       "frames: " (int-to-string (list-length (vid-frames v))) "\n"])))
+
+;; Turn 2: decoded file -> (Success "") for info's text in msg, or hex text.
+;; Answers (is-info, text).
+(def-shell process [args: list[string] text: string] -> Result[(bool, string), string]
+  (match (decode text)
+    ((Error e) (err (string-concat-many [(arg args 1) ": " e])))
+    ((Success v)
+      (let [(code (cmd-code (arg args 0)))
+            (hd (vid-hdr v)) (w (hdr-w hd)) (h (hdr-h hd))
+            (frames (vid-frames v))]
+        (if (= code 1)
+            (ok (pair true (info-text v)))
+        (if (= code 2)
+            (let [(n (nat-arg args 2))]
+              (if (frame-index-ok? n (list-length frames))
+                  (match (list-nth frames n)
+                    ((Success fr) (ok (pair false (encode-pgm w h (unwrap-or (list-head fr) (list-empty))))))
+                    ((Error e) (err e)))
+                  (err (string-concat-many ["frame " (int-to-string n) " does not exist: the stream has "
+                                            (int-to-string (list-length frames)) " frames"]))))
+        (if (= code 3)
+            (ok (pair false (encode-y4m v w h (list-map frames hflip-frame))))
+            (let [(x0 (nat-arg args 2)) (y0 (nat-arg args 3)) (cw (nat-arg args 4)) (ch (nat-arg args 5))]
+              (if (crop-ok? w h x0 y0 cw ch)
+                  (ok (pair false (encode-y4m v cw ch
+                        (list-map frames (fn [fr: list[list[list[int]]]]
+                          (map-planes fr (fn [p: int pl: list[list[int]]] (crop-plane x0 y0 cw ch p pl))))))))
+                  (err (string-concat-many ["crop window " (int-to-string cw) "x" (int-to-string ch)
+                                            "+" (int-to-string x0) "+" (int-to-string y0)
+                                            " must have an even corner and lie inside the "
+                                            (int-to-string w) "x" (int-to-string h) " frame"])))))))))))
+
+(def-shell fail [args: list[string] msg: string] -> (State, Command)
+  (pair (mk 6 args msg) (wasi.io.stdout "")))
+
+(def-shell step [s: State r: Response] -> (State, Command)
+  (let [(args (st-args s)) (ph (st-phase s))]
+    (match r
+      ((RList xs)
+        (let [(prob (args-problem xs))]
+          (if (not (= prob ""))
+              (fail xs prob)
+              (pair (mk 1 xs "")
+                    (wasi.proc.exec "/usr/bin/od" ["-An" "-v" "-tu1" (arg xs 1)]
+                      (proc-stdout (proc-spec 600) (od-path)))))))
+      ((RCode n)
+        (if (= ph 1)
+            (if (= n 0)
+                (pair (mk 2 args "") (wasi.fs.read (od-path)))
+                (fail args (string-concat-many ["cannot read " (arg args 1) "\n"])))
+            (if (= n 0)
+                (pair (mk 5 args (string-concat-many [(arg args 0) " " (arg args 1) " -> "
+                                                      (arg args (- (list-length args) 1)) "\n"]))
+                      (wasi.io.stdout ""))
+                (fail args "xxd failed\n"))))
+      ((RText text)
+        (match (process args text)
+          ((Error e) (fail args (string-concat e "\n")))
+          ((Success out)
+            (if (first out)
+                (pair (mk 5 args (second out)) (wasi.io.stdout ""))
+                (pair (mk 3 args "") (wasi.fs.write (hex-path) (second out)))))))
+      ((RNone)
+        (if (= ph 3)
+            (pair (mk 4 args "")
+                  (wasi.proc.exec "/usr/bin/xxd" ["-r" "-p" (hex-path) (arg args (- (list-length args) 1))]
+                    (proc-spec 600)))
+            (fail args "y4m: unexpected empty response\n")))
+      ((RErr e)
+        (fail args (string-concat-many ["y4m: " e "\n"]))))))
+
+(def-shell report [s: State] -> Command
+  (if (= (st-phase s) 5)
+      (wasi.io.stdout (st-msg s))
+      (wasi.io.stderr (st-msg s))))
+
+(def-main :mode cli
+  :init    (pair (mk 0 (list-empty) "") wasi.proc.args)
+  :step    step
+  :done?   finished?
+  :on-done report
+  :status  exit-code)

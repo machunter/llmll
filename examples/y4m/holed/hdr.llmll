@@ -1,0 +1,97 @@
+;; hdr — LEVEL 0 of the y4m verified core. Imports nothing.
+;;
+;; Decisions on the bytes of the stream header line
+;;   YUV4MPEG2 W<w> H<h> F<n>:<d> [I.] [A.] [C<cs>] [X...] LF
+;; Bytes are ints 0..255 (the language has no byte type that a file read can
+;; produce; see FRICTION F1). The shell splits the line at spaces and folds
+;; each token's digits through num-step; every decision is here.
+;;
+;; A parsed number is an int with two sentinels:
+;;   -1  no digit seen yet (the field is empty or the token is absent)
+;;   -2  malformed (a byte that is not a digit)
+;;  >=0  the decimal value
+
+;; ASCII '0'..'9'.
+(def is-digit? [b: int] -> bool
+  (post (= result (and (>= b 48) (<= b 57))))
+  ?is-digit-body)
+
+;; One step of a decimal fold. Rejects a step that drops the old value, one
+;; that accepts a non-digit, and one that revives a malformed number.
+(def num-step [v: int b: int] -> int
+  (pre  (>= v -2))
+  (post (and (>= result -2)
+        (and (=> (= v -2) (= result -2))
+        (and (=> (and (> v -2) (or (< b 48) (> b 57))) (= result -2))
+        (and (=> (and (= v -1) (and (>= b 48) (<= b 57))) (= result (- b 48)))
+             (=> (and (>= v 0) (and (>= b 48) (<= b 57)))
+                 (and (= result (+ (* 10 v) (- b 48))) (>= result v))))))))
+  ?num-step-body)
+
+;; Parameter tag from a token's first byte:
+;;   1 W  2 H  3 F  4 I  5 A  6 C  7 X   0 anything else (ignored)
+(def param-tag [b: int] -> int
+  (post (and (>= result 0) (and (<= result 7)
+        (and (= (= result 1) (= b 87))
+        (and (= (= result 2) (= b 72))
+        (and (= (= result 3) (= b 70))
+        (and (= (= result 4) (= b 73))
+        (and (= (= result 5) (= b 65))
+        (and (= (= result 6) (= b 67))
+             (= (= result 7) (= b 88)))))))))))
+  ?param-tag-body)
+
+;; Byte i of the magic "YUV4MPEG2".
+(def magic-byte [i: int] -> int
+  (pre  (and (>= i 0) (<= i 8)))
+  (post (and (=> (= i 0) (= result 89)) (and (=> (= i 1) (= result 85))
+        (and (=> (= i 2) (= result 86)) (and (=> (= i 3) (= result 52))
+        (and (=> (= i 4) (= result 77)) (and (=> (= i 5) (= result 80))
+        (and (=> (= i 6) (= result 69)) (and (=> (= i 7) (= result 71))
+             (=> (= i 8) (= result 50)))))))))))
+  ?magic-byte-body)
+
+;; A C parameter names a 4:2:0 layout when its value starts with "420"
+;; (420jpeg, 420paldv, 420mpeg2, 420). b1 b2 b3 are the three bytes after
+;; the C, or -1 when the value is shorter.
+(def chroma-420? [b1: int b2: int b3: int] -> bool
+  (post (= result (and (= b1 52) (and (= b2 50) (= b3 48)))))
+  ?chroma-420-body)
+
+;; The first fault of a parsed header, in this order (0 = none):
+;;   1 W missing   2 W malformed   3 H missing   4 H malformed
+;;   5 W not in 1..16384           6 H not in 1..16384
+;;   7 F missing   8 F malformed (not n:d)       9 F has a zero term
+;;  10 C is not 4:2:0
+;; w, h, rn, rd are parsed numbers (sentinels above); c420 is false only
+;; when a C parameter is present and is not 4:2:0.
+;; Rejects an order that reports the size before a malformed H, a range
+;; that admits 0 or 16385, and one that admits a 0 denominator.
+(def header-problem [w: int h: int rn: int rd: int c420: bool] -> int
+  (post (and (>= result 0) (and (<= result 10)
+        (and (=> (= w -1) (= result 1))
+        (and (=> (< w -1) (= result 2))
+        (and (=> (and (>= w 0) (= h -1)) (= result 3))
+        (and (=> (and (>= w 0) (< h -1)) (= result 4))
+        (and (=> (and (>= w 0) (and (>= h 0) (or (< w 1) (> w 16384)))) (= result 5))
+        (and (=> (and (and (>= w 1) (<= w 16384)) (and (>= h 0) (or (< h 1) (> h 16384))))
+                 (= result 6))
+        (and (=> (and (and (>= w 1) (<= w 16384)) (and (and (>= h 1) (<= h 16384))
+                      (and (= rn -1) (= rd -1))))
+                 (= result 7))
+        (and (=> (and (and (>= w 1) (<= w 16384)) (and (and (>= h 1) (<= h 16384))
+                      (and (not (and (= rn -1) (= rd -1))) (or (< rn 0) (< rd 0)))))
+                 (= result 8))
+        (and (=> (and (and (>= w 1) (<= w 16384)) (and (and (>= h 1) (<= h 16384))
+                      (and (and (>= rn 0) (>= rd 0)) (or (= rn 0) (= rd 0)))))
+                 (= result 9))
+        (and (=> (and (and (>= w 1) (<= w 16384)) (and (and (>= h 1) (<= h 16384))
+                      (and (and (>= rn 1) (>= rd 1)) (not c420))))
+                 (= result 10))
+        (and (=> (= result 0)
+                 (and (>= w 1) (and (<= w 16384) (and (>= h 1) (and (<= h 16384)
+                 (and (>= rn 1) (and (>= rd 1) c420)))))))
+             (=> (and (and (>= w 1) (<= w 16384)) (and (and (>= h 1) (<= h 16384))
+                      (and (>= rn 1) (and (>= rd 1) c420))))
+                 (= result 0))))))))))))))))
+  ?header-problem-body)

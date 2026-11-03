@@ -1,0 +1,33 @@
+;; probe read FILE   : wasi.fs.read on a binary file
+;; probe od ODTEXT   : time od text -> list[int] alone
+(import wasi.io   (capability stdout :deterministic false))
+(import wasi.fs   (capability read "."))
+(import wasi.proc (capability args :deterministic false))
+
+(def-shell od-bytes [text: string] -> list[int]
+  (list-map
+    (list-filter (string-split " " (regex-replace-all "[ \n\t]+" text " "))
+                 (fn [t: string] (not (string-empty? t))))
+    (fn [t: string] (unwrap-or (string-to-int t) 0))))
+
+(def-shell step [s: (int, list[string]) r: Response] -> ((int, list[string]), Command)
+  (match r
+    ((RList xs) (pair (pair 1 xs) (wasi.fs.read (unwrap-or (list-nth xs 1) ""))))
+    ((RText t)
+      (if (= (unwrap-or (list-nth (second s) 0) "") "od")
+          (pair (pair 2 (second s)) (wasi.io.stdout (string-concat (int-to-string (list-length (od-bytes t))) " bytes\n")))
+          (pair (pair 2 (second s)) (wasi.io.stdout (string-concat (int-to-string (string-length t)) " chars\n")))))
+    ((RErr e) (pair (pair 3 (second s)) (wasi.io.stdout (string-concat-many ["RErr: " e "\n"]))))
+    ((RNone) (pair (pair (+ 2 (first s)) (second s)) (wasi.io.stdout "")))
+    (_ (pair (pair 3 (second s)) (wasi.io.stdout "other\n")))))
+
+(def-shell done? [s: (int, list[string])] -> bool (>= (first s) 4))
+(def-shell code [s: (int, list[string])] -> int (if (= (first s) 4) 0 1))
+(def-shell fin [s: (int, list[string])] -> Command (wasi.io.stdout ""))
+
+(def-main :mode cli
+  :init    (pair (pair 0 (list-empty)) wasi.proc.args)
+  :step    step
+  :done?   done?
+  :on-done fin
+  :status  code)

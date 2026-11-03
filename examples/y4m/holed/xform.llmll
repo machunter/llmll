@@ -1,0 +1,73 @@
+;; xform — LEVEL 1 of the y4m verified core.
+;; Depends on: raster (level 0). Verify raster.llmll first.
+;;
+;; Index maps and bounds for the frame transforms, and the byte arithmetic
+;; of the output encoders.
+;;
+;;   hflip  output column x of a row of a pw-wide plane comes from input
+;;          column (hflip-src pw x). The shell reads the row as a
+;;          map[int,int] (column -> sample), because list-nth is O(n).
+;;   crop   the window (x0, y0, cw, ch) on the Y plane, and the window
+;;          (x0/2, y0/2, ceil(cw/2), ceil(ch/2)) on U and V. x0 and y0 must be
+;;          even, so each output chroma sample is the one that covered the
+;;          same 2x2 luma block in the input. The shell walks the input in
+;;          raster order and keeps a sample when crop-keep? says so, so the
+;;          output comes out in raster order with no index arithmetic.
+
+(import raster)
+(open raster)
+
+;; ─── Horizontal flip ────────────────────────────────────────────────────
+;; Rejects the off-by-one (- pw x).
+(def hflip-src [pw: int x: int] -> int
+  (pre  (and (>= pw 1) (and (>= x 0) (< x pw))))
+  (post (and (>= result 0) (and (< result pw) (= (+ result x) (- pw 1)))))
+  ?hflip-src-body)
+
+;; ─── Crop ───────────────────────────────────────────────────────────────
+;; The window lies in the w x h frame, and its corner is even.
+;; Rejects (< (+ x0 cw) w) (a window flush with the right edge) and a test
+;; that forgets the evenness of y0.
+(def crop-ok? [w: int h: int x0: int y0: int cw: int ch: int] -> bool
+  (post (= result (and (>= x0 0) (and (>= y0 0) (and (= (mod x0 2) 0) (and (= (mod y0 2) 0)
+                  (and (>= cw 1) (and (>= ch 1)
+                  (and (<= (+ x0 cw) w) (<= (+ y0 ch) h))))))))))
+  ?crop-ok-body)
+
+;; The input sample at (y, x) of plane p is inside the crop window.
+;; Rejects a chroma window of (/ cw 2) columns (an odd cw loses a column),
+;; and a chroma window at x0 rather than x0/2.
+(def crop-keep? [p: int y: int x: int x0: int y0: int cw: int ch: int] -> bool
+  (pre  (and (>= p 0) (and (<= p 2) (and (>= x0 0) (and (>= y0 0)
+        (and (>= cw 1) (>= ch 1)))))))
+  (post (and (=> (= p 0) (= result (and (and (<= x0 x) (< x (+ x0 cw)))
+                                        (and (<= y0 y) (< y (+ y0 ch))))))
+             (=> (> p 0) (= result (and (and (<= (/ x0 2) x) (< x (+ (/ x0 2) (/ (+ cw 1) 2))))
+                                        (and (<= (/ y0 2) y) (< y (+ (/ y0 2) (/ (+ ch 1) 2)))))))))
+  ?crop-keep-body)
+
+;; With an even corner, the chroma window lies inside the chroma plane of
+;; the input. A lemma: its body is `true`, and its post is the fact.
+(def crop-chroma-fits [n: int c0: int cn: int] -> bool
+  (pre  (and (>= n 1) (and (>= c0 0) (and (= (mod c0 2) 0) (and (>= cn 1) (<= (+ c0 cn) n))))))
+  (post (and result (<= (+ (/ c0 2) (/ (+ cn 1) 2)) (/ (+ n 1) 2))))
+  ?crop-chroma-fits-body)
+
+;; ─── Output bytes ───────────────────────────────────────────────────────
+;; High and low hex digit of a byte (the shell writes hex and lets xxd -r -p
+;; turn it into bytes; see FRICTION F1).
+(def hex-hi [b: int] -> int
+  (pre  (and (>= b 0) (<= b 255)))
+  (post (and (>= result 0) (and (<= result 15) (= result (/ b 16)))))
+  ?hex-hi-body)
+
+(def hex-lo [b: int] -> int
+  (pre  (and (>= b 0) (<= b 255)))
+  (post (and (>= result 0) (and (<= result 15) (= b (+ (* 16 (/ b 16)) result)))))
+  ?hex-lo-body)
+
+;; ASCII code of a decimal digit (for the W and H fields of a written header).
+(def digit-code [d: int] -> int
+  (pre  (and (>= d 0) (<= d 9)))
+  (post (and (>= result 48) (and (<= result 57) (= result (+ 48 d)))))
+  ?digit-code-body)

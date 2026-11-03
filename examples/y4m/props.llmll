@@ -1,0 +1,62 @@
+;; props — property tests across the verified core (run with `llmll test`).
+;; Depends on: raster, hdr, xform. Each property states a fact over many
+;; calls, which no single post can say (there are no quantifiers). Inputs
+;; are mapped into the callee's pre with mod, not filtered by a guard.
+
+(import raster)
+(open raster)
+(import hdr)
+(open hdr)
+(import xform)
+(open xform)
+
+;; Walk the cursor over one frame of w x h: answers (end-count, (p, (y, x))).
+(def-shell walk-frame [w: int h: int] -> (int, (int, (int, int)))
+  (pre  (and (>= w 1) (>= h 1)))
+  (let [(cw (chroma-dim w)) (ch (chroma-dim h))]
+    (list-fold (range 0 (+ (* w h) (* 2 (* cw ch)))) (pair 0 (pair 0 (pair 0 0)))
+      (fn [s: (int, (int, (int, int))) k: int]
+        (let [(p (first (second s))) (y (first (second (second s)))) (x (second (second (second s))))]
+          (pair (+ (first s) (if (frame-end? w h p y x) 1 0))
+                (pair (next-p w h p y x) (pair (next-y w h p y x) (next-x w h p y x)))))))))
+
+;; Kept samples of one row of plane p.
+(def-shell kept-in-row [p: int pw: int y: int x0: int y0: int cw: int ch: int] -> int
+  (pre  (and (>= p 0) (and (<= p 2) (and (>= x0 0) (and (>= y0 0) (and (>= cw 1) (>= ch 1)))))))
+  (list-fold (range 0 pw) 0
+    (fn [n: int x: int] (if (crop-keep? p y x x0 y0 cw ch) (+ n 1) n))))
+
+(check "one frame's cursor walk has one frame end and returns to (0,0,0)" :subject next-p
+  (for-all [a: int b: int]
+    (let [(w (+ 1 (mod (abs a) 9))) (h (+ 1 (mod (abs b) 9)))]
+      (= (walk-frame w h) (pair 1 (pair 0 (pair 0 0)))))))
+
+(check "hflip-src is an involution" :subject hflip-src
+  (for-all [a: int b: int]
+    (let [(pw (+ 1 (mod (abs a) 50))) (x (mod (abs b) (+ 1 (mod (abs a) 50))))]
+      (= (hflip-src pw (hflip-src pw x)) x))))
+
+(check "a crop keeps cw luma and ceil(cw/2) chroma samples per kept row" :subject crop-keep?
+  (for-all [a: int b: int c: int]
+    (let [(w (+ 2 (mod (abs a) 30)))
+          (x0 (* 2 (mod (abs b) (/ w 2))))
+          (cw (+ 1 (mod (abs c) (- w x0))))]
+      (and (= (kept-in-row 0 w 0 x0 0 cw 1) cw)
+           (and (= (kept-in-row 1 (chroma-dim w) 0 x0 0 cw 1) (chroma-dim cw))
+                (crop-chroma-fits w x0 cw))))))
+
+(check "num-step folds the decimal digits of n to n" :subject num-step
+  (for-all [a: int]
+    (let [(n (abs a))]
+      (= (list-fold (list-map (regex-find-all "[0-9]" (int-to-string n))
+                      (fn [g: list[string]] (digit-code (max 0 (min 9 (unwrap-or (string-to-int (unwrap-or (list-head g) "0")) 0))))))
+                    -1 (fn [v: int b: int] (num-step v b)))
+         n))))
+
+(check "marker-step accepts FRAME LF and FRAME with parameters, and rejects FRAMEX" :subject marker-step
+  (for-all [a: int]
+    (let [(q (+ 33 (mod (abs a) 90)))
+          (run (fn [bs: list[int]] (list-fold bs 0 (fn [k: int b: int] (if (or (= k -1) (= k 6)) k (marker-step k b))))))]
+      (and (= (run [70 82 65 77 69 10]) 6)
+           (and (= (run [70 82 65 77 69 32 q q 10]) 6)
+                (= (run [70 82 65 77 69 88 10]) -1))))))
