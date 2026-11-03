@@ -1,0 +1,125 @@
+;; raster — LEVEL 0 of the y4m verified core. Imports nothing.
+;;
+;; The layout of one 4:2:0 frame payload, and the FRAME marker.
+;;
+;;   plane p = 0 (Y), 1 (U), 2 (V)
+;;   plane 0 is w x h; planes 1 and 2 are ((w+1)/2) x ((h+1)/2)
+;;   payload = Y rows, then U rows, then V rows, each row left to right
+;;
+;; The shell walks the payload byte by byte with a raster cursor (p, y, x).
+;; next-x / next-y / next-p advance the cursor by one byte. So every plane
+;; offset is reached by counting, and the frame size w*h + 2*cw*ch (which is
+;; nonlinear) is never needed by a contract: a frame ends exactly when the
+;; cursor wraps from the last V sample back to (0, 0, 0) (frame-end?).
+;;
+;; All divisions have the constant divisor 2, so every formula is linear.
+;; A def never calls a def of its own module (that is not body-faithful), so
+;; the plane dimensions are spelled out in each body and post.
+
+;; ─── Plane dimensions ───────────────────────────────────────────────────
+
+;; Chroma dimension of a luma dimension n: ceil(n / 2).
+;; Rejects (/ n 2) (an odd n loses its last chroma column).
+(def chroma-dim [n: int] -> int
+  (pre  (>= n 1))
+  (post (and (>= result 1) (and (<= n (* 2 result)) (<= (* 2 result) (+ n 1)))))
+  ?chroma-dim-body)
+
+;; Width of plane p of a w-wide frame.
+(def plane-w [w: int p: int] -> int
+  (pre  (and (>= w 1) (and (>= p 0) (<= p 2))))
+  (post (and (>= result 1)
+        (and (=> (= p 0) (= result w))
+             (=> (> p 0) (= result (/ (+ w 1) 2))))))
+  ?plane-w-body)
+
+;; Height of plane p of an h-high frame.
+(def plane-h [h: int p: int] -> int
+  (pre  (and (>= h 1) (and (>= p 0) (<= p 2))))
+  (post (and (>= result 1)
+        (and (=> (= p 0) (= result h))
+             (=> (> p 0) (= result (/ (+ h 1) 2))))))
+  ?plane-h-body)
+
+;; ─── Raster cursor ──────────────────────────────────────────────────────
+;; The cursor (p, y, x) is in range: 0 <= p <= 2, 0 <= y < plane-h,
+;; 0 <= x < plane-w. Each next-* keeps it in range, and together they give
+;; the successor in payload order.
+
+(def next-x [w: int h: int p: int y: int x: int] -> int
+  (pre  (and (>= w 1) (and (>= h 1) (and (>= p 0) (and (<= p 2)
+        (and (>= y 0) (and (>= x 0)
+        (and (=> (= p 0) (and (< x w) (< y h)))
+             (=> (> p 0) (and (< x (/ (+ w 1) 2)) (< y (/ (+ h 1) 2))))))))))))
+  (post (and (>= result 0)
+        (and (=> (= p 0) (and (< result w)
+                         (and (=> (< (+ x 1) w) (= result (+ x 1)))
+                              (=> (>= (+ x 1) w) (= result 0)))))
+             (=> (> p 0) (and (< result (/ (+ w 1) 2))
+                         (and (=> (< (+ x 1) (/ (+ w 1) 2)) (= result (+ x 1)))
+                              (=> (>= (+ x 1) (/ (+ w 1) 2)) (= result 0))))))))
+  ?next-x-body)
+
+;; The row moves on only when x wraps; it wraps itself at the plane's last row.
+(def next-y [w: int h: int p: int y: int x: int] -> int
+  (pre  (and (>= w 1) (and (>= h 1) (and (>= p 0) (and (<= p 2)
+        (and (>= y 0) (and (>= x 0)
+        (and (=> (= p 0) (and (< x w) (< y h)))
+             (=> (> p 0) (and (< x (/ (+ w 1) 2)) (< y (/ (+ h 1) 2))))))))))))
+  (post (and (>= result 0)
+        (and (=> (= p 0) (and (< result h)
+                         (and (=> (< (+ x 1) w) (= result y))
+                         (and (=> (and (>= (+ x 1) w) (< (+ y 1) h)) (= result (+ y 1)))
+                              (=> (and (>= (+ x 1) w) (>= (+ y 1) h)) (= result 0))))))
+             (=> (> p 0) (and (< result (/ (+ h 1) 2))
+                         (and (=> (< (+ x 1) (/ (+ w 1) 2)) (= result y))
+                         (and (=> (and (>= (+ x 1) (/ (+ w 1) 2)) (< (+ y 1) (/ (+ h 1) 2)))
+                                  (= result (+ y 1)))
+                              (=> (and (>= (+ x 1) (/ (+ w 1) 2)) (>= (+ y 1) (/ (+ h 1) 2)))
+                                  (= result 0)))))))))
+  ?next-y-body)
+
+;; The plane moves on only at the last sample of a plane; after V it is 0
+;; again (the frame is complete).
+(def next-p [w: int h: int p: int y: int x: int] -> int
+  (pre  (and (>= w 1) (and (>= h 1) (and (>= p 0) (and (<= p 2)
+        (and (>= y 0) (and (>= x 0)
+        (and (=> (= p 0) (and (< x w) (< y h)))
+             (=> (> p 0) (and (< x (/ (+ w 1) 2)) (< y (/ (+ h 1) 2))))))))))))
+  (post (and (>= result 0) (and (<= result 2)
+        (and (=> (= p 0) (and (=> (or (< (+ x 1) w) (< (+ y 1) h)) (= result 0))
+                              (=> (and (>= (+ x 1) w) (>= (+ y 1) h)) (= result 1))))
+             (=> (> p 0) (and (=> (or (< (+ x 1) (/ (+ w 1) 2)) (< (+ y 1) (/ (+ h 1) 2)))
+                                  (= result p))
+                              (=> (and (>= (+ x 1) (/ (+ w 1) 2)) (>= (+ y 1) (/ (+ h 1) 2)))
+                                  (and (=> (= p 1) (= result 2)) (=> (= p 2) (= result 0))))))))))
+  ?next-p-body)
+
+;; The cursor is on the last byte of the frame (the last V sample).
+(def frame-end? [w: int h: int p: int y: int x: int] -> bool
+  (pre  (and (>= w 1) (>= h 1)))
+  (post (= result (and (= p 2) (and (= (+ x 1) (/ (+ w 1) 2)) (= (+ y 1) (/ (+ h 1) 2))))))
+  ?frame-end-body)
+
+;; ─── FRAME marker ───────────────────────────────────────────────────────
+;; Each frame starts with "FRAME" (70 82 65 77 69), then optional
+;; space-separated parameters, then LF (10). The marker state k:
+;;   0..4  matched k bytes of "FRAME"
+;;   5     matched "FRAME"; the next byte is LF or a space
+;;   7     inside the parameters; runs to LF
+;;   6     marker complete (the payload starts at the next byte)
+;;  -1     malformed marker
+;; Rejects a marker that accepts "FRAMEX", and one that skips the LF.
+(def marker-step [k: int b: int] -> int
+  (pre  (or (and (>= k 0) (<= k 5)) (= k 7)))
+  (post (and (or (= result -1) (and (>= result 1) (<= result 7)))
+        (and (=> (= k 0) (and (=> (= b 70) (= result 1)) (=> (!= b 70) (= result -1))))
+        (and (=> (= k 1) (and (=> (= b 82) (= result 2)) (=> (!= b 82) (= result -1))))
+        (and (=> (= k 2) (and (=> (= b 65) (= result 3)) (=> (!= b 65) (= result -1))))
+        (and (=> (= k 3) (and (=> (= b 77) (= result 4)) (=> (!= b 77) (= result -1))))
+        (and (=> (= k 4) (and (=> (= b 69) (= result 5)) (=> (!= b 69) (= result -1))))
+        (and (=> (= k 5) (and (=> (= b 10) (= result 6))
+                         (and (=> (= b 32) (= result 7))
+                              (=> (and (!= b 10) (!= b 32)) (= result -1)))))
+             (=> (= k 7) (and (=> (= b 10) (= result 6)) (=> (!= b 10) (= result 7))))))))))))
+  ?marker-step-body)
