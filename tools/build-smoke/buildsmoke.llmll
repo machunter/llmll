@@ -2405,7 +2405,7 @@
             (if (ok? r)
                 ;; The ONLY write of the pass mark in this file. See bs-status.
                 (go (with-s b "verdict" "pass") Ending
-                    (wasi.io.stdout (pass-line "DRIFT-CI-1 decided by an LLMLL program (14 cover cells + the live tree)")))
+                    (wasi.io.stdout (pass-line "DRIFT-CI-1 decided by an LLMLL program (16 cover cells + the live tree)")))
                 (go b Ending
                     (wasi.io.stdout (fail-line
                       (string-concat-many
