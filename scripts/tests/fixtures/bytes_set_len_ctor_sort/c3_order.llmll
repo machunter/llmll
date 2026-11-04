@@ -1,0 +1,5 @@
+(type W (| Wrap T))
+(type T (| Big int) (| Small int))
+(def mk [n: int] -> W
+  (post (= result (Wrap (Big n))))
+  (Wrap (Big n)))

@@ -31,8 +31,8 @@ import LLMLL.ObligationAssembly
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, runFQSolver, resourceStopText, resourceStopValue)
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody)
-import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody)
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkTrustGapDeclaredWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8, formatParseDiagSExp, mkBodyFallbackWarning)
@@ -11206,6 +11206,147 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fwd `shouldBe` rev
         Map.lookup "h" fwd `shouldBe` Just TBool
 
+    -- BYTES-SET-CLAUSE-LEN-1: a clause term `bytesLen(Map_store(a,i,v))` gets
+    -- the bytes-set length lemma, guarded by the store's pre, as ground-fact
+    -- family `bytes-set-length`. The body arm and the clause fact read one
+    -- source ('bytesSetSpec'), so they cannot drift (clause-welldef-proposal.md
+    -- Rev 2, "The parity rule").
+    describe "BYTES-SET-CLAUSE-LEN-1: the bytes-set length lemma on the clause side" $ do
+      let emitBsl src = case parseStatements GrammarCoreInversion "test" src of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts ->
+              let (_, retTypes) =
+                    typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv stmts
+              in emitFixpointWithCache (EmitOptions True Nothing) "test.llmll"
+                   Map.empty retTypes stmts
+          bslFamiliesOf er fn = concat [ fams | (n, fams) <- erGroundFactFamilies er, n == fn ]
+          bslSolve er = do
+            tmp <- getTemporaryDirectory
+            let fqPath = tmp <> "/bytes-set-clause-len-spec.fq"
+            TIO.writeFile fqPath (erFQText er)
+            a <- findExecutable "liquid-fixpoint"
+            mLF <- maybe (findExecutable "fixpoint") (pure . Just) a
+            case mLF of
+              Nothing -> pure Nothing
+              Just lf -> do
+                (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
+                pure (Just (T.pack out))
+          expectSolve er want = do
+            m <- bslSolve er
+            case m of
+              Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+              Just out -> out `shouldSatisfy` T.isInfixOf want
+          conjuncts p = case p of
+            FQAnd ps -> concatMap conjuncts ps
+            _        -> [p]
+          post rhs = FQConstraint 0 [] (FQReft "v" FQInt FQTrue) (FQReft "v" FQInt rhs) ["f", "post"]
+          b = FQVar "b"
+          store a i v = FQApp "Map_store" [a, FQLit i, FQLit v]
+          len x = FQApp "bytesLen" [x]
+          guardedLen a i v = FQOr
+            [ FQNot (FQAnd [ FQBinPred FQLe (FQLit 0) (FQLit i)
+                           , FQBinPred FQLt (FQLit i) (len a)
+                           , FQBinPred FQLe (FQLit 0) (FQLit v)
+                           , FQBinPred FQLe (FQLit v) (FQLit 255) ])
+            , FQBinPred FQEq (len (store a i v)) (len a) ]
+          bslFacts c = [ p | p@(FQOr _) <- conjuncts (reftPred (conLhs c)) ]
+
+      it "BSL-1: a length read of one store gets one guarded fact, labelled bytes-set-length" $ do
+        let (c', labels) = injectRangeFactsLabeled Set.empty
+              (post (FQBinPred FQLt (FQLit 0) (len (store b 0 7))))
+        labels `shouldBe` ["measure-nonneg", "bytes-set-length"]
+        bslFacts c' `shouldBe` [guardedLen b 0 7]
+
+      it "BSL-2: a two-link store chain gets one fact per link" $ do
+        let inner = store b 0 7
+            (c', labels) = injectRangeFactsLabeled Set.empty
+              (post (FQBinPred FQEq (FQLit 4) (len (store inner 1 9))))
+        labels `shouldBe` ["measure-nonneg", "bytes-set-length"]
+        bslFacts c' `shouldBe` [guardedLen inner 1 9, guardedLen b 0 7]
+
+      it "BSL-3: no fact without a length read of a store (byte identity)" $ do
+        let lenOnly = post (FQBinPred FQLt (FQLit 0) (len b))
+            (c1, l1) = injectRangeFactsLabeled Set.empty lenOnly
+        l1 `shouldBe` ["measure-nonneg"]
+        bslFacts c1 `shouldBe` []
+        let selOnly = post (FQBinPred FQEq (FQApp "Map_select" [store b 0 7, FQLit 0]) (FQLit 7))
+            (c2, l2) = injectRangeFactsLabeled Set.empty selOnly
+        l2 `shouldBe` []
+        c2 `shouldBe` selOnly
+
+      it "BSL-4 (solver): (< 0 (bytes-length (bytes-set b 0 7))) is Safe" $ do
+        er <- emitBsl "(def-shell f [b: bytes[4]] -> int (post (< 0 (bytes-length (bytes-set b 0 7)))) 0)"
+        erBodyFaithfulFns er `shouldSatisfy` elem "f"
+        expectSolve er "Safe"
+
+      it "BSL-5 (solver): (= 5 (bytes-length (bytes-set b 0 7))) is still Unsafe" $ do
+        er <- emitBsl "(def-shell f [b: bytes[4]] -> int (post (= 5 (bytes-length (bytes-set b 0 7)))) 0)"
+        expectSolve er "Unsafe"
+
+      it "BSL-6 (solver): an out-of-bounds store index stays Unsafe (the guard)" $ do
+        -- Not a defect. The fact holds only under the store's pre, which is
+        -- what the run time checks before it writes. `(bytes-set b 9 7)` on a
+        -- bytes[4] calls `error` at run time, and CLAUSE-WELLDEF-1 reads such
+        -- a clause as not well defined, so it must not verify.
+        er <- emitBsl "(def-shell f [b: bytes[4]] -> int (post (= 4 (bytes-length (bytes-set b 9 7)))) 0)"
+        expectSolve er "Unsafe"
+
+      it "BSL-7 (solver): a def post over the clause term: body 4 Safe, body 3 Unsafe" $ do
+        erOk  <- emitBsl "(def g [b: bytes[4]] -> int (post (= result (bytes-length (bytes-set b 0 7)))) 4)"
+        erBad <- emitBsl "(def g [b: bytes[4]] -> int (post (= result (bytes-length (bytes-set b 0 7)))) 3)"
+        expectSolve erOk "Safe"
+        expectSolve erBad "Unsafe"
+
+      it "BSL-8: the trust disclosure names the bytes-set-length family" $ do
+        er <- emitBsl "(def-shell f [b: bytes[4]] -> int (post (< 0 (bytes-length (bytes-set b 0 7)))) 0)"
+        bslFamiliesOf er "f" `shouldSatisfy` elem "bytes-set-length"
+
+      it "BSL-9: parity: every body-arm lemma of a sealed builtin has a clause counterpart" $ do
+        -- clause-welldef-proposal.md Rev 2, "The parity rule". For each lemma
+        -- part a sealed builtin's body arm assumes, either the clause form is
+        -- refused ('exprToPred' gives Nothing) or a constraint that mentions
+        -- the clause term gets `pre ⟹ lemma` with r := the clause term. A new
+        -- builtin, or a new lemma part, with no counterpart fails here.
+        let canon = Map.fromList
+              [ ("bytes-get",  EApp "bytes-get"  [EVar "b", ELit (LitInt 0)])
+              , ("bytes-set",  EApp "bytes-set"  [EVar "b", ELit (LitInt 0), ELit (LitInt 7)])
+              , ("bytes-zero", EApp "bytes-zero" [ELit (LitInt 4)])
+              , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"]) ]
+            se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
+        Map.keysSet canon `shouldBe` sealedAxiomBuiltins
+        forM_ (Map.toList canon) $ \(nm, call) ->
+          case snd (bodyToPredFrom 0 se Map.empty Set.empty call) of
+            Just cv@CallVC{} -> do
+              cvCallee cv `shouldBe` nm
+              forM_ [ lem | ("lemma", lem) <- cvPostParts cv ] $ \lem ->
+                case exprToPred call of
+                  Nothing -> pure ()   -- (a) the clause form is refused
+                  Just t  -> do        -- (b) the guarded fact reaches the LHS
+                    let sub = applySubst (Map.singleton (cvResultVar cv) t)
+                        pre = fromMaybe FQTrue (cvPreObligation cv)
+                        want = FQOr [FQNot (sub pre), sub lem]
+                        (c', _) = injectRangeFactsLabeled Set.empty
+                                    (post (FQBinPred FQGe (len t) (FQLit 0)))
+                    conjuncts (reftPred (conLhs c')) `shouldSatisfy` elem want
+            other -> expectationFailure (T.unpack nm <> ": no body CallVC: " <> show other)
+
+      it "BSL-10: the body bytes-set arm is unchanged by the bytesSetSpec refactor" $ do
+        let se = Map.fromList [("b", FQArr FQInt FQInt), ("i", FQInt), ("v", FQInt)]
+        case snd (bodyToPredFrom 0 se Map.empty Set.empty
+                    (EApp "bytes-set" [EVar "b", EVar "i", EVar "v"])) of
+          Just cv@CallVC{} -> do
+            let r = FQVar (cvResultVar cv)
+                i = FQVar "i"
+                v = FQVar "v"
+                refl = FQBinPred FQEq r (FQApp "Map_store" [b, i, v])
+                lem  = FQBinPred FQEq (len r) (len b)
+            cvPreObligation cv `shouldBe` Just (FQAnd
+              [ FQBinPred FQLe (FQLit 0) i, FQBinPred FQLt i (len b)
+              , FQBinPred FQLe (FQLit 0) v, FQBinPred FQLe v (FQLit 255) ])
+            cvPostParts cv `shouldBe` [("reflection", refl), ("lemma", lem)]
+            cvPostAssumption cv `shouldBe` Just (FQAnd [refl, lem])
+          other -> expectationFailure ("no CallVC: " <> show other)
+
     -- NIW (v0.12, Commit C): refinement-aliased params get their carrier sort
     -- (alias-aware emitParamBind) and their predicate folded into the effective
     -- precondition (F-NIW-1, elim-side: assumed in the body VC). Stacked aliases
@@ -12109,6 +12250,130 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             let report = typeCheck GrammarCoreInversion emptyEnv stmts
                 mism   = filter (\d -> "mismatch" `T.isInfixOf` diagMessage d) (reportDiagnostics report)
             mism `shouldBe` []
+
+    -- CTOR-FIELD-SORT-1: a constructor field is declared at the sort a term of
+    -- its type gets everywhere else ('typeToSortA'), unless the owning sum
+    -- reaches recursion (ADT-CARRIER-COLLAPSE-1 pins those collapsed) or the
+    -- sort names a datatype this file does not declare. Declaration order is
+    -- source order; liquid-fixpoint 0.9.6.3.7 accepts a forward reference.
+    describe "CTOR-FIELD-SORT-1: constructor field sorts" $ do
+      let parseOk src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts -> stmts
+          amOf stmts = buildAliasMap stmts
+          localOf stmts = Set.fromList [ n | STypeDef n (TSumType _) <- stmts ]
+          fieldOf src owner ctor =
+            let stmts = parseOk src
+                am = amOf stmts
+            in case Map.lookup owner am of
+                 Just o@(TSumType cs) | Just (Just pt) <- lookup ctor cs ->
+                   (fieldSort am (localOf stmts) o pt, typeToSort pt)
+                 _ -> error ("no field " <> T.unpack ctor)
+          emitCfs src = case parseStatements GrammarCoreInversion "test" (T.pack src) of
+            Left err    -> error ("parse failed: " <> show err)
+            Right stmts ->
+              let (_, retTypes) =
+                    typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv stmts
+              in emitFixpointWithCache (EmitOptions True Nothing) "test.llmll"
+                   Map.empty retTypes stmts
+          expectSolve er want = do
+            tmp <- getTemporaryDirectory
+            let fqPath = tmp <> "/ctor-field-sort-spec.fq"
+            TIO.writeFile fqPath (erFQText er)
+            a <- findExecutable "liquid-fixpoint"
+            mLF <- maybe (findExecutable "fixpoint") (pure . Just) a
+            case mLF of
+              Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+              Just lf -> do
+                (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
+                T.pack out `shouldSatisfy` T.isInfixOf want
+          tDecl = "(type T (| Big int) (| Small int))\n"
+          c1Src = tDecl <> "(type W (| Wrap T))\n"
+                  <> "(def mk [n: int] -> W (post (= result (Wrap (Big n)))) (Wrap (Big n)))"
+          c2Src = tDecl <> "(type W (| Wrap T))\n"
+                  <> "(def mk [n: int] -> W (post (= result (Wrap (Small n)))) (Wrap (Big n)))"
+          c3Src = "(type W (| Wrap T))\n" <> tDecl
+                  <> "(def mk [n: int] -> W (post (= result (Wrap (Big n)))) (Wrap (Big n)))"
+          c8Src = tDecl <> "(type P (| PW (int, T)))\n"
+                  <> "(def mk [n: int] -> P (post (= result (PW (pair n (Big n))))) (PW (pair n (Big n))))"
+          c9Src = "(type R (| RW Result[int, string]) (| RN int))\n"
+                  <> "(def mk [n: int] -> R (post (= result (RW (ok n)))) (RW (ok n)))"
+          c16Src = tDecl <> "(type R (| RW Result[int, string]) (| RT T))\n"
+                  <> "(def mk [n: int] -> R (post (= result (RT (Big n)))) (RT (Big n)))"
+          treePair = "(type Tree (| Node (int, Tree)) (| Leaf int))"
+          treeRes  = "(type Tree (| Node Result[Tree, string]) (| Leaf int))"
+
+      it "CFS-1: a payload-sum, enum, pair and Result field get the alias-aware sort" $ do
+        fst (fieldOf c1Src "W" "Wrap") `shouldBe` FQData "T"
+        fst (fieldOf "(type C (| Red) (| Green))\n(type W (| Wrap C))" "W" "Wrap") `shouldBe` FQInt
+        fst (fieldOf c8Src "P" "PW") `shouldBe` FQDataApp "Pair2" [FQInt, FQData "T"]
+        fst (fieldOf c9Src "R" "RW") `shouldBe` FQDataApp "Result" [FQInt, FQStr]
+
+      it "CFS-2: recursion-reaching owners, undeclared sums and plain fields keep today's sort" $ do
+        -- ADT-CARRIER-COLLAPSE-1 (ModuleSpec ACR-5 to ACR-10) pins the first two.
+        let same (x, y) = x `shouldBe` y
+        same (fieldOf treePair "Tree" "Node")
+        same (fieldOf treeRes "Tree" "Node")
+        -- `T` is not in this file's set of sums: an imported sum has no data
+        -- declaration, so its name must not appear in a field sort.
+        let stmts = parseOk c1Src
+            am = amOf stmts
+        fieldSort am Set.empty (fromJust (Map.lookup "W" am)) (TCustom "T") `shouldBe` typeToSort (TCustom "T")
+        forM_ [ "string", "list[int]", "(int, int)", "int" ] $ \ty ->
+          same (fieldOf ("(type S (| A " <> ty <> ") (| B int))") "S" "A")
+
+      it "CFS-3: recursive and mutually recursive sums still emit fieldless declarations" $ do
+        let declsOf src = let stmts = parseOk src
+                              am = amOf stmts
+                          in concat [ typeSorts am (localOf stmts) n body | STypeDef n body <- stmts ]
+        declsOf "(type Tree (| Node Tree) (| Leaf int))"
+          `shouldBe` [FQDataDecl "Tree" 0 [("Node", []), ("Leaf", [])]]
+        declsOf "(type A (| A1 B) (| A0 int))\n(type B (| B1 A) (| B0 int))"
+          `shouldBe` [ FQDataDecl "A" 0 [("A1", []), ("A0", [])]
+                     , FQDataDecl "B" 0 [("B1", []), ("B0", [])] ]
+
+      it "CFS-4 (solver): a payload-sum field: the true post is Safe, the wrong one Unsafe" $ do
+        er1 <- emitCfs c1Src
+        erBodyFaithfulFns er1 `shouldSatisfy` elem "mk"
+        erFQText er1 `shouldSatisfy` T.isInfixOf "ctor_wrap_0 : T"
+        expectSolve er1 "Safe"
+        er2 <- emitCfs c2Src
+        expectSolve er2 "Unsafe"
+
+      it "CFS-5 (solver): a field naming a later-declared sum is Safe in source order" $ do
+        er <- emitCfs c3Src
+        let fq = erFQText er
+            (beforeT, _) = T.breakOn "data T 0" fq
+        beforeT `shouldSatisfy` T.isInfixOf "data W 0"
+        expectSolve er "Safe"
+
+      it "CFS-6: a Result field emits the Result declaration even with no Result built" $ do
+        er <- emitCfs c16Src
+        erFQText er `shouldSatisfy` T.isInfixOf "data Result 2"
+        erFQText er `shouldSatisfy` T.isInfixOf "(Result int Str)"
+        expectSolve er "Safe"
+
+      it "CFS-7: buildCtorSums' field map mirrors typeSorts' declared field sorts" $ do
+        let mapsOf src =
+              let stmts = parseOk src
+                  am = amOf stmts
+                  loc = localOf stmts
+                  declared = Map.fromList
+                    [ (c, ss) | STypeDef n body <- stmts
+                              , FQDataDecl _ _ cs <- typeSorts am loc n body, (c, ss) <- cs ]
+                  -- The alias map also holds builtin sums; only this file's
+                  -- sums have a data declaration to mirror.
+                  mirrored = [ (c, s) | (k, (_, _, Just fs)) <- Map.toList (buildCtorSums am loc)
+                                      , Map.member k declared
+                                      , (c, s) <- Map.toList fs ]
+              in (declared, mirrored)
+        forM_ [c1Src, c8Src, c9Src, c16Src] $ \src -> do
+          let (declared, mirrored) = mapsOf src
+          forM_ mirrored $ \(c, s) -> Map.lookup c declared `shouldBe` Just [s]
+        -- Not vacuous: the two-constructor sums of c9 and c16 are in the map,
+        -- with their Result and payload-sum fields.
+        lookup "RW" (snd (mapsOf c9Src)) `shouldBe` Just (FQDataApp "Result" [FQInt, FQStr])
+        lookup "RT" (snd (mapsOf c16Src)) `shouldBe` Just (FQData "T")
 
     -- PAIR-RET: refinement predicates over pair/tuple returns. A 2-tuple is the
     -- single-constructor (product) restriction of the COMP-4 datatype class — the

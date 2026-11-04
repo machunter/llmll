@@ -107,6 +107,9 @@ module LLMLL.FixpointEmit
   , markIntBuiltins, exprBinders -- MINMAX-GUARD-1: the hole report marks guards as the verifier does
   , resultReturnUnsafe           -- COMP-4-RESULT: non-admissible Result-return firewall
   , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
+  , typeSorts                    -- CTOR-FIELD-SORT-1: a sum's data declaration
+  , fieldSort                    -- CTOR-FIELD-SORT-1: a constructor field's declared sort
+  , buildCtorSums                -- CTOR-FIELD-SORT-1: the mirror check reads the field map
   , typeToSort                   -- JSON-1: the opaque-carrier lowering test
   , scopedContractEnv            -- FN-SHADOW-1: per-function contract environment
   , localBinderNames             -- FN-SHADOW-1: binders that shadow top-level names
@@ -882,6 +885,13 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- exactly once, only when the module actually uses pairs — so a pair-free module's
   -- .fq stays byte-identical (the NIW byte-inert convention). The single parametric
   -- decl serves every (Pair2 s0 s1) applied sort; no per-sort-pair dedup is needed.
+  -- CTOR-FIELD-SORT-1: the entry module's sums, and their declarations,
+  -- computed before the Pair2/Result checks so a field sort that names Result
+  -- gets the Result declaration ('fieldSort'). Emitted in source order below.
+  let localSums = Set.fromList [ n | STypeDef n (TSumType _) <- stmts ]
+      localDecls = [ typeSorts aliases localSums name body | STypeDef name body <- stmts ]
+      fieldsNameResult = or [ sortNamesResult s | ds <- localDecls, FQDataDecl _ _ cs <- ds
+                                                , (_, ss) <- cs, s <- ss ]
   when (moduleUsesPairs aliases dataScanStmts) $
     addData (FQDataDecl "Pair2" 2 [("pair2", [FQTyVar 0, FQTyVar 1])])
 
@@ -889,7 +899,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- CONSTRUCTS a Result (a `-> Result` admissible return or `(ok e)`/`(err e)` in a
   -- body/contract) — an eliminate-only module (Result param, scalar return, e.g.
   -- `settle`) never sorts a Result value (skolem path) and stays byte-identical.
-  when (moduleConstructsResult aliases dataScanStmts) $
+  when (moduleConstructsResult aliases dataScanStmts || fieldsNameResult) $
     addData (FQDataDecl "Result" 2 [("ok", [FQTyVar 0]), ("err", [FQTyVar 1])])
 
   -- Process each statement
@@ -897,25 +907,25 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
     case stmt of
       STypeDef name body ->
         -- Emit ADT sorts for TSumType members
-        forM_ (typeSorts aliases name body) addData
+        forM_ (typeSorts aliases localSums name body) addData
 
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract Nothing (Just dec) idx
 
       -- LT-INV (v0.11): SDef and SDefShell emit constraints identically to SDefLogic.
       SDef name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- REC-DESCENT (v0.14.25): a def-shell's k=1 measure is threaded as 'mDec'
@@ -940,14 +950,14 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
             <> "' declares a decreases measure but is not self-recursive; no descent obligation is emitted."
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- v0.12.1: def-invariant emits constraints identically to SDefLogic.
       SDefInvariant name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       _ -> pure ()
@@ -1210,6 +1220,7 @@ emitFnConstraints
   -> (Text -> Set.Set Text -> IO ())   -- ARR-RANGE-NAME: record the bytes-typed array names
   -> IORef Int             -- body-VC alpha-renaming counter
   -> AliasMap              -- v0.8.0: type alias map for isIntLike
+  -> Set.Set Name          -- CTOR-FIELD-SORT-1: the sums this file declares ('fieldSort')
   -> ContractEnv           -- v0.9.0: contract environment for compositional VC
   -> Set.Set Name          -- v0.9.0: recursive SCC set
   -> Map Name ([Name], [Expr]) -- REC-DESCENT: name → (params, measure tuple)
@@ -1224,7 +1235,7 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases cenvAll sccSet measureMap respRefs
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenvAll sccSet measureMap respRefs
     name params mRet contract0 mBody mDec stmtIdx = do
 
   -- FN-SHADOW-1 (fn-param-uf-1-proposal R1): a parameter or local binder
@@ -1810,7 +1821,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             let (newSeed, mBodyVC0) =
                   if isJust mMapRetPair
                     then (seed, Nothing)
-                    else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts (buildCtorSums aliases, pairParamSorts aliases params) cenv sccSet
+                    else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts (buildCtorSums aliases localSums, pairParamSorts aliases params) cenv sccSet
                            (markIntBuiltins (Set.fromList (map fst params) `Set.union` Map.keysSet cenv)
                                             (reifyBytesZeroLen mRet body'))
             writeIORef bodyCounterRef newSeed
@@ -3543,18 +3554,62 @@ admissibleDatatype am = go Set.empty
                           Nothing               -> Nothing
       _              -> Nothing
 
-typeSorts :: AliasMap -> Name -> Type -> [FQDataDecl]
-typeSorts am name (TSumType ctors)
-  | admissibleDatatype am (TSumType ctors) =
+-- | CTOR-FIELD-SORT-1: the second argument is the set of sums this file
+-- declares ('fieldSort'), so a field sort never names an undeclared datatype.
+typeSorts :: AliasMap -> Set.Set Name -> Name -> Type -> [FQDataDecl]
+typeSorts am localSums name owner@(TSumType ctors)
+  | admissibleDatatype am owner =
       [FQDataDecl name 0 [ (c, fieldsOf mp) | (c, mp) <- ctors ]]
   | otherwise =
       [FQDataDecl name 0 [ (c, []) | (c, _) <- ctors ]]
   where
     -- A `unit` payload is the nullary-enum marker (COMP-3c `(| Red unit)`), not a
     -- real field — it must contribute no field, so an int-tag enum stays `{ }`.
-    fieldsOf (Just pt) | resolveAliasTy am pt /= TUnit = [typeToSort pt]
+    fieldsOf (Just pt) | resolveAliasTy am pt /= TUnit = [fieldSort am localSums owner pt]
     fieldsOf _                                         = []
-typeSorts _ _ _ = []
+typeSorts _ _ _ _ = []
+
+-- | CTOR-FIELD-SORT-1: the declared sort of a constructor field of type @pt@
+-- in the sum @owner@. It is the sort a term of that type gets everywhere else
+-- ('typeToSortA': a payload sum is its 'FQData', a pair or a 'Result' its
+-- applied sort), so building or projecting the constructor type-checks in the
+-- solver. The alias-unaware 'typeToSort' declared such a field @int@, and every
+-- term that built one crashed liquid-fixpoint.
+--
+-- Two cases keep today's 'typeToSort':
+--
+--   * the owner reaches recursion ('reachesRecursion'). A sum recursive through
+--     a pair or 'Result' carrier keeps its collapsed field sorts on purpose:
+--     ADT-CARRIER-COLLAPSE-1 pins them as unreachable (ModuleSpec ACR-5 to
+--     ACR-10), and the precise sort would put a recursive datatype into the
+--     @.fq@, which 'admissibleDatatype' forbids;
+--   * the sort names a user datatype that this file does not declare (@localSums@,
+--     the entry module's sums). An imported sum has no @data@ declaration.
+--
+-- 'typeSorts' and 'buildCtorSums' both call this, so the declaration and the
+-- match translator's field map cannot disagree.
+fieldSort :: AliasMap -> Set.Set Name -> Type -> Type -> FQSort
+fieldSort am localSums owner pt
+  | reachesRecursion am owner = typeToSort pt
+  | all (`Set.member` localSums) (dataNames precise) = precise
+  | otherwise = typeToSort pt
+  where
+    precise = typeToSortA am pt
+    dataNames s = case s of
+      FQData n -> [n]
+      FQDataApp n ss | n `elem` ["Pair2", "Result"] -> concatMap dataNames ss
+                     | otherwise                    -> n : concatMap dataNames ss
+      FQArr a b -> dataNames a ++ dataNames b
+      _ -> []
+
+-- | CTOR-FIELD-SORT-1: does any emitted field sort name the 'Result' datatype?
+-- Then its declaration is emitted even when no function constructs a 'Result'.
+sortNamesResult :: FQSort -> Bool
+sortNamesResult s = case s of
+  FQDataApp "Result" _ -> True
+  FQDataApp _ ss       -> any sortNamesResult ss
+  FQArr a b            -> sortNamesResult a || sortNamesResult b
+  _                    -> False
 
 maybeToList :: Maybe a -> [a]
 maybeToList Nothing  = []
@@ -3609,16 +3664,20 @@ reachesRecursion am = go Set.empty
 -- tags by 'desugarCtorValues' first). A payload sort is recorded only when
 -- 'admissiblePayload' holds, the same test the driver's 'adtKeys' applies. A
 -- constructor declared by two distinct sums is left out.
-buildCtorSums :: AliasMap -> CtorSums
-buildCtorSums am =
+--
+-- CTOR-FIELD-SORT-1: the third component is 'fieldSort', the same function
+-- 'typeSorts' declares the fields with; @localSums@ is the entry module's sums.
+buildCtorSums :: AliasMap -> Set.Set Name -> CtorSums
+buildCtorSums am localSums =
   let sums    = nub [ ctors | TSumType ctors <- Map.elems am
                             , length ctors >= 2, any (isJust . snd) ctors ]
       shapeOf ctors =
         ( Map.fromList (zip (map fst ctors) [0 ..])
         , Map.fromList [ (c, typeToSort pt) | (c, Just pt) <- ctors, admissiblePayload am pt ]
         , if admissibleDatatype am (TSumType ctors) && not (reachesRecursion am (TSumType ctors))
-            then Just (Map.fromList [ (c, typeToSort pt) | (c, Just pt) <- ctors
-                                                         , resolveAliasTy am pt /= TUnit ])
+            then Just (Map.fromList [ (c, fieldSort am localSums (TSumType ctors) pt)
+                                    | (c, Just pt) <- ctors
+                                    , resolveAliasTy am pt /= TUnit ])
             else Nothing )
       grouped = Map.fromListWith (++) [ (c, [shapeOf ctors]) | ctors <- sums, (c, _) <- ctors ]
   in Map.fromList [ (c, sh) | (c, [sh]) <- Map.toList grouped ]
@@ -3925,8 +3984,11 @@ exprToPred (EApp "is-ok" [EVar x]) =
 -- so it refuses the shapes whose scrutinee cannot be a native datatype: a match
 -- with no payload pattern (an all-nullary enum is int-tag encoded, and `x = ctor`
 -- would be ill-sorted). The Result patterns `Success`/`Error` name the declared
--- `ok`/`err` constructors. A constructor with no data declaration, such as a
--- recursive sum's, stays an unbound symbol that FQ-FREEVAR-GUARD-1 withdraws.
+-- `ok`/`err` constructors. A recursive sum's constructor does NOT stay an
+-- unbound symbol: its data declaration is fieldless ('typeSorts'), so applying
+-- it to an argument is an arity error in the solver, and an undeclared
+-- `ctor_*` symbol is declared by 'measureConstant' at its default sort.
+-- FQ-FREEVAR-GUARD-1 withdraws neither (CTOR-FIELD-SORT-1 finding F1).
 exprToPred (EMatch (EVar x) arms@(_:_))
   | any payloadPat (map fst arms)
   = FQAnd <$> go [] arms
@@ -4486,6 +4548,27 @@ aNormalizeBody calls = normTail
     wrapLets []     e = e
     wrapLets (b:bs) e = ELet [b] (wrapLets bs e)
 
+-- | BYTES-SET-CLAUSE-LEN-1: the precondition and the assumed parts of
+-- @(bytes-set b i v)@ with result @r@, as @(pre, parts)@. The pre is what the
+-- run time checks before it writes ('bytes_set' in CodegenHs calls 'error'
+-- otherwise). The parts are TWO, and they are not the same kind of claim: the
+-- "reflection" DEFINES the write in the array theory; the "lemma" — store
+-- preserves length — is a theorem about it that the theory does not give you
+-- and that a reader has to accept on the codegen stamp.
+--
+-- ONE SOURCE for both sides. The body arm assumes the parts after it proves
+-- the pre; 'injectRangeFactsLabeled' gives a clause term the guarded lemma
+-- @pre ⟹ lemma@ (family @bytes-set-length@). Both read this function, so the
+-- clause fact cannot drift from the body lemma.
+bytesSetSpec :: FQPred -> FQPred -> FQPred -> FQPred -> (FQPred, [(Text, FQPred)])
+bytesSetSpec bP iP vP r =
+  ( FQAnd [ FQBinPred FQLe (FQLit 0) iP
+          , FQBinPred FQLt iP (FQApp "bytesLen" [bP])
+          , FQBinPred FQLe (FQLit 0) vP
+          , FQBinPred FQLe vP (FQLit 255) ]
+  , [ ("reflection", FQBinPred FQEq r (FQApp "Map_store" [bP, iP, vP]))
+    , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [r]) (FQApp "bytesLen" [bP])) ] )
+
 -- | Core body-to-predicate translation. Handles all operators directly
 -- (NOT delegating to exprToPred) to preserve the alpha-renaming environment.
 --
@@ -4915,16 +4998,9 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
   case (mIvc, mVvc) of
     (Just (SimpleVC [] iP), Just (SimpleVC [] vP)) -> do
       r <- freshName "call_bytes_set"
-      let pre  = FQAnd [ FQBinPred FQLe (FQLit 0) iP
-                       , FQBinPred FQLt iP (FQApp "bytesLen" [bP])
-                       , FQBinPred FQLe (FQLit 0) vP
-                       , FQBinPred FQLe vP (FQLit 255) ]
-          -- TWO PARTS, and they are not the same kind of claim. The first
-          -- DEFINES the write in the array theory; the second is a LEMMA about
-          -- it — store preserves length — which the theory does not give you
-          -- and which a reader has to accept on the codegen stamp.
-          parts = [ ("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_store" [bP, iP, vP]))
-                  , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQApp "bytesLen" [bP])) ]
+      -- BYTES-SET-CLAUSE-LEN-1: the pre and the parts come from 'bytesSetSpec',
+      -- the one source the clause-side `bytes-set-length` fact also reads.
+      let (pre, parts) = bytesSetSpec bP iP vP (FQVar r)
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-set" [bP, iP, vP] [] (Just pre) (Just post) parts
                              r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
@@ -6190,7 +6266,9 @@ injectRangeFacts bytesArrs = fst . injectRangeFactsLabeled bytesArrs
 injectRangeFactsLabeled :: Set.Set Text -> FQConstraint -> (FQConstraint, [Text])
 injectRangeFactsLabeled bytesArrs c =
   let apps    = nub (collectApps (reftPred (conLhs c)) ++ collectApps (reftPred (conRhs c)))
-      labeled = concatMap factsFor apps
+      -- 'nub': two store chains that share a link give that link one fact.
+      -- Byte-inert elsewhere, since distinct terms give distinct facts.
+      labeled = nub (concatMap factsFor apps)
       facts   = map snd labeled
       -- LEVER-A1/A2 fact synthesis per head symbol. Array-VALUED terms
       -- (Map_store / Map_default) get NO facts — `(Map_store …) >= 0` is
@@ -6212,6 +6290,15 @@ injectRangeFactsLabeled bytesArrs c =
       -- datatype-sorted, so it asserted nothing, but it was still disclosed.
       -- The allowlist is closed on purpose: a new head gets no fact until
       -- someone shows the fact holds for it.
+      -- BYTES-SET-CLAUSE-LEN-1: a length read of a store gets, besides its
+      -- measure-nonneg fact, the store's length lemma GUARDED by the store's
+      -- pre, both from 'bytesSetSpec' (the body arm's single source). One fact
+      -- per store link of a nested chain. After ANF a body never applies
+      -- `bytesLen` to a store, so only a clause term reaches this case. No
+      -- bytes-root test: `bytesLen` is emitted only over a type-checked bytes
+      -- value, and no other encoding shares the head.
+      factsFor a@(FQApp "bytesLen" [s@(FQApp "Map_store" _)]) =
+        ("measure-nonneg", FQBinPred FQGe a (FQLit 0)) : storeLenFacts s
       factsFor a@(FQApp f args)
         | f `elem` nonNegMeasures = [ ("measure-nonneg", FQBinPred FQGe a (FQLit 0)) ]
         | f == "Map_select" = case args of
@@ -6226,6 +6313,11 @@ injectRangeFactsLabeled bytesArrs c =
       bytesRootedArr (FQVar n) = n `Set.member` bytesArrs
       bytesRootedArr (FQApp "Map_store" (arr : _)) = bytesRootedArr arr
       bytesRootedArr _ = False
+      storeLenFacts s@(FQApp "Map_store" [arr, i, v]) =
+        let (pre, parts) = bytesSetSpec arr i v s
+        in [ ("bytes-set-length", FQOr [FQNot pre, lem]) | ("lemma", lem) <- parts ]
+           ++ storeLenFacts arr
+      storeLenFacts _ = []
   in ( if null facts
          then c
          else c { conLhs = (conLhs c) { reftPred = foldr conjoin (reftPred (conLhs c)) facts } }

@@ -1,0 +1,4 @@
+(def g [b: bytes[4]] -> int
+  (pre (= 4 (bytes-length (bytes-set b 0 7))))
+  (post (= result 1))
+  1)
