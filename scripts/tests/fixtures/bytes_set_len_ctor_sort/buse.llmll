@@ -1,0 +1,5 @@
+(import blib)
+(open blib)
+(def h [c: bytes[4]] -> int
+  (post (= result 1))
+  (g c))
