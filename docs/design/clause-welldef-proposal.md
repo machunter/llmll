@@ -472,7 +472,7 @@ The four RFC 826 posts read `(map-get result k)` or `(map-has result k)` with pr
 5. Increase `checker_soundness_version` to `"7"`, and add it to the proof artifact. Recommendation: yes (§4.8).
 6. Ship order: BYTES-SET-CLAUSE-LEN-1, CALLEE-POST-UNASSUMED-1, this row, CONTRACTS-ENTRY-STRIP-1 (§4.7).
 7. Reopen per-conjunct stripping in POST-CONJ-SPLIT-1 with the rule and induction of §4.7 item 4, after this row ships.
-8. D6 (pair component refinement is not enforced) is filed as `PAIR-REFINE-ENTRY-1`. Correct and correct the §13.12 `bytes-set` precondition (D2).
+8. D6 (pair component refinement is not enforced) is filed as `PAIR-REFINE-ENTRY-1`. Correct the §13.12 `bytes-set` precondition (D2).
 9. Mark `docs/design/contract-position-reads-disposition.md` superseded on settlement.
 
 No open question blocks this proposal, so this draft has no section for the professor.
