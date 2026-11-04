@@ -41,6 +41,30 @@
 
 **Tests:** hspec 2968 → 2986, 0 failures; Python 689 → 708 passed, 10 skipped.
 
+### `BYTES-SET-CLAUSE-LEN-1` and `CTOR-FIELD-SORT-1`: a `bytes-set` length in a clause, and a constructor with a user-sum field
+
+- **A clause such as `(< 0 (bytes-length (bytes-set b 0 7)))` is no longer falsely refuted.** A
+  contract clause that reads `bytes-length` of a `bytes-set` result now verifies when the store's
+  index is in bounds and its value is in 0..255. The verifier assumes
+  `bytes-length (bytes-set b i v) = bytes-length b` under exactly that precondition, one fact for
+  each store of a nested chain. The body side has assumed the same fact since LEVER-A1; both sides
+  now read it from one definition (`bytesSetSpec`, `FixpointEmit.hs`).
+- **The fact is disclosed as a fourth ground-fact family, `bytes-set-length`**, beside
+  `measure-nonneg`, `byte-range` and `bool-value-range` (`LLMLL.md` §13.12). A clause with an
+  out-of-bounds store (`(bytes-set b 9 7)` on a `bytes[4]`) does not get the fact and is not
+  verified. A clause that states a wrong length is still refuted.
+- **A constructor whose field is a user sum, a pair holding one, or a `Result` no longer crashes
+  liquid-fixpoint.** Such a field was declared `int` in the `.fq` `data` declaration, so a post
+  that built the constructor stopped with "Cannot unify int with T". The field is now declared at
+  its sort when the sum is non-recursive and declared in the same module. Declaration order in the
+  file does not matter.
+- **Still open:** a field whose sum is recursive or imported, and a `bytes[n]` field
+  (`CTOR-DECL-GUARD-1`); an alias to a sum (`ALIAS-SUM-SORT-1`).
+- Fixtures: `scripts/tests/fixtures/bytes_set_len_ctor_sort/`. No CLI or schema change, and no
+  version changes: `checker_soundness_version` stays "6".
+
+**Tests:** hspec 2986 → 3003, 0 failures; Python 708 → 720 passed, 10 skipped.
+
 ## v0.35.1: liquid-fixpoint 0.9.6.3.7 is the pinned solver; CI is green again (2026-11-02)
 
 ### `FIXPOINT-UPGRADE-1`: `llmll` runs on liquid-fixpoint 0.9.6.3.4 and later
