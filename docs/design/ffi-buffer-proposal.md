@@ -1,13 +1,34 @@
 ---
 title: FFI buffers — passing byte buffers to native kernels
-status: Rev 2, DRAFT 2026-11-02, professor review folded; awaiting user settlement
-rows: FFI-KERNEL-1 (proposed, G7, PLAN on settlement; answers FFI-TIER2-1 and lifts FFI-TIER2-REFUSE-1 for one import form); FFI-BYTES-1 (G3, PLAN; text amended, content unchanged); FFI-TIER2-1 (G7, DECIDE; answered and absorbed, closes on kernels only); FFI-NARROW-1 (G7, DECIDE; answered for kernel entries only); FFI-CONTRACT-1 (G3, DECIDE; `pre` answered for kernel entries only); CALL-CONGRUENCE-1 (closed; R2 argument condition amended); FFI-UNINTERP-1 (anticipated, not changed); AWAIT-ASYNC-1 (G1, PLAN; not changed, kernel failure consistent with it); BYTES-READ-RANGE-1 (proposed, G4, DECIDE); PRE-FAIL-EXIT-1 (proposed, G2, DECIDE); FFI-KERNEL-REUSE-1, FFI-KERNEL-HS-1, FFI-KERNEL-POST-1, FFI-KERNEL-LIB-1 (proposed, Trigger-gated Parking Lot)
-review: one professor pass (of Rev 1, 2026-11-02, verdict "accept with changes", H1–H11 and answers to Q1 and Q2), folded below as the Appendix. The standalone file stays at docs/design/ffi-buffer-professor-review.md until settlement; doc-lead archives it then (DOC-CONSOLIDATE M2).
+status: Rev 3, SETTLED 2026-11-04 (user-approved). Rev 3 adopts the second professor review (of Rev 2, verdict "settle with named small edits", K1–K5). The user accepted every recommendation of that review. Rev 2 had adopted the first review (of Rev 1, "accept with changes", H1–H11, Q1, Q2) and the user's answers of 2026-11-02.
+rows: FFI-KERNEL-1 (new, G7, PLAN; answers FFI-TIER2-1 and lifts FFI-TIER2-REFUSE-1 for one import form; depends on BYTES-UNSIZED-1); FFI-BYTES-1 (G3, PLAN; text amended, content unchanged); FFI-TIER2-1 (G7, DECIDE answered by this record; closes at the FFI-KERNEL-1 ship, on kernels only); FFI-NARROW-1 (G7, DECIDE; answered for kernel entries only); FFI-CONTRACT-1 (G3, DECIDE; `pre` answered for kernel entries only); CALL-CONGRUENCE-1 (closed; R2 argument condition amended); FFI-UNINTERP-1 (anticipated, not changed); AWAIT-ASYNC-1 (G1, PLAN; not changed, kernel failure consistent with it; also a route for K4); BYTES-READ-RANGE-1 (new, G4, DECIDE); PRE-FAIL-EXIT-1 (filed 2026-11-03, G2, DECIDE; also a route for K4); FFI-KERNEL-REUSE-1, FFI-KERNEL-HS-1, FFI-KERNEL-POST-1, FFI-KERNEL-LIB-1 (new, Trigger-gated Parking Lot)
+review: two professor passes, both folded below as the Appendix. Round 1 reviewed Rev 1 (2026-11-02, "accept with changes", H1–H11, Q1, Q2). Round 2 reviewed Rev 2 (2026-11-04, "settle with named small edits", K1–K6, no blocking finding). The round-1 file is archived at docs/archive/professor-reviews/ffi-buffer-review.md, with round 2 appended; a redirect stub stays at docs/design/ffi-buffer-professor-review.md.
 ---
 
 # FFI buffers — passing byte buffers to native kernels
 
-**Status: Rev 2, DRAFT 2026-11-02, professor review folded; awaiting user settlement.** The language-team wrote Rev 1 on 2026-11-02. The professor reviewed Rev 1 the same day ("accept with changes"). Rev 2 adopts every required change of that review and the user's answers to the four open questions. The user has not settled the record.
+**Status: Rev 3, SETTLED 2026-11-04.** The language-team wrote Rev 1 on 2026-11-02. The professor reviewed Rev 1 the same day ("accept with changes"). Rev 2 adopted every required change of that review and the user's answers to the four open questions. The professor reviewed Rev 2 on 2026-11-04 ("settle with named small edits", K1–K5, no blocking finding). The user accepted every recommendation of that review and settled the record. Rev 3 makes the five edits. No edit changes the architecture. Both reviews are folded below as the [Appendix](#appendix--professor-review-log).
+
+## Decisions (settled by the user, 2026-11-04)
+
+1. **Settle the design of Rev 2, with the five edits K1–K5.** The architecture does not change: one `c.*` import form with `kernels` and one `source` file, a checked linear `pre`, a zero-filled output of `out-len` bytes, `_exit(1)` on failure, two codegen-determined facts, a clause-1 abstraction mark per kernel call, and one conditional trust row per kernel.
+2. **K1. The `out-len ≤ 2^63 − 1` obligation falls back.** A failure of this one obligation gives the fallback outcome, not `refuted`. It carries the clause-1 mark of the kernel. The `int64` range obligation of each `int` argument stays a hard obligation (Part 4; edge case 2b; risk 8).
+3. **K2. The byte-length bound is per occurring `bytesLen` term of LLMLL type `bytes`.** It is the upper half of the `measure-nonneg` ground-fact family, not a schema keyed on the FQ sort. `bytes` and `map` share one FQ sort (`FixpointEmit.hs:1953`). The injection reads both sides of a constraint, so it also covers terms in contract clauses (Part 1; Part 4; verification mapping).
+4. **K3. An allowlist of standard C headers replaces the `<`-prefix rule.** It closes four bypasses: an absolute or relative path in angle brackets, C23 `#embed`, `.incbin` in an `asm` statement, and an angle include that resolves inside the generated project (Part 3; edge case 14b).
+5. **K4. Allocation failure under a heap limit inside `await`.** Rule 4 states that generated programs set no `-M` heap limit, and routes the await case to `PRE-FAIL-EXIT-1` and `AWAIT-ASYNC-1` if a limit is ever set (Part 3 rule 4).
+6. **K5. Edge case 1 names the `callee-post-unassumed` case** (shipped in v0.36.0). Part 4 states that the kernel mark and that mark share one verdict path (edge case 1; Part 4).
+7. **Earlier decisions of 2026-11-02 stand** (zero fill mandatory, kernels-only Tier 2, 64-bit targets only, a kernel failure in an awaited task ends the program). They are listed in "Decisions recorded".
+
+## Changes in Rev 3
+
+| Item | Change | Where |
+|---|---|---|
+| K1 (claim accuracy; user choice) | The `out-len ≤ 2^63 − 1` obligation carries the kernel's clause-1 mark, so a failure falls back. Risk 8 names the verdict. The `int64` range obligation of an `int` argument stays hard. | Part 4; edge case 2b; verification mapping; risk 8 |
+| K2 (precision) | The bound is the upper half of `measure-nonneg`, per occurring `bytesLen` term whose argument has LLMLL type `bytes` or `bytes[n]`. It is not a schema per FQ sort. The closed axiom set grows by one schema (kernel length), not two. | Part 1; Part 4; Part 5; verification mapping; soundness point 3 |
+| K3 (disclosure) | An allowlist of standard C headers replaces the `<`-prefix rule. `#embed` and `.incbin` are refused by a text scan. Each bypass has a fixture. | Part 3 `source`; edge case 14b; Affected surface |
+| K4 (stated guarantee) | Rule 4 states that generated programs set no `-M`, and names the route if one is set. | Part 3 rule 4 |
+| K5 (spec drift) | Edge case 1 adds the `callee-post-unassumed` fallback. Part 4 states the shared verdict path. | Edge case 1; Part 4 |
+| K6 (citation drift) | No action. `congSort` is at `FixpointEmit.hs:4832` and `EAwait` at `CodegenHs.hs:2349` on the v0.36.0 tree. The engineer reads by name. | — |
 
 ## Changes in Rev 2
 
@@ -50,7 +71,9 @@ The design-reference set is the verified-language ecosystem, not the measurement
 10. `compiler/src/LLMLL/PBT.hs`, `runPropertyTestsWithFfi`: the property runner is an interpreter. A property that reaches an FFI call skips, with a reason (PBT-EVAL-PARITY-1).
 11. `compiler/src/LLMLL/TrustReport.hs`, `ffiNote` and `renderFfi`: the row text says "deterministic within one run … total, and with no hidden effects". The row line prints the prefix `haskell.` for every row.
 12. `examples/y4m/FRICTION.md`: the Y4M probe against v0.35.1. F1: binary input is impossible, so the probe spawns `od` and `xxd`. F2: about 550 bytes of memory and 1.8–2.5 µs per input byte. F5: the frame size `w*h` is nonlinear, so no contract states it.
-13. `docs/design/ffi-buffer-professor-review.md`: the professor review of Rev 1, folded as the Appendix.
+13. `docs/archive/professor-reviews/ffi-buffer-review.md`: the professor review of Rev 1 and the second review of Rev 2, both folded as the Appendix.
+14. `compiler/src/LLMLL/FixpointEmit.hs:1953` (comment): `byteArraySort` and `mapArraySort` are one FQ sort, `FQArr FQInt FQInt` (K2). `LLMLL.md` §13.12: the ground-fact families, among them `measure-nonneg`, injected per occurring term (K2).
+15. `compiler/src/LLMLL/AbstractionVerdict.hs`, `applyAbstractionVerdict`: since v0.36.0 it decides both `abstraction-unsafe` and `callee-post-unassumed` (K5).
 
 No other in-flight draft on this topic exists.
 
@@ -67,7 +90,7 @@ No other in-flight draft on this topic exists.
 
 | Part | Recommendation |
 |---|---|
-| 1. Type | The boundary type is `bytes` from `BYTES-UNSIZED-1`. No new type. Length is the `bytesLen` measure. A new codegen-determined fact bounds it: `bytesLen(b) ≤ 2^63 − 1`. LLMLL supports 64-bit targets only. `bytes[n]` stays refused in an FFI result. |
+| 1. Type | The boundary type is `bytes` from `BYTES-UNSIZED-1`. No new type. Length is the `bytesLen` measure. A new codegen-determined fact bounds it: `bytesLen(b) ≤ 2^63 − 1`, the upper half of `measure-nonneg`, per occurring `bytesLen` term of LLMLL type `bytes` (K2). LLMLL supports 64-bit targets only. `bytes[n]` stays refused in an FFI result. |
 | 2. Tier 1 | Ship `FFI-BYTES-1` as settled. It does **not** unblock the use case. No Tier 1 export does pixel work, and D5 closes the package set. |
 | 3. Kernel convention | Tier 2 returns as one import form: a `c.*` import with a `kernels` list and a named C source file. Each kernel is a pure function from `bytes` and `int` arguments to one `bytes` or one `int` result. A direct call to an arbitrary C function stays refused. |
 | 4. Ownership | The Haskell runtime allocates every buffer. C reads inputs through a const pointer, writes one fresh, zero-filled output buffer, and keeps no pointer after it returns. No buffer is mutable from LLMLL. |
@@ -94,13 +117,13 @@ So a frame crosses the boundary in both directions with no copy. The only per-ca
 
 **Length as a refinement fact.** The verifier already has the measure `bytesLen` over `byteArraySort`, with `bytesLen(v) ≥ 0` (`LLMLL.md` §5.3.3). Part 4 of `BYTES-UNSIZED-1` reflects `bytes-length` as `bytesLen(b)` and gives `bytes-slice` the fact `bytesLen(r) = e − s`. This record adds two facts. The `out-len` clause of a kernel gives one (Part 4 below). The target width gives the other (next paragraph). It adds no new symbol and no new sort.
 
-**Target width (new in Rev 2, H3).** LLMLL supports 64-bit targets only. This is a user decision of 2026-11-02. On a 64-bit target, the length of a `ByteString` is an `Int`, so it is at most `maxBound :: Int = 2^63 − 1`. So the verifier may assume this fact for every term of `byteArraySort`:
+**Target width (new in Rev 2, H3).** LLMLL supports 64-bit targets only. This is a user decision of 2026-11-02. On a 64-bit target, the length of a `ByteString` is an `Int`, so it is at most `maxBound :: Int = 2^63 − 1`. So the verifier may assume this fact for each occurring term `bytesLen(b)` whose argument `b` has LLMLL type `bytes` or `bytes[n]`:
 
 ```text
 bytesLen(b) ≤ 9223372036854775807        (2^63 − 1)
 ```
 
-The fact is codegen-determined. It joins the closed axiom set (`LLMLL.md` §13.12) as one schema, "the upper bound of a byte length". It is QF-LIA. Without it the model has no upper bound on a length, and a correct kernel caller can be `refuted` (edge case 3). The fact is also true of `bytes[n]`, because `BYTES-LEN-RANGE-1` already refuses an `n` outside `Int64`. Because only 64-bit targets are supported, `codegen_semantics_version` does not need to carry a target width. The fact is true of every `bytes` value, so `BYTES-UNSIZED-1` may ship it before `FFI-KERNEL-1`. The engineer decides; `FFI-KERNEL-1` ships it at the latest.
+**Emission (amended in Rev 3, K2).** The fact is the upper half of the `measure-nonneg` ground-fact family (`LLMLL.md` §13.12). That family already gives `bytesLen(t) ≥ 0` for each occurring term (`injectRangeFacts`). The bound is injected by the same pass, for the same terms, so it is a per-term ground fact, not a schema keyed on the FQ sort. The key is the LLMLL type, because `byteArraySort` and `mapArraySort` are one FQ sort (`FixpointEmit.hs:1953`). A key on the sort would also bound `bytesLen` of a map term. That is harmless, but it is not the stated fact. The injection reads both sides of a constraint, so the bound also covers `bytesLen` terms in contract clauses. This meets the CLAUSE-WELLDEF-1 parity rule (body-side and clause-side facts agree). The disclosure stays one named family entry. The fact is codegen-determined and QF-LIA. Without it the model has no upper bound on a length, and a correct kernel caller can be `refuted` (edge case 3). The fact is also true of `bytes[n]`, because `BYTES-LEN-RANGE-1` already refuses an `n` outside `Int64`. Because only 64-bit targets are supported, `codegen_semantics_version` does not need to carry a target width. The fact is true of every `bytes` value, so `BYTES-UNSIZED-1` may ship it before `FFI-KERNEL-1`. The engineer decides; `FFI-KERNEL-1` ships it at the latest.
 
 **`bytes[n]` in an FFI result stays refused.** The D3 reason still holds: nothing checks a Haskell-returned `[Word8]` against `n`. A kernel could carry `bytes[n]` as its result type, because the binding allocates exactly `n` bytes. This record does not propose it, because `bytes` with `out-len` covers the same case and keeps one result type. `BYTES-NARROW-1` stays parked.
 
@@ -141,7 +164,13 @@ So Tier 1 bytes are a prerequisite and a small, separate release. The use case n
 ```
 
 - `source` names one C file, relative to the program's directory. `build` copies it into the generated project and lists it under `c-sources` in `package.yaml`. More than one file per import is not in v1.
-- **Local headers are refused (new in Rev 2, H6).** `check` reads the `source` file. Every `#include` line whose argument does not start with `<` gets `ffi-kernel-include-refused`. This covers `#include "helper.h"` and a macro include. A system header (`#include <stdint.h>`) is accepted, because the generated `package.yaml` adds no `include-dirs`, so it resolves only in the toolchain. So the source hash covers all program-local C code.
+- **Only standard C headers are accepted (new in Rev 2, H6; rewritten in Rev 3, K3).** `check` reads the `source` file. An `#include` is accepted only when its argument is one of a fixed allowlist of standard C headers, written in angle brackets: `<stdint.h>`, `<stddef.h>`, `<string.h>`, `<stdlib.h>`, `<math.h>`, `<limits.h>`, `<stdbool.h>`. The engineer may add other standard C headers to the list. Every other `#include` gets `ffi-kernel-include-refused`. A text scan also refuses `#embed` and `.incbin` with the same diagnostic. The Rev 2 rule refused only an argument that did not start with `<`. Four inputs passed it and still read files that the hash does not cover:
+  1. an absolute or relative path in angle brackets, such as `#include </abs/path/tables.h>` or `#include <../cbits/tables.h>` (GCC and Clang accept both);
+  2. C23 `#embed "tables.bin"` and `#embed <…>`;
+  3. `__asm__(".incbin \"tables.bin\"")`;
+  4. an angle include that resolves inside the generated project, if Cabal adds the package root or an autogen directory to the include path.
+
+  The allowlist closes all four, and it needs no claim about the resolver of the pinned toolchain. A macro include and `#include "helper.h"` are refused as before. So the source hash covers all program-local C code.
 - `symbol` is the C symbol. It is mandatory. The LLMLL name follows the Tier 1 name rule (D2, D6). This is part 2 of `FFI-TIER2-1`.
 - The type is `fn [p1: T1 … pk: Tk] -> R`. Each `Ti` is `bytes` or `int`. `R` is `bytes` or `int`. Every other type is `ffi-type-unsupported`. `Command` and `Promise` are `ffi-effect-refused` (part 4 of `FFI-TIER2-1`).
 - `pre` is zero or more clauses in the kernel predicate vocabulary (below).
@@ -202,7 +231,7 @@ Six rules fix the binding's behaviour. The engineer may change the code but not 
 1. **Check order.** The binding checks the `int64` range of each `int` argument, then each `pre` clause in order, then `out-len ≥ 0`, then `out-len ≤ 2^63 − 1` (new in Rev 2, H1). All checks run before the allocation. The first failed check ends the process as rule 4 states, with a message that names the import, the kernel, the clause, and the blamed party `caller`. The C function is not called. The check runs on every call, also when the call site is proved (Part 4).
 2. **The output is zero-filled, and the `int` cell starts at 0.** The binding fills the output with zeros before the call. For an `int` result it allocates the cell with the value 0 (`with 0`). So bytes or a cell that the kernel does not write are 0, not old heap or stack data. This removes one source of non-determinism and one data leak. It does not make the output a function of the inputs by itself: the kernel must also meet the determinism clauses of its row (Part 5). Zero fill is mandatory. No kernel entry can opt out (user decision 2026-11-02). An opt-out would turn a checked guarantee into a new assumption ("the kernel writes every output byte").
 3. **`safe` foreign call.** The call is `safe`, so the garbage collector and other threads can run during a long kernel. All buffers are pinned, so this is correct. An `unsafe` option is not in v1. Generated programs use the `-threaded` RTS, so two tasks can run one kernel at the same time. The row text requires the kernel to be reentrant (Part 5).
-4. **A failure ends the process with no Haskell exception (rewritten in Rev 2, H4).** A failed check of rule 1 or a nonzero status ends the process with exit 1. The binding writes the message to `stderr`, flushes `stdout` and `stderr`, and calls `_exit(1)` through a `foreign import`. `System.Posix.Process.exitImmediately` is an acceptable alternative where the generated project already depends on `unix`. The binding must not use `error`, `throwIO` or `exitWith`. `ExitCode` is a synchronous exception, and two handlers in the runtime catch synchronous exceptions: `llmll_rxTotal` and the `EAwait` code. So a failure inside a regex argument does not become the regex fallback value. A failure inside an awaited task ends the whole program, not only the task (user decision 2026-11-02). This is consistent with `AWAIT-ASYNC-1`, which makes an interrupt during `await` end the program instead of becoming a value. Because no exception exists, a thunk that failed is never evaluated again, so C is never called a second time for it. A status failure names the blamed party `kernel` and the C symbol and source path. The kernel result is not a `Result`. A kernel that can fail on valid input must state the condition as a `pre`. A `Result`-returning kernel is not in v1, because `admissiblePayload` admits no array payload, so its length fact would be lost (BYTE-IO Part 4, note on `bytes-from-list`).
+4. **A failure ends the process with no Haskell exception (rewritten in Rev 2, H4).** A failed check of rule 1 or a nonzero status ends the process with exit 1. The binding writes the message to `stderr`, flushes `stdout` and `stderr`, and calls `_exit(1)` through a `foreign import`. `System.Posix.Process.exitImmediately` is an acceptable alternative where the generated project already depends on `unix`. The binding must not use `error`, `throwIO` or `exitWith`. `ExitCode` is a synchronous exception, and two handlers in the runtime catch synchronous exceptions: `llmll_rxTotal` and the `EAwait` code. So a failure inside a regex argument does not become the regex fallback value. A failure inside an awaited task ends the whole program, not only the task (user decision 2026-11-02). This is consistent with `AWAIT-ASYNC-1`, which makes an interrupt during `await` end the program instead of becoming a value. Because no exception exists, a thunk that failed is never evaluated again, so C is never called a second time for it. **Allocation failure (new in Rev 3, K4).** Generated programs set no `-M` heap limit, so a failed `BSI.create` ends the process in the RTS and never becomes a value. If a heap limit is ever set, GHC raises `HeapOverflow`, which the `EAwait` code catches as `Left (show e)`; that case belongs to `PRE-FAIL-EXIT-1` and `AWAIT-ASYNC-1`. A status failure names the blamed party `kernel` and the C symbol and source path. The kernel result is not a `Result`. A kernel that can fail on valid input must state the condition as a `pre`. A `Result`-returning kernel is not in v1, because `admissiblePayload` admits no array payload, so its length fact would be lost (BYTE-IO Part 4, note on `bytes-from-list`).
 5. **Forcing.** The result is forced in full when it is first demanded, as D1 requires. For a strict `ByteString` and for an `int`, WHNF is full evaluation.
 6. **`unsafePerformIO`, not `unsafeDupablePerformIO`.** The duplicable form can run C twice for one thunk under the threaded RTS. That is harmless for a deterministic kernel and costly for a large frame (H9).
 
@@ -248,9 +277,13 @@ BYTE-IO Part 0 keeps a single call to a contracted LLMLL callee out of the abstr
 
 The mark comes from the kernel symbol, not from the call-binder count. `collectCallBinders` skips every call that has a congruence key, and a kernel with an `int` result gets a key under R1. A mark from the count would let such a kernel pair escape the mark.
 
-The closed sealed-builtin axiom set grows by two schemas: "the output length of a kernel" and "the upper bound of a byte length" (Part 1). It does not grow by one item per kernel.
+**One verdict path with `callee-post-unassumed` (new in Rev 3, K5).** A kernel has no authored `post`, so `cvPostUnassumed` is false at a kernel call (`FixpointEmit.hs:4862`). The kernel's clause-1 mark and the CALLEE-POST-UNASSUMED-1 mark share `applyAbstractionVerdict`, and the shipped cause order gives `abstraction-unsafe` only when every failing id carries the abstraction mark. When a failing id carries only the `post-unassumed` mark, the cause is `callee-post-unassumed`.
+
+The closed sealed-builtin axiom set grows by one schema: "the output length of a kernel". It does not grow by one item per kernel. The byte-length upper bound is not a schema in that set. It is the upper half of the `measure-nonneg` ground-fact family (Part 1, K2).
 
 **The `pre` is a PROVE obligation at each call.** The `pre` clauses, the `int64` range of each `int` argument, `out-len ≥ 0` and `out-len ≤ 2^63 − 1` form the kernel's effective precondition. At a call inside a function with a body VC, §5.3.4's call rule proves it under PROVE polarity. At a call from a function with no body VC, the existing `call-pre unchecked: <caller> -> <kernel>` line names the edge, and the runtime check stays.
+
+**The `out-len ≤ 2^63 − 1` obligation falls back on failure (new in Rev 3, K1).** This one obligation carries the kernel's clause-1 mark. So a failure of it gives the fallback outcome with cause `abstraction-unsafe` and the construct `abstraction:app:<kernel>`, not `refuted`. `verify` reports it as it reports any other `abstraction-unsafe` fallback. The engineer chooses whether the `W-BODY-FALLBACK` text names the `out-len` bound. The reason: a sum such as `(+ (bytes-length a) (bytes-length b))` is not provable from the Part 1 bound, because the model has two buffers of about `2^62` bytes each, and no run can reach that model. A hard obligation would give a false `refuted` for a correct caller. The cost is a lost refutation for an allocation request above 8 EB (edge case 2b). The run-time check still ends the process. The other obligations of the effective `pre` stay hard. The `int64` range of an `int` argument stays hard in particular: an LLMLL `int` is an unbounded `Integer`, so a value outside `int64` is reachable, and edge case 3 is a real refutation.
 
 **A proved `pre` is reported as proved, and the runtime check stays (Q2).** A sound proof of the `pre` is a fact about the caller alone. The C callee's status does not change it (Wadler and Findler, ESOP 2009). So the report shows it as proved. The runtime check is never removed, for three reasons. First, the binding is one function for all callers, and some callers have no body VC. Second, a proved `pre` is relative to the callee contracts the verifier assumes (P16), so an upstream fallback or `asserted` callee makes it conditional. Third, a wrong proof here gives undefined behaviour in C, not a wrong value. The binding is a safe API over unsafe code. It must be safe for every well-typed caller, not only for verified callers (RustBelt, POPL 2018). The row text makes memory safety conditional on the `pre` (Part 5), so the runtime check is the memory-safety guard.
 
@@ -297,7 +330,7 @@ This text is the strengthening that the determinism record requires for C (profe
 
 **Trust level.** The level does not change, as D9 decides for Tier 1. `evidenceMeet` and the TRUST-LEVEL-FLOOR-1 floors keep their meaning. A function whose post is proved with the kernel length fact is `verified`, with the row. The row is the disclosure. `--strict-verified-core` does not apply, because a kernel caller is a `def-shell`.
 
-**The codegen-determined facts.** The kernel length fact and the byte-length upper bound are listed once each in the closed axiom set, as two schemas. The trust report shows each under `codegen-determined` for each function whose VC uses it, as it shows the `bytes-zero` axiom.
+**The codegen-determined facts.** The kernel length fact is listed once in the closed axiom set, as one schema. The byte-length upper bound is listed once, as the upper half of the `measure-nonneg` ground-fact family (K2). The trust report shows each under `codegen-determined` for each function whose VC uses it, as it shows the `bytes-zero` axiom.
 
 **Effect summary.** A function that calls a kernel keeps `"unbounded"` in `effect_summary`, as every `c.*` callee does today (`LLMLL.md` §9). The summary is a sound over-approximation, and native code can reach any capability. The purity in the row text is an assumption, so the summary does not use it.
 
@@ -376,9 +409,9 @@ The frame size `w · h · 3` is a product of two variables, so it is not QF-LIA 
 
 ## Edge cases and degenerate inputs
 
-1. **A `pre` violation, positive witness.** Input: `(rgb-to-gray s 100)` where `s` has 299 bytes. Behaviour: in a caller with a body VC, the PROVE obligation `bytesLen(s) = 300` fails. The kernel's own result is not in the environment of its own call-pre. So when `s` is a parameter or comes from a contracted LLMLL callee, the caller is `refuted`. Only when `s` comes from another kernel or a clause-1 builtin is the outcome the fallback outcome (H11.2). At run time the binding writes `c.pix rgb-to-gray: pre (= (bytes-length src) (* 3 npix)) failed (blame: caller)` and ends the process with exit 1. C is not called. Channel: contract, then run time. Citation: Part 4; binding rules 1 and 4.
+1. **A `pre` violation, positive witness.** Input: `(rgb-to-gray s 100)` where `s` has 299 bytes. Behaviour: in a caller with a body VC, the PROVE obligation `bytesLen(s) = 300` fails. The kernel's own result is not in the environment of its own call-pre. So when `s` is a parameter, or comes from a contracted LLMLL callee whose `post` was assumed in full at the call, the caller is `refuted`. When that callee's `post` was not assumed in full at the call, the caller falls back with cause `callee-post-unassumed` (CALLEE-POST-UNASSUMED-1, shipped in v0.36.0, `LLMLL.md:1160`; new in Rev 3, K5). When `s` comes from another kernel or a clause-1 builtin, the outcome is the fallback outcome with cause `abstraction-unsafe` (H11.2). At run time the binding writes `c.pix rgb-to-gray: pre (= (bytes-length src) (* 3 npix)) failed (blame: caller)` and ends the process with exit 1. C is not called. Channel: contract, then run time. Citation: Part 4; binding rules 1 and 4.
 2. **`out-len` is negative.** Input: a kernel with `(out-len (- n 1))` called with `n = 0`. Behaviour: `out-len ≥ 0` is part of the effective `pre`. It is a PROVE obligation at the call and a run-time check. Channel: contract. Citation: binding rule 1.
-2b. **`out-len` above `2^63 − 1` (new in Rev 2, H1).** Input: a kernel `quad` with `(fn [n: int] -> bytes)` and `(out-len (* 4 n))`, called with `n = 2^62`. Behaviour: `n` is in `int64` range, and `out-len = 2^64` is not. Rev 1 would call `BSI.create (fromInteger n)`, which wraps to 0, so the returned value would break `bytesLen(r) = 2^64`. Rev 2 checks `out-len ≤ 2^63 − 1` before the allocation and ends the process with blame `caller`. At a call with a body VC the obligation is proved or fails. A term over lengths alone, such as `(+ (bytes-length a) (bytes-length b))`, is not always provable from the Part 1 bound, so the caller may need to state a bound (risk 8). Channel: contract, then run time. Citation: binding rule 1; Part 4.
+2b. **`out-len` above `2^63 − 1` (new in Rev 2, H1).** Input: a kernel `quad` with `(fn [n: int] -> bytes)` and `(out-len (* 4 n))`, called with `n = 2^62`. Behaviour: `n` is in `int64` range, and `out-len = 2^64` is not. Rev 1 would call `BSI.create (fromInteger n)`, which wraps to 0, so the returned value would break `bytesLen(r) = 2^64`. Rev 2 checks `out-len ≤ 2^63 − 1` before the allocation and ends the process with blame `caller`. At a call with a body VC the obligation is proved or fails. A failure gives the fallback outcome with cause `abstraction-unsafe`, not `refuted`, because the obligation carries the kernel's clause-1 mark (K1). So `quad` with `n = 2^62` falls back at `verify`, and the run-time check ends the process. A term over lengths alone, such as `(+ (bytes-length a) (bytes-length b))`, is not always provable from the Part 1 bound. Its caller also falls back, and is not falsely `refuted` (risk 8). Channel: contract, then run time. Citation: binding rule 1; Part 4.
 3. **An `int` argument outside `int64`.** Input: `(rgb-to-gray s (* 4 4611686018427387904))`. Behaviour: the range check fails at run time. At a call with a body VC the range obligation fails, and the caller is `refuted`. A bound on a length now gives a bound on an argument that is related to it, because of the Part 1 fact. In the worked example `npix ≤ bytesLen(file) / 3 ≤ (2^63 − 1) / 3`, so the range is proved with no extra `pre`. An argument that is not related to a length needs a bound in the caller's `pre`. Channel: contract, then run time. Citation: Part 1; Part 3, the ABI table. This is the `FFI-NARROW-1` shape.
 4. **A zero-length input.** Input: `(sad empty empty)`. Behaviour: C receives a pointer that may be `NULL` with length 0. The ABI table states this. A kernel that dereferences it fails the memory-safety clause of its row. Channel: trust. Citation: Part 3.
 5. **A zero-length output.** Input: `(rgb-to-gray empty 0)`. Behaviour: the binding allocates 0 bytes and calls C with `out_len = 0`. The pointer may be `NULL`, as for an input (H11.3), and C must not dereference it. The result is the empty `bytes`, and `bytesLen(r) = 0` holds. Channel: spec is silent on the pointer value (intentional).
@@ -393,7 +426,7 @@ The frame size `w · h · 3` is a product of two variables, so it is not QF-LIA 
 12. **`bytes[n]` as a kernel argument.** Input: `(fn [k: bytes[32]] -> bytes)`. Behaviour: `ffi-type-unsupported`, with the advice to declare `bytes` and call `bytes-widen`. Channel: type. Citation: Part 1.
 13. **A nonlinear `out-len`.** Input: `(out-len (* w h))`. Behaviour: `ffi-kernel-term-unsupported`, because neither operand is a literal. Channel: type (the `check` vocabulary rule). Citation: Part 3; `examples/y4m/FRICTION.md` F5.
 14. **A changed C file after `verify`.** Input: edit `pix.c`, then `build` without `verify`. Behaviour: the old trust report keeps the old `source_sha256`. The verdict does not change, because it does not depend on the C content. `build` computes the hash again and warns with `ffi-kernel-source-changed` (H6). Channel: trust (disclosure). Citation: Part 5.
-14b. **A local header (new in Rev 2, H6).** Input: `pix.c` contains `#include "tables.h"`. Behaviour: `check` fails with `ffi-kernel-include-refused`. The author inlines the header in the source file. Channel: type (`check`). Citation: Part 3.
+14b. **A local header, or a header outside the allowlist (new in Rev 2, H6; amended in Rev 3, K3).** Input: `pix.c` contains `#include "tables.h"`, `#include </abs/path/tables.h>`, `#include <../cbits/tables.h>`, `#embed "tables.bin"`, or `__asm__(".incbin \"tables.bin\"")`. Behaviour: `check` fails with `ffi-kernel-include-refused`. The author inlines the header in the source file. Each of the five inputs has a fixture. Channel: type (`check`). Citation: Part 3.
 15. **A kernel called from a `def`.** Behaviour: `core-membership-violation`, as for Tier 1. Channel: type (core membership). Citation: Part 4.
 
 ## Verification mapping
@@ -403,9 +436,9 @@ The frame size `w · h · 3` is a product of two variables, so it is not QF-LIA 
 | Kernel `pre` at a call site | contract (PROVE) | QF-LIA: the vocabulary is linear by construction | the call rule of `LLMLL.md` §5.3.4; `compiler/src/LLMLL/FixpointEmit.hs`, with the kernel's effective `pre` in the contract environment |
 | `int64` range of each `int` argument | contract (PROVE) | QF-LIA with literal bounds | the same |
 | `out-len ≥ 0` | contract (PROVE) | QF-LIA | the same |
-| `out-len ≤ 2^63 − 1` (new, H1) | contract (PROVE) | QF-LIA with a literal bound | the same |
+| `out-len ≤ 2^63 − 1` (new, H1) | contract (PROVE), with the kernel's clause-1 mark: a failure falls back (K1) | QF-LIA with a literal bound | the same |
 | `bytesLen(r) = out-len` | assumed post, codegen-determined given the row's memory-safety clause | QF-LIA, over the existing `bytesLen` UF | the kernel reflection; disclosed in the closed axiom set (`LLMLL.md` §13.12) |
-| `bytesLen(b) ≤ 2^63 − 1` for every `bytes` term (new, H3) | assumed fact, codegen-determined (64-bit targets only) | QF-LIA with a literal bound | the `bytesLen` measure facts; disclosed in the closed axiom set |
+| `bytesLen(b) ≤ 2^63 − 1` for each occurring `bytesLen` term of LLMLL type `bytes` or `bytes[n]` (new, H3; amended, K2) | assumed fact, codegen-determined (64-bit targets only) | QF-LIA with a literal bound | `injectRangeFacts`, as the upper half of the `measure-nonneg` ground-fact family, on both sides of each constraint; disclosed as that family entry (`LLMLL.md` §13.12) |
 | Ackermann hypothesis, `bytes` arguments and `int` result | contract (assumed hypothesis) | QF-LIA plus array equality in the premise only | `CALL-CONGRUENCE-1` R1–R3, with the amended R2 |
 | Determinism, reentrancy, memory safety under the `pre`, no write to inputs, no retained pointer, status 0 under the `pre` | trust | not a solver obligation | the `ffi_assumptions` row |
 
@@ -417,25 +450,25 @@ No obligation goes to Lean. Nothing in this record is nonlinear. The one nonline
 
 1. **Strict immutability.** No LLMLL value changes after it exists. The output is written inside `create`, before it is a value. Inputs are read-only by contract, and the contract is disclosed per verdict.
 2. **Memory-safety preconditions are checked, not assumed.** Every length relation that C needs is a `pre` in QF-LIA, proved where possible and checked at run time always. The row makes memory safety conditional on the `pre`, so the check is the guard. The remaining memory-safety claim is about the C code only, and the row names it.
-3. **The length facts are earned by codegen.** `bytesLen(r) = out-len` holds because the binding checks `0 ≤ out-len ≤ 2^63 − 1` and allocates exactly that many bytes, given the row's memory-safety clause. `bytesLen(b) ≤ 2^63 − 1` holds because a `ByteString` length is an `Int` on a 64-bit target. Each joins the closed axiom set as one schema.
+3. **The length facts are earned by codegen.** `bytesLen(r) = out-len` holds because the binding checks `0 ≤ out-len ≤ 2^63 − 1` and allocates exactly that many bytes, given the row's memory-safety clause. `bytesLen(b) ≤ 2^63 − 1` holds because a `ByteString` length is an `Int` on a 64-bit target. The first joins the closed axiom set as one schema. The second is the upper half of the `measure-nonneg` ground-fact family (K2).
 4. **The verifier does not over-claim.** A kernel call is an abstracted term, so an UNSAFE answer is never reported as `refuted` because of it. Congruence is emitted only where the amended R2 holds. A `bytes` result gets no hypothesis.
 5. **Logic functions do not see IO, and a failure is never a value.** A kernel has a pure type. A failed check or a nonzero status ends the process with `_exit(1)` and raises no Haskell exception. So no handler in the runtime, including `llmll_rxTotal` and `await`, can turn the failure into a value. A failed thunk is never evaluated again.
 6. **The assumption is visible.** Every verdict that rests on a kernel carries a row with the C symbol, the source path, its hash and the `cc-options`. The effect summary stays `unbounded`.
 
 ## Affected surface
 
-- `compiler/src/LLMLL/Ffi.hs`: `ffiImportErrors` accepts a `c.*` import with `kernels` and `source`, and keeps `ffi-tier2-refused` for every other `c.*` import. A new check validates kernel types, the predicate vocabulary and the `out-len` rule. A new check reads the source file and refuses a non-system `#include` (`ffi-kernel-include-refused`).
+- `compiler/src/LLMLL/Ffi.hs`: `ffiImportErrors` accepts a `c.*` import with `kernels` and `source`, and keeps `ffi-tier2-refused` for every other `c.*` import. A new check validates kernel types, the predicate vocabulary and the `out-len` rule. A new check reads the source file and refuses every `#include` outside the standard-header allowlist, and every `#embed` and `.incbin` (`ffi-kernel-include-refused`, K3).
 - `compiler/src/LLMLL/Syntax.hs`, `compiler/src/LLMLL/Parser.hs`, `compiler/src/LLMLL/ParserJSON.hs`: the import node gains `source` and `kernels`.
 - `compiler/src/LLMLL/CodegenHs.hs`: `emitFfiStub` and `emitFfiDecl` are replaced by the kernel binding and the `foreign import`, both in the generated module `FFI/<Lib>.hs`. `package.yaml` gains `c-sources` and the fixed `cc-options`. The preamble gains `llmll_kernel_die`, which writes, flushes and calls `_exit(1)` (or `exitImmediately`) with no exception.
 - `compiler/src/LLMLL/TypeCheck.hs`: kernels enter the environment with their LLMLL types; a `def` call stays `core-membership-violation`.
-- `compiler/src/LLMLL/FixpointEmit.hs`: the kernel reflection, the effective `pre` (with `out-len ≤ 2^63 − 1`), the length fact, the byte-length upper bound for every `bytes` term, the clause-1 abstraction mark taken from the kernel symbol (not from `collectCallBinders`), and a `bytes` clause in `congSort` for argument positions only.
-- `compiler/src/LLMLL/AbstractionVerdict.hs`: kernel symbols join the clause-1 set.
+- `compiler/src/LLMLL/FixpointEmit.hs`: the kernel reflection, the effective `pre` (with `out-len ≤ 2^63 − 1`), the length fact, the byte-length upper bound in `injectRangeFacts` for each occurring `bytesLen` term of LLMLL type `bytes` (not keyed on the FQ sort, K2), the clause-1 abstraction mark taken from the kernel symbol (not from `collectCallBinders`) on each kernel call and on the `out-len ≤ 2^63 − 1` obligation id (K1), and a `bytes` clause in `congSort` for argument positions only.
+- `compiler/src/LLMLL/AbstractionVerdict.hs`: kernel symbols join the clause-1 set. The shipped cause order (`abstraction-unsafe`, then `callee-post-unassumed`) does not change (K5).
 - `compiler/src/LLMLL/TrustReport.hs`: the row keys `kind`, `source`, `source_sha256`, `cc_options`; the kernel row text; a branch on `kind` in `renderFfi`, so a kernel row does not print the `haskell.` prefix. `docs/llmll-trust-report.schema.json`: the four additive keys.
 - `build`: computes the source hash again and warns with `ffi-kernel-source-changed` on a difference from the `verify` hash.
 - `docs/llmll-ast.schema.json`: `source` and `kernels` on the import node; one minor schema version change.
-- `LLMLL.md` §7 (Tier 2 row and a new "Kernels" subsection), §13.12 (the two axiom-set schemas), §5.3.3 (the kernel reflection and the byte-length bound), and a statement that LLMLL supports 64-bit targets only. Documentation-lead, after the ship.
+- `LLMLL.md` §7 (Tier 2 row and a new "Kernels" subsection), §13.12 (the kernel-length schema, and the upper half of the `measure-nonneg` family entry), §5.3.3 (the kernel reflection and the byte-length bound), and a statement that LLMLL supports 64-bit targets only. Documentation-lead, after the ship.
 - `docs/design/ffi-determinism-proposal.md` Part 3 R2 and its `LLMLL.md` text: the amended argument condition. Documentation-lead.
-- Fixtures: the worked example with a C kernel, built and run; the positive witness of edge case 1, at `verify` and at run time; edge cases 2b, 6, 6b, 7, 7b, 8, 12, 13 and 14b; W-C and W8 rewritten as kernels; a `c.*` import with `interface` still refused. Edge case 7b needs one fixture inside a regex argument and one inside `await`.
+- Fixtures: the worked example with a C kernel, built and run; the positive witness of edge case 1, at `verify` and at run time; edge cases 2b (a fallback, not `refuted`), 6, 6b, 7, 7b, 8, 12, 13 and 14b (one fixture per refused input); a `bytes-length` bound in a contract clause (K2); W-C and W8 rewritten as kernels; a `c.*` import with `interface` still refused. Edge case 7b needs one fixture inside a regex argument and one inside `await`.
 
 ## Risks
 
@@ -446,7 +479,7 @@ No obligation goes to Lean. Nothing in this record is nonlinear. The one nonline
 5. **A false kernel-caller post is never `refuted` (new in Rev 2, H8).** Classification: verification ergonomics. Citation: Part 4, clause 1. Bite: complicates every kernel caller. An UNSAFE answer gives the fallback outcome, and properties skip, so such a function is `asserted`. The author gets a weaker signal than for an ordinary function. This is the cost of a contract that the author cannot strengthen.
 6. **A C toolchain at build.** Classification: scope. Bite: complicates CI and `getting-started`. GHC brings a C compiler through its toolchain, so `stack build` compiles `c-sources`. The engineer confirms this on the pinned resolver and in the Docker image.
 7. **The C compiler version is not disclosed (new in Rev 2, H6).** Classification: disclosure (trust). Bite: only matters at scale. The row records the source hash and the `cc-options`, not the compiler version. A different compiler can change a floating-point kernel's result. Recording it is left to `FFI-KERNEL-LIB-1` or a later row.
-8. **A sum of lengths in `out-len` may need a stated bound (new in Rev 2, H1).** Classification: verification ergonomics. Bite: complicates. The Part 1 bound gives each length `≤ 2^63 − 1`, so a sum of two lengths is not provably `≤ 2^63 − 1`. The caller states a bound in its `pre`. At run time the check never fails on a real 64-bit machine, because the address space is smaller.
+8. **A sum of lengths in `out-len` is not provably in range (new in Rev 2, H1; rewritten in Rev 3, K1).** Classification: verification ergonomics. Bite: complicates. The Part 1 bound gives each length `≤ 2^63 − 1`, so a sum of two lengths is not provably `≤ 2^63 − 1`. The `out-len ≤ 2^63 − 1` obligation carries the kernel's clause-1 mark, so the caller falls back with cause `abstraction-unsafe`. It is not `refuted`. To get `verified`, the caller states a bound in its `pre`. At run time the check never fails on a real 64-bit machine, because the address space is smaller. The cost of the mark is a lost refutation for a real overflow (edge case 2b), which is an allocation request above 8 EB.
 9. **The flush in rule 4 can block (new in Rev 2, H4).** Classification: scope (implementation). Bite: only matters at scale. If the failing thunk is evaluated while the same thread holds the `stdout` handle lock, `hFlush stdout` can block. The engineer checks this case. A flush of `stderr` alone is an acceptable fallback, at the cost of lost buffered output.
 10. **`SAFE-HASKELL-CLAIM-1` interaction.** Classification: spec drift. Citation: DR2. Bite: low. The bindings live in `FFI/<Lib>.hs`, so a `Safe` split marks one module `Trustworthy`.
 
@@ -485,214 +518,57 @@ The user answered the Rev 1 open questions and the professor's two questions on 
 3. **Target width.** LLMLL supports 64-bit targets only. The byte-length bound is `2^63 − 1` (Part 1).
 4. **Failure inside an awaited task.** A kernel failure ends the whole program, consistent with `AWAIT-ASYNC-1`. The mechanism is a flush and `_exit(1)` with no Haskell exception (Part 3 rule 4). The general case is `PRE-FAIL-EXIT-1`.
 
+The user settled Rev 3 on 2026-11-04 and accepted K1–K5 as recommended. See "Decisions (settled by the user, 2026-11-04)" at the top.
+
 ## Open questions for the professor
 
-None in Rev 2. The review answered Q1 and Q2, and Part 4 records both answers.
+None. Round 1 answered Q1 and Q2, and Part 4 records both answers. Round 2 asked one question (the verdict for an `out-len` bound that the Part 1 fact cannot prove). The user answered it with K1: the obligation falls back.
 
 ## Hand-off on settlement
 
-Not settled. On settlement: (a) `docs/design/ffi-buffer-proposal.md`; (b) Rev 2, or a later revision; (c) a standalone review exists at `docs/design/ffi-buffer-professor-review.md` and is already folded below, so it is ready for archive (M2); (d) code-track. The engineer plans `FFI-KERNEL-1` after `BYTES-UNSIZED-1` and `FFI-BYTES-1`. The documentation-lead files the rows above, answers the `FFI-TIER2-1` DECIDE in the roadmap, and archives the review file.
+Settled 2026-11-04. (a) `docs/design/ffi-buffer-proposal.md`; (b) Rev 3; (c) both reviews are folded below; the round-1 file is archived at `docs/archive/professor-reviews/ffi-buffer-review.md`, with round 2 appended, and a redirect stub stays at the old path; (d) code-track. The engineer plans `FFI-KERNEL-1` after `BYTES-UNSIZED-1` and `FFI-BYTES-1`. The documentation-lead files the rows above and answers the `FFI-TIER2-1` DECIDE in the roadmap.
 
 ## Appendix — Professor review log
 
-Folded 2026-11-02 by the language-team, in Rev 2. The review is copied unchanged below, without its frontmatter (reviews: Rev 1, DRAFT 2026-11-02; verdict: ACCEPT WITH CHANGES, H1–H11, answers to Q1 and Q2). The standalone file stays at [`ffi-buffer-professor-review.md`](ffi-buffer-professor-review.md) until settlement. Line citations in the review refer to the tree at Rev 1 and may move.
+Two professor rounds, condensed at settlement (2026-11-04). The full text of both is in [`../archive/professor-reviews/ffi-buffer-review.md`](../archive/professor-reviews/ffi-buffer-review.md). Line citations refer to the tree at the time of each review and may move.
 
-### Review of Rev 1 (2026-11-02)
+### Round 1: review of Rev 1 (2026-11-02)
 
-#### Restatement
+**Verdict: accept with changes.** The architecture is right. Inputs are pinned and read-only, the output is fresh, every length relation is a checked `pre`, and the C code is one disclosed assumption. Two defects make a stated fact or a stated guarantee false (H1, H4). One defect makes `refuted` false on correct programs (H3). The other findings are wording, disclosure and scope.
 
-The draft reopens Tier 2 as one import form. A `c.*` import names one C file and a list of *kernels*. Each kernel is a pure function from `bytes` and `int` to one `bytes` or one `int`. The Haskell binding checks a QF-LIA `pre`, allocates a zero-filled output of `out-len` bytes, and calls C through a `safe` foreign call under `unsafePerformIO`. The verifier gets one codegen-determined fact, `bytesLen(r) = ⟦out-len⟧`, and marks each kernel call as an abstracted term. The trust report gets one `ffi_assumptions` row per kernel, with the C source hash.
+| Id | Classification | Finding | Disposition |
+|---|---|---|---|
+| H1 | soundness; blocks | `BSI.create (fromInteger n)` wraps an `out-len` above `maxBound :: Int`, so `bytesLen(r) = ⟦out-len⟧` is false for the returned value. Same class as `BYTES-LEN-RANGE-1`. Add `out-len ≤ 2^63 − 1` to the effective `pre`, check it before the allocation, prove it at call sites. | Adopted in Rev 2 (rule 1; edge case 2b). Rev 3 marks the obligation so that a failure falls back (K1). |
+| H2 | soundness of the stated argument | The row text made memory safety unconditional, so the `pre` guarded nothing. Make the memory-safety and status clauses conditional on the `pre`. The length fact is codegen-determined *given* the memory-safety clause. | Adopted in Rev 2 (Part 4; Part 5; soundness point 3). |
+| H3 | false `refuted` | The model has no upper bound on `bytesLen`, so the worked example needed the arbitrary bound `npix < 10^9`. Add `bytesLen(b) ≤ 2^63 − 1`, true on a 64-bit target. | Adopted in Rev 2 (Part 1). Rev 3 moves the emission to the `measure-nonneg` family (K2). |
+| H4 | stated guarantee | `llmll_rxTotal` and the `EAwait` code catch synchronous exceptions, so a kernel failure (or `exitWith`) can become a value, and a failed thunk can call C again. End the process with no Haskell exception; file the general case. | Adopted in Rev 2 (rule 4; DR3; `PRE-FAIL-EXIT-1`). Rev 3 adds the allocation-failure sentence (K4). |
+| H5 | trust assumption | Zero fill is necessary, not sufficient. Initialize the `int` cell to 0; add "reentrant" and "depends only on its arguments" to the row; keep zero fill mandatory. | Adopted in Rev 2 (ABI table; rule 2; Part 5). |
+| H6 | disclosure | The hash covers one file, but a local `#include`, the `cc-options` and the compiler version also shape the code. Refuse or hash local headers; fix and record `cc-options`; recheck the hash at `build`. | Adopted in Rev 2 (Part 3; Part 5; risk 7). Rev 3 replaces the `<`-prefix rule with an allowlist (K3). |
+| H7 | spec drift | R2 asks for an injective run-time-to-model map, which does not exist for `bytes`. Amend the argument condition to "model equality implies run-time equality"; add a `bytes` argument clause to `congSort`. | Adopted in Rev 2 (Part 4 "Congruence"). |
+| H8 | spec precision | State why clause 1 applies to a kernel (its contract cannot be strengthened), take the mark from the kernel symbol (not `collectCallBinders`), and list the `asserted` cost. | Adopted in Rev 2 (Part 4; risk 5). |
+| H9 | spec drift | DR2 misframed the `SAFE-HASKELL-CLAIM-1` interaction. Put the bindings in `FFI/<Lib>.hs`; keep `unsafePerformIO`, not the duplicable form. | Adopted in Rev 2 (DR2; rule 6). |
+| H10 | scope | "Kernels only" is the right closure of `FFI-TIER2-1`. Park native-library linking; branch the row printer on `kind`. | Adopted in Rev 2 (Part 3 "Scope"; `FFI-KERNEL-LIB-1`). |
+| H11 | smaller points | `bytes[n]` refusal is right; edge case 1 must say when a `pre` violation is `refuted`; edge case 5 may get `NULL`. | Adopted in Rev 2 (edge cases 1, 5, 12). |
 
-**Verdict: accept with changes.** The architecture is right. Inputs are pinned and read-only, the output is fresh, every length relation is a checked `pre`, and the C code is one disclosed assumption. Two defects make a stated fact false or a stated guarantee false (H1, H4). One defect makes `refuted` false on correct programs (H3). The other findings are wording, disclosure and scope.
+**Q1 (congruence over a `bytes` result).** The hypothesis is sound under two invariants of the encoding: I1 (range locality) and I2 (no whole-array pin), by a canonical-model argument for the array theory (de Moura and Bjørner, FMCAD 2009). A future post such as `result = (bytes-make n 0)` would break I2. Keep the v1 omission. If a trigger needs content agreement, use the pointwise read form, which needs neither invariant. Recorded in Part 4.
 
-#### Context located
+**Q2 (a proved call-site `pre` with an unverified callee).** Report a proved `pre` as proved: it is a fact about the caller alone (Findler and Felleisen, ICFP 2002; Wadler and Findler, ESOP 2009). Keep the runtime check: the binding is one function for all callers, a proof is relative to assumed callee contracts, and a wrong proof gives undefined behaviour in C. A safe API over unsafe code must be safe for every well-typed caller (RustBelt, POPL 2018). Name the blamed party in each message. Recorded in Part 3 and Part 4.
 
-1. `docs/design/byte-io-proposal.md` Part 0 (lines 120–166): the abstracted-term definition, clause 1 and clause 2, and the P16 modular reading of `refuted`.
-2. `docs/design/byte-io-proposal.md` Part 4 (lines 168–250): `bytes` reflections; `=` on `bytes` falls back through `wholeArrEqClause`.
-3. `docs/design/byte-io-proposal.md:626`: `bytes-make` reflects as `r = const(v)`. This array is `v` outside `[0, n)`. It matters for Q1.
-4. `docs/design/ffi-determinism-proposal.md` Part 3, R1–R5 (lines 110–137): R2 asks for an *injective* run-time-to-model map on argument sorts.
-5. `docs/design/ffi-determinism-proposal.md` Part 7 (lines 158–169): the six parts of `FFI-TIER2-1`.
-6. `compiler/src/LLMLL/FixpointEmit.hs:4691-4706`: `congSort` admits only `TInt`, `TBool`, `TString`.
-7. `compiler/src/LLMLL/FixpointEmit.hs:5701-5730`: `addCongruence` and `congruenceFact` emit `¬(a = b) ∨ r = r'`, and drop syntactically equal argument pairs.
-8. `compiler/src/LLMLL/FixpointEmit.hs:5740-5750`: `collectCallBinders` skips every call that has a congruence key.
-9. `compiler/src/LLMLL/FixpointEmit.hs:4902-4909`: `bytes-zero` reflects as `r = Map_default(0)`.
-10. `compiler/src/LLMLL/CodegenHs.hs:2247-2254`: a runtime `pre` failure is `error "pre-condition failed"`, a synchronous exception.
-11. `compiler/src/LLMLL/CodegenHs.hs:730-736`: `llmll_rxTotal` catches every synchronous exception in a regex evaluation and answers the fallback.
-12. `compiler/src/LLMLL/CodegenHs.hs:2348-2349`: an awaited task converts `SomeException` into `Left (show e)`, a value.
-13. `compiler/src/LLMLL/CodegenHs.hs:299, 666, 670, 732, 941`: the preamble already uses `unsafePerformIO`.
-14. `compiler/src/LLMLL/CodegenHs.hs:2685`: generated programs link the `-threaded` RTS since `PROC-TIMEOUT-1`.
-15. `compiler/src/LLMLL/TrustReport.hs:2258-2262`: `ffiNote` and the row line hard-code the prefix `haskell.`.
-16. `CHANGELOG.md:435`: `BYTES-LEN-RANGE-1` refused a `bytes[n]` length outside `Int64` for soundness. H1 is the same defect class.
-17. `docs/compiler-team-roadmap.md:162`: `SAFE-HASKELL-CLAIM-1` already names `unsafePerformIO` as the reason `Safe` cannot compile.
+**Open questions of round 1.** (1) 32-bit targets: the user answered "64-bit only" (Decisions recorded, item 3). (2) Failure inside `await`: the user answered "the whole program ends" (item 4).
 
-No other in-flight draft on native buffers exists in `docs/design/`.
+### Round 2: review of Rev 2 (2026-11-04)
 
-#### Answers to the author's questions
+**Verdict: settle with named small edits (K1–K5). No blocking finding.** Rev 2 closes every blocking item of round 1. It adds no new soundness defect in a verdict. The reviewer checked four places where Rev 2 adds a fact or a hypothesis: the byte-length bound (true of every `ByteString` on a 64-bit target and of every `bytes[n]`; agrees with `bytes-zero`), the amended R2 for a `bytes` argument, the `out-len` upper bound in the effective `pre` (a PROVE obligation, so it cannot make a fact false), and `_exit` instead of `error`.
 
-##### Q1. Congruence over a `bytes` result
+**Disposition of round 1.** H1, H2, H4, H5, H7, H8, H9, H10, Q1, Q2 closed. H3 closed in principle, with the emission mechanism left to K2 and the sum case to K1. H6 partly closed (K3). H11 closed, with one sentence needed after v0.36.0 (K5).
 
-**Short answer.** The hypothesis `(a_i = a_j) ⇒ (r_i = r_j)` is sound for a kernel `bytes` result under two invariants of the encoding. The candidate argument is correct in direction but incomplete. Keep the v1 omission anyway, because the hypothesis gains almost nothing today. If a later trigger needs content agreement, emit a pointwise read form, which needs no invariant.
+| Id | Classification | Finding | Disposition |
+|---|---|---|---|
+| K1 | claim accuracy; user choice | A sum of lengths in `out-len` is not provable from the Part 1 bound, so a correct caller is `refuted` (the H3 class). Recommended: mark the `out-len ≤ 2^63 − 1` obligation with the kernel's clause-1 mark, so a failure falls back. Keep the `int64` argument range hard. | **Adopted** (user decision 2). Part 4; edge case 2b; risk 8. |
+| K2 | precision | `byteArraySort` and `mapArraySort` are one FQ sort (`FixpointEmit.hs:1953`). Emit the bound per occurring `bytesLen` term of LLMLL type `bytes`, as the upper half of `measure-nonneg`. The injection reads both sides of a constraint, which meets the CLAUSE-WELLDEF-1 parity rule. | **Adopted** (decision 3). Part 1; Part 4; Part 5; verification mapping. |
+| K3 | disclosure | Four inputs pass the `<`-prefix rule: a path in angle brackets, `#embed`, `.incbin`, and an angle include that resolves in the generated project. Use an allowlist of standard C headers; refuse `#embed` and `.incbin`; one fixture each. | **Adopted** (decision 4). Part 3; edge case 14b. |
+| K4 | stated guarantee | Under a heap limit (`-M`), `HeapOverflow` from `BSI.create` inside `await` becomes `Left (show e)`. Add one sentence to rule 4. | **Adopted** (decision 5). Part 3 rule 4. |
+| K5 | spec drift | Edge case 1 predates CALLEE-POST-UNASSUMED-1 (v0.36.0). Add the `callee-post-unassumed` case; state in Part 4 that the kernel mark and that mark share `applyAbstractionVerdict`. | **Adopted** (decision 6). Edge case 1; Part 4. |
+| K6 | citation drift | `congSort` moved to `FixpointEmit.hs:4832`; `EAwait` to `CodegenHs.hs:2349`. | No action; the engineer reads by name. |
 
-**What soundness means here.** The hypothesis is sound when every concrete run has a model of the whole constraint, hypothesis included. The model may choose any array for a run-time `bytes` value, provided the array agrees with the value on `[0, bytesLen)`.
-
-**The proof, and where the candidate argument is incomplete.** Call an array term *fresh* if it is a parameter, a call result or a partial-reflection result. Assume these two invariants.
-
-- **I1 (range locality).** Every emitted fact that mentions a fresh array term reads it only through `bytesLen` or through `select` at an index that the same constraint bounds to `[0, bytesLen)`.
-- **I2 (no whole-array pin).** No emitted fact equates a fresh array term to a non-fresh array term, such as `Map_default(v)` or `const(v)`.
-
-Under I1 and I2, choose each fresh term's array as `κ(v)`, where `v` is its run-time value. `κ(v)` agrees with `v` in range. Outside the range it carries a tag that is a function of `v` alone, and that differs from every non-fresh array in the model. The domain is infinite, so such a tag exists. Then three things hold. Every range-local fact keeps its truth (I1). No pinned term conflicts (I2). Array equality between fresh terms is now exactly run-time equality. So `r_i = r_j` holds whenever the run-time results are equal, and determinism of the kernel gives that equality when the arguments are equal.
-
-The candidate argument changes one array after the fact. That is not enough by itself, for two reasons. First, the change must propagate to every term built from `r_j` by `Map_store` or by an alias, and each of those terms must also be range-local. Second, `bytesLen` is an uninterpreted function. A changed array can collide with an unrelated array that has a different `bytesLen`. The `κ` construction removes both problems. It is the standard canonical-model argument for the array theory (de Moura and Bjørner, "Generalized, efficient array decision procedures", FMCAD 2009; Bradley, Manna and Sipma, VMCAI 2006, for the role of index bounds).
-
-**Why I2 is not a formality.** `byte-io-proposal.md:626` reflects `bytes-make n v` as `const(v)`, which is `v` outside the range. `FixpointEmit.hs:4906` reflects `bytes-zero` as `Map_default(0)`. Today `wholeArrEqClause` makes every user `=` on `bytes` fall back, so no fact equates a kernel result to such a term. A future `FFI-KERNEL-POST-1` post of the form `result = (bytes-make n 0)` would break I2. Then the hypothesis can force two run-time-equal results to be equal to different constant arrays, which makes the constraint unsatisfiable for a real run. That is an unsound `verified`.
-
-**Why to keep the omission.** `=` on `bytes` never reaches the solver. So the only consumer of `r_i = r_j` is a read, such as `(bytes-get (k a) t)` at two call sites. The length part of the conclusion already follows from the `out-len` fact. If a trigger needs the read part, emit `(a_i = a_j ∧ 0 ≤ t < bytesLen(r_i)) ⇒ select(r_i, t) = select(r_j, t)` for each read index `t` in the constraint. This form is ground and range-local. It is sound with no appeal to I1 or I2.
-
-**A correction to the `bytes`-argument case.** The draft says R2 "holds" for a `bytes` argument with an `int` result. The conclusion is right, but R2 as written does not cover it. R2 asks for an *injective* map from run-time values to model values (`ffi-determinism-proposal.md:116`). For `bytes` no such function exists: one run-time value has many model arrays. The draft's real argument uses a different property: model `=` implies run-time `=`. That property is what an argument position needs. It holds for `int`, `bool` and `string` as well, so it is a correct generalization of R2, not an exception to it. See H7.
-
-##### Q2. A proved call-site `pre` with an unverified callee
-
-**Short answer.** Keep the runtime check. Do not change how a proved call-site `pre` is reported. The literature supports both choices, but for a reason that the draft does not state.
-
-**Blame.** In Findler and Felleisen ("Contracts for higher-order functions", ICFP 2002) a precondition is the client's obligation. A failed `pre` blames the caller, and a failed `post` blames the server. Wadler and Findler ("Well-typed programs can't be blamed", ESOP 2009) show that the more precisely typed side of a boundary is never blamed. Here the LLMLL caller is the precise side for the `pre`. A sound verifier proof of the `pre` means the check never fails. So the proof is a fact about the caller alone. The C callee's status does not change it. Report the proved `pre` as proved.
-
-**Why the check stays.** Static contract checking removes a check only when every path to it is proved (Xu, Peyton Jones and Claessen, "Static contract checking for Haskell", POPL 2009; Nguyễn, Tobin-Hochstadt and Van Horn, "Soft contract verification", ICFP 2014). That condition fails here for three reasons.
-
-1. The binding is one function for all callers. Some callers have no body VC: the draft keeps the `call-pre unchecked` edge for them. Removal per call site needs one binding per call site.
-2. A proved `pre` is relative to the callee contracts the verifier assumes (P16). In the worked example the kernel `pre` rests on the post of `frame-at`. A fallback or `asserted` callee upstream makes that proof conditional.
-3. The cost of a wrong proof is different. A wrong proof elsewhere gives a wrong value. Here it gives undefined behaviour in C.
-
-The right frame is RustBelt (Jung et al., "RustBelt", POPL 2018). A safe API over unsafe code must be safe for *every* well-typed caller, not only for verified callers. The binding is that safe API, and the runtime check is what makes it safe. Matthews and Findler ("Operational semantics for multi-language programs", POPL 2007) give the same result for boundaries between languages: the boundary carries the check.
-
-**What must change for this answer to hold.** The row text must make memory safety conditional on the `pre`. See H2. Otherwise the `pre` is not a memory-safety guard, and the reason to keep the check is weaker.
-
-**Blame in the runtime message.** Binding rule 1 reports a `pre` failure and rule 4 reports a status failure with the same exit and a similar message. Under Findler–Felleisen these two failures blame different parties. The `pre` failure blames the LLMLL caller. The status failure blames the C code, against its row. State the party in each message.
-
-#### Gaps and hazards
-
-Ordered by severity.
-
-##### H1. `out-len` above `maxBound :: Int` makes the length fact false
-
-**Classification:** soundness. **Bite:** blocks; a one-clause fix.
-
-The binding evaluates `out-len` over `Integer` and calls `BSI.create (fromInteger n)`. `fromInteger` to `Int` wraps modulo 2^64. The binding checks `out-len ≥ 0` but not an upper bound. The `int64` check covers each `int` argument, not the `out-len` term. A term such as `(* 4 npix)` or `(+ (bytes-length a) (bytes-length b))` can exceed `2^63 − 1` with every argument in range.
-
-Then the allocation and the C `out_len` agree with each other, so C stays in bounds. But the verifier assumed `bytesLen(r) = ⟦out-len⟧` with the unwrapped value. That fact is false for the returned value. This is the defect class that `BYTES-LEN-RANGE-1` closed for `bytes[n]` (`CHANGELOG.md:435`), and `INT-INDEX-WRAP-1` closed for indices.
-
-**Required.** Add `out-len ≤ 2^63 − 1` to the effective `pre`. Check it at run time before the allocation, in the order of binding rule 1. Prove it at each call site with the other clauses. Add edge case 2b: an `out-len` above `maxBound`.
-
-##### H2. The row text makes memory safety unconditional, so the `pre` guards nothing
-
-**Classification:** soundness of the stated argument. **Bite:** complicates; wording.
-
-The row text says the kernel is "memory-safe (it reads at most the passed length of each input and writes at most out_len bytes of the output)". That claim does not depend on the `pre`. If it holds, a `pre` violation cannot cause a memory fault, and soundness point 2 ("Memory-safety preconditions are checked, not assumed") has no content. A realistic kernel does not satisfy the unconditional claim. `pix_rgb_to_gray` reads `src[3·i + 2]` for `i < npix` and trusts that `src_len = 3·npix`. Its memory safety rests on the `pre`.
-
-**Required.** Write the row clause as conditional: "on every input that meets its `pre`, it reads at most the passed length of each input, writes at most `out_len` bytes, and returns status 0". This is the contract the design actually needs. It also makes Q2's argument for the runtime check exact.
-
-**Related wording.** Part 4 says the length fact "is not an assumption about the C code". This is too strong. A write past `out_len` is undefined behaviour, and no fact holds after it. The fact is codegen-determined *given* the memory-safety clause of the row. The disclosure is still complete, because every verdict that uses the fact carries the row. Say this in Part 4 and in soundness point 3.
-
-##### H3. No upper bound on `bytesLen` causes a false `refuted`
-
-**Classification:** soundness of `refuted` (claim accuracy). **Bite:** complicates every kernel caller.
-
-The model has `bytesLen(v) ≥ 0` and no upper bound. At run time a `ByteString` length is an `Int`, so `bytesLen(v) ≤ 2^63 − 1` always holds. Edge case 3 and the worked example show the result. Without the arbitrary bound `npix < 10^9`, the `int64` range obligation fails, and the caller is `refuted` (no abstracted term is in its environment). But the program is correct: `off + 3·npix ≤ bytesLen(file) ≤ 2^63 − 1` gives the range. This is a false `refuted` against `LLMLL.md` §4.4.1. P16 does not excuse it, because `file` is a parameter, not a callee contract that the author can strengthen.
-
-**Required.** Add the codegen-determined fact `bytesLen(b) ≤ 2^63 − 1` for every `bytes` term. It is true of every `ByteString` on a 64-bit target. It is QF-LIA. It joins the closed axiom set as one schema, as the kernel length fact does. With it, the worked example verifies without `npix < 10^9`, and many `out-len` bounds of H1 become provable. Name the 64-bit target in the fact, because the bound is `maxBound :: Int`.
-
-##### H4. A kernel failure is a catchable exception, so "no exception reaches LLMLL code as a value" is false
-
-**Classification:** soundness of a stated guarantee (partial correctness). **Bite:** complicates; the fix is in the binding.
-
-Binding rule 4 and soundness point 5 say that a failure stops the program and that no exception reaches LLMLL code as a value. The generated runtime has two handlers that catch synchronous exceptions:
-
-- `llmll_rxTotal` (`CodegenHs.hs:730-736`) forces a regex result inside `try`. If a regex argument is a thunk that calls a kernel, a kernel failure inside it becomes the regex fallback value.
-- An awaited task (`CodegenHs.hs:2348-2349`) converts `SomeException` into `Left (show e)`, which LLMLL code then reads.
-
-`exitWith` is not a way out: `ExitCode` is a synchronous exception, and both handlers catch it. The existing runtime `pre` uses `error` (`CodegenHs.hs:2247-2254`), so the same defect already exists for ordinary `pre` failures. The kernel case is worse, because the draft relies on the guarantee in its trust argument. Also, a thunk whose evaluation threw can be evaluated again, which calls C a second time.
-
-**Required.** Specify in binding rule 4 that a kernel failure ends the process without a Haskell exception. Flush `stderr`, then call `exitImmediately` (`System.Posix.Process`) or a foreign `_exit`. Apply the same rule to the `pre` and range checks of rule 1. File the general case (ordinary `pre` failures caught by the two handlers) as a separate row. `AWAIT-ASYNC-1` is a likely owner for the await path.
-
-##### H5. Zero fill is necessary but not sufficient for determinism
-
-**Classification:** soundness of the trust assumption. **Bite:** complicates; wording and one binding rule.
-
-Zero fill removes one real source of non-determinism. `BSI.create` returns pinned memory that is not cleared, and a kernel that skips bytes would expose old heap data. That also leaks data across values. So zero fill is correct, and it is the right default. But the draft's argument "This makes the output a function of the inputs" claims too much. Four gaps remain.
-
-1. **The `int` result cell is not initialized.** The ABI passes `int64_t *out`. The draft gives no initial value. A kernel that returns status 0 without a write exposes an old stack or heap word. **Required:** initialize the cell to 0 (`with 0`), by the same argument as the zero fill.
-2. **Concurrency.** Generated programs use `-threaded` (`CodegenHs.hs:2685`), and a `safe` call releases the capability. Two tasks can run one kernel at the same time. A kernel with `static` state is then not deterministic. **Required:** add "reentrant and safe to call from two threads at once" to the row text.
-3. **Other run-time state.** C can read uninitialized scratch memory, the floating-point environment, a clock or a random source. The row clause "no hidden effects" covers these only under the broad reading. State it in the row as "its result depends only on its arguments".
-4. **Compiler flags.** `-ffast-math` or a different `-O` level can change a floating-point kernel's result. See H6.
-
-**On the user's open question 1 (opt out of zero fill).** Keep it mandatory in v1. An opt-out converts a checked guarantee into a new assumption ("the kernel writes every output byte"). That reverses the design rule "checked or earned". The measured cost belongs to `FFI-KERNEL-REUSE-1`. If a trigger shows that `memset` costs more than the stated threshold, add the opt-out there, with the new clause in the row text. A memory-bandwidth estimate for a 25 MB frame is 1–3 ms. That figure is an estimate and is not measured.
-
-##### H6. `source_sha256` hashes one file, but the compiled code depends on more
-
-**Classification:** disclosure (trust). **Bite:** only matters at scale; it under-discloses.
-
-The C file can `#include "helper.h"` from its directory. The hash does not cover that header. The compiled kernel also depends on `cc-options` and on the C compiler version. A reader who compares hashes can then miss a change in the assumed code.
-
-**Required.** Choose one of two rules. Either refuse a quoted `#include` in v1, or hash the C file and each local header it includes. Fix the `cc-options` in the generated `package.yaml` and record them in the row. Also record the hash at `build`, and warn when it differs from the `verify` hash (edge case 14).
-
-##### H7. The `bytes`-argument instance needs an amended R2, not a new R2 instance
-
-**Classification:** spec drift. **Bite:** complicates; wording plus one code clause.
-
-The draft lists "a `bytes` argument with an `int` result" as a new R2 instance, with no change to the rules. R2's first condition asks for an injective map from run-time values to the model (`ffi-determinism-proposal.md:116`). That map does not exist for `bytes`. The draft's own argument uses "model `=` implies run-time `=`". This property is weaker than injectivity, and it is the property an argument position needs.
-
-**Required.** Amend R2's argument condition to "model equality on the sort implies run-time equality". Note that `int`, `bool` and `string` satisfy it, and that `bytes` satisfies it because `bytesLen` is a function and `select` agrees with the run-time value in range. Keep the result condition as it is. The engineer adds a clause for the new `bytes` type to `congSort` (`FixpointEmit.hs:4698-4702`), for argument positions only.
-
-##### H8. Clause-1 abstraction is the right choice, but its reason and its interaction with congruence are not stated
-
-**Classification:** spec precision. **Bite:** complicates.
-
-Part 0 of BYTE-IO keeps a single call to a contracted callee out of the abstracted set. The reason is that `refuted` is relative to the callee contract, and the author can strengthen that contract (P16). A kernel is different. Its contract is fixed by the import form, and v1 gives the author no way to strengthen it (`FFI-KERNEL-POST-1` is parked). So a `refuted` verdict would be a claim that the author cannot act on, and clause 1 is correct. **Required:** write this reason in Part 4. Without it, a reader can take clause 1 as a contradiction of the single-call rule.
-
-The code needs care. `collectCallBinders` skips every call with a congruence key (`FixpointEmit.hs:5745-5746`). A kernel with an `int` result gets a key under R1. The clause-1 mark must come from the kernel symbol, not from the call-binder count, or a kernel pair with a key will escape the mark. State this in Affected surface.
-
-State the cost too. A kernel caller with a false post is never `refuted`. It gets the fallback outcome, and properties skip at a kernel call. So its trust level is `asserted`. This is a large loss of signal for the use case. Name it as a risk beside risk 4.
-
-##### H9. DR2 misframes the `SAFE-HASKELL-CLAIM-1` interaction
-
-**Classification:** spec drift. **Bite:** low.
-
-DR2 says the kernel binding matters "if that row moves toward emitting `Safe`". The preamble already uses `unsafePerformIO` in several places (`CodegenHs.hs:299, 666, 670, 732, 941`), and the roadmap row says so (`docs/compiler-team-roadmap.md:162`). The kernel binding adds no new violation. It adds a new kind of one: `Data.ByteString.Unsafe` and `Data.ByteString.Internal` are not Safe modules, and a `foreign import` is a trusted declaration.
-
-**Recommended.** Emit each binding into the existing generated FFI module (`CodegenHs.hs:15` and `168` already name `FFI/<Lib>.hs`), not into `Lib.hs`. Then a future `Safe` split marks one module `Trustworthy`. Rewrite DR2 to say that the binding adds no new obstacle and that it lives in the FFI module.
-
-`unsafePerformIO` is the correct primitive here, not `unsafeDupablePerformIO`. The duplicable form can run C twice for one thunk under the threaded RTS. That is harmless for a deterministic kernel and costly for a large frame.
-
-##### H10. "Kernels only" is the right closure of `FFI-TIER2-1`, with two scope notes
-
-**Classification:** scope. **Bite:** does not block.
-
-Kernels cover every part of `FFI-TIER2-1` Part 7, and the shim rule replaces a direct call to `abs` at a cost of three lines of C. A general C type mapping would bring pointers, structs and callbacks, and none of them has an answer that is checked or earned. The determinism record already called the Tier 2 assumption "much stronger" (professor H9). Narrowing it to pure kernels is the smallest form that the row text can describe. Accept the closure.
-
-Two notes. First, one C file with no `extra-libraries` excludes every native library. Real video work uses libraries such as `libyuv` or a codec library. Close `FFI-TIER2-1` with the statement that a general C mapping is refused by design, and file a parked row for linking a named native library under the same kernel convention. Its trust text must then name the library and its version. Second, `TrustReport.hs:2262` prints the prefix `haskell.` for every row. The kernel row needs a branch on `kind`. Name it in Affected surface.
-
-##### H11. Smaller points
-
-1. **`bytes[n]` as a kernel argument.** The refusal with advice to call `bytes-widen` is right. The cost model in Part 1 is the reason, and it is sufficient.
-2. **Edge case 1.** The text says the caller is `refuted` "if the term is not abstracted". State that the kernel's own result is not in the environment of its own call-pre, so a `pre` violation on plain arguments is `refuted`. Only an argument that comes from another kernel or a clause-1 builtin moves it to the fallback outcome.
-3. **Edge case 5.** `BSI.create 0` gives a pointer that C must not dereference. The text says so. Add that `NULL` is also possible, as for an input.
-
-#### Recommendation
-
-Accept the design with the changes below. Ranked by severity:
-
-1. **H1 (soundness, blocks).** Add `out-len ≤ 2^63 − 1` to the effective `pre`. Check it at run time before the allocation, and prove it at call sites.
-2. **H4 (soundness of a stated guarantee).** End the process on any kernel failure without a Haskell exception (`exitImmediately` or `_exit` after a `stderr` flush). File the general case for ordinary `pre` failures.
-3. **H3 (false `refuted`).** Add the codegen-determined fact `bytesLen(b) ≤ 2^63 − 1` as one schema in the closed axiom set.
-4. **H2 (trust contract).** Make the row's memory-safety and status clauses conditional on the `pre`. Restate the length fact as codegen-determined given that clause.
-5. **H5 (determinism).** Initialize the `int` result cell to 0. Add "reentrant" and "its result depends only on its arguments" to the row text. Keep zero fill mandatory.
-6. **H6 (disclosure).** Refuse or hash local `#include` files. Fix and record `cc-options`. Record the hash at `build` and warn on a change.
-7. **H7 (spec drift).** Amend R2's argument condition to "model equality implies run-time equality", and add a `bytes` argument clause to `congSort`.
-8. **H8 (spec precision).** State why clause 1 applies to a kernel, mark it from the kernel symbol, and list the `asserted` cost as a risk.
-9. **Q1.** Keep the v1 omission for a `bytes` result. Record invariants I1 and I2 as the condition for any future hypothesis. Prefer the pointwise read form if a trigger appears.
-10. **Q2.** Keep the runtime check. Report a proved call-site `pre` as proved. Name the blamed party in each runtime message.
-11. **H9, H10, H11.** Rewrite DR2 and place bindings in the FFI module. Close `FFI-TIER2-1` on kernels and park native-library linking. Fix the `haskell.` prefix branch and the edge-case wording.
-
-#### Open questions for the language-team
-
-1. H3 adds a 64-bit bound to the model. State whether LLMLL supports any 32-bit target. If it does, the bound is `maxBound :: Int` per target, and `codegen_semantics_version` must carry the target width.
-2. H4 changes how a failure ends the process. State whether a kernel failure inside an awaited task ends the whole program or only the task. The draft's "stops the program" and the existing await semantics disagree, and the answer fixes binding rule 4.
+**Open question of round 2.** State the verdict for an `out-len` bound that the Part 1 fact cannot prove, and the text `verify` prints. Answered by K1: the fallback outcome with cause `abstraction-unsafe` (Part 4).

@@ -1,21 +1,43 @@
 ---
 name: post-conj-split-proposal
 title: "POST-CONJ-SPLIT-1: prove the admitted conjuncts of a post, and record a partly proved post"
-status: "Rev 2, DRAFT 2026-11-02, professor review folded; awaiting user settlement"
+status: "Rev 3, SETTLED 2026-11-04 (user-approved). Rev 3 adopts the second professor review (of Rev 2, verdict 'settle with named small edits', C1 blocking for the pair, C2-C7). The user accepted every recommendation, chose CLAUSE-WELLDEF-1 to ship first, and settled the proof-artifact version rule."
 date: 2026-11-02
 author: language-team
-rows: "POST-CONJ-SPLIT-1 (G1, DECIDE). Depends on CALLEE-POST-UNASSUMED-1 (ships first). References CLAUSE-WELLDEF-1. Proposes two follow-up rows, not filed (PRE-CONJ-DROP-1, POST-CONJ-DIAG-1)."
+rows: "POST-CONJ-SPLIT-1 (G1, PLAN). Depends on CALLEE-POST-UNASSUMED-1 (shipped v0.36.0) and on CLAUSE-WELLDEF-1 (G1, PLAN; ships first, in an earlier release). Proposes two follow-up rows, not filed (PRE-CONJ-DROP-1, POST-CONJ-DIAG-1)."
 consumers: [user, professor, compiler-engineer, documentation-lead]
-reviews: "docs/design/post-conj-split-professor-review.md (professor, against Rev 1); folded in the appendix. The review file stays in place until settlement."
+review: "two professor passes, both folded in the appendix: round 1 of Rev 1 (2026-11-02, accept with changes, P1-P9) and round 2 of Rev 2 (2026-11-04, settle with named small edits, C1-C7). The round-1 file is archived at docs/archive/professor-reviews/post-conj-split-review.md, with round 2 appended; a redirect stub stays at docs/design/post-conj-split-professor-review.md."
 ---
 
 # POST-CONJ-SPLIT-1: prove the admitted conjuncts of a post, and record a partly proved post
 
-**Status: Rev 2, DRAFT 2026-11-02, professor review folded; awaiting user settlement.** Rev 1 measurements are on `llmll 0.35.1` (the main checkout build, liquid-fixpoint 0.9.6.3.7), run one file at a time under a memory and time watchdog. The review added three witnesses (`whole.llmll`, `rneed.llmll`, `mapdef.llmll`) on the same build. Rev 2 adds one check: the type checker rejects `(and)` and `(and a)` (§4.1).
+**Status: Rev 3, SETTLED 2026-11-04.** The language-team wrote Rev 1 on 2026-11-02, and the professor reviewed it the same day ("accept with changes", P1–P9). Rev 2 adopted every finding. The professor reviewed Rev 2 on 2026-11-04 ("settle with named small edits", C1–C7). The user accepted every recommendation of that review and settled the record. Rev 3 makes the edits. The design does not change. Rev 1 measurements are on `llmll 0.35.1` (the main checkout build, liquid-fixpoint 0.9.6.3.7), run one file at a time under a memory and time watchdog. The round-1 review added three witnesses (`whole.llmll`, `rneed.llmll`, `mapdef.llmll`) on the same build. The round-2 review measured `split`, `bad`, `rneed` and `whole` on `llmll 0.36.0` (§2.3). Both reviews are folded below as the [Appendix](#appendix--professor-review-log).
 
-**What changed from Rev 1.** The appendix maps each review item to the section that answers it. In short:
+## Decisions (settled by the user, 2026-11-04)
 
-- The false refutation of a correct caller is not this row's defect. CALLEE-POST-UNASSUMED-1 fixes it, and it ships first (§3).
+1. **Split, with Option B for the caller tier,** as Rev 2 recommends (§4.1 to §4.4). Weakness and CDP stay unvalidated on a partly proved function. PRE-CONJ-DROP-1 (measurement first) and POST-CONJ-DIAG-1 (re-solve on UNSAFE only) are filed as follow-up rows.
+2. **C1. CLAUSE-WELLDEF-1's well-definedness check (`wd-post`) is emitted for every function that has a body VC.** That is the union of `erBodyFaithfulFns` and `erPartlyProvedFns`, not `erBodyFaithfulFns` alone. CLAUSE-WELLDEF-1 makes the matching edit (§4.3; §4.6).
+3. **C2. The two records agree.** A partly proved function can be `refuted`. A failed `clause-welldef-unproved` check makes the **whole** function fall back in v1, not one conjunct. The split emits CLAUSE-WELLDEF-1's `dropped-context` mark (§4.2; §4.3).
+4. **C3. §3 describes CALLEE-POST-UNASSUMED-1 as shipped in v0.36.0.** The `callee-post-unassumed` warning names the assumed and unassumed conjuncts after the split, and the new cause gets its own `W-BODY-FALLBACK` ending (§3; §4.5). Two doc follow-ups are recorded, not made here (§7).
+5. **C4. Ship order: CLAUSE-WELLDEF-1 first, then this row, in a later release.** The fallback-cause set grows by one over the set of the release before it (§4.5; §4.7).
+6. **Proof-artifact version rule.** A new enum value in the proof artifact raises `proof_artifact_version`. v0.36.0's `callee-post-unassumed` stayed at `0.1.0` as a known exception. CLAUSE-WELLDEF-1 takes `0.2.0`. This row takes the next raise, `0.3.0` (§4.7).
+7. **C5, C6, C7.** The byte-identical sweep exempts a call site where a guard fires on some conjuncts but not all (§4.7). `descentDischargedFns` reads `erBodyFaithfulFns` alone, and the `AbstractionVerdict` union also gates the `callee-post-unassumed` path (§4.6). `patch --require-proof` still refuses the original Y4M `next-p` contract (§2.2).
+
+## Changes in Rev 3
+
+| Item | Change | Where |
+|---|---|---|
+| C1 (soundness of the pair) | `wd-post` is emitted on each path of every function with a body VC (the union). New row in the reader table. | §4.3; §4.6; §6; §7 |
+| C2 (spec drift; user choice) | Refuted rule "body-faithful or partly proved". A `clause-welldef-unproved` failure falls back the whole function. The `dropped-context` mark. Ship order. | §3; §4.2; §4.3; E13 |
+| C3 (spec drift) | §3 rewritten as shipped. §2.3 column marked measured. New `callee-post-unassumed` text and construct with indices. A `W-BODY-FALLBACK` ending for the new cause. Doc follow-ups recorded. | §2.3; §3; §4.5; §7 |
+| C4 (spec drift; user choice) | Compiler release after CLAUSE-WELLDEF-1's. Cause count relative to the release before. `proof_artifact_version` `0.3.0`. `checker_soundness_version` and `trust_report_version` follow CLAUSE-WELLDEF-1. | §4.5; §4.7 |
+| C5 (precision) | The sweep exempts a call site where a guard fires on some conjuncts but not all; the census lists such sites. | §4.7 |
+| C6 (precision) | `descentDischargedFns` row. `AbstractionVerdict` row states the second effect of the union and the line `:128`. | §4.6; E17 |
+| C7 (scope) | `patch --require-proof` still answers `PatchNotProved` for the original `next-p`. | §2.2 |
+
+**What changed from Rev 1 to Rev 2.** The appendix maps each review item to the section that answers it. In short:
+
+- The false refutation of a correct caller is not this row's defect. CALLEE-POST-UNASSUMED-1 fixes it. It shipped in v0.36.0 (§3).
 - The refutation rule is stated once: a refutation needs complete hypotheses on every failing constraint (§4.2).
 - The totality argument of Rev 1 §4.3 reason 1 is removed. Clause well-definedness is a separate row, CLAUSE-WELLDEF-1. Per-conjunct stripping is forbidden (§4.3, §4.5).
 - Option B is chosen and fully specified (§4.4).
@@ -24,13 +46,13 @@ reviews: "docs/design/post-conj-split-professor-review.md (professor, against Re
 
 ## Summary
 
-1. **Recommendation: split, after CALLEE-POST-UNASSUMED-1.** `verify` flattens the top-level `and` of a function's effective `post` into conjuncts. It proves the conjuncts that translate. It records each other conjunct `asserted`.
+1. **Decision: split, after CALLEE-POST-UNASSUMED-1 (shipped v0.36.0) and CLAUSE-WELLDEF-1.** `verify` flattens the top-level `and` of a function's effective `post` into conjuncts. It proves the conjuncts that translate. It records each other conjunct `asserted`.
 2. **One body VC per path, as today.** The right side of each path constraint is the conjunction of the admitted conjuncts. When every conjunct translates, the `.fq` is byte-identical to today, at the definition and at every call site.
 3. **A refutation needs complete hypotheses.** A function is refuted only when every hypothesis of every failing constraint is the authored one. A callee post that is not assumed in full makes the hypotheses incomplete. That case falls back (the CALLEE-POST-UNASSUMED-1 rule).
-4. **Truth and well-definedness are separate obligations.** The split proves the truth of each admitted conjunct, without assuming any other conjunct. It does not prove that a conjunct is defined at run time. CLAUSE-WELLDEF-1 owns that obligation.
+4. **Truth and well-definedness are separate obligations.** The split proves the truth of each admitted conjunct, without assuming any other conjunct. It does not prove that a conjunct is defined at run time. CLAUSE-WELLDEF-1 owns that obligation, and emits it for every function with a body VC, partly proved functions included.
 5. **Callers assume the admitted conjuncts (Option B).** A caller's level meets the level of the conjuncts it actually assumed, edge by edge and through the transitive closure.
 6. **The clause stays `asserted`.** A partly proved post keeps `display_level: asserted` and `body_faithful: false`. Clause `body_faithful` now means "a body VC proved the whole clause". A new `partly_proved: true` marker names the other state.
-7. **No per-conjunct stripping.** `--contracts=unproven` keeps the whole post as a run-time assertion. `--strict-verified-core` still fails on a partly proved function.
+7. **No stripping rule of its own.** The split adds no stripping. Per-conjunct stripping under `--contracts=unproven` is CLAUSE-WELLDEF-1's rule. `--strict-verified-core` still fails on a partly proved function.
 
 ---
 
@@ -74,6 +96,8 @@ Three smaller findings on the row text:
 
 Under this proposal, `next-p` as first written gives three `verified` conjuncts and one `asserted` conjunct, refused by `if`. The patch outcome names the refused conjunct (§4.6, `PatchApply.hs`). This is a prediction, not a measurement. The engineer's acceptance test is the original `next-p` contract.
 
+**The gain is narrower than F4 suggests (new in Rev 3, C7).** `PatchApply` reads `erBodyFaithfulFns` alone (§4.6). So `patch --require-proof` still answers `PatchNotProved` for the original `next-p` contract, because a partly proved function is not proved. The gain is the message (it names the refused conjunct), the three `verified` conjunct records, and Option B for callers. To get the fill accepted, the author still rewrites the `if` conjunct as two implications. F4 does not disappear.
+
 The missing `check`-time warning is outside this row. It is a finding for the user to route.
 
 ### 2.3 Minimal witnesses
@@ -93,7 +117,9 @@ All files are in the session scratchpad: Rev 1 files in the lead's directory, re
   (+ (pos-or-one n) 1))
 ```
 
-| File | Callee post | Today (0.35.1) | After CALLEE-POST-UNASSUMED-1 | After the split as well |
+The "After CALLEE-POST-UNASSUMED-1" column was a prediction in Rev 2. The round-2 review measured it on `llmll 0.36.0` for `split`, `bad`, `rneed` and `whole`: in each, the callee falls back with `contract-post-outside-fragment`, `use-it` falls back with `callee-post-unassumed` (construct `post-unassumed:app:<callee>`), and `verify` exits 0. The last column is still a prediction.
+
+| File | Callee post | Today (0.35.1) | After CALLEE-POST-UNASSUMED-1 (measured on 0.36.0 for the first four rows) | After the split as well |
 |---|---|---|---|---|
 | `split.llmll` (above) | `(and (>= result 1) (all-pos? [result]))` | callee asserted; `use-it` **refuted** (false); exit 1 | `use-it` falls back, own cause; exit 0 | callee conjunct 0 verified, 1 asserted; `use-it` SAFE, `verified` (Option B) |
 | `bad.llmll` | `(and (>= result 5) (all-pos? [result]))`, body is wrong | callee asserted; `use-it` **refuted** (wrong blame); exit 1 | callee asserted; `use-it` falls back; exit 0 | callee **refuted** on conjunct 0; `use-it` depends-on-refuted; exit 1 |
@@ -107,16 +133,26 @@ The columns separate the two rows. CALLEE-POST-UNASSUMED-1 removes the false ref
 
 ## 3. Dependencies
 
-**CALLEE-POST-UNASSUMED-1 ships first.** Today `refutedSet` (`compiler/app/Main.hs:1672-1676`) accepts an UNSAFE answer from a VC whose hypotheses are incomplete. A call whose callee post did not translate gets a free result binder (`FixpointEmit.hs:4648-4690`, `cvPostAssumption = Nothing`). In the terms of Godefroid et al. (POPL 2010), that UNSAFE answer is a *may* counterexample. A refutation needs a *must* counterexample. CALLEE-POST-UNASSUMED-1 marks each constraint whose environment holds a call result whose callee post exists and was not assumed in full. A function whose every failing constraint carries the mark falls back with its own cause, as `applyAbstractionVerdict` does. That row also changes the W-BODY-FALLBACK text by cause (`compiler/src/LLMLL/Diagnostic.hs:300-312`) and the refutation wording at `LLMLL.md:633` (§4.4.1).
+**CALLEE-POST-UNASSUMED-1 shipped in v0.36.0 (rewritten in Rev 3, C3).** Before v0.36.0, `refutedSet` (`compiler/app/Main.hs:1672-1676`) accepted an UNSAFE answer from a VC whose hypotheses are incomplete. A call whose callee post did not translate gets a free result binder (`cvPostAssumption = Nothing`). In the terms of Godefroid et al. (POPL 2010), that UNSAFE answer is a *may* counterexample. A refutation needs a *must* counterexample. v0.36.0 marks each call where the callee post exists and was not assumed: `cvPostUnassumed = isJust (contractPost contract) && isNothing mPostSubst` (`FixpointEmit.hs:4857-4862`). A function whose every failing constraint carries that mark, or the abstraction mark, and not only the abstraction mark, falls back with cause `callee-post-unassumed` and construct `post-unassumed:app:<callee>`. The decision runs in `applyAbstractionVerdict` (`compiler/src/LLMLL/AbstractionVerdict.hs:118-160`), on one candidate set keyed on `erBodyFaithfulFns` (`:128`). The shipped rule is in `LLMLL.md:1160` (§5.3.4) and `LLMLL.md:633` (§4.4.1): "refuted only when every hypothesis of every failing constraint is the authored one". It is word for word the rule of §4.2. v0.36.0 also made the `W-BODY-FALLBACK` ending depend on the cause.
 
 The split depends on that mark in two ways:
 
 1. A partly proved callee is, by definition, not assumed in full. Its callers' failing constraints carry the mark.
 2. A call-site sort guard that drops one conjunct (E11) also sets the mark.
 
-So the split needs no new verdict mechanism. It needs one change to the input of the mark: "assumed in full" means every conjunct of the callee's effective post was assumed at that call site.
+So the split needs no new verdict mechanism. It needs one change to the input of the mark. The shipped `cvPostUnassumed` is all-or-nothing: it is true only when the whole post is not assumed. After the split, it is true when `S`, the set of conjuncts assumed at that call site, is not every conjunct of the callee's effective post (§4.4).
 
-**CLAUSE-WELLDEF-1 is independent, and it blocks one later change.** It checks that a clause is defined at run time where it is evaluated. The `mapdef.llmll` shape exists today without the split. This proposal does not depend on it. Per-conjunct stripping under `--contracts=unproven` waits for it (§4.5).
+**Three shipped texts change meaning with the split (C3).**
+
+1. The shipped `W-BODY-FALLBACK` text for `callee-post-unassumed` ends: "A callee post is assumed only when all of it is inside the decidable fragment." After the split this sentence is false: a partly admitted post is partly assumed. §4.5 gives the replacement text.
+2. `LLMLL.md:1160` and `docs/getting-started.md:567` say that "a call-site sort guard drops a conjunct". On v0.36.0 each guard drops the **whole** post (`FixpointEmit.hs:4784-4801`), so the wording is drift today. The split makes it true, because §4.4 applies each guard per conjunct.
+3. Both are documentation follow-ups at the split ship (§7). This record does not edit those documents.
+
+**CLAUSE-WELLDEF-1 ships first, in an earlier release (settled 2026-11-04, C2 item 4).** It checks that a clause is defined at run time where it is evaluated. It repairs a present defect (`mapdef.llmll`) that exists without the split. When the split ships, three things from CLAUSE-WELLDEF-1 are in place, and the split uses them:
+
+1. **`wd-post` for every function with a body VC (C1).** CLAUSE-WELLDEF-1 emits `wd-post` on each path of every function that has a body VC. After the split, that set is the union of `erBodyFaithfulFns` and `erPartlyProvedFns` (§4.6). Without this, a partly proved function gets no `wd-post` constraint, and its admitted conjuncts are `verified` with no well-definedness proof. That contradicts CLAUSE-WELLDEF-1's rule that a clause is `verified` only when its truth and its well-definedness are both proved.
+2. **The `dropped-context` mark (site S6 of CLAUSE-WELLDEF-1).** Only the split can produce it (§4.3).
+3. **The verdict rules** `ill-defined` and `clause-welldef-unproved`, with the cause order of CLAUSE-WELLDEF-1 §4.4 (§4.2).
 
 ## 4. Design proposal
 
@@ -173,6 +209,8 @@ The refused conjuncts `R` of the function's *own* post are goals, not hypotheses
 - UNSAFE, and the refutation rule holds: the function is **refuted**.
 - UNSAFE, and every failing constraint carries the CALLEE-POST-UNASSUMED-1 mark: the function falls back with that row's cause. All conjuncts are `asserted`.
 - UNSAFE that ABSTRACTION-VERDICT-1 reclassifies: the function falls back with cause `abstraction-unsafe`, as today. All conjuncts are `asserted`. This needs the partly proved list in `applyAbstractionVerdict` (§4.6).
+- **Well-definedness (CLAUSE-WELLDEF-1 ships first; new in Rev 3, C1 and C2).** A partly proved function's `wd-post` ids follow CLAUSE-WELLDEF-1 §4.4. A `wd-post` failure over complete hypotheses is `ill-defined`. A failure where only marked `wd-*` ids fail gives `clause-welldef-unproved`. **In v1 that fallback is per function, not per conjunct:** the whole function falls back, and every conjunct is `asserted`. This matches the verdicts above and the per-function `applyAbstractionVerdict` path. A per-conjunct fallback would need a sidecar `conjuncts` record on a non-SAFE run, which §4.7 does not define. CLAUSE-WELLDEF-1 row V13 and its E14 follow this rule.
+- **`refuted` covers both lists.** CLAUSE-WELLDEF-1 §4.4 rule 1 gives `refuted` for TRUTH failures of body-faithful functions. Since the split ships second, the rule reads "body-faithful or partly proved" (§4.6 `refutedSet` row).
 
 ### 4.3 Truth and well-definedness
 
@@ -190,19 +228,20 @@ Rev 1 gave a third reason: "every admitted term is total, and the partial operat
 
 Division and `mod` are not counterexamples. They are admitted only with a numeral divisor greater than zero (`constArithTerm`). Codegen emits `div` (`CodegenHs.hs:2434`), floor division, and SMT-LIB `div` with a positive divisor is also floor division. Pair selectors are total. MATCH-POST selectors sit under constructor tests inside one `exprToPred` result, so the split never separates them.
 
-**What the split does to the well-definedness gap.** It increases exposure. Today `(and (refused-guard r k) (= (map-get r k) 0))` is `asserted` in whole. After the split, the second conjunct gets its own `verified` record. That record is sound as part of the conjunction: it was proved over more states than the guard admits. It is not sound as a standalone run-time claim. Three rules follow:
+**What the split does to the well-definedness gap.** Without CLAUSE-WELLDEF-1, it increases exposure. Today `(and (refused-guard r k) (= (map-get r k) 0))` is `asserted` in whole. After the split, the second conjunct gets its own record. Its truth proof is sound as part of the conjunction: it was proved over more states than the guard admits. It is not sound as a standalone run-time claim. CLAUSE-WELLDEF-1 ships first and closes the gap. Four rules follow (rules 1 and 4 amended in Rev 3, C1 and C2):
 
-1. **No per-conjunct stripping.** `--contracts=unproven` keeps the whole post of a partly proved function. This holds until CLAUSE-WELLDEF-1 ships, and that row reopens the question.
-2. **No standalone wording.** The per-conjunct record and text say "proved as part of the post". They never present a conjunct as a run-time assertion that holds alone (§4.7).
-3. **The well-definedness obligation belongs to CLAUSE-WELLDEF-1.** That row covers every clause, split or not.
+1. **The split adds no stripping.** `--contracts=unproven` strips per conjunct only by CLAUSE-WELLDEF-1's rule (its §4.7 item 4, W5): a conjunct is stripped only when its truth and its well-definedness are both verified. A function that falls back keeps its whole post.
+2. **No standalone wording.** The per-conjunct record and text never present a conjunct as a run-time assertion that holds alone. A conjunct whose truth and `wd-post` obligation are both proved reads "proved, and defined where evaluated" (CLAUSE-WELLDEF-1 §4.7 item 6). The Rev 2 wording "proved as part of the post" is not used, because CLAUSE-WELLDEF-1 ships first (§4.7).
+3. **The well-definedness obligation belongs to CLAUSE-WELLDEF-1.** That row covers every clause, split or not. It emits `wd-post` on each path of every function with a body VC, which includes every partly proved function (C1).
+4. **The `dropped-context` mark (C2 item 3).** A `wd-post` obligation of an admitted conjunct assumes the earlier conjuncts, as the run-time short-circuit does. A refused earlier conjunct has no FQ form and cannot enter that context. So a `wd-post` obligation whose context omits a refused earlier conjunct carries CLAUSE-WELLDEF-1's `dropped-context` mark (its site S6). A failure of such an id gives `clause-welldef-unproved`, never `ill-defined`, and the whole function falls back (§4.2).
 
-**Run time is unchanged.** The built program still evaluates the whole post with short-circuit `and` (`LLMLL.md §4.7`, `§13.3`). A refused conjunct that needs an earlier guard keeps that guard at run time, because the post is not stripped.
+**Run time is unchanged.** The built program still evaluates the whole post with short-circuit `and` (`LLMLL.md §4.7`, `§13.3`). A refused conjunct is never stripped, so a refused conjunct that needs an earlier guard keeps that guard at run time.
 
 **The example from the brief.** `(and (> (list-length xs) 0) (= (list-nth xs 0) (ok result)))`: conjunct 0 is admitted (`listLen`), conjunct 1 is refused (`app:list-nth`). Conjunct 0 is proved alone. `list-nth` answers `Error` out of range (`LLMLL.md §13.5`), so conjunct 1 is defined at run time without the guard.
 
 ### 4.4 Call sites and the caller tier (Option B)
 
-**Rule: a caller assumes the admitted conjuncts of the callee post, and only those.** At a call, `cvPostAssumption` becomes `FQAnd [q_k[args, r/result] | k ∈ A_callee]`. The three existing call-site sort guards (`FixpointEmit.hs:4648-4666`) apply to each conjunct. A guarded conjunct is dropped. Dropping a hypothesis is a sound weakening. The call site records the set `S ⊆ A_callee` of indices it assumed. If `S` is not every conjunct of the callee's effective post, the call is "not assumed in full", and the CALLEE-POST-UNASSUMED-1 mark applies.
+**Rule: a caller assumes the admitted conjuncts of the callee post, and only those.** At a call, `cvPostAssumption` becomes `FQAnd [q_k[args, r/result] | k ∈ A_callee]`. The three existing call-site sort guards (`syntacticUnsafePairRet`, `bytesOpOnResult`, `predHasDataTerm`; `FixpointEmit.hs:4784-4801` on v0.36.0) apply to each conjunct. Today each guard drops the whole post. A guarded conjunct is dropped. Dropping a hypothesis is a sound weakening. The call site records the set `S ⊆ A_callee` of indices it assumed. If `S` is not every conjunct of the callee's effective post, the call is "not assumed in full", and `cvPostUnassumed` is true (the CALLEE-POST-UNASSUMED-1 mark).
 
 **CALL-CONGRUENCE-1.** No change. The congruence fact reads the call key (callee, argument sorts), not the post (`FixpointEmit.hs:5693-5745`).
 
@@ -229,11 +268,17 @@ The downstream trust warning (`LLMLL.md §4.4.3`) still fires for a partly prove
 
 **Definition: `partly_proved`.** `partly_proved: true` on a function means "a body VC was emitted for the admitted conjuncts of the post, and at least one conjunct was refused". It is present only when true, as `refuted` is. It separates the two states that `body_faithful: false` now covers: no body VC, and a body VC for part of the post. A refuted partly proved function carries both `refuted: true` and `partly_proved: true`.
 
-**New fallback cause.** `FallbackContractPostPartial`, rendered `contract-post-partly-outside-fragment`. The closed set (`FixpointEmit.hs:200-264`) grows by one. With CALLEE-POST-UNASSUMED-1 it grows by two in all; the census counts each cause in its own bucket (`scripts/fallback_census.py`). A partly proved function is in `body_fallback` with this cause. It is in a new emitter list, `erPartlyProvedFns`. It is not in `erBodyFaithfulFns`.
+**New fallback cause.** `FallbackContractPostPartial`, rendered `contract-post-partly-outside-fragment`. The closed set (`FixpointEmit.hs:200-264`) grows by one over the set of the release before the split (amended in Rev 3, C4). On v0.36.0 the set has twelve causes (`docs/getting-started.md:567`, with `callee-post-unassumed`). CLAUSE-WELLDEF-1 ships first and adds `clause-welldef-unproved`, so it has thirteen. The split then makes it fourteen. The census counts each cause in its own bucket (`scripts/fallback_census.py`). A partly proved function is in `body_fallback` with this cause. It is in a new emitter list, `erPartlyProvedFns`. It is not in `erBodyFaithfulFns`.
+
+**Warning texts (new in Rev 3, C3).** Since v0.36.0 the `W-BODY-FALLBACK` ending depends on the cause.
+
+- **The new cause** ends: "so N of M post conjuncts are proved, and callers assume only those."
+- **`callee-post-unassumed`** replaces the shipped sentence "A callee post is assumed only when all of it is inside the decidable fragment." with a sentence that names the assumed subset, for example: "The verifier assumed conjuncts 0 of the post of 'pos-or-one'; conjunct 1 is outside the fragment." When `S` is empty, the text says that no conjunct was assumed.
+- **The construct `post-unassumed:app:<callee>`** carries the unassumed indices when the callee post is partly assumed, for example `post-unassumed:app:pos-or-one[1]`. When no conjunct was assumed, the construct keeps its v0.36.0 form, so the `.fq` and census output of today's files do not change.
 
 | Consumer | Behaviour for a partly proved function |
 |---|---|
-| `--contracts=unproven` (`compiler/src/LLMLL/Contracts.hs:229-254`) | Keeps the whole post as a run-time assertion. Per-conjunct stripping is forbidden until CLAUSE-WELLDEF-1 (§4.3). |
+| `--contracts=unproven` (`compiler/src/LLMLL/Contracts.hs:229-254`) | The split adds no stripping. CLAUSE-WELLDEF-1's rule decides which conjuncts are stripped (§4.3 rule 1). A refused conjunct is never stripped. |
 | Strict-core callee admission (`checkCalleeAdmissibility`) | Not admissible (no body-faithful clause record). |
 | `--strict-verified-core` | Fails. The function is in `body_fallback` with the new cause. |
 | `--weakness-check`, `--cdp` (`Main.hs:2390`, `:2420`) | Unchanged: the candidate is in `body_fallback`, so it is reported unvalidated. Running candidates against `A` is a follow-up (§9). |
@@ -241,13 +286,15 @@ The downstream trust warning (`LLMLL.md §4.4.3`) still fires for a partly prove
 
 ### 4.6 Every reader of `erBodyFaithfulFns`
 
-The review listed five readers besides `refutedSet`. A grep of this worktree finds those and five more in `Main.hs`. The rule for each decision: a reader that asks "did a body VC run over this function?" takes the union of the two lists. A reader that asks "is the whole post proved?" takes `erBodyFaithfulFns` alone.
+The round-1 review listed five readers besides `refutedSet`. A grep of the worktree found those and five more in `Main.hs`. The round-2 review found one more (`descentDischargedFns`), and the CLAUSE-WELLDEF-1 emission decision is a row here too (Rev 3, C1 and C6). The rule for each decision: a reader that asks "did a body VC run over this function?" takes the union of the two lists. A reader that asks "is the whole post proved?" takes `erBodyFaithfulFns` alone. Line numbers are on the v0.36.0 tree; the engineer reads by name.
 
 | Reader | What it asks | Decision |
 |---|---|---|
-| `compiler/src/LLMLL/AbstractionVerdict.hs:87` (`faithful`, rule 1 candidates) | Can this UNSAFE id be reclassified? | **Union.** Otherwise a partly proved function whose UNSAFE answer runs through two calls of one callee is reported refuted, the false refutation ABSTRACTION-VERDICT-1 stops. |
-| `AbstractionVerdict.hs:119` (`reclassifyEmit`) | Move a reclassified function to fallback | **Also remove it from `erPartlyProvedFns`.** Its cause becomes `abstraction-unsafe`; all conjuncts are `asserted`. |
-| `compiler/app/Main.hs:1660`, `:1672-1676` (`refutedSet`) | Is this UNSAFE origin a disproof? | **Union**, under the refutation rule of §4.2 (CALLEE-POST-UNASSUMED-1 mark). Without it a false admitted conjunct is silently `asserted` (`bad.llmll`). |
+| `compiler/src/LLMLL/AbstractionVerdict.hs:128` (`faithful`, the candidate set of `applyAbstractionVerdict`) | Can this UNSAFE id be reclassified? | **Union.** Since v0.36.0 this one candidate set decides both `abstraction-unsafe` and `callee-post-unassumed` (C6). So the union has two effects. First, a partly proved function whose UNSAFE answer runs through two calls of one callee is not reported refuted, the false refutation ABSTRACTION-VERDICT-1 stops. Second, `callee-post-unassumed` becomes reachable for a partly proved function. Without it, a partly proved caller of a partly proved callee is falsely refuted (risk 3). (`:87` is now `aoFallbackFns`.) |
+| `AbstractionVerdict.hs`, `reclassifyEmit` | Move a reclassified function to fallback | **Also remove it from `erPartlyProvedFns`.** Its cause becomes `abstraction-unsafe` or `callee-post-unassumed`; all conjuncts are `asserted`. |
+| `compiler/app/Main.hs:1660`, `:1672-1676` (`refutedSet`) | Is this UNSAFE origin a disproof? | **Union**, under the refutation rule of §4.2 (CALLEE-POST-UNASSUMED-1 mark). Without it a false admitted conjunct is silently `asserted` (`bad.llmll`). CLAUSE-WELLDEF-1's `refuted` rule reads "body-faithful or partly proved" from this release (C2 item 1). |
+| `Main.hs:1688` (`descentDischargedFns`, reads `bodyFaithfulSet`; new in Rev 3, C6) | Does a SAFE run discharge this function's `decreases` measure? | **`erBodyFaithfulFns` alone.** A partly proved recursive function keeps `termination_unverified`, which fails closed. The emitter still emits descent obligations for a partly proved function, because it has a body VC. A failure of one is `measure-not-decreasing`, which does not need body-faithfulness (`Main.hs:1674-1675`). |
+| CLAUSE-WELLDEF-1 `wd-post` emission (`FixpointEmit.hs`; new in Rev 3, C1) | Emit `wd-post` on each path of this function? | **Union.** Every function with a body VC gets `wd-post`. A partly proved function is not in `erBodyFaithfulFns`, so "body-faithful" read as that list would leave its admitted conjuncts `verified` with no well-definedness proof. CLAUSE-WELLDEF-1 states the same rule. |
 | `compiler/src/LLMLL/ObligationAssembly.hs:1199` (`faithful`, feeds `ccBodyFaithful` `:1367`, `:1445`; `classifyBodyFragment` `:1365`, `:1443`; `mkTrustChannel` `:1371`) | Clause-level flag in the obligation report | **`erBodyFaithfulFns` alone**, so `body_faithful` agrees with the trust report. Constraint obligations of a partly proved function still come from the constraint table. They carry `partly_proved: true`. |
 | `compiler/src/LLMLL/PatchApply.hs:738` (`patchedOutcomes`) | Did the patch prove the function? | **`erBodyFaithfulFns` alone.** A partly proved function is not proved, with the new cause. `notProvedMessage` (`PatchApply.hs:716-732`) changes by cause. For this cause it says "N of M post conjuncts were proved; conjunct k is outside the fragment (constructs)". The current tail "Rewrite the body without those constructs" is wrong for a post refusal; it applies only to `body-outside-fragment`. |
 | `Main.hs:1907` (sidecar writer, `bodyFaithfulSet`) | Write the post as `verified`? | **`erBodyFaithfulFns` alone.** The clause stays `asserted`. On SAFE, the writer adds `conjuncts` for each function in `erPartlyProvedFns` (§4.7). |
@@ -281,14 +328,16 @@ The review listed five readers besides `refutedSet`. A grep of this worktree fin
 ```
 
 - Written only for a partly proved post that was SAFE. A fully proved post, a fully refused post, and a partly admitted post whose body falls back keep today's shape (§4.4 item 4).
-- On a conjunct entry, `body_faithful: true` means "a body VC proved this conjunct as part of the post". It does not claim run-time well-definedness (§4.3).
+- On a conjunct entry, `body_faithful: true` means "a body VC proved this conjunct, and its `wd-post` obligation holds" (CLAUSE-WELLDEF-1 ships first; §4.3 rule 2). A SAFE run proves both, so every `verified` conjunct entry claims both.
 - `verified_hash` is the function's existing hash. It covers the effective post, so the index is stable while the hash matches.
 - Read rule: the `LLMLL.md §4.4.1` downgrade (verified without `body_faithful`, absent hash, hash drift, no live definition) applies to each entry.
 - An old binary ignores `conjuncts` (unknown keys are ignored, `compiler/src/LLMLL/VerifiedCache.hs:150-260`) and reads the clause as `asserted`. A new binary that reads an old sidecar finds no `conjuncts` and reads the whole clause.
 
-**`checker_soundness_version` stays `"6"`.** Every post that translated before emits the same term. The change makes clauses translate that did not, and adds caller hypotheses at call sites that assumed nothing. Adding a hypothesis cannot turn a recorded SAFE into UNSAFE. This is the "keeps the stamp" case of `LLMLL.md §4.4.1`. **Condition: the byte-identical `.fq` sweep covers definitions and call sites.** For every corpus file with no partly admitted post, the `.fq` is byte-identical. In particular, a caller of a callee whose post is unchanged and fully admitted emits the same `cvPostAssumption` bytes. A caller of a fully refused callee emits no assumption, as today.
+**`checker_soundness_version` stays at its current value** (amended in Rev 3, C4). CLAUSE-WELLDEF-1 ships first and changes it from `"6"` to `"7"`. The split keeps `"7"`. Every post that translated before emits the same term. The change makes clauses translate that did not, and adds caller hypotheses at call sites that assumed nothing. Adding a hypothesis cannot turn a recorded SAFE into UNSAFE. This is the "keeps the stamp" case of `LLMLL.md §4.4.1`. **Condition: the byte-identical `.fq` sweep covers definitions and call sites.** The sweep compares against the `.fq` of the release before the split, which already holds CLAUSE-WELLDEF-1's `wd-*` constraints. For every corpus file with no partly admitted post, the `.fq` is byte-identical, with one exemption. In particular, a caller of a callee whose post is unchanged and fully admitted emits the same `cvPostAssumption` bytes. A caller of a fully refused callee emits no assumption, as today.
 
-**Trust report.** `trust_report_version` goes from `1.10.0` to `1.11.0` (`TrustReport.hs:466-467`). The version increases although the keys are additive, because Option B changes what a caller's level means. The precedent is `1.9.0` (MODE-CLI-1). New keys, each with a row in `docs/llmll-trust-report.schema.json` in the same release:
+**Sweep exemption (new in Rev 3, C5).** A call site where a sort guard fires on some conjuncts of the callee post but not on all is exempt. Today the guard drops the whole post at that site. After the split the caller assumes the other conjuncts, so the `.fq` bytes change at that site although no post is partly admitted. The change is sound: it adds a hypothesis, and no recorded SAFE becomes UNSAFE. The census output lists each exempt site, so the exemption is visible and cannot hide another change. Every other call site meets the round-1 P7 condition.
+
+**Trust report.** `trust_report_version` takes the next minor increase after the one CLAUSE-WELLDEF-1 takes (amended in Rev 3, C4). On v0.36.0 it is `1.10.0` (`TrustReport.hs:466-467`); CLAUSE-WELLDEF-1 takes a minor increase (`1.11.0` if no other row raises it first), so the split takes the one after (`1.12.0` in that case). The version increases although the keys are additive, because Option B changes what a caller's level means. The precedent is `1.9.0` (MODE-CLI-1). New keys, each with a row in `docs/llmll-trust-report.schema.json` in the same release:
 
 | Key | Where | Schema note |
 |---|---|---|
@@ -302,7 +351,7 @@ Text form:
 ```
   pos-or-one:
     pre:  —  |  post: asserted, partly proved, 1 of 2 conjuncts verified   [body_fallback: contract-post-partly-outside-fragment; app:list-empty]
-      post[0] verified (liquid-fixpoint), proved as part of the post   (>= result 1)
+      post[0] verified (liquid-fixpoint), proved, and defined where evaluated   (>= result 1)
       post[1] asserted                                                   (all-pos? [result])   refused by app:list-empty
   use-it:
     post: verified   assumes pos-or-one post[0] (verified)
@@ -310,11 +359,11 @@ Text form:
 
 **Footer.** `SAFE (liquid-fixpoint), partial: 3 of 33 contracted functions proved; 1 partly proved; 29 assumed, not proved: …`.
 
-**`verify --json`.** `body_fallback_causes` can carry the new value, and the verdict object gains `partly_proved`. The verdict object is open (`docs/llmll-verify.schema.json`), so `verify_json_version` stays `1.0.0`. `docs/getting-started.md:567` says "one of eleven fixed" values. The count changes with this row and with CALLEE-POST-UNASSUMED-1.
+**`verify --json`.** `body_fallback_causes` can carry the new value, and the verdict object gains `partly_proved`. The verdict object is open (`docs/llmll-verify.schema.json`), so `verify_json_version` does not change for this key; it stays at the value CLAUSE-WELLDEF-1 sets. `docs/getting-started.md:567` says "one of twelve fixed" values on v0.36.0. The count is one more than in the release before the split (thirteen to fourteen, if CLAUSE-WELLDEF-1 adds `clause-welldef-unproved` as its draft says; C4).
 
-**Proof artifact.** `docs/proof-artifact.schema.json:76` enumerates `fallback_reason`. Adding a value breaks a validator of the old schema, so `proof_artifact_version` goes from `0.1.0` to `0.2.0`. The description "Null iff body-faithful" (same line) becomes "Null iff a body VC proved the whole post clause". The function record gains `partly_proved`. The §4.1 invariant (`ProofArtifact.hs:159-163`) does not change.
+**Proof artifact (amended in Rev 3; version rule settled 2026-11-04).** `docs/proof-artifact.schema.json:76` enumerates `fallback_reason`. The enum is closed, so a new value breaks a validator of the old schema. The settled rule: a new enum value in the proof artifact raises `proof_artifact_version`. v0.36.0 added `callee-post-unassumed` at `0.1.0`; that is a known exception, and `0.1.0` admits it. CLAUSE-WELLDEF-1 ships first and takes `0.2.0`. The split takes the next raise, `0.3.0`. The description "Null iff body-faithful" (same line) becomes "Null iff a body VC proved the whole post clause". The function record gains `partly_proved`. The §4.1 invariant (`ProofArtifact.hs:159-163`) does not change.
 
-**Compiler version.** A minor release (`0.36.0`). A function that was silently `asserted` can now be refuted (E4), so `verify` exit codes change on some programs.
+**Compiler version (amended in Rev 3, C4).** A minor release, later than the release that ships CLAUSE-WELLDEF-1. v0.36.0 has shipped, so the split is `0.37.0` at the earliest, and later if CLAUSE-WELLDEF-1 takes `0.37.0`. A function that was silently `asserted` can now be refuted (E4), so `verify` exit codes change on some programs.
 
 ### 4.8 Follow-up rows (proposed, not filed)
 
@@ -362,7 +411,7 @@ Input: a callee post with a datatype term in one conjunct, called where the resu
 Input: the body changes after a partly proved SAFE run. Behaviour: the hash drifts, and every `verified` conjunct entry reads `asserted`. Channel: trust. Cite: `LLMLL.md §4.4.1` read rules, applied per entry.
 
 **E13. A partial operation after a refused guard (well-definedness).**
-Input: `(and (refused-guard r k) (= (map-get r k) 0))`. Behaviour: conjunct 1 can be proved true over all states, including states where `k` is absent. Its record says "proved as part of the post". The post is not stripped, so the run-time short-circuit still guards `map-get`. Channel: contract (truth); well-definedness is not checked. Cite: §4.3; CLAUSE-WELLDEF-1. A single-conjunct `mapdef.llmll` shows the same gap without the split.
+Input: `(and (refused-guard r k) (= (map-get r k) 0))`. Behaviour: conjunct 1 can be proved true over all states, including states where `k` is absent. Its `wd-post` obligation `(map-has r k)` cannot assume the refused conjunct 0, so the id carries the `dropped-context` mark (amended in Rev 3, C2). If it fails, the whole function falls back with cause `clause-welldef-unproved`, and every conjunct is `asserted` (CLAUSE-WELLDEF-1 row V13 and E14). Nothing is stripped, so the run-time short-circuit still guards `map-get`. Channel: contract (truth and well-definedness). Cite: §4.2; §4.3 rule 4; CLAUSE-WELLDEF-1. A single-conjunct `mapdef.llmll` shows the gap without the split; CLAUSE-WELLDEF-1 closes it.
 
 **E14. Degenerate `and`.**
 Input: `(post (and))`, `(post (and (>= result 0)))`, or `(post (and (>= result 0) (and)))`. Behaviour: `check` and `verify` reject each with `operator 'and' expects 2 args`, exit 1 (measured on 0.35.1). No split runs. If an internal fold ever builds such a node, `conj` gives `[]` or `conj(a)` (§4.1). Channel: type. Cite: `TypeCheck.hs:129`.
@@ -374,7 +423,7 @@ Input: `pos-or-one` with a body outside `Σ_auto`. Behaviour: the callee falls b
 Input: `rneed.llmll`. Behaviour: the callee is partly proved. `use-it` assumes `result ≥ 0` and needs `result ≥ 1`, so its VC is UNSAFE. The failing constraint carries the mark, so `use-it` falls back. It is not refuted. Neither Option A nor Option B makes it `verified`. Channel: trust. Cite: §3; §4.2 verdicts.
 
 **E17. Two calls of one callee in a partly proved function.**
-Input: a partly proved function whose admitted conjunct fails only through two unrelated calls to one callee. Behaviour: `applyAbstractionVerdict` reclassifies it to `abstraction-unsafe`, all conjuncts `asserted`, not refuted. Channel: trust. Cite: `AbstractionVerdict.hs:87`, `:119`; §4.6.
+Input: a partly proved function whose admitted conjunct fails only through two unrelated calls to one callee. Behaviour: `applyAbstractionVerdict` reclassifies it to `abstraction-unsafe`, all conjuncts `asserted`, not refuted. Channel: trust. Cite: `AbstractionVerdict.hs:128` (candidate set), `reclassifyEmit`; §4.6.
 
 ## 6. Verification mapping
 
@@ -383,42 +432,46 @@ Input: a partly proved function whose admitted conjunct fails only through two u
 | `P ∧ path ∧ Γ_calls ∧ result = ⟦B⟧ ⟹ ⋀_{k∈A} q_k` | contract | QF-LIA within `Σ_auto`, auto-discharged by liquid-fixpoint. Same class as today's body VC: each `q_k` passed `exprToPred`. | `LLMLL.md §5.3.3`, `§5.3.4`; `FixpointEmit.hs:1845`, `:2017` |
 | Caller assumes `⋀_{k∈S} q_k[args, r]` | contract (ASSUME polarity) | QF-LIA within `Σ_auto` | `LLMLL.md §5.3.4` compositional chain; `FixpointEmit.hs:4714` |
 | Each `c_k`, `k ∈ R` | trust (run-time assertion under `--contracts=full` and `unproven`) | Outside `Σ_auto`; not routed to Lean in this row. A later row could route each refused conjunct as its own `?proof-required` obligation. | `LLMLL.md §5.3.5` |
-| Well-definedness of each clause | not checked by this row | Owned by CLAUSE-WELLDEF-1 | §4.3 |
+| Well-definedness of each admitted conjunct (`wd-post`) | contract, emitted by CLAUSE-WELLDEF-1 for every function with a body VC (the union, C1) | QF-LIA within `Σ_auto`, as CLAUSE-WELLDEF-1 defines it; an id whose context omits a refused earlier conjunct carries the `dropped-context` mark | §4.3; CLAUSE-WELLDEF-1 §4.2, §4.4 |
 
 No obligation leaves its current fragment. No nonlinear or quantified obligation is introduced.
 
 ## 7. Affected surface
 
-- `compiler/src/LLMLL/FixpointEmit.hs`: conjunct flattening; the partial case in the body-VC entry (`:1586-1600`); `FallbackContractPostPartial` (`:200-264`); per-conjunct `cvPostAssumption` with the assumed index set `S` (`:4648-4690`); the "assumed in full" input to the CALLEE-POST-UNASSUMED-1 mark; `erPartlyProvedFns` and per-conjunct verdict inputs in `EmitResult` (`:292`, `:1104`).
-- `compiler/src/LLMLL/AbstractionVerdict.hs`: the union at `:87`; `reclassifyEmit` at `:119`.
-- `compiler/app/Main.hs`: every reader in §4.6; the SAFE path that writes `conjuncts`; the footer; the `--json` keys.
+- `compiler/src/LLMLL/FixpointEmit.hs`: conjunct flattening; the partial case in the body-VC entry (`:1586-1600`); `FallbackContractPostPartial` (`:200-264`); per-conjunct `cvPostAssumption` with the assumed index set `S`, and the three guards applied per conjunct (`:4784-4801` on v0.36.0); `cvPostUnassumed` true when `S` is not every conjunct (`:4857-4862`); the indices in the `post-unassumed:app:<callee>` construct; `wd-post` emission for the union (C1) and the `dropped-context` mark on a `wd-post` id whose context omits a refused earlier conjunct (C2); `erPartlyProvedFns` and per-conjunct verdict inputs in `EmitResult`.
+- `compiler/src/LLMLL/AbstractionVerdict.hs`: the union in the candidate set at `:128`, which also gates `callee-post-unassumed` (C6); `reclassifyEmit`; the `callee-post-unassumed` warning text that names the assumed subset (C3).
+- `compiler/src/LLMLL/Diagnostic.hs`: the `W-BODY-FALLBACK` ending for `contract-post-partly-outside-fragment` (C3).
+- `compiler/app/Main.hs`: every reader in §4.6, including `descentDischargedFns` (`:1688`, `erBodyFaithfulFns` alone, C6); the SAFE path that writes `conjuncts`; the footer; the `--json` keys.
 - `compiler/src/LLMLL/ObligationAssembly.hs`: the `partly_proved` marker on constraint obligations.
 - `compiler/src/LLMLL/PatchApply.hs`: `notProvedMessage` by cause.
 - `compiler/src/LLMLL/VerifiedCache.hs`: `conjuncts` codec; per-entry read rules.
 - `compiler/src/LLMLL/Syntax.hs`: a per-conjunct evidence type beside `EvidenceRecord`.
 - `compiler/src/LLMLL/TrustReport.hs`: `post_conjuncts`, `partly_proved`, `assumed_callee_conjuncts`, `partly_proved_fns`; the per-edge fold in `enrichEntry`; text rendering; `trustReportEmitVersion`.
-- `compiler/src/LLMLL/ProofArtifact.hs`, `docs/proof-artifact.schema.json`: the new `fallback_reason` value, its description, `partly_proved`, `proof_artifact_version`; a test that `mkFnRecord` accepts `refuted` with the new cause.
+- `compiler/src/LLMLL/ProofArtifact.hs`, `docs/proof-artifact.schema.json`: the new `fallback_reason` value, its description, `partly_proved`, `proof_artifact_version` `0.3.0`; a test that `mkFnRecord` accepts `refuted` with the new cause.
 - `docs/llmll-trust-report.schema.json`: the four rows of §4.7.
-- `scripts/fallback_census.py`: the new cause in its own bucket.
+- `scripts/fallback_census.py`: the new cause in its own bucket; the list of call sites exempt from the byte-identical sweep (C5).
 - `LLMLL.md §4.4.1`, `§4.4.3`, `§4.4.4`, `§5.3.4` (body VC, contract stripping, strict core); `docs/getting-started.md:567`. Doc-lead's slot after the engineer ships.
+- **Documentation follow-ups at the split ship (C3; recorded here, not made).** (a) `LLMLL.md:1160` and `docs/getting-started.md:567` say "a call-site sort guard drops a conjunct". That is drift on v0.36.0, where each guard drops the whole post. It becomes true with the split; the doc-lead checks the wording then. (b) The shipped `W-BODY-FALLBACK` sentence "A callee post is assumed only when all of it is inside the decidable fragment." (in `CHANGELOG.md` v0.36.0 and `AbstractionVerdict.hs`) becomes false; the new text of §4.5 replaces it, and `LLMLL.md` and `getting-started.md` quote the new text. (c) The cause count in `getting-started.md:567`.
 - `docs/compiler-team-roadmap.md` row text for POST-CONJ-SPLIT-1 (§2.1 findings). Doc-lead's slot.
 - No new builtin, construct, FFI tier or capability.
 
-**Acceptance tests.** `split.llmll` (E1), `bad.llmll` (E4), `rneed.llmll` (E16), the original Y4M `next-p` contract (§2.2), an abstraction case (E17), and the byte-identical `.fq` sweep (§4.7).
+**Acceptance tests.** `split.llmll` (E1), `bad.llmll` (E4), `rneed.llmll` (E16), the original Y4M `next-p` contract (§2.2: conjuncts proved, `patch --require-proof` still `PatchNotProved`), an abstraction case (E17), a partly proved caller of a partly proved callee (falls back with `callee-post-unassumed`, not refuted), E13 with the `dropped-context` mark, and the byte-identical `.fq` sweep with its exemption list (§4.7).
 
 ## 8. Risks and open questions
 
 1. **New refutations in existing programs.** Classify: verification-ergonomics. A function that was silently `asserted` can become refuted (E4, E6), and its file then exits 1. Cite: §4.2. Bite: complicates. The census lists every file whose verdict changes before the release.
 2. **A missed reader of `erBodyFaithfulFns`.** Classify: soundness. If `refutedSet` or `applyAbstractionVerdict` misses the partly proved list, a false conjunct is silently `asserted`, or a may counterexample is reported refuted. Cite: §4.6. Bite: blocks, if missed. The acceptance tests `bad.llmll` and E17 close it.
-3. **The release order.** Classify: soundness. If the split ships before CALLEE-POST-UNASSUMED-1, every caller of a partly proved callee can be falsely refuted (`rneed.llmll`). Cite: §3. Bite: blocks. The split's plan names the dependency.
+3. **The release order.** Classify: soundness. If the split shipped before CALLEE-POST-UNASSUMED-1, every caller of a partly proved callee could be falsely refuted (`rneed.llmll`). CALLEE-POST-UNASSUMED-1 shipped in v0.36.0, so this dependency is met. The remaining condition is the union in the `AbstractionVerdict` candidate set (§4.6): without it, a partly proved caller of a partly proved callee is falsely refuted. CLAUSE-WELLDEF-1 ships first too (§3). Cite: §3; §4.6. Bite: blocks, if the union is missed.
 4. **Option B changes what a caller's level means.** Classify: spec-drift. The `enrichEntry` fold changes from a flat fold to a per-edge fold. Cite: `TrustReport.hs:1563-1604`. Bite: complicates. For a callee that is not partly proved the result is unchanged, and a unit test asserts this.
 5. **Unknown scale.** Classify: scope. Nobody has measured how many corpus functions have a partly admitted post and an in-fragment body. The census cannot tell today, because a refused post hides the body decision (§2.1). Bite: matters at scale only. The engineer's first step is that count.
-6. **Well-definedness exposure.** Classify: soundness of run-time claims. A `verified` conjunct can hold an undefined partial operation (E13). Cite: §4.3. Bite: complicates; contained by the no-stripping rule and the record wording until CLAUSE-WELLDEF-1.
+6. **Well-definedness exposure.** Classify: soundness of run-time claims. Without CLAUSE-WELLDEF-1, a `verified` conjunct could hold an undefined partial operation (E13). CLAUSE-WELLDEF-1 ships first and emits `wd-post` for every function with a body VC (C1), so this exposure does not reach a release. Cite: §3; §4.3. Bite: blocks, if `wd-post` is emitted for `erBodyFaithfulFns` alone.
 7. **E10 asserted conjunct with no run-time check.** Classify: spec-drift. Pre-existing for whole-post fallback. Bite: report wording only.
 
 ## 9. Decisions for the user
 
-1. Split, after CALLEE-POST-UNASSUMED-1. Recommendation: yes (§3, §4.1 to §4.3).
+The user settled every item below on 2026-11-04, as recommended, together with C1–C7 and the proof-artifact version rule. See "Decisions (settled by the user, 2026-11-04)" at the top.
+
+1. Split, after CALLEE-POST-UNASSUMED-1 (shipped v0.36.0) and CLAUSE-WELLDEF-1. Recommendation: yes (§3, §4.1 to §4.3).
 2. Option A or Option B for the caller tier. Recommendation: B, with the specification of §4.4. The reviewer agrees.
 3. Keep weakness and CDP unvalidated on partly proved functions, or run the candidates against `A`. Recommendation: keep them unvalidated. A trivial body that satisfies `A` says `A` is weak. That is useful, but it is a separate report surface.
 4. File PRE-CONJ-DROP-1 (measurement first) and POST-CONJ-DIAG-1 (re-solve on UNSAFE only, outer refusing call) as rows.
@@ -429,69 +482,91 @@ No obligation leaves its current fragment. No nonlinear or quantified obligation
 
 ## Appendix — Professor review log
 
-The standalone professor review of Rev 1 is folded here. The source file stays at `docs/design/post-conj-split-professor-review.md` until the user settles this proposal. At settlement, the documentation-lead archives it under DOC-CONSOLIDATE §M2.
+Two professor rounds, condensed at settlement (2026-11-04). The full text of both is in [`../archive/professor-reviews/post-conj-split-review.md`](../archive/professor-reviews/post-conj-split-review.md). Line citations refer to the tree at the time of each review and may move. Reviewer: Lead Consultant for Formal Language Design.
 
-**Source:** `docs/design/post-conj-split-professor-review.md` (reviewed 2026-11-02, against Rev 1; reviewer: Lead Consultant for Formal Language Design). One round. Verdict: "Accept with changes. Fix the false refutation (P1) first, as its own row." The reviewer measured `whole.llmll`, `rneed.llmll` and `mapdef.llmll` on 0.35.1.
+### Round 1: review of Rev 1 (2026-11-02)
 
-### P1. The false refutation is a separate defect (blocks)
+Verdict: "Accept with changes. Fix the false refutation (P1) first, as its own row." The reviewer measured `whole.llmll`, `rneed.llmll` and `mapdef.llmll` on 0.35.1. Each finding below has its Rev 2 outcome. Rev 3 updates some outcomes; the round-2 table names them.
+
+#### P1. The false refutation is a separate defect (blocks)
 
 **Finding.** `split.llmll` is a false refutation today. The cause is not the conjunct structure. `refutedSet` accepts an UNSAFE answer over a dropped callee post, which is a may counterexample (Godefroid et al., POPL 2010). The split does not remove it: `whole.llmll`, `rneed.llmll` and a sort-guard drop remain. The W-BODY-FALLBACK text "its post is assumed" is false for `contract-post-outside-fragment`.
 
 **Outcome.** Accepted. The user files CALLEE-POST-UNASSUMED-1 as its own row, and it ships first. That row owns the mark, the fallback cause, the W-BODY-FALLBACK text by cause, and the `LLMLL.md:633` wording. Rev 2 §3 states the dependency, and §2.3 separates the effect of each row on each witness.
 
-### P2. The hypotheses are not complete (blocks)
+#### P2. The hypotheses are not complete (blocks)
 
 **Finding.** Rev 1 §4.2 said the hypotheses are complete. They also include callee posts, which can be dropped. `applyAbstractionVerdict` reads only `erBodyFaithfulFns`. Five other readers take that list.
 
 **Outcome.** Accepted. §4.2 states the rule: refuted only when every hypothesis of every failing constraint is the authored one. §4.6 gives a decision for each reader. A grep of this worktree found five more readers in `Main.hs` than the review listed (`:1492`, `:1508`, `:1531`, `:1571`, `:1747-1749`, `:1761`). `uncheckedCallPres` (`:1508`) takes the union.
 
-### P3. The totality argument is false (complicates)
+#### P3. The totality argument is false (complicates)
 
 **Finding.** `map-get` and `bytes-get` are admitted and have run-time preconditions. `mapdef.llmll` is `verified`, but its post calls `error` at run time. Truth and well-definedness are different obligations (Dafny, SPARK). The split increases exposure.
 
 **Outcome.** Accepted. §4.3 removes Rev 1 reason 1 and keeps the two obligations apart. Per-conjunct stripping is forbidden until CLAUSE-WELLDEF-1, which the user files now. The per-conjunct wording is "proved as part of the post". E13 is the new edge case.
 
-### P4. Option B is correct but under-specified (complicates)
+#### P4. Option B is correct but under-specified (complicates)
 
 **Finding.** Option B, by three arguments. Hybrid type checking (Flanagan, POPL 2006; Knowles and Flanagan, TOPLAS 2010): the run-time check of `Q_R` sits in the callee's post, so the caller needs no cast. Gradual verification (Bader, Aldrich and Tanter, VMCAI 2018; Wise et al., OOPSLA 2020): a caller that uses only the precise part needs no inserted check. Blame (Findler and Felleisen, ICFP 2002; Wadler and Findler, ESOP 2009): a failure of `Q_R` blames the callee. Five gaps: the meet per call site after sort guards; the per-edge fold; a callee whose body falls back; recorded indices; the `--strict-verified-core` interaction.
 
 **Outcome.** Accepted. §4.4 chooses Option B and specifies each of the five items. An edge with an empty assumed set keeps today's clause-level rule, which fails closed. E15 covers the body-fallback callee. `post_assumed_level` from Rev 1 is replaced by the per-edge `assumed_callee_conjuncts`.
 
-### P5. `body_faithful: false` covers two states (complicates)
+#### P5. `body_faithful: false` covers two states (complicates)
 
 **Finding.** A partly proved function had a body VC, can be refuted, and is not body-faithful. A refuted partly proved function carries `refuted: true` and a non-null `fallback_reason`, a combination that does not exist today.
 
 **Outcome.** Accepted. §4.5 defines clause `body_faithful` as "a body VC proved the whole clause" and adds the `partly_proved: true` marker. §4.6 and §4.7 add a `mkFnRecord` test and change the proof-artifact description. Citation correction: "Null iff body-faithful" is at `docs/proof-artifact.schema.json:76`, not `:17`.
 
-### P6. Flattening only through `and` (accept)
+#### P6. Flattening only through `and` (accept)
 
 **Finding.** Accept for this revision. Specify `(and)` and `(and a)`. The label for `split.llmll` is `app:list-empty`, which hides `all-pos?`. POST-CONJ-DIAG-1 should report the outermost refusing user call.
 
 **Outcome.** Accepted. §4.1 and E14: the type checker rejects both forms on 0.35.1 (`operator 'and' expects 2 args`), and `conj` is defined for every arity. §4.8 adds the outer refusing call to POST-CONJ-DIAG-1.
 
-### P7. Schema and version plan (accept with one condition)
+#### P7. Schema and version plan (accept with one condition)
 
 **Finding.** The versions are correct, and `checker_soundness_version` stays `"6"`. Condition: the byte-identical `.fq` sweep covers call sites. The trust-report schema needs rows for the new keys.
 
 **Outcome.** Accepted. §4.7 states the call-site condition and lists four schema rows. Citation correction: `docs/llmll-trust-report.schema.json:103` is `over_annotation`. `TrustEntry` is open (`additionalProperties: true`, line 150), and the top-level object is closed (line 9). So the top-level `partly_proved_fns` row is required, and the nested arrays use closed item objects.
 
-### P8. PRE-CONJ-DROP-1 (accept with the P1 rule)
+#### P8. PRE-CONJ-DROP-1 (accept with the P1 rule)
 
 **Finding.** Correct, on the same may/must rule. A dropped pre conjunct can guard a partial body operation. Measure before claiming a gain.
 
 **Outcome.** Accepted. §4.8 writes the row on the stated rule and makes a corpus count its first step.
 
-### P9. POST-CONJ-DIAG-1 (revise the plan)
+#### P9. POST-CONJ-DIAG-1 (revise the plan)
 
 **Finding.** One constraint per conjunct multiplies the cost of every run. Re-solve only on UNSAFE.
 
 **Outcome.** Accepted. §4.8 re-solves each failing constraint per admitted conjunct after UNSAFE only.
 
-### Open questions from the review
+#### Open questions from the review
 
 1. *Justify or remove the totality claim of Rev 1 §4.3.* Removed (§4.3).
 2. *State the refutation rule with the callee-hypothesis condition, and decide each reader.* Stated (§4.2); decided (§4.6).
 
-### Convergence and divergence
+#### Convergence and divergence
 
 The language-team and the reviewer reached Option B by different paths. The language-team argued from nc-005/nc-006 (a caller's proof rests only on the facts it assumed). The reviewer argued from hybrid checking, gradual verification and blame. No divergence remains.
+
+### Round 2: review of Rev 2 (2026-11-04)
+
+Verdict: "Settle with named small edits (C1–C6). C1 must be fixed in this draft or in CLAUSE-WELLDEF-1 before both settle." C7 is a note. Rev 2 answers every round-1 finding. It adds no new false `verified` and no new false `refuted`. CALLEE-POST-UNASSUMED-1 shipped in v0.36.0 with the rule this record assumes. The reviewer measured `split`, `bad`, `rneed` and `whole` on `llmll 0.36.0` and confirmed the "After CALLEE-POST-UNASSUMED-1" column of §2.3.
+
+**Disposition of round 1.** P1, P3, P4, P5, P6, P8, P9 and both open questions closed. P2 closed with one reader missed (C6). P7 closed in content, stale in numbers (C4, C5).
+
+**No new soundness issue in a verdict.** The reviewer checked five places: a partly proved function's refutation (refused conjuncts are goals, not hypotheses), Option B (no level is higher than the evidence it rests on), per-conjunct guards (dropping a hypothesis is a sound weakening), self-recursion (partial correctness, and the call is marked), and well-definedness (closed by C1 after CLAUSE-WELLDEF-1).
+
+| Id | Classification | Finding | Disposition |
+|---|---|---|---|
+| C1 | soundness of the pair; must fix before both settle | CLAUSE-WELLDEF-1 Rev 2 emits `wd-post` only for body-faithful functions. A partly proved function is not in `erBodyFaithfulFns`, so its admitted conjuncts would be `verified` with no well-definedness proof. Emit `wd-post` for every function with a body VC (the union) in both records. | **Adopted** (user decision 2). §3; §4.3 rule 3; §4.6 new row; §6. CLAUSE-WELLDEF-1 makes the matching edit. |
+| C2 | spec drift; user choice | (1) Refuted rule must read "body-faithful or partly proved". (2) CLAUSE-WELLDEF-1 V13 and E14 fall back per conjunct; the split's verdicts are per function. Recommended: per function in v1. (3) The split must emit the `dropped-context` mark. (4) Ship order; recommended CLAUSE-WELLDEF-1 first. | **Adopted** (decisions 3 and 5). §3; §4.2; §4.3 rule 4; E13. |
+| C3 | spec drift | §3 describes CALLEE-POST-UNASSUMED-1 as future work. §2.3 column is now measured. The shipped sentence "A callee post is assumed only when all of it is inside the decidable fragment." becomes false; name the assumed subset and put indices in the construct. Give the new cause its own `W-BODY-FALLBACK` ending. `LLMLL.md:1160` and `getting-started.md:567` "drops a conjunct" is drift today and becomes true with the split. | **Adopted** (decision 4). §2.3; §3; §4.5; doc follow-ups in §7. |
+| C4 | spec drift; user choice | Compiler version `0.36.0` has shipped. Cause counts are stale (twelve on v0.36.0). One rule for `proof_artifact_version`: v0.36.0 added an enum value with no change. Coordinate `checker_soundness_version` and `trust_report_version` with CLAUSE-WELLDEF-1. | **Adopted** (decisions 5 and 6). The user settled the rule: a new enum value raises the version; v0.36.0 is a known exception; CLAUSE-WELLDEF-1 takes `0.2.0`, the split `0.3.0`. §4.5; §4.7. |
+| C5 | precision | The byte-identical sweep fails on a call site where a guard fires on some conjuncts, because the caller now assumes the others. Exempt such sites and list them in the census. | **Adopted** (decision 7). §4.7. |
+| C6 | precision | (1) `descentDischargedFns` (`Main.hs:1688`) is missing from §4.6; use `erBodyFaithfulFns` alone, so a partly proved recursive function keeps `termination_unverified`. (2) The `AbstractionVerdict` candidate set (`:128`) also decides `callee-post-unassumed`, so the union prevents a false refutation of a partly proved caller of a partly proved callee. | **Adopted** (decision 7). §4.6; E17; §7. |
+| C7 | scope; note | `PatchApply` keeps `erBodyFaithfulFns`, so `patch --require-proof` still answers `PatchNotProved` for the original `next-p`. The gain is the message, three `verified` conjunct records and Option B. | **Adopted** (decision 7). §2.2. |
+
+**Open question of round 2.** Whether a `clause-welldef-unproved` failure on one conjunct of a partly proved function makes every conjunct `asserted`, or only that conjunct. Answered: every conjunct, per function in v1 (decision 3; §4.2).
