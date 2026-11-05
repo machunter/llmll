@@ -4,7 +4,7 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.35.1)
+## v0.36.0: a correct caller is not refuted for an unassumed callee post; bytes-set lengths in clauses; constructor fields get their sort (2026-11-04)
 
 ### `CALLEE-POST-UNASSUMED-1`: a correct caller is not `refuted` when a callee `post` was not assumed
 
