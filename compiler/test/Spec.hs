@@ -31,7 +31,7 @@ import LLMLL.ObligationAssembly
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, runFQSolver, resourceStopText, resourceStopValue)
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..))
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -27092,6 +27092,173 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- -----------------------------------------------------------------------
   -- VERIFY-BUDGET-1: the solver guard
   -- -----------------------------------------------------------------------
+  -- CLAUSE-WELLDEF-1 (commit 1 of 3, the refactor). One clause walk returns
+  -- the term and the definedness obligations (clause-welldef-proposal.md
+  -- Rev 3 §4.1.1), and one table holds each partial builtin's precondition
+  -- (§4.1). Nothing is emitted from the obligations yet; these tests pin the
+  -- walk and the table that commit 2 reads.
+  describe "CLAUSE-WELLDEF-1: one clause walk and one partial-precondition table" $ do
+    let pe src = case parseExpr "test" (T.pack src) of
+          Left err -> error ("parse failed: " <> show err)
+          Right e  -> e
+        wdOf ctx src = exprToPredWD ctx (pe src)
+        obls ctx src = maybe [] snd (wdOf ctx src)
+        m3get  = FQApp "Map_select" [FQVar "m$val", FQLit 3]
+        m3has  = FQBinPred FQEq (FQApp "Map_select" [FQVar "m$has", FQLit 3]) (FQLit 1)
+        mGet k = partialPre (PMapGet (FQVar "m$has") k)
+        bLen x = FQApp "bytesLen" [x]
+        g0     = FQVar "g0"
+        shapes =
+          [ "(= result (+ x 1))", "(>= x 0)", "(≥ x 0)", "(!= x 0)"
+          , "(and (> x 0) (< x 10))", "(or (= x 0) (= y 0))", "(not (= x y))"
+          , "(=> (> x 0) (> y 0))", "(<=> (> x 0) (> y 0))"
+          , "(= (map-get m 3) 0)", "(and (map-has m 3) (= (map-get m 3) 0))"
+          , "(or (not (map-has m 3)) (> (map-get m 3) 0))"
+          , "(=> (map-has m 3) (> (map-get m 3) 0))"
+          , "(<=> (map-has m 3) (> (map-get m 3) 0))"
+          , "(= (bytes-get b 0) 7)", "(= (bytes-length (bytes-set b 0 7)) 4)"
+          , "(= result (bytes-set b 1 2))", "(< i (bytes-length b))"
+          , "(and (< 0 i) (< i 4) (= (bytes-get b i) 0))"
+          , "(= (map-get m k) true)", "(= false (map-get m k))"
+          , "(= (string-length s) 3)", "(= (list-length xs) 0)"
+          , "(= (first p) 1)", "(= (second p) 2)"
+          , "(= (* 2 x) y)", "(= (/ x 2) y)", "(= (mod x 3) 0)", "(= (* x y) 0)"
+          , "(= result \"a\")", "(= result (ok 1))", "(= result (err 0))"
+          , "(is-ok r)", "(match r ((Success v) (> v 0)) ((Error e) true))"
+          , "(match r ((Success v) (= (map-get m v) 0)) (_ true))"
+          , "(map-has (map-put m 3 4) 3)", "(= (map-get (map-put m k v) k) v)"
+          , "(= (map-get (map-empty) 3) 0)", "(= result (Node 1))"
+          , "(>= (map-get m (bytes-get b 0)) 0)", "(= (/ (bytes-get b 0) 2) 1)" ]
+
+    it "W1: the walk's term is exprToPred's, under any context, over 41 clause shapes" $ do
+      length shapes `shouldBe` 41
+      forM_ shapes $ \s -> do
+        let e = pe s
+        fmap fst (exprToPredWD [] e) `shouldBe` exprToPred e
+        fmap fst (exprToPredWD [g0, FQNot g0] e) `shouldBe` exprToPred e
+      length (filter (isJust . exprToPred . pe) shapes) `shouldSatisfy` (>= 35)
+
+    it "W2: map-get gives one obligation over the has-array of the same map pair" $ do
+      let e = pe "(map-get m 3)"
+      exprToPredWD [] e `shouldBe` Just (m3get, [WDObl [] (mGet (FQLit 3)) (EApp "map-get" [EVar "m", ELit (LitInt 3)])])
+      mGet (FQLit 3) `shouldBe` m3has
+
+    it "W3: bytes-get gives one obligation, the index in bounds" $ do
+      map woGoal (obls [] "(bytes-get b i)") `shouldBe`
+        [FQAnd [ FQBinPred FQLe (FQLit 0) (FQVar "i"), FQBinPred FQLt (FQVar "i") (bLen (FQVar "b")) ]]
+
+    it "W4: bytes-set's obligation is the bytesSetSpec pre" $ do
+      let (b, i, v) = (FQVar "b", FQVar "i", FQVar "v")
+      map woGoal (obls [] "(bytes-set b i v)") `shouldBe` [fst (bytesSetSpec b i v (FQVar "r"))]
+      partialPre (PBytesSet b i v) `shouldBe` fst (bytesSetSpec b i v (FQVar "r"))
+
+    it "W5: and: a later operand is walked under the earlier one" $ do
+      map woCtx (obls [] "(and (map-has m 3) (= (map-get m 3) 0))") `shouldBe` [[m3has]]
+      map woCtx (obls [g0] "(and (map-has m 3) (= (map-get m 3) 0))") `shouldBe` [[g0, m3has]]
+
+    it "W6: or: a later operand is walked under the negated earlier one" $ do
+      map woCtx (obls [] "(or (not (map-has m 3)) (> (map-get m 3) 0))") `shouldBe` [[FQNot (FQNot m3has)]]
+      map woCtx (obls [] "(or (= (map-get m 3) 0) (map-has m 3))") `shouldBe` [[]]
+
+    it "W7: => walks its consequent under the antecedent" $ do
+      map woCtx (obls [] "(=> (map-has m 3) (> (map-get m 3) 0))") `shouldBe` [[FQNot (FQNot m3has)]]
+      map woGoal (obls [] "(=> (map-has m 3) (> (map-get m 3) 0))") `shouldBe` [m3has]
+
+    it "W8: <=> gives neither operand context (E12)" $ do
+      let s = "(<=> (map-has m 3) (> (map-get m 3) 0))"
+      map woCtx (obls [] s) `shouldBe` [[]]
+      map woCtx (obls [g0] s) `shouldBe` [[g0]]
+      map woCtx (obls [] "(<=> (> (map-get m 3) 0) (> (bytes-get b 0) 0))") `shouldBe` [[], []]
+
+    it "W9: not passes its context through" $ do
+      map woCtx (obls [g0] "(not (= (map-get m 3) 0))") `shouldBe` [[g0]]
+
+    it "W10: match: an arm is walked under its test and the earlier tests negated, selectors substituted" $ do
+      let r       = FQVar "r"
+          okTest  = FQBinPred FQEq r (FQApp "ok"  [FQApp "ok_0"  [r]])
+          errTest = FQBinPred FQEq r (FQApp "err" [FQApp "err_0" [r]])
+          os = obls [g0] "(match r ((Success v) (= (map-get m v) 0)) ((Error e) (= (map-get m e) 0)))"
+      map woCtx os `shouldBe` [[g0, okTest], [g0, errTest, FQNot okTest]]
+      map woGoal os `shouldBe` [mGet (FQApp "ok_0" [r]), mGet (FQApp "err_0" [r])]
+      map woCtx (obls [] "(match r ((Success v) true) (_ (= (map-get m 3) 0)))") `shouldBe` [[FQNot okTest]]
+
+    it "W11: nested reads: the inner read's obligation, then the outer one over its term (E16)" $ do
+      let sel = FQApp "Map_select" [FQVar "b", FQLit 0]
+          os  = obls [] "(and (< 0 (bytes-length b)) (> (map-get m (bytes-get b 0)) 0))"
+          c1  = FQBinPred FQLt (FQLit 0) (bLen (FQVar "b"))
+      map woGoal os `shouldBe` [ partialPre (PBytesGet (FQVar "b") (FQLit 0)), mGet sel ]
+      map woCtx os `shouldBe` [[c1], [c1]]
+
+    it "W12: map-put keys and values are walked; map-has adds nothing" $ do
+      let os = obls [] "(map-has (map-put m (bytes-get b 0) (map-get n 1)) 3)"
+      length os `shouldBe` 2
+      map woOp os `shouldBe` [ EApp "bytes-get" [EVar "b", ELit (LitInt 0)]
+                             , EApp "map-get" [EVar "n", ELit (LitInt 1)] ]
+      obls [] "(map-has m 3)" `shouldBe` []
+
+    it "W13: the bool bridge keeps its term and its map-get obligation" $ do
+      let k = FQVar "k"
+      wdOf [] "(= (map-get m k) true)" `shouldSatisfy`
+        maybe False (\(t, os) -> t == FQBinPred FQEq (FQApp "Map_select" [FQVar "m$val", k]) (FQLit 1)
+                                   && map woGoal os == [mGet k])
+
+    it "W14: map-get on a literal map-empty is refused, with no obligation (E15)" $ do
+      wdOf [] "(map-get (map-empty) 3)" `shouldBe` Nothing
+      wdOf [] "(= (map-get (map-empty) 3) 0)" `shouldBe` Nothing
+
+    it "W15: a constant divisor adds no obligation; its dividend is walked" $ do
+      obls [] "(= (/ x 2) 1)" `shouldBe` []
+      map woGoal (obls [] "(= (/ (bytes-get b 0) 2) 1)") `shouldBe` [partialPre (PBytesGet (FQVar "b") (FQLit 0))]
+      map woGoal (obls [] "(= (mod (map-get m 3) 3) 0)") `shouldBe` [m3has]
+
+    it "W16: a refused clause gives Nothing, whatever reads it holds" $ do
+      wdOf [] "(= (map-get m 3) (* x y))" `shouldBe` Nothing
+      wdOf [] "(and (map-has m 3) (let [(z 1)] z))" `shouldBe` Nothing
+
+    it "P1: every sealed-builtin body arm with a pre reads the partial-precondition table" $ do
+      let canon = Map.fromList
+            [ ("bytes-get",  EApp "bytes-get"  [EVar "b", ELit (LitInt 0)])
+            , ("bytes-set",  EApp "bytes-set"  [EVar "b", ELit (LitInt 0), ELit (LitInt 7)])
+            , ("bytes-zero", EApp "bytes-zero" [ELit (LitInt 4)])
+            , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"]) ]
+          se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
+          table nm as = case (nm, as) of
+            ("map-get",   [h, _, k]) -> Just (PMapGet h k)
+            ("bytes-get", [b', i])   -> Just (PBytesGet b' i)
+            ("bytes-set", [b', i, v]) -> Just (PBytesSet b' i v)
+            _                        -> Nothing
+      Map.keysSet canon `shouldBe` sealedAxiomBuiltins
+      forM_ (Map.toList canon) $ \(nm, call) ->
+        case snd (bodyToPredFrom 0 se Map.empty Set.empty call) of
+          Just cv@CallVC{} -> case cvPreObligation cv of
+            Nothing  -> pure ()
+            Just pre -> fmap partialPre (table nm (cvArgs cv)) `shouldBe` Just pre
+          other -> expectationFailure (T.unpack nm <> ": no body CallVC: " <> show other)
+
+    it "P2: parity: the bytes-set clause lemma is guarded by the table's pre" $ do
+      let call = EApp "bytes-set" [EVar "b", ELit (LitInt 0), ELit (LitInt 7)]
+          b    = FQVar "b"
+          conj p = case p of { FQAnd ps -> concatMap conj ps; _ -> [p] }
+      case exprToPred call of
+        Nothing -> expectationFailure "bytes-set no longer reflects in a clause"
+        Just t  -> do
+          let (_, parts) = bytesSetSpec b (FQLit 0) (FQLit 7) t
+              lemmas = [ l | ("lemma", l) <- parts ]
+              c0 = FQConstraint 0 [] (FQReft "v" FQInt FQTrue)
+                     (FQReft "v" FQInt (FQBinPred FQGe (FQApp "bytesLen" [t]) (FQLit 0))) ["f", "post"]
+              (c', _) = injectRangeFactsLabeled Set.empty c0
+              guardPre = partialPre (PBytesSet b (FQLit 0) (FQLit 7))
+          lemmas `shouldSatisfy` (not . null)
+          forM_ lemmas $ \l ->
+            conj (reftPred (conLhs c')) `shouldSatisfy` elem (FQOr [FQNot guardPre, l])
+
+    it "P3: the map-return chain's presence step is the table's map-get pre" $ do
+      let se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt) ]
+          body = ELet [(PVar "x", Nothing, EApp "map-get" [EVar "m", ELit (LitInt 3)])] (EVar "m")
+      case mapRetChain FQInt se body of
+        Just (Leaf [MRGet "x" pres _ _] _) -> pres `shouldBe` mGet (FQLit 3)
+        _ -> expectationFailure "mapRetChain did not give one presence step"
+
   describe "VERIFY-BUDGET-1 solver guard" $ do
     let stopM = ResourceStop StopMemory (SolverLimits 64 0) 209 1.24
     it "SG-1: sums the RSS of one process group only" $
