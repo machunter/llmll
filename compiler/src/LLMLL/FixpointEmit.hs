@@ -118,6 +118,8 @@ module LLMLL.FixpointEmit
   , exprToPred
     -- * CLAUSE-WELLDEF-1: the one clause walk and the one partial-precondition table
   , exprToPredWD
+  , isWdClause                   -- CLAUSE-WELLDEF-1: re-exported from LLMLL.DiagnosticFQ
+  , wdSiteText
   , WDObl(..)
   , PartialOp(..)
   , partialPre
@@ -167,7 +169,7 @@ import LLMLL.Syntax
 -- module's existing consumers are source-compatible.
 import LLMLL.TypeAdmissibility
 import LLMLL.FixpointIR
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, isWdClause)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkBodyFallbackWarning, mkDecreasesUndischarged)
 import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare, reflectMinMaxAbs)
@@ -268,6 +270,7 @@ data FallbackCause
   -- the same path as 'FallbackAbstraction'. The callee rides
   -- 'erFallbackConstructs' as @post-unassumed:app:<callee>@.
   | FallbackCalleePostUnassumed -- ^ UNSAFE only through calls whose callee post was not assumed
+  | FallbackClauseWelldefUnproved -- ^ CLAUSE-WELLDEF-1: only a definedness obligation failed, and only over marked hypotheses
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 renderFallbackCause :: FallbackCause -> Text
@@ -283,6 +286,7 @@ renderFallbackCause FallbackUnboundMapResult = "map-result-components-unbound"
 renderFallbackCause FallbackUnboundSymbols   = "constraint-symbols-unbound"
 renderFallbackCause FallbackAbstraction      = "abstraction-unsafe"
 renderFallbackCause FallbackCalleePostUnassumed = "callee-post-unassumed"
+renderFallbackCause FallbackClauseWelldefUnproved = "clause-welldef-unproved"
 
 -- | LEVER-A1: the array-theory operation symbols are INTERPRETED by the solver
 -- (native map theory). Declaring them as UF constants would shadow the theory,
@@ -1665,6 +1669,44 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             | otherwise -> contractFallback FallbackContractPre  -- untranslatable pre → fallback
                              (maybe [] refusedConstructs (contractPre contract))
           (Just postPred, Just mPre) -> do
+            -- CLAUSE-WELLDEF-1 (clause-welldef-proposal.md Rev 3 §4.2): this
+            -- arm is the emission gate (N1). A function here gets one `wd-pre`
+            -- constraint per partial-op occurrence in its effective pre, and,
+            -- on each path of a body VC, one `wd-post` constraint per
+            -- occurrence in its effective post. A hole body emits none (§4.2
+            -- lists a hole among the functions with no WD constraint).
+            -- 'emitWd' adds one obligation `H ∧ C ⟹ π_f`. A closed goal
+            -- follows the RESP-FACT-1 rule: true is not emitted (liquid-
+            -- fixpoint rejects a `true` RHS), false is emitted as `false`.
+            let wdPtr k = "/statements/" <> T.pack (show stmtIdx) <> "/" <> k
+                emitWd tag envs hyps o = case evalClosedFQ (woGoal o) of
+                  Just True -> pure ()
+                  closed -> do
+                    wcid <- freshCid
+                    let goal = if closed == Just False then FQFalse else woGoal o
+                        wc   = FQConstraint wcid envs
+                                 (FQReft "v" FQInt (conjoinAll (hyps ++ woCtx o)))
+                                 (FQReft "v" FQInt goal) [name, tag]
+                    addConst wc
+                    addOrigin wcid (ConstraintOrigin name tag
+                                     (wdPtr (if tag == "wd-pre" then "pre" else "post"))
+                                     srcFile (Just (wdSiteText o)))
+                -- The walk reads the same clause forms 'mPre' and 'postPred'
+                -- were translated from, so its terms are theirs.
+                wdObls mc = maybe [] snd (mc >>= exprToPredWD [])
+                wdPostObls = if hasHole body then [] else wdObls (contractPost contract)
+                -- `wd-pre`'s hypotheses: the parameter facts only (§4.2), i.e.
+                -- the folded parameter refinements through the same desugaring
+                -- and marking as the effective pre, plus the binder facts the
+                -- parameter environment carries. The pre itself is not assumed;
+                -- its earlier conjuncts enter through the walk's context.
+                wdPreHyps = maybeToList
+                  (paramRefinementPre aliases params
+                     >>= exprToPred . markIntBuiltins (Set.fromList (map fst params)
+                                                        `Set.union` Map.keysSet cenv)
+                                    . dsAll)
+            unless (hasHole body) $
+              forM_ (wdObls (contractPre contract)) (emitWd "wd-pre" envIds wdPreHyps)
             -- Build SortEnv from int-typed parameters
             let body' = dsExpr body  -- COMP-3b-general: desugar enum match + ctor values
             -- COMP-3b-general (opaque-sum elimination): a Result-typed *variable*
@@ -1921,6 +1963,10 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                       addConst c
                       let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                       addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
+                    -- CLAUSE-WELLDEF-1: the post's definedness on this leaf,
+                    -- with the truth constraint's environment and hypotheses.
+                    forM_ wdPostObls $
+                      emitWd "wd-post" (envIds ++ stepBindIds ++ [rhbid, rvbid]) [lhsPred]
                   addBodyFaithful name
               -- FALLBACK-CENSUS-1: a hole body reaches here when its post
               -- translates. It is a scaffold, not a body outside the fragment.
@@ -2103,6 +2149,9 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                         addConst c
                         let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                         addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
+                      -- CLAUSE-WELLDEF-1: the post's definedness on this path,
+                      -- with the truth constraint's environment and hypotheses.
+                      forM_ wdPostObls $ emitWd "wd-post" allEnvIds [lhsPred]
                     -- Mark as body-faithful, unless MAP-RET-POST-1's reflection
                     -- scope check refused the post above.
                     if unboundMapResult
@@ -3884,6 +3933,21 @@ data WDObl = WDObl
   , woOp   :: Expr       -- ^ the source sub-term, for the message and the site
   } deriving (Show, Eq)
 
+-- | CLAUSE-WELLDEF-1: the obligation's site text, @<op> needs <π_f>@ in
+-- surface syntax, e.g. @(map-get result 3) needs (map-has result 3)@. It is
+-- the constraint origin's site, so two occurrences get distinct obligation ids
+-- and the diagnostic names the missing guard.
+wdSiteText :: WDObl -> Text
+wdSiteText o = exprToSExpr (woOp o) <> " needs " <> exprToSExpr (surfacePre (woOp o))
+  where
+    lit n = ELit (LitInt n)
+    inBounds b i = [EApp "<=" [lit 0, i], EApp "<" [i, EApp "bytes-length" [b]]]
+    surfacePre e = case e of
+      EApp "map-get"   [m, k]    -> EApp "map-has" [m, k]
+      EApp "bytes-get" [b, i]    -> EApp "and" (inBounds b i)
+      EApp "bytes-set" [b, i, v] -> EApp "and" (inBounds b i ++ [EApp "<=" [lit 0, v], EApp "<=" [v, lit 255]])
+      _                          -> e
+
 -- | Convert a linear arithmetic LLMLL Expr to a FQPred.
 -- Returns Nothing for non-linear or unsupported expressions (→ skip/proof-required).
 --
@@ -4916,7 +4980,24 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
                           | not (isDataSort calleeRetSort)
                           , Just pp <- contractPost contract >>= exprToPred
                           , predHasDataTerm pp              = Nothing
-                          | otherwise                       = contractPost contract >>= exprToPred
+                          | otherwise                       = contractPost contract >>= postWithWD
+                -- CLAUSE-WELLDEF-1 (A2S-13): where the callee post is assumed,
+                -- its definedness conditions are assumed too, each as
+                -- @C ⟹ π@ with its short-circuit context C (never the bare
+                -- goal). The caller already assumes the post evaluated to true,
+                -- and a post that evaluated to true was defined, so its WD
+                -- conditions held on that run: the facts rest on the same
+                -- assume-guarantee basis as the post (the callee's own wd-post
+                -- proves them), and add no new trust. They are π facts
+                -- (map-has, bounds), never reads, so H gains no partial read.
+                -- A post that does not translate gives nothing here; the
+                -- post-unassumed mark covers it.
+                postWithWD e = do
+                  (p, obls) <- exprToPredWD [] e
+                  let wdFact o = case woCtx o of
+                        [] -> woGoal o
+                        cs -> FQOr [FQNot (conjoinAll cs), woGoal o]
+                  pure (if null obls then p else conjoinAll (p : map wdFact obls))
             -- Fresh result variable
             resultVar <- freshName ("call_" <> fname)
             -- LEVER-A2.1: a map-returning callee's post roots result$has/

@@ -58,8 +58,8 @@ import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), 
 import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, Type, normalizeDefStmt)
 import LLMLL.ObligationAssembly (exprToSExpr)
 import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause)
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict)
-import LLMLL.DiagnosticFQ (runFQSolver, resourceStopText, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoReportCtx)
+import LLMLL.DiagnosticFQ (runFQSolver, resourceStopText, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import Data.List (find, nub)
@@ -701,7 +701,7 @@ reVerify fp cache retTypes stmts bodyTargets
               -- through 'notProved' as a fallback, not rejected as refuted.
               av       = applyAbstractionVerdict emitR rawResult
               fqResult = aoResult av
-              fqReport = fqResultToReport fp table fqResult
+              fqReport = fqResultToReportWD fp table (aoReportCtx av) fqResult
           case fqResult of
             FQSafe          -> pure (Right (Right (patchedOutcomes bodyTargets (aoEmit av))))  -- SAFE → proceed with write
             FQUnsafe failed -> pure (Right (Left (fqReport, calleePreUnmet stmts table failed)))
@@ -732,6 +732,12 @@ notProvedMessage f
   "'" <> pfName f <> "' was not proved: the solver answered UNSAFE, but the failing constraint uses the result of '"
     <> g <> "', whose post was not assumed at that call (" <> c
     <> "). Its postcondition was assumed."
+  -- CLAUSE-WELLDEF-1: the post's truth was proved; only the definedness of a
+  -- partial read in a clause was not, over a dropped callee fact.
+  | pfCause f == Just (renderFallbackCause FallbackClauseWelldefUnproved)
+  , (c : _) <- pfConstructs f =
+  "'" <> pfName f <> "' was not proved: its post's truth was proved, but a partial read in a clause was not proved defined ("
+    <> c <> "). Its postcondition was assumed and is kept at run time."
 notProvedMessage f =
   "'" <> pfName f <> "' passed the solver but was not proved: "
     <> fromMaybe "fallback" (pfCause f)

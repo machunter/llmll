@@ -56,8 +56,10 @@ data VerifyEnvelope = VerifyEnvelope
   } deriving (Show, Eq)
 
 -- | The version of the envelope's own shape.
+-- CLAUSE-WELLDEF-1 (1.1.0): the verdict keys 'ill_defined' and
+-- 'welldef_unproved'.
 verifyJsonVersion :: Text
-verifyJsonVersion = "1.0.0"
+verifyJsonVersion = "1.1.0"
 
 -- | The fixed key of each nested report, in emit order (design §3.3).
 nestedReportKeys :: [Text]

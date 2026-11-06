@@ -24,12 +24,20 @@ module LLMLL.DiagnosticFQ
   , runDirFor
   , pathTag
   , fqResultToReport
+    -- * CLAUSE-WELLDEF-1: definedness obligations in the report
+  , isWdClause
+  , WdFailKind(..)
+  , WdReportCtx(..)
+  , emptyWdReportCtx
+  , fqResultToReportWD
   ) where
 
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Maybe (mapMaybe, fromMaybe, listToMaybe)
 import qualified Data.Aeson as A
 import Data.Aeson (Value(..))
@@ -73,6 +81,31 @@ data ConstraintOrigin = ConstraintOrigin
 
 -- | Map from constraint ID to its origin in the LLMLL source.
 type ConstraintTable = Map FQConstraintId ConstraintOrigin
+
+-- | CLAUSE-WELLDEF-1: the clause tags of the definedness constraints,
+-- @wd-pre@ and @wd-post@. The one predicate every consumer reads (the verdict
+-- partition, the diagnostics, the obligation channel); the emit result
+-- carries no separate field.
+isWdClause :: Text -> Bool
+isWdClause c = "wd-" `T.isPrefixOf` c
+
+-- | CLAUSE-WELLDEF-1: how a function's failing definedness ids failed. A
+-- complete id is a disproof; a marked one (its environment lost an authored
+-- hypothesis) is not.
+data WdFailKind = WdComplete | WdMarkedOnly
+  deriving (Show, Eq)
+
+-- | CLAUSE-WELLDEF-1: what the verdict layer decided, as the report needs it.
+data WdReportCtx = WdReportCtx
+  { wrMarkedIds :: Set FQConstraintId
+    -- ^ kept failing ids that carry a mark: a WD one is "not proved defined"
+  , wrWdFailing :: Map Text WdFailKind
+    -- ^ each function with a failing WD id; it qualifies that function's
+    -- refutation and measure texts (N5)
+  } deriving (Show, Eq)
+
+emptyWdReportCtx :: WdReportCtx
+emptyWdReportCtx = WdReportCtx Set.empty Map.empty
 
 -- ---------------------------------------------------------------------------
 -- Parse liquid-fixpoint output
@@ -302,14 +335,20 @@ stripAnsi = go
 -- carried it, and this comment described neither path. An agent selecting
 -- refutations out of a @--json@ payload now has one key to test.
 fqResultToReport :: FilePath -> ConstraintTable -> FQVerifyResult -> DiagnosticReport
-fqResultToReport _fp _table FQSafe =
+fqResultToReport fp table = fqResultToReportWD fp table emptyWdReportCtx
+
+-- | CLAUSE-WELLDEF-1: 'fqResultToReport' with the verdict layer's context, so
+-- a definedness id renders as such and a function with a failing one gets the
+-- qualified refutation text (clause-welldef-proposal.md Rev 3 §4.4, N5).
+fqResultToReportWD :: FilePath -> ConstraintTable -> WdReportCtx -> FQVerifyResult -> DiagnosticReport
+fqResultToReportWD _fp _table _ FQSafe =
   DiagnosticReport
     { reportPhase       = "lh-fixpoint"
     , reportDiagnostics = []
     , reportSuccess     = True
     }
-fqResultToReport fp table (FQUnsafe ids) =
-  let diags0 = mapMaybe (toDiag fp table) ids
+fqResultToReportWD fp table wctx (FQUnsafe ids) =
+  let diags0 = mapMaybe (toDiag fp table wctx) ids
       -- VERIFY-RPT-1 (Defect 1b): when the solver reports UNSAFE but no
       -- constraint id resolves to a diagnostic — empty 'ids' (text-scrape
       -- failure) or ids absent from the table — synthesize a function-level
@@ -324,14 +363,14 @@ fqResultToReport fp table (FQUnsafe ids) =
     , reportDiagnostics = diags
     , reportSuccess     = False
     }
-fqResultToReport _fp _table (FQResourceLimit stop) =
+fqResultToReportWD _fp _table _ (FQResourceLimit stop) =
   let d = (mkError Nothing (resourceStopText stop)) { diagKind = Just "resource-limit" }
   in DiagnosticReport
     { reportPhase       = "lh-fixpoint"
     , reportDiagnostics = [d]
     , reportSuccess     = False
     }
-fqResultToReport _fp _table (FQError txt) =
+fqResultToReportWD _fp _table _ (FQError txt) =
   let d = mkError Nothing ("liquid-fixpoint error: " <> txt)
   in DiagnosticReport
     { reportPhase       = "lh-fixpoint"
@@ -342,8 +381,8 @@ fqResultToReport _fp _table (FQError txt) =
 -- | One Diagnostic per failed constraint id. Both branches carry
 -- @diagKind = Just "lh-unsafe"@, the same kind 'fallbackUnsafeDiag' uses, so
 -- every diagnostic on the UNSAFE path answers to one machine-readable key.
-toDiag :: FilePath -> ConstraintTable -> FQConstraintId -> Maybe Diagnostic
-toDiag fp table cid =
+toDiag :: FilePath -> ConstraintTable -> WdReportCtx -> FQConstraintId -> Maybe Diagnostic
+toDiag fp table wctx cid =
   case Map.lookup cid table of
     Nothing ->
       let d = mkError Nothing $
@@ -367,11 +406,35 @@ toDiag fp table cid =
                     in "payload subtyping for call to '" <> callee
                        <> "' not satisfied in '" <> coFunction orig
                        <> "' — argument's payload does not satisfy the callee param's declared refinement (COMP-4 b)"
+                  -- CLAUSE-WELLDEF-1: a definedness obligation names the
+                  -- clause and the guard it needs. A marked one is "not
+                  -- proved defined": its environment lost an authored
+                  -- hypothesis, so it is not a disproof.
+                  clause | isWdClause clause ->
+                    "the " <> (if clause == "wd-pre" then "pre" else "post")
+                    <> " of '" <> coFunction orig <> "' is "
+                    <> (if marked then "not proved defined" else "not defined")
+                    <> " where it is evaluated"
+                    <> maybe "" (": " <>) (coSite orig)
                   _                -> coClause orig <> "-condition of '" <> coFunction orig
                                       <> "' not verified"
+                <> qualifier
                 <> " (constraint #" <> T.pack (show cid) <> ")"
+          marked = cid `Set.member` wrMarkedIds wctx
+          isWd   = isWdClause (coClause orig)
+          -- N5: a refutation or measure failure of a function with a failing
+          -- definedness id may rest on a junk read.
+          qualifier
+            | isWd = ""
+            | not (coClause orig `elem` ["body-post", "body-post-then", "body-post-else", "descent", "decreases"]) = ""
+            | otherwise = case Map.lookup (coFunction orig) (wrWdFailing wctx) of
+                Just WdComplete   -> "; the counter-example may sit at a point where the clause is undefined; fix the ill-defined clause first"
+                Just WdMarkedOnly -> "; the counter-example may sit at a point where the clause is not proved defined"
+                Nothing           -> ""
+          kind | isWd && not marked = "clause-ill-defined"
+               | otherwise          = "lh-unsafe"
           d   = mkError Nothing msg
-      in Just d { diagPointer = Just (coJsonPtr orig), diagKind = Just "lh-unsafe" }
+      in Just d { diagPointer = Just (coJsonPtr orig), diagKind = Just kind }
 
 -- | VERIFY-RPT-1 (Defect 1b): fallback diagnostic for an UNSAFE verdict that
 -- carries no resolvable constraint id. Points at the first known origin's

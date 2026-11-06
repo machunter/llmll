@@ -10,9 +10,9 @@
   "properties": {
 
     "trust_report_version": {
-      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`; 1.7.0 (HEADLINE-TERM-1) added `termination_assumed_fns` and the per-entry `termination_assumed` flag. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy. 1.8.0 (PARTIAL-FNS-GRAPH-1) added no key: `partial_fns` and the per-entry `termination_unverified` flag now read the module-qualified call graph, so a cached member is named `m.f`, and recursion through a function value counts. 1.9.0 (MODE-CLI-1) added the top-level `unbounded_entry_loop` flag. 1.10.0 (TRUST-REPORT-GATE-1) added the optional top-level `discarded_records` array.",
+      "description": "Trust-report emit schema version. Independent of the source-program `schemaVersion` field on JSON-AST inputs. 1.3.0 (VERIFY-RPT-1) added `refuted_fns`; 1.5.0 (REC-PARTIAL-MARK) added `partial_fns`; 1.7.0 (HEADLINE-TERM-1) added `termination_assumed_fns` and the per-entry `termination_assumed` flag. Additive top-level fields (`overflow_tainted_fns`, `measure_not_decreasing_fns`, `over_annotation`) and additive `discriminative_axis` fields (`excluded_candidate_count`, `headline`, `unvouched_cdp_meet`) grew within the 1.x major without a bump, per the additive-only policy. 1.8.0 (PARTIAL-FNS-GRAPH-1) added no key: `partial_fns` and the per-entry `termination_unverified` flag now read the module-qualified call graph, so a cached member is named `m.f`, and recursion through a function value counts. 1.9.0 (MODE-CLI-1) added the top-level `unbounded_entry_loop` flag. 1.10.0 (TRUST-REPORT-GATE-1) added the optional top-level `discarded_records` array. 1.11.0 (CLAUSE-WELLDEF-1) added the optional top-level `ill_defined_fns` array, the per-entry `ill_defined` flag and the `body_fallback` cause `clause-welldef-unproved`.",
       "type": "string",
-      "const": "1.10.0"
+      "const": "1.11.0"
     },
 
     "entries": {
@@ -91,6 +91,12 @@
       "items": { "type": "string" }
     },
 
+    "ill_defined_fns": {
+      "description": "1.11.0 (CLAUSE-WELLDEF-1) — functions whose pre or post is not defined where the program evaluates it (a complete failing `wd-pre` or `wd-post` constraint). Verify-time only; present only when non-empty. Additive.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+
     "measure_not_decreasing_fns": {
       "description": "v0.14.25 (REC-DESCENT) — functions whose declared `(decreases …)` measure the solver disproved. Verify-time only. Additive.",
       "type": "array",
@@ -163,6 +169,7 @@
         "termination_unverified": { "type": "boolean", "const": true, "description": "REC-PARTIAL-MARK: present and `true` iff the function is in `partial_fns`. Informational; it does not change `effective_level`. Omitted when false." },
         "termination_assumed": { "type": "boolean", "const": true, "description": "HEADLINE-TERM-1: present and `true` iff the function is in `termination_assumed_fns`. Omitted when false." },
         "measure_not_decreasing": { "type": "boolean", "const": true, "description": "REC-DESCENT: present and `true` iff the function is in `measure_not_decreasing_fns`. Omitted when false." },
+        "ill_defined": { "type": "boolean", "const": true, "description": "CLAUSE-WELLDEF-1 (1.11.0): present and `true` iff the function is in `ill_defined_fns`. Omitted when false." },
         "carries_caller_obligations": { "type": "boolean", "description": "TRUST-PRE: `true` iff `caller_obligations` is non-empty. Present on every entry and every report path." },
         "caller_obligations": {
           "type": "array",
@@ -241,7 +248,7 @@
           "required": ["cause", "constructs"],
           "description": "TRUST-CC-1 — present only when THIS run's emitter refused the function's body. Orthogonal to the tier: it never changes `effective_level`, feeds no meet, and gates no admission, exactly like `termination_unverified`. ABSENT on a report path that did not run the emitter (a plain `verify --trust-report` exits before it), and that absence is NOT a claim of proof. Suppressed when the cause is `no-post` or `unfilled-hole`, because no proof goal was lost.",
           "properties": {
-            "cause":      { "type": "string", "description": "One value of the FALLBACK-REASON-CONST-1 closed vocabulary." },
+            "cause":      { "type": "string", "description": "One value of the FALLBACK-REASON-CONST-1 closed vocabulary (1.11.0, CLAUSE-WELLDEF-1: including `clause-welldef-unproved`)." },
             "constructs": { "type": "array", "items": { "type": "string" }, "description": "SHELL-FALLBACK-SILENT-1 closed body-refusal labels; may be empty." }
           }
         },

@@ -29,7 +29,7 @@ import LLMLL.ObligationAssembly
   , assembleConsumedGuarantees, assembleFunctionLists
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, runFQSolver, resourceStopText, resourceStopValue)
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, fqResultToReportWD, WdReportCtx(..), WdFailKind(..), emptyWdReportCtx, isWdClause, runFQSolver, resourceStopText, resourceStopValue)
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..))
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
@@ -59,7 +59,7 @@ import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), mockProofResult, sanitizeProof, callLeanstral, defaultMCPConfig, MCPConfig(..), extractLeanFence, parseChatContent, buildChatRequest, ensureImport, kernelCheck)
 import LLMLL.ProofCache (proofCachePath, ProofEntry(..), loadProofCache, saveProofCache, lookupProof, insertProof, computeObligationHash, upgradeLeanstralPosts, liveObligationHashes)
 import LLMLL.TrustReport (markBuiltinAxioms, markGroundFacts, markInheritedAxioms, trustAssumptionRows,
-                          buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), FfiAssumption(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion, downgradeStaleVerifiedSidecarIn, carryForwardTested)
+                          buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), FfiAssumption(..), TrustSummary(..), TierProfile(..), CallerObligation(..), OverAnnotationInfo(..), callerObligationJson, aggregateTiers, aggregateTiersPre, aggregateTiersPost, markRefuted, markMeasureNotDecreasing, markIllDefined, markDescentDischarged, markBodyFallback, OpenSpecRow(..), openSpecRows, sidecarDischargedSet, refutedClosure, downgradeStaleVerifiedSidecar, downgradeContradictedTiers, entryHeadlineLevel, computeDecompMeet, contractVouched, harnessAssumptions, trustReportEmitVersion, downgradeStaleVerifiedSidecarIn, carryForwardTested)
 import LLMLL.ProofArtifact
 import LLMLL.VerifyEnvelope (VerifyEnvelope(..), renderEnvelope, envelopeFields, nestedReportKeys, verifyJsonVersion)
 import Data.Either (isLeft, isRight)
@@ -93,7 +93,7 @@ import LLMLL.DivergenceCheck
   , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson, fillStatusLabel
   , verdictLabel, probeSet )
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchedFn(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, applyPatchWithMode, PatchScopeMode(..), hasContracts, patchTargetFns, notProvedMessage)
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns, aoReportCtx)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
 import LLMLL.CDP
@@ -4393,7 +4393,7 @@ main = hspec $ do
 
     it "the retired tier is no longer POSITIVE, so the kernel does not constrain it" $
       -- 'asserted' beside a fallback reason is the legitimate combination.
-      isRight (mkFnRecord (FnInputs "f" TAsserted [] (Just "body-outside-fragment") False Nothing))
+      isRight (mkFnRecord (FnInputs "f" TAsserted [] (Just "body-outside-fragment") False Nothing False))
         `shouldBe` True
 
     it "an unknown tier is still rejected" $
@@ -4411,13 +4411,13 @@ main = hspec $ do
     -- Proposal §8 claim 3: the kernel rule must keep firing over the tiers that
     -- REMAIN positive after the retirement.
     it "mkFnRecord still rejects a positive tier carrying a fallback reason" $ do
-      isLeft (mkFnRecord (FnInputs "f" TVerified [] (Just "body-outside-fragment") False Nothing))
+      isLeft (mkFnRecord (FnInputs "f" TVerified [] (Just "body-outside-fragment") False Nothing False))
         `shouldBe` True
-      isLeft (mkFnRecord (FnInputs "g" TTested [] (Just "body-outside-fragment") False Nothing))
+      isLeft (mkFnRecord (FnInputs "g" TTested [] (Just "body-outside-fragment") False Nothing False))
         `shouldBe` True
 
     it "mkFnRecord still rejects a positive tier flagged refuted" $
-      isLeft (mkFnRecord (FnInputs "f" TVerified [] Nothing True Nothing)) `shouldBe` True
+      isLeft (mkFnRecord (FnInputs "f" TVerified [] Nothing True Nothing False)) `shouldBe` True
 
   describe "TRUST-CC-1: the body_fallback marker (proposal §5.3)" $ do
     let mkRep = buildTrustReport DM.empty [] Map.empty
@@ -5465,8 +5465,8 @@ main = hspec $ do
           report   = buildTrustReport Map.empty [withdrawStmt] sidecar
           jsonText = formatTrustReportJson report
           jsonV    = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
-      -- trust_report_version now 1.10.0 (TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK)
-      jsonText `shouldSatisfy` T.isInfixOf "\"1.10.0\""
+      -- trust_report_version now 1.11.0 (CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK)
+      jsonText `shouldSatisfy` T.isInfixOf "\"1.11.0\""
       case jsonV of
         Just (Object o) -> case KM.lookup "entries" o of
           Just (Array es) -> case [ ent | Object ent <- foldr (:) [] es
@@ -5756,8 +5756,8 @@ main = hspec $ do
           decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
       case decoded of
         Just (Object o) -> do
-          -- trust_report_version now 1.10.0 (TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
-          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.10.0")
+          -- trust_report_version now 1.11.0 (CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.11.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
               -- All required fields present
@@ -7862,7 +7862,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           table = Map.empty
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
       mineObligations table FQSafe report stmts `shouldBe` []
 
     it "UNSAFE with unknown constraint ID produces no suggestion" $ do
@@ -7871,7 +7871,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           table = Map.empty  -- empty: no origin for constraint 42
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
       mineObligations table (FQUnsafe [42]) report stmts `shouldBe` []
 
     it "UNSAFE with known origin produces self-suggestion" $ do
@@ -7885,7 +7885,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "addPos" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osCaller (head results) `shouldBe` "addPos"
@@ -7900,7 +7900,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "f" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Verified
@@ -7915,7 +7915,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
           results = mineObligations table (FQUnsafe [0]) report stmts
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
@@ -7929,7 +7929,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [(0, ConstraintOrigin "h" "post" "/statements/0/post" "test.llmll" Nothing)]
           -- EFFECT-RESP added trHarnessAssumptions after trSuppressions; the
           -- empty list here is the 4th positional field.
-          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
           results = mineObligations table (FQUnsafe [0]) report stmts
           jsonOut = formatObligationsJson results
       jsonOut `shouldSatisfy` T.isInfixOf "VERIFIED"
@@ -15324,8 +15324,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             jsonText = formatTrustReportJson report
         case decode (BLC.pack (T.unpack jsonText)) :: Maybe Value of
           Just (Object o) -> do
-            -- trust_report_version now 1.10.0 (TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
-            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.10.0")
+            -- trust_report_version now 1.11.0 (CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.11.0")
             -- Scalar tier_profile unchanged in shape (six Int fields)
             case KM.lookup "tier_profile" o of
               Just (Object tp) -> do
@@ -15637,8 +15637,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "J6 JSON emit additive: trust_report_version unchanged, joint_pbt_witnesses key present" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        -- trust_report_version now 1.10.0 (TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; TRUST-PRE was the 1.4.0 additive axis).
-        T.isInfixOf "\"trust_report_version\":\"1.10.0\"" jsonTxt `shouldBe` True
+        -- trust_report_version now 1.11.0 (CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; TRUST-PRE was the 1.4.0 additive axis).
+        T.isInfixOf "\"trust_report_version\":\"1.11.0\"" jsonTxt `shouldBe` True
         T.isInfixOf "\"joint_pbt_witnesses\":"          jsonTxt `shouldBe` True
 
       -- J7 (OBLIG-PBT-5b): a joint-only clause renders the distinct 'tested-joint'
@@ -16192,10 +16192,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"headline\":\"measured\"" (formatTrustReportJson (buildTrustReportWithCDP Map.empty stmts Map.empty noWarning)) `shouldBe` True
         T.isInfixOf "\"headline\":\"not-requested\"" (formatTrustReportJson notRequested) `shouldBe` True
 
-      it "C18 trust_report_version is 1.10.0 (TRUST-REPORT-GATE-1 bump)" $ do
+      it "C18 trust_report_version is 1.11.0 (CLAUSE-WELLDEF-1 bump)" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.10.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.11.0\"" jsonTxt `shouldBe` True
 
       -- REC-PARTIAL-MARK (increment 2/(a) of REC-BODY-VC): recursive-cycle
       -- members carry a derived 'termination_unverified' marker + a top-level
@@ -16407,10 +16407,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"over_annotation\":{" jsonTxt `shouldBe` True
         T.isInfixOf "\"warning\":false" jsonTxt `shouldBe` True
 
-      it "C27e over_annotation is an additive field (did not itself bump the version); version is 1.10.0 (TRUST-REPORT-GATE-1)" $ do
+      it "C27e over_annotation is an additive field (did not itself bump the version); version is 1.11.0 (CLAUSE-WELLDEF-1)" $ do
         let report  = buildTrustReport Map.empty stmtsAboveThreshold Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.10.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.11.0\"" jsonTxt `shouldBe` True
 
     -- F6-1 through F6-6: F-006 / F-005 ancillary fixes
     describe "F6-1–F6-6 candidate generation (F-006 type-alias fix / F-005 unannotated-return fix)" $ do
@@ -17783,7 +17783,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- is an unrepresentable state, enforced on BOTH construction and deserialization) and
   -- the §4.3 fail-closed replay classification. Emit/replay CLI paths are CLI-probe-verified.
   describe "PROOF-ARTIFACT: §4.1 LCF invariant + §4.3 fail-closed replay" $ do
-    let pos = FnInputs "f" TVerified [] Nothing False Nothing  -- a clean positive-tier input
+    let pos = FnInputs "f" TVerified [] Nothing False Nothing False  -- a clean positive-tier input
 
     it "PA-1: mkFnRecord REJECTS laundered positive records" $ do
       mkFnRecord pos { fiFallbackReason = Just "x" } `shouldSatisfy` isLeft  -- positive + fallback
@@ -17799,7 +17799,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "PA-3: artifact JSON round-trips; a laundered artifact FAILS to deserialize" $ do
       let Right fr = mkFnRecord pos
           meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
-          art  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0")
+          art  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0" (Just checkerSoundnessVersion))
                    "f.llmll" (Just "sha256:abc") meta codegenSemanticsVersion
                    RSafe "vc-text" Nothing [fr] Nothing
       decode (encode art) `shouldBe` Just art
@@ -17810,7 +17810,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "PA-4: classifyReplay reproduces only on exact match; fails closed on every axis" $ do
       let meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
           Right fr = mkFnRecord pos
-          art  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0")
+          art  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0" (Just checkerSoundnessVersion))
                    "f.llmll" (Just "sha256:H") meta codegenSemanticsVersion
                    RSafe "vc" Nothing [fr] Nothing
           failed o = case o of ReplayFailClosed _ -> True; _ -> False
@@ -17823,21 +17823,25 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- TRUST-REPORT-GATE-1 (C1): the composed versions are computed from the
     -- live emitter constants, not hard-coded.
     it "PA-5: a freshly minted artifact composes the live trust-report and schema versions" $ do
-      liveComposedVersions `shouldBe` ComposedVersions trustReportEmitVersion expectedSchemaVersion
+      liveComposedVersions `shouldBe` ComposedVersions trustReportEmitVersion expectedSchemaVersion (Just checkerSoundnessVersion)
       cvTrustReport liveComposedVersions `shouldNotBe` "1.4.0"
       cvSchema liveComposedVersions `shouldNotBe` "0.7.0"
 
-    it "PA-6: an artifact minted before C1 (composed 1.4.0 / 0.7.0) still decodes and replays" $ do
+    -- CLAUSE-WELLDEF-1 reversed the replay half by design (N4): an artifact
+    -- with no soundness-epoch member still DECODES, but its stored VC predates
+    -- the definedness obligations, so its replay fails closed.
+    it "PA-6: an artifact minted before C1 (composed 1.4.0 / 0.7.0, no epoch) still decodes; its replay fails closed" $ do
       let meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
           fr   = either (error . show) id (mkFnRecord pos)
-          old  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0")
+          old  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0" Nothing)
                    "f.llmll" (Just "sha256:H") meta codegenSemanticsVersion
                    RSafe "vc" Nothing [fr] Nothing
       case decode (encode old) of
         Nothing  -> expectationFailure "old artifact did not decode"
         Just art -> do
-          paComposed art `shouldBe` ComposedVersions "1.4.0" "0.7.0"
-          classifyReplay (Just "sha256:H") meta RSafe art `shouldBe` ReplayReproduced RSafe
+          paComposed art `shouldBe` ComposedVersions "1.4.0" "0.7.0" Nothing
+          classifyReplay (Just "sha256:H") meta RSafe art `shouldBe`
+            ReplayFailClosed "written under a different soundness epoch; re-verify"
 
   -- -----------------------------------------------------------------------
   -- CodegenHs: generated Main.hs must be valid, compilable Haskell
@@ -20444,8 +20448,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- accident either. MODE-CLI-1 moved it to 1.9.0 deliberately, for the
     -- unbounded_entry_loop field (docs/design/entry-mode-implementation-plan.md).
     -- TRUST-REPORT-GATE-1 moved it to 1.10.0 deliberately, for discarded_records.
+    -- CLAUSE-WELLDEF-1 moved it to 1.11.0 deliberately, for ill_defined_fns.
     it "the additive key does not bump trust_report_version" $
-      trustReportEmitVersion `shouldBe` "1.10.0"
+      trustReportEmitVersion `shouldBe` "1.11.0"
 
   describe "CodegenHs: wasi.http.post codegen warning (WASI-RT)" $ do
 
@@ -22203,9 +22208,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         concatMap teAssumedFacts (trEntries report) `shouldBe` []
         formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
       -- FN-SHADOW-1 moved the stamp to "4", LET-CALL-CONT-1 to "5" (LCC-6),
-      -- AND-GUARD-PRE-1 to "6" (pinned by AGP-9); FS-13 pins "3" as discarded.
-      it "RF-P4 checker_soundness_version is \"6\" (AND-GUARD-PRE-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
-        checkerSoundnessVersion `shouldBe` "6"
+      -- AND-GUARD-PRE-1 to "6", CLAUSE-WELLDEF-1 to "7" (pinned by AGP-9);
+      -- FS-13 pins "3" as discarded.
+      it "RF-P4 checker_soundness_version is \"7\" (CLAUSE-WELLDEF-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "7"
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "2")]) `shouldBe` True
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
 
@@ -22289,9 +22295,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       causeOf "ftree" er `shouldBe` Just FallbackContractSig
 
     it "the proof-artifact record carries the rendered cause, and the kernel still rejects it on a positive tier" $ do
-      let asserted = mkFnRecord (FnInputs "square" TAsserted [] (Just (renderFallbackCause FallbackBody)) False Nothing)
+      let asserted = mkFnRecord (FnInputs "square" TAsserted [] (Just (renderFallbackCause FallbackBody)) False Nothing False)
       fmap fnFallbackReason asserted `shouldBe` Right (Just "body-outside-fragment")
-      mkFnRecord (FnInputs "square" TVerified [] (Just (renderFallbackCause FallbackBody)) False Nothing)
+      mkFnRecord (FnInputs "square" TVerified [] (Just (renderFallbackCause FallbackBody)) False Nothing False)
         `shouldBe` Left (PositiveWithFallback "square")
 
   -- -----------------------------------------------------------------------
@@ -22530,8 +22536,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- CALLEE-POST-UNASSUMED-1 added the twelfth:
       -- 'FallbackCalleePostUnassumed', decided after the solver on the same
       -- path as 'FallbackAbstraction'.
-      length cs `shouldBe` 12
-      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 12
+      -- CLAUSE-WELLDEF-1 added the thirteenth: 'FallbackClauseWelldefUnproved',
+      -- decided after the solver on the same path.
+      length cs `shouldBe` 13
+      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 13
 
     it "a nonlinear post names the operator, not the whole clause" $ do
       -- SIGMA-CONST-ARITH-1: (* n 2) is admitted now; (* n n) is still refused.
@@ -24574,7 +24582,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       m `shouldNotSatisfy` T.isInfixOf "Rewrite the body"
 
     it "CPU-14 mkFnRecord accepts tier asserted, not refuted, fallback_reason callee-post-unassumed" $
-      isRight (mkFnRecord (FnInputs "use-it" TAsserted [] (Just "callee-post-unassumed") False Nothing)) `shouldBe` True
+      isRight (mkFnRecord (FnInputs "use-it" TAsserted [] (Just "callee-post-unassumed") False Nothing False)) `shouldBe` True
 
     it "CPU-15 solver: whole, rneed, split and bad reclassify to FQSafe with cause callee-post-unassumed" $
       forM_ [(whole, "pos-only"), (rneed, "pos-or-one"), (splitW, "pos-or-one"), (bad, "pos-or-one")] $ \(src, g) ->
@@ -24750,8 +24758,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "BLR-9 replay fails closed when the named source no longer passes check" $ do
       let meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
-          fr   = either (error . ("mkFnRecord: " ++) . show) id (mkFnRecord (FnInputs "mk" TVerified [] Nothing False Nothing))
-          art  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0")
+          fr   = either (error . ("mkFnRecord: " ++) . show) id (mkFnRecord (FnInputs "mk" TVerified [] Nothing False Nothing False))
+          art  = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0" (Just checkerSoundnessVersion))
                    "big.llmll" (Just "sha256:H") meta codegenSemanticsVersion
                    RSafe "vc" Nothing [fr] Nothing
           failed o = case o of ReplayFailClosed _ -> True; _ -> False
@@ -27084,10 +27092,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
              (EIf (EOp "<=>" [EApp "map-has" ri, EOp ">=" [EVar "_bv_anf_0", ELit (LitInt 0)]]) (ELit (LitInt 1)) (ELit (LitInt 0)))
       r <- emitG [ sigM "giff" <> "(if (<=> (map-has r i) (>= (map-get r i) 0)) 1 0))" ]
       callPreLhs (erFQText r) `shouldBe` ["  lhs { v : int | true }"]
-    it "AGP-9 checker_soundness_version is \"6\": a sidecar stamped \"5\" is discarded" $ do
-      checkerSoundnessVersion `shouldBe` "6"
+    -- CLAUSE-WELLDEF-1 moved the stamp past "6" (CW-S1 pins "6" as discarded).
+    it "AGP-9 checker_soundness_version is \"7\": a sidecar stamped \"5\" is discarded" $ do
+      checkerSoundnessVersion `shouldBe` "7"
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "5")]) `shouldBe` True
-      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "6")]) `shouldBe` False
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "7")]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- VERIFY-BUDGET-1: the solver guard
@@ -27258,6 +27267,350 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case mapRetChain FQInt se body of
         Just (Leaf [MRGet "x" pres _ _] _) -> pres `shouldBe` mGet (FQLit 3)
         _ -> expectationFailure "mapRetChain did not give one presence step"
+
+  -- CLAUSE-WELLDEF-1 (commit 2 of 3): the definedness obligations wd-pre and
+  -- wd-post, the WD/MEAS/TRUTH verdict partition with the ill-defined hard
+  -- verdict, the clause-welldef-unproved cause, and the soundness epoch
+  -- (clause-welldef-proposal.md Rev 3 §4.2-§4.4, §6).
+  describe "CLAUSE-WELLDEF-1: definedness obligations and the ill-defined verdict" $ do
+    let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+          Left e   -> error (show e)
+          Right ss -> ss
+        emitSrc src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+        allPos = "(def-shell all-pos? [xs: list[int]] -> bool (list-fold xs true (fn [acc: bool x: int] (and acc (> x 0)))))\n"
+        flagD  = "(def-shell flag [n: int] -> int (post (all-pos? [result])) (if (> n 0) n 1))\n"
+        e1  = "(def-shell mk [n: int] -> map[int,int] (post (= (map-get result 3) 0)) (map-empty))"
+        e2  = "(def-shell mk [n: int] -> map[int,int] (post (and (map-has result 3) (= (map-get result 3) 7))) (map-put (map-empty) 3 7))"
+        e3  = "(def-shell mk [n: int] -> map[int,int] (post (and (= (map-get result 3) 7) (map-has result 3))) (map-empty))"
+        e4  = "(def-shell g [m: map[int,int]] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) 1)"
+        e18 = "(type Idx (where [x: int] (and (>= x 0) (< (* x x) 16))))\n(def-shell h [b: bytes[4] i: Idx] -> int (pre (> (bytes-get b i) 0)) (post (>= result 0)) 1)"
+        e20 = "(def-shell g [m: map[int,int] s: string] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) (string-length (string-concat s s)))"
+        g5  = "(def-shell h [m: map[int,list[int]] k: int] -> int (pre (> (list-length (map-get m k)) 0)) (post (>= result 0)) 1)"
+        holeS   = "(def-shell g [m: map[int,int]] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) ?impl)"
+        nopostS = "(def-shell g [m: map[int,int]] -> int (pre (> (map-get m 3) 0)) 1)"
+        v4  = allPos ++ flagD ++ "(def-shell g [m: map[int,int] n: int] -> int (pre (> (map-get m 3) 0)) (post (> result 5)) (flag n))"
+        v5  = allPos ++ flagD ++ "(def-shell g [m: map[int,int] n: int] -> int (post (or (= result 0) (and (> result 0) (= (map-get m 3) (map-get m 3))))) (if (> n 0) (flag n) -1))"
+        v6  = allPos ++ flagD ++ "(def-shell g [m: map[int,int] n: int] -> int (post (or (= result 0) (= (map-get m 3) (map-get m 3)))) (flag n))"
+        v7  = allPos ++ flagD ++ "(def-shell g [m: map[int,int] n: int] -> int (post (and (> result 0) (= (map-get m 3) (map-get m 3)))) (flag n))"
+        v8  = "(def-shell gl [xs: list[int]] -> int (post (>= result 0)) (list-length xs))\n(def-shell hv [xs: list[int] m: map[int,int]] -> int (post (and (= result 0) (= (map-get m 3) (map-get m 3)))) (- (gl xs) (gl xs)))"
+        v9  = "(def-shell lp [m: map[int,int] x: int] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) (decreases x) (if (= x 0) 0 (lp m x)))"
+        v10 = allPos ++ flagD ++ "(def-shell lp [m: map[int,int] x: int] -> int (pre (>= x 0)) (post (or (= result 0) (= (map-get m 3) (map-get m 3)))) (decreases x) (if (= x 0) (flag x) (let [(y (lp m x))] 0)))"
+        v11 = allPos ++ flagD ++ "(def-shell lp [m: map[int,int] x: int] -> int (pre (>= x 0)) (post (or (= result 0) (= (map-get m 3) (map-get m 3)))) (decreases x) (let [(z (flag x))] (if (= x 0) z (let [(y (lp m x))] 0))))"
+        v14  = allPos ++ "(def-shell pos-only [n: int] -> int (post (all-pos? [result])) (if (> n 0) n 1))\n(def-shell lp [x: int] -> int (pre (>= x 0)) (post (>= result 2)) (decreases x) (if (= x 0) (+ (pos-only x) 1) (lp x)))"
+        bumpOr = "(def bump [m: map[int,int] k: int] -> map[int,int] (pre (map-has m k)) (post (or (= k 0) (= (map-get result k) 7))) (map-put m k 7))\n"
+        v14b = allPos ++ flagD ++ "(def-shell lp [x: int] -> int (pre (>= x 0)) (post (>= result 2)) (decreases x) (if (= x 0) 0 (let [(z (flag x))] (let [(y (lp x))] 2))))"
+        origins er = Map.toList (erConstraintTable er)
+        idsOf er fn clauseP = [ i | (i, o) <- origins er, coFunction o == fn, clauseP (coClause o) ]
+        wdOf er fn tag = idsOf er fn (== tag)
+        anyWd er = [ i | (i, o) <- origins er, isWdClause (coClause o) ]
+        conOf er i = case find ((== i) . conId) (fqConstraints (erFQFile er)) of
+          Just c  -> c
+          Nothing -> error ("no constraint " ++ show i)
+        conjs p = case p of
+          FQAnd ps -> concatMap conjs ps
+          FQTrue   -> []
+          _        -> [p]
+        lhsOf er i = conjs (reftPred (conLhs (conOf er i)))
+        msgs av = map diagMessage (reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable (aoEmit av)) (aoReportCtx av) (aoResult av)))
+        solved src k = do
+          er <- emitSrc src
+          tmp <- getTemporaryDirectory
+          (fqPath, h) <- SIO.openTempFile tmp "clause-welldef.fq"
+          SIO.hClose h
+          TIO.writeFile fqPath (erFQText er)
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just lf -> do
+              (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
+              removeFile fqPath
+              k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
+        -- one verdict row: the three hard sets, the reclassified function
+        -- with its cause and construct, and whether the effective answer is
+        -- SAFE (fqExitCode in app/Main.hs maps a SAFE answer to exit 0 and an
+        -- UNSAFE one to exit 1)
+        row src ill mnd ref fb safe extra = solved src $ \_ av -> do
+          Set.toList (aoIllDefined av) `shouldBe` ill
+          Set.toList (aoMeasureBad av) `shouldBe` mnd
+          Set.toList (aoRefuted av) `shouldBe` ref
+          aoFallbackFns av `shouldBe` [ f | (f, _, _) <- fb ]
+          [ (f, lookup f (erBodyFallbackCauses (aoEmit av)), lookup f (erFallbackConstructs (aoEmit av))) | (f, _, _) <- fb ]
+            `shouldBe` [ (f, Just c, Just [x]) | (f, c, x) <- fb ]
+          (aoResult av == FQSafe) `shouldBe` safe
+          extra av
+        none = const (pure ())
+        pos = FnInputs "f" TVerified [] Nothing False Nothing False
+        meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
+        artWith ep = ProofArtifact proofArtifactVersion (ComposedVersions "1.11.0" "0.15.0" ep)
+                       "f.llmll" (Just "sha256:H") meta codegenSemanticsVersion
+                       RSafe "vc" Nothing [either (error . show) id (mkFnRecord pos)] Nothing
+        epochReason = ReplayFailClosed "written under a different soundness epoch; re-verify"
+
+    -- C. Emission (pure)
+    it "G1 E1 (dedicated map-return path): one wd-post per leaf, in the truth constraint's environment" $ do
+      er <- emitSrc e1
+      let wds    = wdOf er "mk" "wd-post"
+          truths = [ i | i <- idsOf er "mk" (not . isWdClause) ]
+      length wds `shouldBe` 1
+      truths `shouldSatisfy` (not . null)
+      [ conEnv (conOf er i) | i <- wds ] `shouldSatisfy` all (`elem` [ conEnv (conOf er t) | t <- truths ])
+      wdOf er "mk" "wd-pre" `shouldBe` []
+
+    it "G2 generic path: one wd-post per path, its LHS holds the truth LHS of that path" $ do
+      er <- emitSrc "(def-shell g [m: map[int,int] n: int] -> int (post (>= (map-get m 3) 0)) (if (> n 0) 1 2))"
+      let wds    = wdOf er "g" "wd-post"
+          truths = idsOf er "g" (not . isWdClause)
+      length wds `shouldBe` 2
+      forM_ wds $ \w -> do
+        let same = [ t | t <- truths, conEnv (conOf er t) == conEnv (conOf er w) ]
+        same `shouldSatisfy` (not . null)
+        forM_ same $ \t -> lhsOf er t `shouldSatisfy` all (`elem` lhsOf er w)
+
+    it "G3 wd-pre: one obligation; its LHS holds the param facts (a refinement alias adds i >= 0, no obligation)" $ do
+      er <- emitSrc "(type Idx (where [x: int] (and (>= x 0) (< x 4))))\n(def-shell h [b: bytes[4] i: Idx] -> int (pre (> (bytes-get b i) 0)) (post (>= result 0)) 1)"
+      case wdOf er "h" "wd-pre" of
+        [w] -> do
+          emitPred (reftPred (conLhs (conOf er w))) `shouldSatisfy` T.isInfixOf "i >= 0"
+          wdOf er "h" "wd-post" `shouldBe` []
+        ws  -> expectationFailure ("expected one wd-pre, got " ++ show ws)
+
+    it "G4 E18 (a refused refinement-alias param): no wd-* constraint" $ do
+      er <- emitSrc e18
+      anyWd er `shouldBe` []
+
+    it "G5 N1: a guard:map-clause refusal emits no wd-*" $ do
+      er <- emitSrc g5
+      anyWd er `shouldBe` []
+
+    it "G6 a function with no post emits no wd-*" $ do
+      er <- emitSrc nopostS
+      anyWd er `shouldBe` []
+
+    it "G7 a hole body emits no wd-* (record §4.2)" $ do
+      er <- emitSrc holeS
+      anyWd er `shouldBe` []
+
+    it "G8 E20 (body outside the fragment): wd-pre only" $ do
+      er <- emitSrc e20
+      length (wdOf er "g" "wd-pre") `shouldBe` 1
+      wdOf er "g" "wd-post" `shouldBe` []
+
+    it "G9 the path cap: wd-pre only" $ do
+      let nest :: Int -> String
+          nest 0 = "0"
+          nest k = "(if (> x " ++ show k ++ ") " ++ nest (k - 1) ++ " " ++ nest (k - 1) ++ ")"
+      er <- emitSrc ("(def-shell deep [m: map[int,int] x: int] -> int (pre (> (map-get m 3) 0)) (post (>= (map-get m 3) 0)) " ++ nest 13 ++ ")")
+      lookup "deep" (erBodyFallbackCauses er) `shouldBe` Just FallbackPathCap
+      length (wdOf er "deep" "wd-pre") `shouldBe` 1
+      wdOf er "deep" "wd-post" `shouldBe` []
+
+    it "G10 a partial-op-free function emits the same constraints beside one with a partial op" $ do
+      let f = "(def-shell f [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (if (> n 1) n 0))"
+      alone <- emitSrc f
+      mixed <- emitSrc (f ++ "\n" ++ e1)
+      let ofF er = [ (conEnv c, conLhs c, conRhs c, conTag c) | i <- idsOf er "f" (const True), let c = conOf er i ]
+      ofF mixed `shouldBe` ofF alone
+      anyWd alone `shouldBe` []
+
+    it "G11 a wd origin names the clause, the clause pointer and the site" $ do
+      er <- emitSrc e1
+      [ (coClause o, coJsonPtr o, coSite o) | i <- wdOf er "mk" "wd-post", Just o <- [Map.lookup i (erConstraintTable er)] ]
+        `shouldBe` [("wd-post", "/statements/0/post", Just "(map-get result 3) needs (map-has result 3)")]
+      er4 <- emitSrc e4
+      [ (coJsonPtr o, coSite o) | i <- wdOf er4 "g" "wd-pre", Just o <- [Map.lookup i (erConstraintTable er4)] ]
+        `shouldBe` [("/statements/0/pre", Just "(map-get m 3) needs (map-has m 3)")]
+
+    it "G12 a goal true by evaluation emits no constraint; every source goal names a term, so none is closed" $ do
+      -- evalClosedFQ folds only literal goals; a source partial read always
+      -- names an array term (result, a param, a let binder), so the closed
+      -- arm is unreachable from source. The pin: an open goal is emitted.
+      er <- emitSrc e1
+      [ reftPred (conRhs (conOf er i)) | i <- wdOf er "mk" "wd-post" ] `shouldSatisfy` all (/= FQTrue)
+
+    it "G13 a wd-post over a call whose callee post was not assumed carries the post-unassumed mark" $ do
+      er <- emitSrc v6
+      let wds = wdOf er "g" "wd-post"
+      wds `shouldSatisfy` (not . null)
+      [ Map.lookup i (erPostUnassumed er) | i <- wds ] `shouldBe` map (const (Just "flag")) wds
+
+    -- D. Verdict rows (solver-backed)
+    it "V1 E2 (guarded read): no WD failure, SAFE" $
+      row e2 [] [] [] [] True none
+    it "V2 E1 (undefined read): ill-defined only" $
+      row e1 ["mk"] [] [] [] False none
+    it "V3 E3: ill-defined and refuted; the refuted text is qualified" $ do
+      row e3 ["mk"] [] ["mk"] [] False $ \av ->
+        msgs av `shouldSatisfy` any (T.isInfixOf "fix the ill-defined clause first")
+    it "V4 a complete wd-pre beside a marked truth id: ill-defined only" $
+      row v4 ["g"] [] [] [] False none
+    it "V5 a marked wd-post and a complete truth id: refuted only, qualified, no welldef fallback" $ do
+      row v5 [] [] ["g"] [] False $ \av ->
+        msgs av `shouldSatisfy` any (T.isInfixOf "the counter-example may sit at a point where the clause is not proved defined")
+    it "V6 marked WD only: fallback clause-welldef-unproved" $
+      row v6 [] [] [] [("g", FallbackClauseWelldefUnproved, "welldef:post-unassumed:app:flag")] True none
+    it "V7 marked WD and marked truth (post-unassumed): fallback callee-post-unassumed" $
+      row v7 [] [] [] [("g", FallbackCalleePostUnassumed, "post-unassumed:app:flag")] True none
+    it "V8 marked WD and marked truth (abstraction on all): fallback abstraction-unsafe" $
+      row v8 [] [] [] [("hv", FallbackAbstraction, "abstraction:app:gl")] True none
+    it "V9 complete WD and complete MEAS: ill-defined and measure-not-decreasing, qualified" $ do
+      row v9 ["lp"] ["lp"] [] [] False $ \av ->
+        msgs av `shouldSatisfy` any (T.isInfixOf "fix the ill-defined clause first")
+    it "V10 marked WD and complete MEAS: measure-not-decreasing only, qualified as marked" $ do
+      row v10 [] ["lp"] [] [] False $ \av ->
+        msgs av `shouldSatisfy` any (T.isInfixOf "the clause is not proved defined")
+    it "V11 marked WD and marked MEAS: fallback by steps 2-3 with W-DECREASES-UNDISCHARGED" $ do
+      row v11 [] [] [] [("lp", FallbackCalleePostUnassumed, "post-unassumed:app:flag")] True $ \av ->
+        map diagMessage (erDiagnostics (aoEmit av)) `shouldSatisfy` any (T.isInfixOf "W-DECREASES-UNDISCHARGED")
+    it "V12 E20: a complete wd-pre without a body VC is ill-defined; the fallback cause is kept" $ do
+      row e20 ["g"] [] [] [] False $ \av ->
+        lookup "g" (erBodyFallbackCauses (aoEmit av)) `shouldBe` Just FallbackBody
+    it "V14 complete MEAS beside a marked truth id: measure-not-decreasing only (no longer refuted)" $
+      row v14 [] ["lp"] [] [] False none
+    it "V14b complete truth beside a marked MEAS id: refuted only (no longer measure-not-decreasing)" $
+      row v14b [] [] ["lp"] [] False none
+
+    -- A2S-13 decision (option b): where a callee post is assumed, its
+    -- definedness conditions are assumed too, each as C ==> pi.
+    it "WD-CALL-1 an or-guarded callee post gives k /= 0 ==> map-has: wrap verifies under k /= 0" $
+      row (bumpOr ++ "(def-shell wrap [m: map[int,int] k: int] -> map[int,int] (pre (and (map-has m k) (not (= k 0)))) (post (= (map-get result k) 7)) (bump m k))")
+          [] [] [] [] True none
+    it "WD-CALL-2 the same caller without k /= 0 is ill-defined (the bare goal is not assumed)" $
+      row (bumpOr ++ "(def-shell wrap [m: map[int,int] k: int] -> map[int,int] (pre (map-has m k)) (post (= (map-get result k) 7)) (bump m k))")
+          ["wrap"] [] ["wrap"] [] False none
+    it "WD-CALL-3 a callee post that does not translate gives no WD fact: the caller falls back with clause-welldef-unproved, not ill-defined" $
+      row (allPos ++ "(def-shell mki [n: int] -> int (post (all-pos? [n])) n)\n(def-shell use [m: map[int,int] n: int] -> int (post (or (= result 0) (= (map-get m result) (map-get m result)))) (mki n))")
+          [] [] [] [("use", FallbackClauseWelldefUnproved, "welldef:post-unassumed:app:mki")] True none
+
+    -- E. Cause steps (pure, synthetic answers)
+    it "E-1 step 1 with post-unassumed: every failing id WD and marked gives welldef:post-unassumed:app:<callee>" $ do
+      er <- emitSrc v6
+      let wds = wdOf er "g" "wd-post"
+          av  = applyAbstractionVerdict er (FQUnsafe wds)
+      aoResult av `shouldBe` FQSafe
+      aoWelldefUnproved av `shouldBe` [("g", "welldef:post-unassumed:app:flag")]
+      aoUnassumed av `shouldBe` []
+      lookup "g" (erBodyFallbackCauses (aoEmit av)) `shouldBe` Just FallbackClauseWelldefUnproved
+      renderFallbackCause FallbackClauseWelldefUnproved `shouldBe` "clause-welldef-unproved"
+
+    it "E-2 step 1 with abstraction: every failing WD id abstraction-marked gives welldef:abstraction:app:<callee>" $ do
+      er <- emitSrc v6
+      let wds = wdOf er "g" "wd-post"
+          er2 = er { erAbstracted = Map.fromList [ (i, "flag") | i <- wds ] }
+          av  = applyAbstractionVerdict er2 (FQUnsafe wds)
+      aoWelldefUnproved av `shouldBe` [("g", "welldef:abstraction:app:flag")]
+      aoReclassified av `shouldBe` []
+
+    it "E-3 steps 2-3 unchanged: a marked truth id beside the marked WD ids decides by the shipped rule" $ do
+      er <- emitSrc v7
+      let ids = idsOf er "g" (const True)
+          av  = applyAbstractionVerdict er (FQUnsafe ids)
+      aoWelldefUnproved av `shouldBe` []
+      aoUnassumed av `shouldBe` [("g", "flag")]
+      [ diagCode d | d <- erDiagnostics (aoEmit av), diagCode d == Just "W-CLAUSE-WELLDEF-UNPROVED" ] `shouldBe` []
+      let er3 = er { erAbstracted = Map.fromList [ (i, "flag") | i <- ids ] }
+          av3 = applyAbstractionVerdict er3 (FQUnsafe ids)
+      aoReclassified av3 `shouldBe` [("g", "flag")]
+      lookup "g" (erFallbackConstructs (aoEmit av3)) `shouldBe` Just ["abstraction:app:flag"]
+
+    -- F. Diagnostics
+    it "F-1 an unmarked failing wd-pre and wd-post render as clause-ill-defined" $ do
+      er1 <- emitSrc e1
+      er4 <- emitSrc e4
+      let kinds er = [ (diagKind d, diagPointer d) | d <- reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable er) emptyWdReportCtx (FQUnsafe (anyWd er))) ]
+      kinds er1 `shouldBe` [(Just "clause-ill-defined", Just "/statements/0/post")]
+      kinds er4 `shouldBe` [(Just "clause-ill-defined", Just "/statements/0/pre")]
+
+    it "F-2 W-CLAUSE-WELLDEF-UNPROVED names the clause and the site, pointed at the clause" $ do
+      er <- emitSrc v6
+      let av = applyAbstractionVerdict er (FQUnsafe (wdOf er "g" "wd-post"))
+          ws = [ d | d <- erDiagnostics (aoEmit av), diagCode d == Just "W-CLAUSE-WELLDEF-UNPROVED" ]
+      ws `shouldSatisfy` (not . null)
+      [ diagPointer d | d <- ws ] `shouldSatisfy` all (== Just "/statements/2/post")
+      [ diagMessage d | d <- ws ] `shouldSatisfy` all (T.isInfixOf "the post of 'g' is not proved defined where it is evaluated: (map-get m 3) needs (map-has m 3)")
+
+    it "F-3 a complete WD failure qualifies the function's truth diagnostic" $ do
+      er <- emitSrc e3
+      let truths = idsOf er "mk" (\c -> "body-post" `T.isPrefixOf` c)
+          ctx    = emptyWdReportCtx { wrWdFailing = Map.fromList [("mk", WdComplete)] }
+          ms     = map diagMessage (reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable er) ctx (FQUnsafe truths)))
+      truths `shouldSatisfy` (not . null)
+      ms `shouldSatisfy` all (T.isInfixOf "; the counter-example may sit at a point where the clause is undefined; fix the ill-defined clause first")
+
+    it "F-4 a marked-only WD failure qualifies it as not proved defined, and the marked wd id reads lh-unsafe" $ do
+      er <- emitSrc v5
+      let ids  = idsOf er "g" (const True)
+          wds  = wdOf er "g" "wd-post"
+          ctx  = WdReportCtx (Set.fromList wds) (Map.fromList [("g", WdMarkedOnly)])
+          ds   = reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable er) ctx (FQUnsafe ids))
+      [ diagMessage d | d <- ds, not ("the post" `T.isPrefixOf` diagMessage d) ]
+        `shouldSatisfy` all (T.isInfixOf "; the counter-example may sit at a point where the clause is not proved defined")
+      [ diagKind d | d <- ds, "the post" `T.isPrefixOf` diagMessage d ] `shouldSatisfy` all (== Just "lh-unsafe")
+
+    -- G. Versions
+    it "CW-S1 a sidecar stamped \"6\" is discarded" $
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "6")]) `shouldBe` True
+
+    it "A1 an artifact with no epoch member fails closed with the reason, before the hash check" $ do
+      classifyReplay (Just "sha256:H") meta RSafe (artWith Nothing) `shouldBe` epochReason
+      classifyReplay (Just "sha256:WRONG") meta RSafe (artWith Nothing) `shouldBe` epochReason
+
+    it "A2 an equal epoch member reproduces" $
+      classifyReplay (Just "sha256:H") meta RSafe (artWith (Just checkerSoundnessVersion)) `shouldBe` ReplayReproduced RSafe
+
+    it "A3 an unequal epoch member fails closed" $
+      classifyReplay (Just "sha256:H") meta RSafe (artWith (Just "6")) `shouldBe` epochReason
+
+    it "A4 the writer emits the epoch member" $ do
+      let js = BLC.unpack (encode liveComposedVersions)
+      js `shouldSatisfy` isInfixOf "\"checker_soundness_version\":\"7\""
+
+    it "A5 proof_artifact_version is 0.2.0" $
+      proofArtifactVersion `shouldBe` "0.2.0"
+
+    it "A6 the kernel refuses a positive tier flagged ill_defined, on mint and on read" $ do
+      mkFnRecord pos { fiIllDefined = True } `shouldSatisfy` isLeft
+      mkFnRecord pos { fiTier = TAsserted, fiIllDefined = True } `shouldSatisfy` isRight
+      let fr = either (error . show) id (mkFnRecord pos)
+      case toJSON fr of
+        Object o -> (decode (encode (Object (KM.insert "ill_defined" (Bool True) o))) :: Maybe FnRecord) `shouldBe` Nothing
+        _        -> expectationFailure "FnRecord is not an object"
+
+    it "A7 an FnRecord with ill_defined round-trips" $ do
+      let fr = either (error . show) id (mkFnRecord pos { fiTier = TAsserted, fiIllDefined = True })
+      fnIllDefined fr `shouldBe` True
+      decode (encode fr) `shouldBe` Just fr
+
+    it "A8 an FnRecord without ill_defined (0.1.0) reads False" $ do
+      let fr = either (error . show) id (mkFnRecord pos)
+      case toJSON fr of
+        Object o -> fmap fnIllDefined (decode (encode (Object (KM.delete "ill_defined" o))) :: Maybe FnRecord) `shouldBe` Just False
+        _        -> expectationFailure "FnRecord is not an object"
+
+    -- H. Trust report and obligations
+    it "H-1 markIllDefined sets ill_defined_fns and the per-entry flag, with no closure" $ do
+      let stmts = parsedOk ("(def-shell g [n: int] -> int (post (>= result 0)) 1)\n" ++ "(def-shell u [n: int] -> int (post (>= result 0)) (g n))")
+          rpt   = markIllDefined (Set.fromList ["g"]) (buildTrustReport Map.empty stmts Map.empty)
+          js    = formatTrustReportJson rpt
+      trIllDefinedFns rpt `shouldBe` Set.fromList ["g"]
+      T.isInfixOf "\"ill_defined_fns\":[\"g\"]" js `shouldBe` True
+      T.isInfixOf "\"ill_defined\":true" js `shouldBe` True
+      length (T.breakOnAll "\"ill_defined\":true" js) `shouldBe` 1
+      trRefutedFns rpt `shouldBe` Set.empty
+      T.isInfixOf "ill_defined" (formatTrustReportJson (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` False
+
+    it "H-2 a failing wd obligation of an ill-defined function reads status ill-defined" $ do
+      let stmts = parsedOk e1
+      er <- emitFixpointWith (defaultEmitOptions { emitBodyVCs = True }) "t.llmll" stmts
+      let wds  = anyWd er
+          trst = markIllDefined (Set.fromList ["mk"]) (buildTrustReport Map.empty stmts Map.empty)
+          js   = assembleReport "t.llmll" stmts Map.empty er (Just (FQUnsafe wds)) trst
+      wds `shouldSatisfy` (not . null)
+      T.isInfixOf "\"status\":\"ill-defined\"" js `shouldBe` True
+
+    it "H-3 trust_report_version is 1.11.0 and verify_json_version is 1.1.0" $ do
+      trustReportEmitVersion `shouldBe` "1.11.0"
+      verifyJsonVersion `shouldBe` "1.1.0"
 
   describe "VERIFY-BUDGET-1 solver guard" $ do
     let stopM = ResourceStop StopMemory (SolverLimits 64 0) 209 1.24
