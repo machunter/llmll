@@ -4,6 +4,76 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.36.0)
+
+### `CLAUSE-WELLDEF-1`: a `pre` or `post` that cannot be evaluated at run time does not verify
+
+- **A clause whose partial read is undefined where the program evaluates it is no longer
+  `verified`.** `(def-shell mk [n: int] -> map[int,int] (post (= (map-get result 3) 0)) (map-empty))`
+  verified on v0.36.0, and the built program stopped in the post with the `map-get` error. The
+  solver reads `map-get` as a total select, so the logic and the run disagreed. `verify` now
+  emits one definedness obligation for each `map-get` (key present), `bytes-get` (index in
+  bounds) and `bytes-set` (index in bounds, value in 0..255) in a translated clause, under the
+  clause's short-circuit context: the earlier operands of `and`, `or` and `=>`, and the arm of a
+  `match`. The constraints carry the clause tags `wd-pre` and `wd-post`. Hole bodies get none.
+- **Where the obligations are emitted.** `wd-pre` is emitted for each function whose pre and
+  post both translate and that no contract-level guard refuses. `wd-post` is emitted on each
+  path of such a function that has a body VC.
+- **`ill-defined` is a hard verdict.** A failing definedness obligation with only authored
+  hypotheses reports the function `ill-defined`, exit 1, with the diagnostic kind
+  `clause-ill-defined`: "the post of 'mk' is not defined where it is evaluated:
+  (map-get result 3) needs (map-has result 3)". `verify` prints `ill-defined: <fns>`;
+  `verify --json` gains `ill_defined` (a list of names), and its `solver_verdict` is
+  `refuted`; the trust report marks the entry `ill_defined`, and the function is `asserted`. `ill-defined` does not need a body VC: a
+  `wd-pre` failure in a function whose body falls back also reports it, and the function keeps
+  its fallback cause. The hard markers rank `ill-defined`, then `measure-not-decreasing`, then
+  `refuted`, in `verify` text and in `--strict-verified-core` messages. When a definedness id
+  of the function fails, the `refuted` and `measure-not-decreasing` texts say that the
+  counterexample may sit at a point where the clause is undefined.
+- **A definedness failure over a dropped hypothesis falls back.** When every failing id of a
+  function is a definedness id and each one carries the `post-unassumed` or `abstraction` mark,
+  the function falls back with cause `clause-welldef-unproved` and construct
+  `welldef:<inner>` (`welldef:post-unassumed:app:<g>`), and `verify` exits 0. `verify` prints
+  `clause-welldef fallback: <fn> (<construct>)` and warns `W-CLAUSE-WELLDEF-UNPROVED`;
+  `W-BODY-FALLBACK` ends "its post's truth was proved, but a partial read in a clause was not
+  proved defined; the post is assumed and kept at run time." `verify --json` gains
+  `welldef_unproved` (`{<fn>: "<construct>"}`). `scripts/fallback_census.py` knows the cause.
+- **The definedness of an assumed callee post is assumed with it.** Where a caller assumes a
+  callee's `post`, it also assumes the definedness conditions of that post, `C ⟹ π`, with the
+  call substitution applied. A post that evaluated to true was defined on that run, so this adds
+  no trust. A caller `wrap` whose post repeats `bump`'s `(= (map-get result k) 7)` over the call
+  result verifies.
+- **`refuted` and `measure-not-decreasing` count complete ids only.** A failing id that carries a
+  mark no longer sets a hard marker. A function with a complete `descent` failure and a marked
+  `body-post` failure was reported `measure-not-decreasing` and `refuted`; it is now
+  `measure-not-decreasing` only.
+- **A partial operation in a run-time `pre` or `post` check reports the clause.** Inside the
+  expression that a pre or post check evaluates, `map-get`, `bytes-get`, `bytes-set`, `unwrap`,
+  `/`, `mod` and `%` call guarded helpers (internal name `clause%<op>`, Haskell `llmll_cl_*`).
+  An operation outside its precondition stops the program with
+  `Precondition of <fn> is undefined: <op> <reason>` or
+  `Postcondition of <fn> is undefined: <op> <reason>`, exit 1. A division by zero in a clause no
+  longer raises a bare `divide by zero` exception. User calls, `rem` (not a builtin) and bodies
+  are not rewritten. The `llmll test` path is unchanged.
+- **Refactor.** `partialPre` (`compiler/src/LLMLL/FixpointEmit.hs`) is the one precondition
+  table for the three partial builtins: the `map-get` and `bytes-get` body arms and the map
+  presence step read it, and `bytes-set` delegates to `bytesSetSpec`. `exprToPred` is now
+  `fmap fst . exprToPredWD []`, the clause walk that returns each obligation with its context.
+- **Versions.** `checker_soundness_version` "6" → "7", so every sidecar written by an older
+  binary is discarded once and re-proved. `proof_artifact_version` 0.1.0 → 0.2.0:
+  `composed_versions` gains `checker_soundness_version`, and replay fails closed ("written under
+  a different soundness epoch; re-verify") when the member is absent or differs; the artifact
+  gains a per-function `ill_defined` and the `fallback_reason` value `clause-welldef-unproved`.
+  `trust_report_version` 1.10.0 → 1.11.0; `verify_json_version` 1.0.0 → 1.1.0. The three
+  schemas under `docs/` are updated. JSON-AST stays 0.15.0; no surface syntax changes.
+- **Still open:** a function with no `post`, and a `letrec`, gets no `wd-pre`, so a caller can
+  still prove such a function's `pre` at a call from the total encoding (`WD-PRE-NOPOST-1`).
+- Design: [`docs/design/clause-welldef-proposal.md`](docs/design/clause-welldef-proposal.md)
+  Rev 3, with the §4.3 site S9 note. Commits `7dcc9236`, `271080cb`, `157f97c1`, merge
+  `253490b5`.
+
+**Tests:** hspec 3003 → 3077, 0 failures; Python 720 → 738 passed, 10 skipped.
+
 ## v0.36.0: a correct caller is not refuted for an unassumed callee post; bytes-set lengths in clauses; constructor fields get their sort (2026-11-04)
 
 ### `CALLEE-POST-UNASSUMED-1`: a correct caller is not `refuted` when a callee `post` was not assumed
