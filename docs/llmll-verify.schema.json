@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v1.0/verify.schema.json",
+  "$id": "https://llmll.dev/schemas/v1.1/verify.schema.json",
   "title": "llmll verify --json document",
   "description": "Shape of the one JSON document `llmll --json verify <file> [flags]` prints on stdout once the file type-checks (TRUST-REPORT-GATE-1, design docs/design/trust-report-gate-1-proposal.md §3.3; emitter compiler/src/LLMLL/VerifyEnvelope.hs). Exactly one document is printed for every combination of flags, and `exit_code` equals the process status. Key order: `verify_json_version`, `exit_code`, `solver_verdict`, `composed`, then the verdict keys (the pre-v0.30.0 verdict object, unchanged), then each requested report under its fixed key, present only when it was computed. Emit-only: the compiler never re-parses this document. Versioning is independent of the JSON-AST schema and of the trust-report schema; `composed` names the versions of the nested reports. Additive-only changes within a major version; a breaking shape change increases the major. The verdict keys listed here are the ones the emitter writes today; the top level stays open (`additionalProperties` true) because a verdict key may be added without a version change, as before v1.0.0. A file that fails to parse or type-check gets the diagnostics output instead of this document.",
   "type": "object",
@@ -8,8 +8,8 @@
   "additionalProperties": true,
   "properties": {
     "verify_json_version": {
-      "const": "1.0.0",
-      "description": "Version of this document's shape (`LLMLL.VerifyEnvelope.verifyJsonVersion`)."
+      "const": "1.1.0",
+      "description": "Version of this document's shape (`LLMLL.VerifyEnvelope.verifyJsonVersion`). 1.1.0 (CLAUSE-WELLDEF-1) added `ill_defined` and `welldef_unproved`."
     },
     "exit_code": {
       "type": "integer",
@@ -55,6 +55,8 @@
     "body_fallback_constructs": { "type": "object" },
     "abstraction_fallback": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^abstraction:app:" }, "description": "ABSTRACTION-VERDICT-1: present only when non-empty. Each function the solver answered UNSAFE only through constraints holding two or more call results of one callee, mapped to `abstraction:app:<callee>`. Such a function is not refuted: it falls back (cause `abstraction-unsafe`) and its post is assumed. `solver_verdict` is the effective verdict after this reclassification." },
     "post_unassumed_fallback": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^post-unassumed:app:" }, "description": "CALLEE-POST-UNASSUMED-1: present only when non-empty. Each function the solver answered UNSAFE only through constraints holding the result of a call whose callee `post` the verifier did not assume at that call (and not every failing constraint carrying the abstraction mark), mapped to `post-unassumed:app:<callee>`. Such a function is not refuted: it falls back (cause `callee-post-unassumed`) and its post is assumed. `solver_verdict` is the effective verdict after this reclassification." },
+    "ill_defined": { "type": "array", "items": { "type": "string" }, "description": "CLAUSE-WELLDEF-1: present only when non-empty. Each function whose pre or post holds a partial operation (`map-get`, `bytes-get`, `bytes-set`) the verifier showed is not defined where the program evaluates the clause (a complete failing `wd-pre` or `wd-post` constraint). A hard verdict, like `refuted`: `exit_code` is 1 and `solver_verdict` is `refuted`. The diagnostic kind is `clause-ill-defined`." },
+    "welldef_unproved": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^welldef:" }, "description": "CLAUSE-WELLDEF-1: present only when non-empty. Each function whose post's truth was proved but whose clause definedness failed only over a dropped callee fact, mapped to `welldef:` plus the inner construct (`welldef:post-unassumed:app:<callee>` or `welldef:abstraction:app:<callee>`). Such a function falls back (cause `clause-welldef-unproved`) and its post is assumed and kept at run time. `solver_verdict` is the effective verdict after this reclassification." },
     "resource_limit": {
       "type": "object",
       "required": ["kind", "limit_mb", "limit_s", "peak_mb", "elapsed_s"],

@@ -395,8 +395,15 @@ reservedCallerObligationsKey = "caller_obligations"
 -- hoisted above the operator, so its post was assumed on the path that never
 -- calls it; under a callee proved only if it terminates, an older sidecar can
 -- hold a false `verified`. Every older sidecar is discarded once.
+--
+-- "7" (CLAUSE-WELLDEF-1): a partial operation in a pre or post (`map-get`,
+-- `bytes-get`, `bytes-set`) was translated over the total array encoding with
+-- no proof that the program can evaluate it, so an older sidecar can hold a
+-- `verified` record for a clause the generated program stops in
+-- (clause-welldef-proposal.md Rev 3 §4.8). A stamp of "7" means the
+-- definedness obligations were checked. Every older sidecar is discarded once.
 checkerSoundnessVersion :: Text
-checkerSoundnessVersion = "6"
+checkerSoundnessVersion = "7"
 
 -- | SAFE-ARG: reserved top-level sidecar key carrying 'checkerSoundnessVersion'.
 reservedCheckerSoundnessKey :: Text

@@ -67,10 +67,10 @@ import LLMLL.Diagnostic
   , mkReuseWarning, decodeSourceUtf8, importNeedsFile)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap, BuiltinAxiom(..))
-import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, runFQSolver, resourceStopText, resourceStopValue, fqPathFor, runDirFor, fqResultToReport, FQVerifyResult(..), ConstraintOrigin(..))
+import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, runFQSolver, resourceStopText, resourceStopValue, fqPathFor, runDirFor, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, getSolverLimits, renderLimits, parseLimits, runSolverGuarded, installSolverSignalHandlers)
 -- ABSTRACTION-VERDICT-1: every solver consumer that turns UNSAFE into a claim
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns, abstractionConstruct, postUnassumedConstruct)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns, aoReportCtx, abstractionConstruct, postUnassumedConstruct)
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
@@ -90,7 +90,7 @@ import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts, liveObligationHashes)
 import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
-import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, carryForwardTested, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportWith, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
+import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, carryForwardTested, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportWith, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markIllDefined, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
 import qualified Data.ByteString as PABS
@@ -1659,6 +1659,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- because a failing constraint holds a call whose callee post
               -- was not assumed.
               unassumedFns   = aoUnassumed avOut
+              -- CLAUSE-WELLDEF-1: the functions the same rule moved because only
+              -- a definedness obligation failed, over marked hypotheses.
+              welldefFns     = aoWelldefUnproved avOut
               -- VERIFY-RPT-1 (Commit 4): refuted functions = body-faithful fns
               -- named by the constraint-table origin of each unsafe id.
               bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
@@ -1671,13 +1674,14 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- measure is unfit — NOT refuted (the postcondition is not
               -- disproved). Kept out of 'refutedSet' so a pure measure failure is
               -- never mislabeled 'refuted'. Both are hard exit-1 (FQUnsafe).
-              measureNotDecreasingSet = Set.fromList
-                [ coFunction o | o <- unsafeOrigins, coClause o `elem` ["descent", "decreases"] ]
-              refutedSet = Set.fromList
-                [ coFunction o
-                | o <- unsafeOrigins
-                , coClause o `notElem` ["descent", "decreases"]
-                , Set.member (coFunction o) bodyFaithfulSet ]
+              -- CLAUSE-WELLDEF-1 (§4.4 rule 1): the three hard markers come
+              -- from the verdict layer, which counts complete failing ids only,
+              -- by partition. A marked id never sets one (V14, V14b).
+              -- 'ill-defined' needs no body VC: a `wd-pre` id does not read the
+              -- body (V12).
+              measureNotDecreasingSet = aoMeasureBad avOut
+              refutedSet = aoRefuted avOut
+              illDefinedSet = aoIllDefined avOut
               -- REC-DESCENT Phase 3: the descent-discharged (total-correctness) set.
               -- Extracted to 'ObligationAssembly.descentDischargedFns' (testable): a
               -- cyclic SCC discharges only on SAFE AND when every member is measured,
@@ -1732,7 +1736,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- were invisible to the audience they matter most to. Emitter diagnostics are
           -- warnings, never errors, so prepending them cannot flip 'reportSuccess':
           -- the verdict still routes through the 'FQVerifyResult' constructor.
-          let report0 = fqResultToReport fp table fqResult
+          let report0 = fqResultToReportWD fp table (aoReportCtx avOut) fqResult
               report  = report0
                 { reportDiagnostics = erDiagnostics emitR ++ reportDiagnostics report0 }
 
@@ -1740,7 +1744,13 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- solver named these functions, so say that they fell back, and print
           -- the W-BODY-FALLBACK warning the verdict layer added.
           -- CALLEE-POST-UNASSUMED-1: the same for the second cause.
-          unless (json || (null abstractionFns && null unassumedFns)) $ do
+          -- CLAUSE-WELLDEF-1: the hard marker and the third cause, the same way.
+          unless (json || Set.null illDefinedSet) $
+            TIO.putStrLn $ "   ill-defined: " <> T.intercalate ", " (Set.toList illDefinedSet)
+          unless (json || (null abstractionFns && null unassumedFns && null welldefFns)) $ do
+            unless (null welldefFns) $
+              TIO.putStrLn $ "   clause-welldef fallback: "
+                <> T.intercalate ", " [ f <> " (" <> c <> ")" | (f, c) <- welldefFns ]
             unless (null abstractionFns) $
               TIO.putStrLn $ "   abstraction fallback: "
                 <> T.intercalate ", " [ f <> " (" <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
@@ -1800,6 +1810,14 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 ++ [ "post_unassumed_fallback" .= object
                        [ K.fromText f .= postUnassumedConstruct g | (f, g) <- unassumedFns ]
                    | not (null unassumedFns) ]
+                -- CLAUSE-WELLDEF-1: the hard marker (a list of names) and the
+                -- third cause (name to construct), each present only when
+                -- non-empty. 'solver_verdict' stays "refuted" on any kept
+                -- UNSAFE id, the measure-not-decreasing precedent.
+                ++ [ "ill_defined" .= Set.toList illDefinedSet | not (Set.null illDefinedSet) ]
+                ++ [ "welldef_unproved" .= object
+                       [ K.fromText f .= c | (f, c) <- welldefFns ]
+                   | not (null welldefFns) ]
                 -- GENERICS-1 (verification step 7): the JSON twin of the
                 -- count line, only when a generic is declared or reached, so
                 -- every other program's verdict object is unchanged.
@@ -1832,7 +1850,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
             (oblSidecar, _stale, oblContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
-            let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache trStmts oblSidecar)))))))
+            let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReport _cache trStmts oblSidecar))))))))
                 reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
             if json then nest "obligation_report" reportText else TIO.putStrLn reportText
             -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
@@ -1857,7 +1875,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               (paSidecar, _stale, paContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
-              let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReport _cache trStmts paSidecar)))))))
+              let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReport _cache trStmts paSidecar))))))))
               -- ABSTRACTION-VERDICT-1: the artifact records the RAW solver
               -- result, because 'classifyReplay' re-runs the stored .fq and
               -- compares the raw answer; the functions come from 'emitR'.
@@ -2188,8 +2206,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             let report = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks
                            (markDescentDischarged descentDischargedSet
                              (markMeasureNotDecreasing measureNotDecreasingSet
+                              (markIllDefined illDefinedSet
                                (markRefuted refutedSet
-                                 (buildTrustReportWithCDP _cache trStmts sidecar cdpResults)))))))
+                                 (buildTrustReportWithCDP _cache trStmts sidecar cdpResults))))))))
             if json
               then nest "trust_report" (formatTrustReportJson report)
               else TIO.putStr (formatTrustReport report)
@@ -2220,7 +2239,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- even pre-existing/untouched functions. The sibling non-strict
             -- branch above (not strictCore) already threads 'cdpResults'
             -- correctly; this branch just never did.
-            let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markRefuted refutedSet (buildTrustReportWithCDP _cache trStmts stSidecar cdpResults)))))))
+            let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReportWithCDP _cache trStmts stSidecar cdpResults))))))))
                 refusal  = refutedClosure refutedSet stReport
                 -- ABSTRACTION-VERDICT-1: a function the rule reclassified fell
                 -- back AFTER the pre-solver gate read the fallback list, so
@@ -2234,15 +2253,28 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                        [ f <> " (" <> renderFallbackCause FallbackAbstraction <> ", "
                            <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
                     ++ [ f <> " (" <> renderFallbackCause FallbackCalleePostUnassumed <> ", "
-                           <> postUnassumedConstruct g <> ")" | (f, g) <- unassumedFns ])
+                           <> postUnassumedConstruct g <> ")" | (f, g) <- unassumedFns ]
+                    ++ [ f <> " (" <> renderFallbackCause FallbackClauseWelldefUnproved <> ", "
+                           <> c <> ")" | (f, c) <- welldefFns ])
             when (trustReport && not obligationReport) $
               if json
                 then nest "trust_report" (formatTrustReportJson stReport)
                 else TIO.putStr (formatTrustReport stReport)
-            unless (Set.null refusal && null absFns) $ do
+            -- CLAUSE-WELLDEF-1: an ill-defined function is refused first (the
+            -- marker precedence of §4.4: ill-defined, measure-not-decreasing,
+            -- refuted).
+            let illMsg = "function(s) whose pre or post is not defined where the program evaluates it: "
+                         <> T.intercalate ", " (Set.toList illDefinedSet)
+            unless (Set.null refusal && null absFns && Set.null illDefinedSet) $ do
               if json
                 then nest "strict_errors" . TL.toStrict . encodeToLazyText $
                        [ object
+                           [ "cause" .= ("ill-defined" :: T.Text)
+                           , "fns"   .= Set.toList illDefinedSet
+                           , "msg"   .= illMsg
+                           ]
+                       | not (Set.null illDefinedSet) ]
+                    ++ [ object
                            [ "cause" .= ("fallback" :: T.Text)
                            , "fns"   .= absFns
                            , "msg"   .= absMsg
@@ -2256,6 +2288,8 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                            ]
                        | not (Set.null refusal) ]
                 else do
+                  unless (Set.null illDefinedSet) $
+                    TIO.putStrLn $ "ERROR: --strict-verified-core: ill-defined: " <> illMsg
                   unless (null absFns) $
                     TIO.putStrLn $ "ERROR: --strict-verified-core: " <> absMsg
                   mapM_ (\n -> TIO.putStrLn $ "ERROR: --strict-verified-core: refuted: " <> n)
@@ -3635,7 +3669,10 @@ buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
     -- body-faithful \ refuted = body-faithful fns proven SAFE.
     entryToInputs te =
       let refuted = teName te `Set.member` trRefutedFns trust
-          tier | refuted                                = TAsserted
+          -- CLAUSE-WELLDEF-1: an ill-defined function is not verified, even
+          -- when its truth constraints held (the kernel refuses the pair).
+          illDef  = teName te `Set.member` trIllDefinedFns trust
+          tier | refuted || illDef                      = TAsserted
                | teName te `Set.member` bodyFaithfulSet = TVerified
                | otherwise                              = tierOf (teEffectivePostLevel te)
       in FnInputs
@@ -3645,6 +3682,7 @@ buildProofArtifact srcPath srcHash meta fqResult emitR trust = do
            , fiFallbackReason = renderFallbackCause <$> Map.lookup (teName te) fallbackCauses
            , fiRefuted        = refuted
            , fiDiscrim        = Nothing
+           , fiIllDefined     = illDef
            }
     tierOf Nothing                      = TNoContract
     tierOf (Just (DLVerified _))        = TVerified

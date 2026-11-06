@@ -53,9 +53,9 @@ FIXTURE_UNSAFE = """(module two
 """
 
 FORGED = {
-    # The current stamp (AND-GUARD-PRE-1 moved it to "6"): a forged record must
+    # The current stamp (CLAUSE-WELLDEF-1 moved it to "7"): a forged record must
     # be refused by the evidence checks, not merely discarded for an old stamp.
-    "checker_soundness_version": "6",
+    "checker_soundness_version": "7",
     "sq3": {
         "post": {"display_level": {"level": "verified", "prover": "liquid-fixpoint"}},
         "pre": {"display_level": {"level": "asserted"}},

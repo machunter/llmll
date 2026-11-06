@@ -95,7 +95,7 @@ import LLMLL.FixpointEmit
   , contractMentionsArrOp, exprMentionsArrOp
   -- FALLBACK-CENSUS-1: one hole walker, shared with the emitter's FallbackHole
   , hasHole )
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..), isWdClause)
 import LLMLL.TrustReport
   ( TrustReport(..), TrustEntry(..), injectOpenedAliases
   -- TRUST-CH-HOLE-1: the entry's own assumption rows, rendered by the same
@@ -1489,10 +1489,15 @@ assembleConstraintObligations stmts cenv table mFqResult trustRpt faithful fallb
           -- measure is disproved, not the postcondition). Scoped to the
           -- TerminationObligation so a measure-failed function's OTHER
           -- obligations keep their own status.
-          status  = if kind == TerminationObligation
-                       && Set.member fnName (trMeasureNotDecreasingFns trustRpt)
-                    then "measure-not-decreasing"
-                    else baseStatus
+          status
+            | kind == TerminationObligation
+            , Set.member fnName (trMeasureNotDecreasingFns trustRpt) = "measure-not-decreasing"
+            -- CLAUSE-WELLDEF-1: a failed definedness obligation of an
+            -- ill-defined function. Scoped to the WD clauses, as the
+            -- measure case is scoped to termination.
+            | isWdClause clause
+            , Set.member fnName (trIllDefinedFns trustRpt) = "ill-defined"
+            | otherwise = baseStatus
           backing = deriveBacking table fnName kind
           (mContract, mParams, _) = findFunctionInfo fnName stmts
           params  = fromMaybe [] mParams
@@ -1537,6 +1542,7 @@ assembleConstraintObligations stmts cenv table mFqResult trustRpt faithful fallb
 
     clauseChannel c
       | "call-pre:" `T.isPrefixOf` c = "call-pre"
+      | isWdClause c                 = "welldef"   -- CLAUSE-WELLDEF-1
       | c == "decreases" || c == "descent" = "termination"
       | otherwise                    = "contract"
 

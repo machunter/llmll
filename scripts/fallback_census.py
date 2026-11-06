@@ -89,6 +89,10 @@ KNOWN_CAUSES = (
     # CALLEE-POST-UNASSUMED-1: decided after the solver, on the same path. A
     # post exists and is assumed, so it stays in the ratio's denominator.
     "callee-post-unassumed",
+    # CLAUSE-WELLDEF-1: decided after the solver, on the same path. The post's
+    # truth was proved and only a clause's definedness was not; the post is
+    # assumed, so it stays in the ratio's denominator.
+    "clause-welldef-unproved",
 )
 
 # Outcomes worth confirming alone before they are believed: each depends on the

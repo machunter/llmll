@@ -74,6 +74,13 @@ def test_false_contract_is_refuted(tmp_path, name):
     assert "Cannot unify" not in p.stdout + p.stderr
 
 
+def test_oob_store_is_ill_defined(tmp_path):
+    """CLAUSE-WELLDEF-1: b4_oob's store index 9 is outside bytes[4], so its post
+    is also ill-defined (the refutation above still holds)."""
+    p, doc = _verify(tmp_path, "b4_oob.llmll")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert doc["ill_defined"] == ["f"]
+
 def test_cross_module_call_pre(tmp_path):
     """The clause term sits in a callee pre and reaches the caller's call-pre."""
     lib, _ = _verify(tmp_path, "blib.llmll")

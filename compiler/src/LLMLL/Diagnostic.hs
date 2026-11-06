@@ -324,6 +324,9 @@ bodyFallbackTail cause = case cause of
     ", so its post is not proved, and a function that calls it falls back."
   "contract-signature-outside-fragment" -> conditional
   "map-result-components-unbound"       -> conditional
+  -- CLAUSE-WELLDEF-1
+  "clause-welldef-unproved" ->
+    ": its post's truth was proved, but a partial read in a clause was not proved defined; the post is assumed and kept at run time."
   _ -> ", so its post is assumed and not proved."
   where
     conditional = ", so its post is not proved, and a caller assumes it only where the verifier can translate it at the call."

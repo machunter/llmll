@@ -83,6 +83,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
 import LLMLL.Syntax
+import LLMLL.Contracts (clauseGuardTag)
 import LLMLL.BuildScope (stripModuleQualifiers)
 import LLMLL.TypeAdmissibility (buildAliasMap, mentionsNoEq)
 import LLMLL.Ffi (ffiPackageModules, FfiEntry(..), ffiEntriesOf, ffiEntryNames, camelName, forcerFor, lowerFfiType, convIn, convOut)
@@ -579,6 +580,42 @@ runtimePreamble =
   , "map_get m k = case Map.lookup k m of"
   , "  Just v  -> v"
   , "  Nothing -> error (\"map-get: pre-condition failed: key \" ++ show k ++ \" not present (map-has is the required pre)\")"
+  , ""
+  -- CLAUSE-WELLDEF-1 (clause-welldef-proposal.md Rev 3 §4.6): a partial
+  -- operation inside a pre or post. Contracts.guardClause rewrites each one to
+  -- the clause% name 'emitApp' lowers to these helpers. Each tests the
+  -- operation's own precondition first and stops with a message naming the
+  -- function and the clause, so the check raises neither the builtin's error
+  -- nor an ArithException (the divisor test precedes the division).
+  , "llmll_cl_map_get :: (Ord k, Show k) => String -> Map.Map k v -> k -> v"
+  , "llmll_cl_map_get ctx m k = case Map.lookup k m of"
+  , "  Just v  -> v"
+  , "  Nothing -> error (ctx ++ \" is undefined: map-get key \" ++ show k ++ \" not present\")"
+  , ""
+  , "llmll_cl_bytes_get :: String -> [Word8] -> Integer -> Integer"
+  , "llmll_cl_bytes_get ctx b i"
+  , "  | i < 0 || i >= toInteger (length b) = error (ctx ++ \" is undefined: bytes-get index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+  , "  | otherwise                          = bytes_get b i"
+  , ""
+  , "llmll_cl_bytes_set :: String -> [Word8] -> Integer -> Integer -> [Word8]"
+  , "llmll_cl_bytes_set ctx b i v"
+  , "  | i < 0 || i >= toInteger (length b) = error (ctx ++ \" is undefined: bytes-set index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+  , "  | v < 0 || v > 255                   = error (ctx ++ \" is undefined: bytes-set value \" ++ show v ++ \" outside byte range 0..255\")"
+  , "  | otherwise                          = bytes_set b i v"
+  , ""
+  , "llmll_cl_unwrap :: String -> Either String a -> a"
+  , "llmll_cl_unwrap _   (Right v) = v"
+  , "llmll_cl_unwrap ctx (Left e)  = error (ctx ++ \" is undefined: unwrap of an error value: \" ++ e)"
+  , ""
+  , "llmll_cl_div :: String -> Integer -> Integer -> Integer"
+  , "llmll_cl_div ctx a b"
+  , "  | b == 0    = error (ctx ++ \" is undefined: division by zero\")"
+  , "  | otherwise = a `div` b"
+  , ""
+  , "llmll_cl_mod :: String -> Integer -> Integer -> Integer"
+  , "llmll_cl_mod ctx a b"
+  , "  | b == 0    = error (ctx ++ \" is undefined: modulo by zero\")"
+  , "  | otherwise = a `mod` b"
   , ""
   , "map_put :: Ord k => Map.Map k v -> k -> v -> Map.Map k v"
   , "map_put m k v = Map.insert k v m"
@@ -2366,6 +2403,12 @@ emitApp :: Name -> [Expr] -> Text
 emitApp "first"  [a] = "(fst " <> emitExpr a <> ")"
 emitApp "second" [a] = "(snd " <> emitExpr a <> ")"
 emitApp "pair"   [a,b] = "(" <> emitExpr a <> ", " <> emitExpr b <> ")"
+-- CLAUSE-WELLDEF-1: the guarded partial operations of a clause check
+-- (Contracts.guardClause). The first argument is the context string.
+emitApp f (ctx : args)
+  | Just op <- T.stripPrefix clauseGuardTag f
+  , Just h  <- lookup op clauseGuardHelpers
+  = "(" <> h <> " " <> T.unwords (map wrap (ctx : args)) <> ")"
 -- B3 fix: operators used as app fn names (kind:app, fn:"/") must be routed to
 -- emitOp, otherwise we emit `(/ (i) (width))` which GHC parses as a section.
 emitApp op args
@@ -2412,6 +2455,17 @@ emitApp f [a, b]
   = "(llmll_compare " <> wrap a <> " " <> wrap b <> ")"
 emitApp func args =
   "(" <> toHsIdent func <> " " <> T.unwords (map wrap args) <> ")"
+
+-- | CLAUSE-WELLDEF-1: the preamble helper of each guarded clause operation.
+clauseGuardHelpers :: [(Name, Text)]
+clauseGuardHelpers =
+  [ ("map-get",   "llmll_cl_map_get")
+  , ("bytes-get", "llmll_cl_bytes_get")
+  , ("bytes-set", "llmll_cl_bytes_set")
+  , ("unwrap",    "llmll_cl_unwrap")
+  , ("/",         "llmll_cl_div")
+  , ("mod",       "llmll_cl_mod")
+  , ("%",         "llmll_cl_mod") ]
 
 -- | Wrap an argument expression in parentheses for safe Haskell emission.
 -- LT-INT (v0.11): used by `emitApp` Class A clauses to insert `fromIntegral`
@@ -3979,6 +4033,7 @@ esResultForcers =
   , ("int-to-string",      "llmll_uS")
   , ("string-to-int",      "llmll_uE llmll_uW")
   , ("bytes-set",          "llmll_uS")
+  , ("clause%bytes-set",   "llmll_uS")  -- CLAUSE-WELLDEF-1: the guarded bytes-set
   , ("bytes-zero",         "llmll_uS")  -- EXAMPLE-BUILD-1: reached only with its length
   , ("sha1",               "llmll_uS")
   , ("hmac-sha1",          "llmll_uS")

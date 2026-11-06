@@ -57,6 +57,7 @@ module LLMLL.TrustReport
   , markJointPostWitness -- OBLIG-PBT-5a: per-entry joint flag setter
   , markRefuted        -- VERIFY-RPT-1: stamp refuted + depends-on-refuted post-solver
   , markMeasureNotDecreasing  -- REC-DESCENT: stamp measure-not-decreasing post-solver
+  , markIllDefined            -- CLAUSE-WELLDEF-1: stamp ill-defined post-solver
   , markDescentDischarged  -- REC-DESCENT Phase 3: drop the mark for descent-discharged SCCs
   , markTerminationAssumed -- HEADLINE-TERM-1: the caller closure of the undischarged cycles
   , sidecarDischargedSet   -- TERM-REPORT-PLAIN: persisted discharge for the render-only path
@@ -304,6 +305,11 @@ data TrustReport = TrustReport
   -- Verify-time only (empty on a solver-less render), populated post-solver by
   -- 'markMeasureNotDecreasing' from the descent/decreases-clause origins.
   , trMeasureNotDecreasingFns :: Set Name
+  -- CLAUSE-WELLDEF-1 (1.11.0): functions with a pre or post the program
+  -- cannot evaluate in a reachable state (a complete failing @wd-*@
+  -- constraint). Orthogonal to the tier, like 'trRefutedFns'; verify-time
+  -- only, populated post-solver by 'markIllDefined'.
+  , trIllDefinedFns :: Set Name
   -- F-001 (adv-spec-weaken-0): module-level '(spec-entropy :intentional)'
   -- density, mirroring the text-only diagnostic at Main.hs's CDP branch
   -- ('over-annotation-warning', CDP.hs Risk #3). Computed here (pure
@@ -463,8 +469,11 @@ data TierProfile = TierProfile
 -- names of the sidecar records the read check demoted because their evidence
 -- key no longer matches the live source. Emitted only when non-empty, and only
 -- by 'llmll trust-report' ('formatTrustReportJsonWith').
+-- CLAUSE-WELLDEF-1 (1.11.0): additive per-entry 'ill_defined' (only-on-true)
+-- and top-level 'ill_defined_fns' (only when non-empty), and the
+-- 'body_fallback' cause @clause-welldef-unproved@.
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.10.0"
+trustReportEmitVersion = "1.11.0"
 
 -- | EFFECT-RESP: the harness-level residue a console program carries.
 --
@@ -703,6 +712,7 @@ buildTrustReportWithCDP cache entryStmts sidecar cdpMap =
        , trTermAssumed     = Map.empty   -- HEADLINE-TERM-1: populated by markTerminationAssumed
        , trDecompMeet      = decompMeetMap  -- Cascade L3(d) (Rev 8): decomposition-trust meet
        , trMeasureNotDecreasingFns = Set.empty  -- REC-DESCENT: populated by markMeasureNotDecreasing post-solver
+       , trIllDefinedFns   = Set.empty  -- CLAUSE-WELLDEF-1: populated by markIllDefined post-solver
        , trOverAnnotation  = overAnnotation
        , trBodyFallback    = Map.empty  -- TRUST-CC-1: populated by markBodyFallback post-emit
        , trOpenSpecRows    = openSpecRows entryStmts  -- DISCLOSE-ROW-1: derived, every path
@@ -762,6 +772,23 @@ markMeasureNotDecreasing mnd report =
         | otherwise = e
   in report { trEntries                 = map stamp (trEntries report)
             , trMeasureNotDecreasingFns = mnd
+            }
+
+-- | CLAUSE-WELLDEF-1: stamp the ill-defined functions post-solver. Sets
+-- 'trIllDefinedFns' and adds a per-entry drift note. Like
+-- 'markMeasureNotDecreasing' it adds no depends-on closure: a caller of an
+-- ill-defined function assumes its post as an asserted one, and the tier
+-- closure already gives the caller that level (clause-welldef-proposal.md
+-- Rev 3 §4.4, "Callers").
+markIllDefined :: Set Name -> TrustReport -> TrustReport
+markIllDefined ill report =
+  let stamp e
+        | Set.member (teName e) ill =
+            e { teDrifts = teDrifts e ++
+                  ["ill-defined: a partial operation in its pre or post is not defined where the program evaluates the clause (solver UNSAFE on a wd-pre or wd-post constraint); the clause stops the run there"] }
+        | otherwise = e
+  in report { trEntries       = map stamp (trEntries report)
+            , trIllDefinedFns = ill
             }
 
 -- | REC-DESCENT Phase 3: drop the 'termination_unverified' mark for the
@@ -2363,7 +2390,9 @@ formatTrustReportJsonWith discarded report =
     -- its shape. Informational; it feeds no tier and no admission.
     [ "unbounded_entry_loop" .= True | trUnboundedEntryLoop report ] ++
     -- TRUST-REPORT-GATE-1 (1.10.0): only when non-empty.
-    [ "discarded_records" .= discarded | not (null discarded) ]
+    [ "discarded_records" .= discarded | not (null discarded) ] ++
+    -- CLAUSE-WELLDEF-1 (1.11.0): only when non-empty, verify-time only.
+    [ "ill_defined_fns" .= Set.toList (trIllDefinedFns report) | not (Set.null (trIllDefinedFns report)) ]
   where
     overAnnotationJson oai = object
       [ "ratio"     .= oaiRatio oai
@@ -2436,6 +2465,8 @@ formatTrustReportJsonWith discarded report =
           ]
       | Just (cause, lbls) <- [Map.lookup (teName e) (trBodyFallback report)] ] ++
       [ "measure_not_decreasing" .= True | Set.member (teName e) (trMeasureNotDecreasingFns report) ] ++
+      -- CLAUSE-WELLDEF-1 (1.11.0): only-on-true, the same shape.
+      [ "ill_defined" .= True | Set.member (teName e) (trIllDefinedFns report) ] ++
       -- TRUST-PRE (1.4.0): per-entry caller-obligation axis. Emission discipline
       -- is the OPPOSITE of 'refuted': present whenever a 'requires' exists, on
       -- EVERY path (solver-less, sidecar-reload), and persisted. The co-located

@@ -116,6 +116,15 @@ module LLMLL.FixpointEmit
   , countPathsBounded
     -- * Contract translation (exported for testing)
   , exprToPred
+    -- * CLAUSE-WELLDEF-1: the one clause walk and the one partial-precondition table
+  , exprToPredWD
+  , isWdClause                   -- CLAUSE-WELLDEF-1: re-exported from LLMLL.DiagnosticFQ
+  , wdSiteText
+  , WDObl(..)
+  , PartialOp(..)
+  , partialPre
+  , bytesSetSpec                 -- the bytes-set row of the table (unit tests)
+  , mapRetChain, MapRetTree(..), MapRetStep(..)  -- the map-return presence step (unit tests)
     -- * Refinement resolution (exported for the refine feasibility gate, LLMLL.Feasibility)
   , resolveAllRefinements
   , resolveAliasTy
@@ -144,7 +153,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, isNothing, catMaybes, listToMaybe)
-import Data.Functor.Identity (Identity(..))
 import Data.List (nub, nubBy, partition)
 import Data.Function (on)
 import Control.Monad (forM_, forM, when, unless)
@@ -161,7 +169,7 @@ import LLMLL.Syntax
 -- module's existing consumers are source-compatible.
 import LLMLL.TypeAdmissibility
 import LLMLL.FixpointIR
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable)
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, isWdClause)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkBodyFallbackWarning, mkDecreasesUndischarged)
 import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare, reflectMinMaxAbs)
@@ -262,6 +270,7 @@ data FallbackCause
   -- the same path as 'FallbackAbstraction'. The callee rides
   -- 'erFallbackConstructs' as @post-unassumed:app:<callee>@.
   | FallbackCalleePostUnassumed -- ^ UNSAFE only through calls whose callee post was not assumed
+  | FallbackClauseWelldefUnproved -- ^ CLAUSE-WELLDEF-1: only a definedness obligation failed, and only over marked hypotheses
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 renderFallbackCause :: FallbackCause -> Text
@@ -277,6 +286,7 @@ renderFallbackCause FallbackUnboundMapResult = "map-result-components-unbound"
 renderFallbackCause FallbackUnboundSymbols   = "constraint-symbols-unbound"
 renderFallbackCause FallbackAbstraction      = "abstraction-unsafe"
 renderFallbackCause FallbackCalleePostUnassumed = "callee-post-unassumed"
+renderFallbackCause FallbackClauseWelldefUnproved = "clause-welldef-unproved"
 
 -- | LEVER-A1: the array-theory operation symbols are INTERPRETED by the solver
 -- (native map theory). Declaring them as UF constants would shadow the theory,
@@ -1659,6 +1669,44 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             | otherwise -> contractFallback FallbackContractPre  -- untranslatable pre → fallback
                              (maybe [] refusedConstructs (contractPre contract))
           (Just postPred, Just mPre) -> do
+            -- CLAUSE-WELLDEF-1 (clause-welldef-proposal.md Rev 3 §4.2): this
+            -- arm is the emission gate (N1). A function here gets one `wd-pre`
+            -- constraint per partial-op occurrence in its effective pre, and,
+            -- on each path of a body VC, one `wd-post` constraint per
+            -- occurrence in its effective post. A hole body emits none (§4.2
+            -- lists a hole among the functions with no WD constraint).
+            -- 'emitWd' adds one obligation `H ∧ C ⟹ π_f`. A closed goal
+            -- follows the RESP-FACT-1 rule: true is not emitted (liquid-
+            -- fixpoint rejects a `true` RHS), false is emitted as `false`.
+            let wdPtr k = "/statements/" <> T.pack (show stmtIdx) <> "/" <> k
+                emitWd tag envs hyps o = case evalClosedFQ (woGoal o) of
+                  Just True -> pure ()
+                  closed -> do
+                    wcid <- freshCid
+                    let goal = if closed == Just False then FQFalse else woGoal o
+                        wc   = FQConstraint wcid envs
+                                 (FQReft "v" FQInt (conjoinAll (hyps ++ woCtx o)))
+                                 (FQReft "v" FQInt goal) [name, tag]
+                    addConst wc
+                    addOrigin wcid (ConstraintOrigin name tag
+                                     (wdPtr (if tag == "wd-pre" then "pre" else "post"))
+                                     srcFile (Just (wdSiteText o)))
+                -- The walk reads the same clause forms 'mPre' and 'postPred'
+                -- were translated from, so its terms are theirs.
+                wdObls mc = maybe [] snd (mc >>= exprToPredWD [])
+                wdPostObls = if hasHole body then [] else wdObls (contractPost contract)
+                -- `wd-pre`'s hypotheses: the parameter facts only (§4.2), i.e.
+                -- the folded parameter refinements through the same desugaring
+                -- and marking as the effective pre, plus the binder facts the
+                -- parameter environment carries. The pre itself is not assumed;
+                -- its earlier conjuncts enter through the walk's context.
+                wdPreHyps = maybeToList
+                  (paramRefinementPre aliases params
+                     >>= exprToPred . markIntBuiltins (Set.fromList (map fst params)
+                                                        `Set.union` Map.keysSet cenv)
+                                    . dsAll)
+            unless (hasHole body) $
+              forM_ (wdObls (contractPre contract)) (emitWd "wd-pre" envIds wdPreHyps)
             -- Build SortEnv from int-typed parameters
             let body' = dsExpr body  -- COMP-3b-general: desugar enum match + ctor values
             -- COMP-3b-general (opaque-sum elimination): a Result-typed *variable*
@@ -1915,6 +1963,10 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                       addConst c
                       let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                       addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
+                    -- CLAUSE-WELLDEF-1: the post's definedness on this leaf,
+                    -- with the truth constraint's environment and hypotheses.
+                    forM_ wdPostObls $
+                      emitWd "wd-post" (envIds ++ stepBindIds ++ [rhbid, rvbid]) [lhsPred]
                   addBodyFaithful name
               -- FALLBACK-CENSUS-1: a hole body reaches here when its post
               -- translates. It is a scaffold, not a body outside the fragment.
@@ -2097,6 +2149,9 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                         addConst c
                         let ptr = "/statements/" <> T.pack (show stmtIdx) <> "/body"
                         addOrigin cid (ConstraintOrigin name tag ptr srcFile Nothing)
+                      -- CLAUSE-WELLDEF-1: the post's definedness on this path,
+                      -- with the truth constraint's environment and hypotheses.
+                      forM_ wdPostObls $ emitWd "wd-post" allEnvIds [lhsPred]
                     -- Mark as body-faithful, unless MAP-RET-POST-1's reflection
                     -- scope check refused the post above.
                     if unboundMapResult
@@ -2938,21 +2993,28 @@ isMapEmptyE _                     = False
 -- Str with int"). Var-valued puts reveal nothing here (the contract channel is
 -- type-blind) — a string-PARAM value on an empty-rooted chain is blocked at the
 -- clause level (badPutValue) instead.
-mapPairTermsC :: Expr -> Maybe (FQPred, FQPred)
-mapPairTermsC = goC FQInt
+--
+-- CLAUSE-WELLDEF-1: this was 'mapPairTermsC'. It now also returns the
+-- definedness obligations of each @map-put@ key and value ('map-put' is
+-- strict, so the run time evaluates them), walked by 'exprToPredWD' under the
+-- given context. Its only caller is that walk, so the pair translation exists
+-- once; the comments elsewhere that say 'mapPairTermsC' mean this function.
+mapPairTermsCWD :: [FQPred] -> Expr -> Maybe (FQPred, FQPred, [WDObl])
+mapPairTermsCWD c = goC FQInt
   where
-    goC _  (EVar m) = Just (FQVar (m <> "$has"), FQVar (m <> "$val"))
+    goC _  (EVar m) = Just (FQVar (m <> "$has"), FQVar (m <> "$val"), [])
     goC es (EApp "map-put" [mE, kE, vE]) = do
-      k <- exprToPred kE
-      v <- case boolValLit vE of { Just x -> Just x; Nothing -> exprToPred vE }
+      (k, ok) <- exprToPredWD c kE
+      (v, ov) <- case boolValLit vE of { Just x -> Just (x, []); Nothing -> exprToPredWD c vE }
       let es' = case v of
                   FQApp n [] | "strlit_" `T.isPrefixOf` n -> FQStr
                   _                                       -> es
-      (h, vl) <- goC es' mE
+      (h, vl, om) <- goC es' mE
       pure ( FQApp "Map_store" [h, k, FQLit 1]
-           , FQApp "Map_store" [vl, k, v] )
+           , FQApp "Map_store" [vl, k, v]
+           , om ++ ok ++ ov )
     goC es (EApp "map-empty" []) =
-      Just (FQApp "Map_default" [FQLit 0], FQApp "Map_default" [defaultElemFor es])
+      Just (FQApp "Map_default" [FQLit 0], FQApp "Map_default" [defaultElemFor es], [])
     goC es (EOp f as) = goC es (EApp f as)
     goC _ _ = Nothing
 
@@ -3113,7 +3175,8 @@ mapRetChain esRet se0 = go se0
               -- sort (Str for a string-map read), so a later step can use it as
               -- a put VALUE (strValTerm's se lookup) and the binder is well-
               -- sorted against the Str Map_select pin.
-              let pres  = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
+              -- CLAUSE-WELLDEF-1: the presence step reads the one table.
+              let pres  = partialPre (PMapGet h k)
                   sel   = FQApp "Map_select" [vl, k]
                   vSort = mapSelValSort se vl
               sub <- go (Map.insert v vSort se) body
@@ -3841,30 +3904,88 @@ bodyHasOverflowArith = go
     go (EPair l r)      = go l || go r
     go (EAwait e)       = go e
 
+-- | CLAUSE-WELLDEF-1 (clause-welldef-proposal.md Rev 3 §4.1): one application
+-- of a partial builtin, over its reflected arguments.
+data PartialOp
+  = PMapGet FQPred FQPred            -- ^ has-array, key
+  | PBytesGet FQPred FQPred          -- ^ bytes, index
+  | PBytesSet FQPred FQPred FQPred   -- ^ bytes, index, value
+  deriving (Show, Eq)
+
+-- | CLAUSE-WELLDEF-1: the ONE table of partial-builtin preconditions π_f.
+-- The body arms ('bodyToPredM' on @map-get@ and @bytes-get@, the presence step
+-- of 'mapRetChain') and the clause walk 'exprToPredWD' all read it, so a
+-- clause obligation cannot drift from the body's call-pre (the
+-- 'sealedAxiomBuiltins' single-site discipline). @bytes-set@ delegates to
+-- 'bytesSetSpec', which already is that single source for its builtin; its
+-- pre does not mention the result, so the placeholder result is never read.
+partialPre :: PartialOp -> FQPred
+partialPre (PMapGet h k) = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
+partialPre (PBytesGet b i) =
+  FQAnd [ FQBinPred FQLe (FQLit 0) i
+        , FQBinPred FQLt i (FQApp "bytesLen" [b]) ]
+partialPre (PBytesSet b i v) = fst (bytesSetSpec b i v (FQVar "wd$unused"))
+
+-- | CLAUSE-WELLDEF-1: one definedness obligation of a clause, @C ⟹ π_f@.
+data WDObl = WDObl
+  { woCtx  :: [FQPred]   -- ^ C: formulas true where the program evaluates the op
+  , woGoal :: FQPred     -- ^ π_f over the reflected arguments
+  , woOp   :: Expr       -- ^ the source sub-term, for the message and the site
+  } deriving (Show, Eq)
+
+-- | CLAUSE-WELLDEF-1: the obligation's site text, @<op> needs <π_f>@ in
+-- surface syntax, e.g. @(map-get result 3) needs (map-has result 3)@. It is
+-- the constraint origin's site, so two occurrences get distinct obligation ids
+-- and the diagnostic names the missing guard.
+wdSiteText :: WDObl -> Text
+wdSiteText o = exprToSExpr (woOp o) <> " needs " <> exprToSExpr (surfacePre (woOp o))
+  where
+    lit n = ELit (LitInt n)
+    inBounds b i = [EApp "<=" [lit 0, i], EApp "<" [i, EApp "bytes-length" [b]]]
+    surfacePre e = case e of
+      EApp "map-get"   [m, k]    -> EApp "map-has" [m, k]
+      EApp "bytes-get" [b, i]    -> EApp "and" (inBounds b i)
+      EApp "bytes-set" [b, i, v] -> EApp "and" (inBounds b i ++ [EApp "<=" [lit 0, v], EApp "<=" [v, lit 255]])
+      _                          -> e
+
 -- | Convert a linear arithmetic LLMLL Expr to a FQPred.
 -- Returns Nothing for non-linear or unsupported expressions (→ skip/proof-required).
+--
+-- CLAUSE-WELLDEF-1: derived from the one clause walk 'exprToPredWD'. The pair
+-- is lazy, so a caller here never forces the obligation list.
 exprToPred :: Expr -> Maybe FQPred
+exprToPred = fmap fst . exprToPredWD []
+
+-- | CLAUSE-WELLDEF-1 (§4.1.1, W7): the one clause traversal. It returns the
+-- term that 'exprToPred' always returned and, beside it, the definedness
+-- obligations @WD(C, e)@ of every partial builtin the term applies. A new
+-- admitted form therefore cannot get a term without its obligation rule.
+-- The context never changes the term or whether the clause translates.
+exprToPredWD :: [FQPred] -> Expr -> Maybe (FQPred, [WDObl])
 -- MATCH-WIDEN Slice 1: a bare nullary constructor of a mixed/payload sum reflects
 -- as the FQData nullary term (mirrors the payload EApp path). Safe because
 -- all-nullary-enum ctors are int-tag-desugared (desugarCtorValues) before here, so an
 -- uppercase EVar reaching exprToPred is a mixed-sum nullary constructor, not a variable.
-exprToPred (EVar v)
-  | not (T.null v), isUpper (T.head v) = Just (FQApp (fqCtorSym v) [])
-  | otherwise                          = Just (FQVar v)
-exprToPred (ELit (LitInt n)) = Just (FQLit n)
-exprToPred (ELit (LitBool True))  = Just FQTrue
-exprToPred (ELit (LitBool False)) = Just FQFalse
+exprToPredWD _ (EVar v)
+  | not (T.null v), isUpper (T.head v) = Just (FQApp (fqCtorSym v) [], [])
+  | otherwise                          = Just (FQVar v, [])
+exprToPredWD _ (ELit (LitInt n)) = Just (FQLit n, [])
+exprToPredWD _ (ELit (LitBool True))  = Just (FQTrue, [])
+exprToPredWD _ (ELit (LitBool False)) = Just (FQFalse, [])
 -- STRLIT (Stage 1): a string literal reflects to a content-interned nullary Str
 -- constant. SOUND ONLY paired with injectStrLitDistinct, which conjoins pairwise
 -- `/=` over occurring literal constants — the flip alone is UNSAFE-unsound (a model
 -- identifying "a"="b" spuriously refutes; §6.1 F2). Term-vs-term string equality
 -- already reflected; this closes the literal gap.
-exprToPred (ELit (LitString s)) = Just (FQApp (strlitConst s) [])
+exprToPredWD _ (ELit (LitString s)) = Just (FQApp (strlitConst s) [], [])
 -- MINMAX-FRAG-1 residue: a contract call 'markIntBuiltins' marked as the builtin
 -- reflects as the same `if` term a body call does. Only the internal name matches,
 -- so an unmarked `min` (a user function, parameter or binder) still falls back.
-exprToPred (EApp op args)
-  | Just b <- T.stripPrefix intBuiltinTag op = mapM exprToPred args >>= reflectIntBuiltin b
+exprToPredWD c (EApp op args)
+  | Just b <- T.stripPrefix intBuiltinTag op = do
+      (ps, os) <- wdArgs c args
+      t <- reflectIntBuiltin b ps
+      pure (t, os)
 -- | LEVER-A2.2 get-comparison bridge (well-sortedness): a bool-valued
 -- @(map-get m k)@ compared against a bool literal reflects the value select
 -- against the int-0/1 tag — @FQEq (Map_select …) (FQLit 0/1)@ — never the
@@ -3874,54 +3995,75 @@ exprToPred (EApp op args)
 -- literal opposite a map-get forces the map bool-valued. The value-range fact
 -- (injectBoolValRangeFacts) supplies @0 ≤ v ≤ 1@ so a @/=@ here is exact, not a
 -- ℤ over-approximation (professor review 2026-07-13). Must precede the generic
--- @=@/@/=@ clauses below.
-exprToPred (EApp op [l, r])
+-- @=@/@/=@ clauses below. WD: the bridge changes the comparison term only; the
+-- inner map-get keeps its obligation.
+exprToPredWD c (EApp op [l, r])
   | op `elem` eqNeqOps, isMapGetHead l, ELit (LitBool b) <- r
-      = (\s -> FQBinPred (relOf op) s (FQLit (boolTag b))) <$> exprToPred l
+      = (\(s, os) -> (FQBinPred (relOf op) s (FQLit (boolTag b)), os)) <$> exprToPredWD c l
   | op `elem` eqNeqOps, ELit (LitBool b) <- l, isMapGetHead r
-      = (\s -> FQBinPred (relOf op) (FQLit (boolTag b)) s) <$> exprToPred r
+      = (\(s, os) -> (FQBinPred (relOf op) (FQLit (boolTag b)) s, os)) <$> exprToPredWD c r
   where
     eqNeqOps = ["=", "==", "/=", "!=", "≠"] :: [Text]
     relOf o  = if o `elem` (["/=", "!=", "≠"] :: [Text]) then FQNeq else FQEq
-exprToPred (EApp op [l, r])
-  | op `elem` [">=", "≥"] = (\a b -> FQBinPred FQGe  a b) <$> exprToPred l <*> exprToPred r
-  | op `elem` [">"]        = (\a b -> FQBinPred FQGt  a b) <$> exprToPred l <*> exprToPred r
-  | op `elem` ["<=", "≤"] = (\a b -> FQBinPred FQLe  a b) <$> exprToPred l <*> exprToPred r
-  | op `elem` ["<"]        = (\a b -> FQBinPred FQLt  a b) <$> exprToPred l <*> exprToPred r
-  | op `elem` ["=", "=="]  = (\a b -> FQBinPred FQEq  a b) <$> exprToPred l <*> exprToPred r
-  | op `elem` ["/=", "!=", "≠"] = (\a b -> FQBinPred FQNeq a b) <$> exprToPred l <*> exprToPred r
-  | op == "+"              = (\a b -> FQBinArith FQAdd a b) <$> exprToPred l <*> exprToPred r
-  | op == "-"              = (\a b -> FQBinArith FQSub a b) <$> exprToPred l <*> exprToPred r
+exprToPredWD c (EApp op [l, r])
+  | op `elem` [">=", "≥"] = bin (FQBinPred FQGe)
+  | op `elem` [">"]        = bin (FQBinPred FQGt)
+  | op `elem` ["<=", "≤"] = bin (FQBinPred FQLe)
+  | op `elem` ["<"]        = bin (FQBinPred FQLt)
+  | op `elem` ["=", "=="]  = bin (FQBinPred FQEq)
+  | op `elem` ["/=", "!=", "≠"] = bin (FQBinPred FQNeq)
+  | op == "+"              = bin (FQBinArith FQAdd)
+  | op == "-"              = bin (FQBinArith FQSub)
   -- SIGMA-CONST-ARITH-1: an admitted constant-linear `*`, `/` or `mod` (a ground
   -- term, a numeral coefficient, or a numeral divisor > 0) reflects; every
-  -- other form refuses on the next line, with its label unchanged.
-  | Just m <- constArithTerm (Identity . exprToPred) op [l, r] = runIdentity m
+  -- other form refuses on the next line, with its label unchanged. WD: the
+  -- divisor is a positive constant, so the arm adds no obligation; the
+  -- dividend's own obligations ride the writer-shaped @tr@.
+  | Just m <- constArithTerm tr op [l, r] = let (os, mp) = m in (\p -> (p, os)) <$> mp
   -- non-linear ops: reject
   | op `elem` ["*", "/", "mod", "rem", "^", "**"] = Nothing
-exprToPred (EApp "and" args) = FQAnd <$> mapM exprToPred args
-exprToPred (EApp "or"  args) = FQOr  <$> mapM exprToPred args
-exprToPred (EApp "not" [a])  = FQNot <$> exprToPred a
+  where
+    bin f = do
+      (a, oa) <- exprToPredWD c l
+      (b, ob) <- exprToPredWD c r
+      pure (f a b, oa ++ ob)
+    tr e = case exprToPredWD c e of
+      Just (p, os) -> (os, Just p)
+      Nothing      -> ([], Nothing)
+-- WD: an `and` operand is evaluated only when the earlier ones held, an `or`
+-- operand only when they failed. The arm maps a list, so the walk folds left
+-- to right.
+exprToPredWD c (EApp "and" args) = (\(ps, os) -> (FQAnd ps, os)) <$> wdSeq id c args
+exprToPredWD c (EApp "or"  args) = (\(ps, os) -> (FQOr  ps, os)) <$> wdSeq FQNot c args
+exprToPredWD c (EApp "not" [a])  = wd1 c a FQNot
 -- IMPL-SUGAR: (=> p q) and (<=> p q) are pure sugar. Desugar here (VC-emission
 -- only) to the or/not/and forms; the resulting FQ is byte-identical to writing
 -- the expansion by hand. The AST retains =>/<=> (round-trip + schema).
-exprToPred (EApp "=>"  [p, q]) = exprToPred (EApp "or" [EApp "not" [p], q])
-exprToPred (EApp "<=>" [p, q]) =
-  exprToPred (EApp "and" [EApp "or" [EApp "not" [p], q], EApp "or" [EApp "not" [q], p]])
+-- WD: `=>` reuses the `or` rule, which walks q under ¬¬⟦p⟧. `<=>` must not:
+-- the generated `==` on Bool evaluates both operands, so each is walked on the
+-- source form under the incoming context, and the obligations of the
+-- desugared walk are discarded. Both lists are lazy, so 'exprToPred' pays for
+-- one walk only.
+exprToPredWD c (EApp "=>"  [p, q]) = exprToPredWD c (EApp "or" [EApp "not" [p], q])
+exprToPredWD c (EApp "<=>" [p, q]) = do
+  (t, _) <- exprToPredWD c
+              (EApp "and" [EApp "or" [EApp "not" [p], q], EApp "or" [EApp "not" [q], p]])
+  pure (t, maybe [] snd (exprToPredWD c p) ++ maybe [] snd (exprToPredWD c q))
 -- NIW (v0.12): measure-class applications → uninterpreted-function terms.
 -- The argument is a WF base term (REF-META-3 M3); exprToPred (EVar v) = FQVar v
 -- carries it through unconditionally. Range facts (m t >= 0) are injected
 -- centrally at addConst, not here. Only string-length / list-length are admitted.
-exprToPred (EApp "string-length" [a]) = (\x -> FQApp "strLen"  [x]) <$> exprToPred a
-exprToPred (EApp "list-length"   [a]) = (\x -> FQApp "listLen" [x]) <$> exprToPred a
+exprToPredWD c (EApp "string-length" [a]) = wd1 c a (\x -> FQApp "strLen"  [x])
+exprToPredWD c (EApp "list-length"   [a]) = wd1 c a (\x -> FQApp "listLen" [x])
 -- PAIR-RET: pair projections reflect to the native Pair2 selector terms, a pair
 -- construction to the constructor. The product is the single-constructor restriction
 -- of the COMP-4 datatype class (§5.3.3): the valid tester makes selectors total and
 -- fully determined, so selector-in-goal is sound with no under-specified region
 -- (professor adjudication). Symbols are namespaced (`pair2`) to avoid collision with a
 -- user sum whose `Pair` constructor COMP-4 lowercases to `pair`.
-exprToPred (EApp "first"  [a]) = (\x   -> FQApp "pair2_0" [x])   <$> exprToPred a
-exprToPred (EApp "second" [a]) = (\x   -> FQApp "pair2_1" [x])   <$> exprToPred a
-exprToPred (EPair a b)         = (\x y -> FQApp "pair2"   [x, y]) <$> exprToPred a <*> exprToPred b
+exprToPredWD c (EApp "first"  [a]) = wd1 c a (\x -> FQApp "pair2_0" [x])
+exprToPredWD c (EApp "second" [a]) = wd1 c a (\x -> FQApp "pair2_1" [x])
+exprToPredWD c (EPair a b)         = (\(ps, os) -> (FQApp "pair2" ps, os)) <$> wdArgs c [a, b]
 -- LEVER-A1 (proposal §4): the bytes-op family reflects into the array theory —
 -- bytes-length to the bytesLen UF (grounded per binder by the family-1 binder
 -- fact), bytes-get/bytes-set to the interpreted select/store. Exact reflections
@@ -3929,11 +4071,17 @@ exprToPred (EPair a b)         = (\x y -> FQApp "pair2"   [x, y]) <$> exprToPred
 -- one falls to the catch-all below → contract-only fallback, per the
 -- exact-reflection rule. These cases fire only when the ops occur, so every
 -- op-free contract translates byte-identically.
-exprToPred (EApp "bytes-length" [b]) = (\x -> FQApp "bytesLen" [x]) <$> exprToPred b
-exprToPred (EApp "bytes-get" [b, i]) =
-  (\x y -> FQApp "Map_select" [x, y]) <$> exprToPred b <*> exprToPred i
-exprToPred (EApp "bytes-set" [b, i, v]) =
-  (\x y z -> FQApp "Map_store" [x, y, z]) <$> exprToPred b <*> exprToPred i <*> exprToPred v
+-- WD: bytes-get and bytes-set are partial; each adds π_f after its operands'.
+exprToPredWD c (EApp "bytes-length" [b]) = wd1 c b (\x -> FQApp "bytesLen" [x])
+exprToPredWD c e@(EApp "bytes-get" [b, i]) = do
+  (x, ob) <- exprToPredWD c b
+  (y, oi) <- exprToPredWD c i
+  pure (FQApp "Map_select" [x, y], ob ++ oi ++ [WDObl c (partialPre (PBytesGet x y)) e])
+exprToPredWD c e@(EApp "bytes-set" [b, i, v]) = do
+  (x, ob) <- exprToPredWD c b
+  (y, oi) <- exprToPredWD c i
+  (z, ov) <- exprToPredWD c v
+  pure (FQApp "Map_store" [x, y, z], ob ++ oi ++ ov ++ [WDObl c (partialPre (PBytesSet x y z)) e])
 -- LEVER-A2 (proposal §4): the map ops reflect via the two-array encoding —
 -- presence is the int-0/1 array (Rev 1.1), so `(map-has m k)` is the equation
 -- `Map_select(m$has, k) = 1` and `(map-get m k)` reads the value array. The
@@ -3946,33 +4094,35 @@ exprToPred (EApp "bytes-set" [b, i, v]) =
 -- (an always-absent read) and its int-default encoding meets Str contexts
 -- ill-sorted (elaborator crash) — route to fallback. Put-chains over map-empty
 -- stay admitted (element sort inferred from the put value).
-exprToPred (EApp "map-has" [mE, _]) | isMapEmptyE mE = Nothing
-exprToPred (EApp "map-get" [mE, _]) | isMapEmptyE mE = Nothing
-exprToPred (EApp "map-has" [mE, kE]) = do
-  (h, _) <- mapPairTermsC mE
-  k <- exprToPred kE
-  pure (FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1))
-exprToPred (EApp "map-get" [mE, kE]) = do
-  (_, vl) <- mapPairTermsC mE
-  k <- exprToPred kE
-  pure (FQApp "Map_select" [vl, k])
+-- WD: map-has is total; map-get adds π_map-get over the has-array of the same
+-- pair. Both walk the map argument's put keys and values ('mapPairTermsCWD').
+exprToPredWD _ (EApp "map-has" [mE, _]) | isMapEmptyE mE = Nothing
+exprToPredWD _ (EApp "map-get" [mE, _]) | isMapEmptyE mE = Nothing
+exprToPredWD c (EApp "map-has" [mE, kE]) = do
+  (h, _, om) <- mapPairTermsCWD c mE
+  (k, ok) <- exprToPredWD c kE
+  pure (FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1), om ++ ok)
+exprToPredWD c e@(EApp "map-get" [mE, kE]) = do
+  (h, vl, om) <- mapPairTermsCWD c mE
+  (k, ok) <- exprToPredWD c kE
+  pure (FQApp "Map_select" [vl, k], om ++ ok ++ [WDObl c (partialPre (PMapGet h k)) e])
 -- v0.8.0: Parser emits operators as EOp; delegate to EApp for uniform handling.
-exprToPred (EOp op args)     = exprToPred (EApp op args)
+exprToPredWD c (EOp op args)     = exprToPredWD c (EApp op args)
 -- COMP-4-RESULT: the Result builtins `ok`/`err` are lowercase, so the uppercase-ctor
 -- clause below misses them; reflect them explicitly into the native `Result` datatype
 -- constructor terms (closes the COMP-4 (a) drift for the Result builtin).
-exprToPred (EApp "ok"  [e]) = (\x -> FQApp "ok"  [x]) <$> exprToPred e
-exprToPred (EApp "err" [e]) = (\x -> FQApp "err" [x]) <$> exprToPred e
+exprToPredWD c (EApp "ok"  [e]) = wd1 c e (\x -> FQApp "ok"  [x])
+exprToPredWD c (EApp "err" [e]) = wd1 c e (\x -> FQApp "err" [x])
 -- COMP-4 (a): a constructor application (uppercase head) in a contract reflects
 -- into the native FQData constructor term — so a post `result = Rejected reason`
 -- discharges by constructor equality.
-exprToPred (EApp ctor args)
-  | isUpperCtorHead ctor = FQApp (fqCtorSym ctor) <$> mapM exprToPred args
+exprToPredWD c (EApp ctor args)
+  | isUpperCtorHead ctor = (\(ps, os) -> (FQApp (fqCtorSym ctor) ps, os)) <$> wdArgs c args
 -- MATCH-POST-1: `(is-ok x)` is the Success test of the match encoding below,
 -- `x = ok (ok_0 x)`. The argument must be a Result-sorted variable;
 -- 'clauseMatchUnsafe' refuses the clause otherwise.
-exprToPred (EApp "is-ok" [EVar x]) =
-  Just (FQBinPred FQEq (FQVar x) (FQApp "ok" [FQApp "ok_0" [FQVar x]]))
+exprToPredWD _ (EApp "is-ok" [EVar x]) =
+  Just (FQBinPred FQEq (FQVar x) (FQApp "ok" [FQApp "ok_0" [FQVar x]]), [])
 -- MATCH-POST-1: a `match` on a variable in a contract clause reflects as a
 -- conjunction of first-match implications, one per arm. The arm test is
 -- constructor equality over the datatype's own selectors,
@@ -3989,36 +4139,68 @@ exprToPred (EApp "is-ok" [EVar x]) =
 -- it to an argument is an arity error in the solver, and an undeclared
 -- `ctor_*` symbol is declared by 'measureConstant' at its default sort.
 -- FQ-FREEVAR-GUARD-1 withdraws neither (CTOR-FIELD-SORT-1 finding F1).
-exprToPred (EMatch (EVar x) arms@(_:_))
+--
+-- WD: arm i is walked under C ∧ test_i ∧ ⋀_{j<i} ¬test_j. The body is walked
+-- under an empty context and its obligations take the arm's selector
+-- substitution, as its term does; the outer C is prepended unsubstituted, so a
+-- payload name never captures an outer variable.
+exprToPredWD c (EMatch (EVar x) arms@(_:_))
   | any payloadPat (map fst arms)
-  = FQAnd <$> go [] arms
+  = (\(ps, os) -> (FQAnd ps, os)) <$> go [] arms
   where
     payloadPat (PConstructor _ (_:_)) = True
     payloadPat _                      = False
     ctorSym "Success" = "ok"
     ctorSym "Error"   = "err"
-    ctorSym c         = fqCtorSym c
-    go _ [] = Just []
+    ctorSym k         = fqCtorSym k
+    armObl sub armCtx (WDObl ctx g op) =
+      WDObl (c ++ armCtx ++ map (applySubst sub) ctx) (applySubst sub g) op
+    go _ [] = Just ([], [])
     go prior ((pat, body) : rest) = case pat of
-      PConstructor c ps | all isBinderPat ps -> do
-        let sym  = ctorSym c
+      PConstructor k ps | all isBinderPat ps -> do
+        let sym  = ctorSym k
             sels = [ FQApp (sym <> "_" <> T.pack (show i)) [FQVar x]
                    | i <- [0 .. length ps - 1] ]
             test = FQBinPred FQEq (FQVar x) (FQApp sym sels)
             sub  = Map.fromList [ (v, s) | (PVar v, s) <- zip ps sels ]
-        p <- applySubst sub <$> exprToPred body
-        (FQOr (FQNot test : prior ++ [p]) :) <$> go (prior ++ [test]) rest
+        (p0, o) <- exprToPredWD [] body
+        let p = applySubst sub p0
+        (ts, os) <- go (prior ++ [test]) rest
+        pure ( FQOr (FQNot test : prior ++ [p]) : ts
+             , map (armObl sub (test : map FQNot prior)) o ++ os )
       PWildcard -> do
-        p <- exprToPred body
-        Just [FQOr (prior ++ [p])]
+        (p, o) <- exprToPredWD [] body
+        Just ([FQOr (prior ++ [p])], map (armObl Map.empty (map FQNot prior)) o)
       PVar v -> do
-        p <- applySubst (Map.singleton v (FQVar x)) <$> exprToPred body
-        Just [FQOr (prior ++ [p])]
+        let sub = Map.singleton v (FQVar x)
+        (p0, o) <- exprToPredWD [] body
+        Just ([FQOr (prior ++ [applySubst sub p0])], map (armObl sub (map FQNot prior)) o)
       _ -> Nothing
     isBinderPat (PVar _)  = True
     isBinderPat PWildcard = True
     isBinderPat _         = False
-exprToPred _ = Nothing  -- lambda, let, etc. → not in QF linear arith
+exprToPredWD _ _ = Nothing  -- lambda, let, etc. → not in QF linear arith
+
+-- | CLAUSE-WELLDEF-1: walk a list of operands under one context (a total
+-- application: the union of the operands' obligations).
+wdArgs :: [FQPred] -> [Expr] -> Maybe ([FQPred], [WDObl])
+wdArgs c es = do
+  rs <- mapM (exprToPredWD c) es
+  pure (map fst rs, concatMap snd rs)
+
+-- | CLAUSE-WELLDEF-1: a total unary application.
+wd1 :: [FQPred] -> Expr -> (FQPred -> FQPred) -> Maybe (FQPred, [WDObl])
+wd1 c a f = (\(x, os) -> (f x, os)) <$> exprToPredWD c a
+
+-- | CLAUSE-WELLDEF-1: the short-circuit fold of `and` (@id@) and `or`
+-- (@FQNot@): each operand is walked under the context grown by the earlier
+-- operands' terms, mapped by the given function.
+wdSeq :: (FQPred -> FQPred) -> [FQPred] -> [Expr] -> Maybe ([FQPred], [WDObl])
+wdSeq _ _ [] = Just ([], [])
+wdSeq f c (a : as) = do
+  (p, o) <- exprToPredWD c a
+  (ps, os) <- wdSeq f (c ++ [f p]) as
+  pure (p : ps, o ++ os)
 
 -- ---------------------------------------------------------------------------
 -- FALLBACK-CENSUS-1: what refused a clause, and whether a body is a scaffold
@@ -4798,7 +4980,24 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
                           | not (isDataSort calleeRetSort)
                           , Just pp <- contractPost contract >>= exprToPred
                           , predHasDataTerm pp              = Nothing
-                          | otherwise                       = contractPost contract >>= exprToPred
+                          | otherwise                       = contractPost contract >>= postWithWD
+                -- CLAUSE-WELLDEF-1 (A2S-13): where the callee post is assumed,
+                -- its definedness conditions are assumed too, each as
+                -- @C ⟹ π@ with its short-circuit context C (never the bare
+                -- goal). The caller already assumes the post evaluated to true,
+                -- and a post that evaluated to true was defined, so its WD
+                -- conditions held on that run: the facts rest on the same
+                -- assume-guarantee basis as the post (the callee's own wd-post
+                -- proves them), and add no new trust. They are π facts
+                -- (map-has, bounds), never reads, so H gains no partial read.
+                -- A post that does not translate gives nothing here; the
+                -- post-unassumed mark covers it.
+                postWithWD e = do
+                  (p, obls) <- exprToPredWD [] e
+                  let wdFact o = case woCtx o of
+                        [] -> woGoal o
+                        cs -> FQOr [FQNot (conjoinAll cs), woGoal o]
+                  pure (if null obls then p else conjoinAll (p : map wdFact obls))
             -- Fresh result variable
             resultVar <- freshName ("call_" <> fname)
             -- LEVER-A2.1: a map-returning callee's post roots result$has/
@@ -4972,8 +5171,8 @@ bodyToPredM env se cenv sccSet (EApp "bytes-get" [EVar b, iE]) = do
   case mIvc of
     Just (SimpleVC [] iP) -> do
       r <- freshName "call_bytes_get"
-      let pre  = FQAnd [ FQBinPred FQLe (FQLit 0) iP
-                       , FQBinPred FQLt iP (FQApp "bytesLen" [bP]) ]
+      -- CLAUSE-WELLDEF-1: the index-in-bounds pre reads the one table.
+      let pre  = partialPre (PBytesGet bP iP)
           -- One part, and it is the REFLECTION: the read IS the array select.
           -- No lemma rides here — the byte-range fact a reader might expect is
           -- injected per select term by 'injectRangeFacts' (family 2), not
@@ -5082,7 +5281,8 @@ bodyToPredM env se _ _ (EApp "map-get" [mE, kE]) =
       -- a (Map_t int Str) $val, else int (mapSelValSort, recovered from the
       -- SortEnv) — so a string-valued map-get is well-sorted, not an FQInt-vs-Str
       -- mismatch against the Str Map_select.
-      let pre  = FQBinPred FQEq (FQApp "Map_select" [h, k]) (FQLit 1)
+      -- CLAUSE-WELLDEF-1: the presence pre reads the one table.
+      let pre  = partialPre (PMapGet h k)
           -- One part, the REFLECTION: the lookup IS the value-array select.
           -- The presence side is a PROVE-polarity pre, not an assumption.
           parts = [("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_select" [vl, k]))]

@@ -31,6 +31,7 @@ module LLMLL.ProofArtifact
     -- * Per-function record (abstract — minted only via the kernel)
   , FnRecord            -- NB: constructor intentionally NOT exported (LCF discipline)
   , fnName, fnTier, fnCallerObligations, fnFallbackReason, fnRefuted, fnDiscrimBasis
+  , fnIllDefined
   , Tier(..)
   , isPositiveTier
   , tierFromText        -- TRUST-CC-1: the read-path migration surface
@@ -55,6 +56,7 @@ import           Data.Text          (Text)
 import qualified Data.Text          as T
 
 import           LLMLL.TrustReport  (trustReportEmitVersion)
+import           LLMLL.VerifiedCache (checkerSoundnessVersion)
 import           LLMLL.ParserJSON   (expectedSchemaVersion)
 
 -- ---------------------------------------------------------------------------
@@ -119,6 +121,9 @@ data FnInputs = FnInputs
   , fiDiscrim        :: Maybe (Maybe Text)
       -- ^ Nothing = no CDP axis recorded; Just b = a discriminative axis with basis @b@.
       --   @Just Nothing@ is the laundered "axis present, basis absent" state the kernel rejects.
+  , fiIllDefined     :: Bool
+      -- ^ CLAUSE-WELLDEF-1: a pre or post the program cannot evaluate in a
+      --   reachable state (orthogonal, like 'fiRefuted')
   } deriving (Show, Eq)
 
 -- | Ways the §4.1 invariant can be violated — each makes a positive-tier record ill-formed.
@@ -126,6 +131,7 @@ data LaunderError
   = PositiveWithFallback Text   -- ^ a positive tier whose body fell back
   | PositiveWithRefuted  Text   -- ^ a positive tier also flagged refuted
   | DiscrimMissingBasis  Text   -- ^ a discriminative axis recorded without its basis
+  | PositiveWithIllDefined Text -- ^ CLAUSE-WELLDEF-1: a positive tier also flagged ill-defined
   deriving (Show, Eq)
 
 renderLaunderError :: LaunderError -> Text
@@ -135,6 +141,8 @@ renderLaunderError (PositiveWithRefuted n) =
   "ill-formed artifact: function '" <> n <> "' carries a positive tier but is flagged refuted"
 renderLaunderError (DiscrimMissingBasis n) =
   "ill-formed artifact: function '" <> n <> "' records a discriminative_axis without its basis"
+renderLaunderError (PositiveWithIllDefined n) =
+  "ill-formed artifact: function '" <> n <> "' carries a positive tier but is flagged ill_defined"
 
 -- | A per-function record — ABSTRACT. The data constructor is not exported; the
 -- only way to obtain a 'FnRecord' is through 'mkFnRecord' (the kernel) or 'FromJSON'
@@ -149,6 +157,7 @@ data FnRecord = FnRecord
   , fnFallbackReason    :: Maybe Text
   , fnRefuted           :: Bool
   , fnDiscrimBasis      :: Maybe (Maybe Text)
+  , fnIllDefined        :: Bool
   } deriving (Show, Eq)
 
 -- | THE KERNEL. Mint a per-function record only if the §4.1 invariant holds. A
@@ -162,6 +171,8 @@ mkFnRecord i
       Left (PositiveWithFallback (fiName i))
   | isPositiveTier (fiTier i), fiRefuted i =
       Left (PositiveWithRefuted (fiName i))
+  | isPositiveTier (fiTier i), fiIllDefined i =
+      Left (PositiveWithIllDefined (fiName i))
   | Just Nothing <- fiDiscrim i =
       Left (DiscrimMissingBasis (fiName i))
   | otherwise =
@@ -172,6 +183,7 @@ mkFnRecord i
         , fnFallbackReason    = fiFallbackReason i
         , fnRefuted           = fiRefuted i
         , fnDiscrimBasis      = fiDiscrim i
+        , fnIllDefined        = fiIllDefined i
         }
 
 -- ---------------------------------------------------------------------------
@@ -211,17 +223,22 @@ solverResultFromText _                = Nothing
 data ComposedVersions = ComposedVersions
   { cvTrustReport :: Text   -- ^ trust_report_version, from 'trustReportEmitVersion'
   , cvSchema      :: Text   -- ^ JSON-AST schemaVersion, from 'expectedSchemaVersion'
+  , cvCheckerSoundness :: Maybe Text
+    -- ^ CLAUSE-WELLDEF-1: checker_soundness_version, the soundness epoch the
+    -- stored VC was emitted under. Absent in a 0.1.0 artifact.
   } deriving (Show, Eq)
 
 -- | TRUST-REPORT-GATE-1 (C1): the versions a freshly minted artifact composes,
 -- computed from the live emitter constants. Before this they were hard-coded
--- ("1.4.0" and "0.7.0") and had drifted from both emitters. The field is
--- informational: 'classifyReplay' does not read it, so an artifact minted with
--- the old literals still replays.
+-- ("1.4.0" and "0.7.0") and had drifted from both emitters. The trust-report
+-- and schema members are informational. CLAUSE-WELLDEF-1: 'classifyReplay'
+-- reads the soundness member, so a replay of a VC emitted under another
+-- checker epoch fails closed.
 liveComposedVersions :: ComposedVersions
 liveComposedVersions = ComposedVersions
   { cvTrustReport = trustReportEmitVersion
   , cvSchema      = expectedSchemaVersion
+  , cvCheckerSoundness = Just checkerSoundnessVersion
   }
 
 data ProofArtifact = ProofArtifact
@@ -239,8 +256,12 @@ data ProofArtifact = ProofArtifact
   } deriving (Show, Eq)
 
 -- | Bumped independently of the surfaces it composes.
+-- CLAUSE-WELLDEF-1 (0.2.0): the soundness-epoch member of
+-- 'ComposedVersions', the per-function 'ill_defined' flag and the
+-- 'fallback_reason' value @clause-welldef-unproved@. (0.1.0 admits
+-- @callee-post-unassumed@ since v0.36.0.)
 proofArtifactVersion :: Text
-proofArtifactVersion = "0.1.0"
+proofArtifactVersion = "0.2.0"
 
 -- | The dormant codegen-semantics stamp (LLMLL.md §5.3.5:1051) — unbounded @int@ today.
 codegenSemanticsVersion :: Text
@@ -281,6 +302,11 @@ classifyReplay
   -> ProofArtifact  -- ^ the recorded artifact
   -> ReplayOutcome
 classifyReplay recomputedHash curMeta rerun art
+  -- CLAUSE-WELLDEF-1 (§4.8): the stored VC is only as sound as the checker
+  -- that emitted it. An absent or different epoch fails closed, before any
+  -- other axis. '/=' only: a version string has no order here.
+  | cvCheckerSoundness (paComposed art) /= Just checkerSoundnessVersion =
+      ReplayFailClosed "written under a different soundness epoch; re-verify"
   | paSourceHash art /= recomputedHash =
       ReplayFailClosed "source/AST hash mismatch — artifact stale relative to the named source"
   | paSolver art /= curMeta =
@@ -314,11 +340,16 @@ instance FromJSON SolverMeta where
     <*> o .:? "resource_limits"
 
 instance ToJSON ComposedVersions where
-  toJSON v = object [ "trust_report_version" .= cvTrustReport v, "schema_version" .= cvSchema v ]
+  toJSON v = object $
+    [ "trust_report_version" .= cvTrustReport v, "schema_version" .= cvSchema v ]
+    ++ [ "checker_soundness_version" .= c | Just c <- [cvCheckerSoundness v] ]
 
+-- | CLAUSE-WELLDEF-1: the soundness member parses with '.:?', so an artifact
+-- without it still decodes and reaches 'classifyReplay', which refuses it.
 instance FromJSON ComposedVersions where
   parseJSON = withObject "ComposedVersions" $ \o -> ComposedVersions
     <$> o .: "trust_report_version" <*> o .: "schema_version"
+    <*> o .:? "checker_soundness_version"
 
 instance ToJSON FnRecord where
   toJSON r = object $
@@ -327,6 +358,7 @@ instance ToJSON FnRecord where
     , "caller_obligations" .= fnCallerObligations r
     , "fallback_reason"    .= fnFallbackReason r
     , "refuted"            .= fnRefuted r
+    , "ill_defined"        .= fnIllDefined r
     ] ++ discrim
     where
       discrim = case fnDiscrimBasis r of
@@ -341,9 +373,10 @@ instance FromJSON FnRecord where
     cobs <- o .:  "caller_obligations"
     fbk  <- o .:? "fallback_reason"
     ref  <- o .:  "refuted"
+    ill  <- o .:? "ill_defined" .!= False   -- CLAUSE-WELLDEF-1: absent in 0.1.0
     disc <- parseDiscrim o
     -- LCF discipline on the read side: a laundered positive record fails the PARSE.
-    case mkFnRecord (FnInputs nm tier cobs fbk ref disc) of
+    case mkFnRecord (FnInputs nm tier cobs fbk ref disc ill) of
       Left  e -> fail (T.unpack (renderLaunderError e))
       Right r -> pure r
     where

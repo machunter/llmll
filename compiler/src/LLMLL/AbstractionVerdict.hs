@@ -43,25 +43,50 @@
 -- 'FallbackCalleePostUnassumed' with the construct
 -- @post-unassumed:app:<callee>@ otherwise. The stated cost (P1): a wrong
 -- caller of such a callee falls back too.
+--
+-- CLAUSE-WELLDEF-1 (clause-welldef-proposal.md Rev 3 §4.4) partitions each
+-- failing id by its clause: WD (@wd-pre@, @wd-post@), MEAS (@descent@,
+-- @decreases@) and TRUTH (the rest). An id is complete unless it is a
+-- candidate (it carries a mark and its function is body-faithful).
+--
+-- Rule 1: a function with a complete failing id keeps every id, and gets the
+-- hard marker of each partition that holds a complete id: 'aoIllDefined'
+-- (WD, no body VC needed), 'aoMeasureBad' (MEAS) and 'aoRefuted' (TRUTH, the
+-- function body-faithful). A marked id never sets a hard marker, so a marked
+-- TRUTH id beside a complete MEAS id is no longer 'refuted' (V14), and a
+-- marked MEAS id beside a complete TRUTH id is no longer
+-- measure-not-decreasing (V14b).
+--
+-- Rule 2: otherwise the function falls back with one cause. Step 1: every
+-- failing id is WD gives 'FallbackClauseWelldefUnproved', whose construct is
+-- @welldef:@ plus the construct steps 2-3 pick over the same ids. Steps 2-4
+-- are the shipped 'decide'.
+
 module LLMLL.AbstractionVerdict
   ( AbstractionOutcome(..)
   , applyAbstractionVerdict
   , aoFallbackFns
+  , aoReportCtx
   , abstractionConstruct
   , abstractionRepair
   , postUnassumedConstruct
   , postUnassumedRepair
+  , welldefConstruct
+  , WdFailKind(..)
   ) where
 
 import Data.Text (Text)
 import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Maybe (isJust, isNothing)
 
 import LLMLL.Syntax (Name)
 import LLMLL.FixpointEmit (EmitResult(..), FallbackCause(..), renderFallbackCause)
-import LLMLL.DiagnosticFQ (FQVerifyResult(..), ConstraintOrigin(..))
-import LLMLL.Diagnostic (Diagnostic(..), mkBodyFallbackWarning, mkDecreasesUndischarged)
+import LLMLL.FixpointIR (FQConstraintId)
+import LLMLL.DiagnosticFQ (FQVerifyResult(..), ConstraintOrigin(..), isWdClause, WdFailKind(..), WdReportCtx(..))
+import LLMLL.Diagnostic (Diagnostic(..), mkBodyFallbackWarning, mkDecreasesUndischarged, mkWarning)
 
 -- | The verdict after the rule ran.
 data AbstractionOutcome = AbstractionOutcome
@@ -78,13 +103,32 @@ data AbstractionOutcome = AbstractionOutcome
     -- ^ CALLEE-POST-UNASSUMED-1: each function reclassified with cause
     -- 'FallbackCalleePostUnassumed', with the callee whose post was not
     -- assumed, in the same order
+  , aoWelldefUnproved :: [(Text, Text)]
+    -- ^ CLAUSE-WELLDEF-1: each function reclassified with cause
+    -- 'FallbackClauseWelldefUnproved', with its @welldef:@ construct
+  , aoIllDefined   :: Set Text
+    -- ^ CLAUSE-WELLDEF-1: functions with a complete failing WD id (no body
+    -- VC needed: a @wd-pre@ id does not read the body, V12)
+  , aoMeasureBad   :: Set Text
+    -- ^ functions with a complete failing MEAS id (measure-not-decreasing)
+  , aoRefuted      :: Set Text
+    -- ^ body-faithful functions with a complete failing TRUTH id
+  , aoWdFailing    :: Map Text WdFailKind
+    -- ^ each function with a failing WD id, complete or marked only (N5)
+  , aoMarkedIds    :: Set FQConstraintId
+    -- ^ the kept failing ids that carry a mark
   } deriving (Show)
 
--- | Every function the rule moved to the fallback outcome, under either
--- cause. A reader that must not count a reclassified function as proved (or
--- as a kill) reads this, not 'aoReclassified'.
+-- | Every function the rule moved to the fallback outcome, under any cause.
+-- A reader that must not count a reclassified function as proved (or as a
+-- kill) reads this, not 'aoReclassified'.
 aoFallbackFns :: AbstractionOutcome -> [Text]
 aoFallbackFns ao = map fst (aoReclassified ao) ++ map fst (aoUnassumed ao)
+                ++ map fst (aoWelldefUnproved ao)
+
+-- | CLAUSE-WELLDEF-1: what the diagnostics renderer needs from the verdict.
+aoReportCtx :: AbstractionOutcome -> WdReportCtx
+aoReportCtx ao = WdReportCtx (aoMarkedIds ao) (aoWdFailing ao)
 
 -- | CALLEE-POST-UNASSUMED-1: the attribution string of a function reclassified
 -- because a callee post was not assumed at a call.
@@ -105,6 +149,11 @@ postUnassumedRepair g =
 abstractionConstruct :: Name -> Text
 abstractionConstruct g = "abstraction:app:" <> g
 
+-- | CLAUSE-WELLDEF-1: the construct of a 'FallbackClauseWelldefUnproved'
+-- function, @welldef:@ plus the construct of the inner cause.
+welldefConstruct :: Text -> Text
+welldefConstruct inner = "welldef:" <> inner
+
 -- | The one repair sentence 'W-BODY-FALLBACK' adds for this cause. It is true
 -- when the two calls are syntactically equal (bind one, reuse the result); for
 -- calls whose arguments are only equal under a guard it names the limit.
@@ -112,27 +161,58 @@ abstractionRepair :: Name -> Text
 abstractionRepair g =
   " If two calls to '" <> g <> "' take equal arguments, bind one call with let and reuse its result."
 
--- | Apply the rule to one solver answer. 'FQSafe', 'FQError', 'FQResourceLimit' and an UNSAFE
--- answer with no ids pass through unchanged.
+-- | One reclassified function: its cause, the callee its marks name, and for
+-- 'FallbackClauseWelldefUnproved' the inner cause steps 2-3 picked (the cause
+-- itself otherwise), with its failing WD ids.
+data Reclass = Reclass
+  { rcFn     :: Text
+  , rcCause  :: FallbackCause
+  , rcCallee :: Name
+  , rcInner  :: FallbackCause
+  , rcWdIds  :: [FQConstraintId]
+  }
+
+-- | The failing-id partition of §4.4.
+data Partition = PWd | PMeas | PTruth
+  deriving (Eq)
+
+partitionOf :: Text -> Partition
+partitionOf c
+  | isWdClause c                      = PWd
+  | c `elem` ["descent", "decreases"] = PMeas
+  | otherwise                         = PTruth
+
+-- | Apply the rule to one solver answer. 'FQSafe', 'FQError' and
+-- 'FQResourceLimit' pass through unchanged, with empty sets.
 applyAbstractionVerdict :: EmitResult -> FQVerifyResult -> AbstractionOutcome
 applyAbstractionVerdict er r = case r of
-  FQUnsafe ids@(_ : _) | not (null reclassList) ->
+  FQUnsafe ids ->
     AbstractionOutcome
-      { aoResult       = if null kept then FQSafe else FQUnsafe kept
+      { aoResult       = if null reclassList then r
+                         else if null kept then FQSafe else FQUnsafe kept
       , aoEmit         = er'
-      , aoReclassified = [ (f, g) | (f, FallbackAbstraction, g) <- reclassList ]
-      , aoUnassumed    = [ (f, g) | (f, FallbackCalleePostUnassumed, g) <- reclassList ]
+      , aoReclassified = [ (rcFn c, rcCallee c) | c <- reclassList, rcCause c == FallbackAbstraction ]
+      , aoUnassumed    = [ (rcFn c, rcCallee c) | c <- reclassList, rcCause c == FallbackCalleePostUnassumed ]
+      , aoWelldefUnproved = [ (rcFn c, constructOf c) | c <- reclassList, rcCause c == FallbackClauseWelldefUnproved ]
+      , aoIllDefined   = hardFns PWd
+      , aoMeasureBad   = hardFns PMeas
+      , aoRefuted      = Set.filter (`Set.member` faithful) (hardFns PTruth)
+      , aoWdFailing    = Map.fromListWith worst
+                           [ (coFunction o, if isNothing (candidate i) then WdComplete else WdMarkedOnly)
+                           | i <- ids, Just o <- [Map.lookup i table], isWdClause (coClause o) ]
+      , aoMarkedIds    = Set.fromList [ i | i <- kept, isJust (candidate i) ]
       }
     where
       table    = erConstraintTable er
       faithful = Set.fromList (erBodyFaithfulFns er)
       fnOf i   = coFunction <$> Map.lookup i table
+      partOf i = maybe PTruth (partitionOf . coClause) (Map.lookup i table)
       absMark i = Map.lookup i (erAbstracted er)
       cpuMark i = Map.lookup i (erPostUnassumed er)
       -- Rule 1: a candidate carries at least one mark, has an origin, and
       -- belongs to a body-faithful function. The clause does not matter: a
       -- marked descent or decreases id is a candidate too (the user-approved
-      -- extension).
+      -- extension), and so is a marked WD id (CLAUSE-WELLDEF-1).
       candidate i = case Map.lookup i table of
         Just o | coFunction o `Set.member` faithful
                , isJust (absMark i) || isJust (cpuMark i) -> Just (coFunction o)
@@ -141,23 +221,49 @@ applyAbstractionVerdict er r = case r of
       blocked  = Set.fromList [ f | i <- ids, isNothing (candidate i), Just f <- [fnOf i] ]
       candIds  = [ (f, i) | i <- ids, Just f <- [candidate i], not (f `Set.member` blocked) ]
       reclassList = [ decide f [ i | (f', i) <- candIds, f' == f ] | f <- nubOrd (map fst candIds) ]
-      -- The cause per function. Every failing id carries the abstraction
-      -- mark: 'FallbackAbstraction', named by the first id's callee (the
-      -- ABSTRACTION-VERDICT-1 output). Otherwise some id carries only the new
-      -- mark: 'FallbackCalleePostUnassumed', named by the new-mark callee of
-      -- the first failing id that carries it.
-      decide f is = case ( [ g | i <- is, Just g <- [absMark i] ]
-                         , [ g | i <- is, Just g <- [cpuMark i] ] ) of
-        (g : gs, _) | length (g : gs) == length is -> (f, FallbackAbstraction, g)
-        (_, g : _)                                 -> (f, FallbackCalleePostUnassumed, g)
+      -- CLAUSE-WELLDEF-1 rule 1: the hard markers come from the complete
+      -- (non-candidate) ids only, by partition.
+      hardFns p = Set.fromList [ f | i <- ids, isNothing (candidate i), partOf i == p, Just f <- [fnOf i] ]
+      worst WdComplete _ = WdComplete
+      worst _ WdComplete = WdComplete
+      worst _ _          = WdMarkedOnly
+      -- The cause per function. CLAUSE-WELLDEF-1 step 1: every failing id is
+      -- WD → 'FallbackClauseWelldefUnproved', its construct the one steps 2-3
+      -- pick over the same ids. Step 2: every failing id carries the
+      -- abstraction mark → 'FallbackAbstraction', named by the first id's
+      -- callee (the ABSTRACTION-VERDICT-1 output). Step 3: some id carries
+      -- only the new mark → 'FallbackCalleePostUnassumed', named by the
+      -- new-mark callee of the first failing id that carries it.
+      decide f is =
+        let (inner, g) = shipped is
+            wdIds      = [ i | i <- is, partOf i == PWd ]
+        in if length wdIds == length is
+             then Reclass f FallbackClauseWelldefUnproved g inner wdIds
+             else Reclass f inner g inner wdIds
+      shipped is = case ( [ g | i <- is, Just g <- [absMark i] ]
+                        , [ g | i <- is, Just g <- [cpuMark i] ] ) of
+        (g : gs, _) | length (g : gs) == length is -> (FallbackAbstraction, g)
+        (_, g : _)                                 -> (FallbackCalleePostUnassumed, g)
         -- unreachable: a candidate carries one of the two marks
-        (g : _, [])                                -> (f, FallbackAbstraction, g)
-        ([], [])                                   -> (f, FallbackAbstraction, "")
-      reclass  = Set.fromList [ f | (f, _, _) <- reclassList ]
+        (g : _, [])                                -> (FallbackAbstraction, g)
+        ([], [])                                   -> (FallbackAbstraction, "")
+      reclass  = Set.fromList (map rcFn reclassList)
       -- Rule 3: an id with no origin is kept.
       kept     = [ i | i <- ids, maybe True (not . (`Set.member` reclass)) (fnOf i) ]
-      er'      = reclassifyEmit reclassList er
-  _ -> AbstractionOutcome { aoResult = r, aoEmit = er, aoReclassified = [], aoUnassumed = [] }
+      er'      = reclassifyEmit table reclassList er
+  _ -> AbstractionOutcome { aoResult = r, aoEmit = er, aoReclassified = [], aoUnassumed = []
+                          , aoWelldefUnproved = [], aoIllDefined = Set.empty
+                          , aoMeasureBad = Set.empty, aoRefuted = Set.empty
+                          , aoWdFailing = Map.empty, aoMarkedIds = Set.empty }
+
+-- | The construct a reclassified function carries.
+constructOf :: Reclass -> Text
+constructOf c = case rcCause c of
+  FallbackClauseWelldefUnproved -> welldefConstruct (innerConstruct (rcInner c) (rcCallee c))
+  cause                         -> innerConstruct cause (rcCallee c)
+  where
+    innerConstruct FallbackCalleePostUnassumed g = postUnassumedConstruct g
+    innerConstruct _                           g = abstractionConstruct g
 
 -- | First-occurrence order, without duplicates.
 nubOrd :: [Text] -> [Text]
@@ -170,23 +276,35 @@ nubOrd = go Set.empty
 
 -- | Rule 4: move each reclassified function to the fallback outcome, as the
 -- emitter does for every other fallback cause, with its own cause.
-reclassifyEmit :: [(Text, FallbackCause, Name)] -> EmitResult -> EmitResult
-reclassifyEmit [] er = er
-reclassifyEmit rs er = er
+-- CLAUSE-WELLDEF-1: a 'FallbackClauseWelldefUnproved' function also gets one
+-- @W-CLAUSE-WELLDEF-UNPROVED@ warning per failing WD id, pointed at the clause.
+reclassifyEmit :: Map FQConstraintId ConstraintOrigin -> [Reclass] -> EmitResult -> EmitResult
+reclassifyEmit _ [] er = er
+reclassifyEmit table rs er = er
   { erBodyFaithfulFns    = [ n | n <- erBodyFaithfulFns er, not (n `Set.member` moved) ]
-  , erBodyFallback       = erBodyFallback er ++ [ f | (f, _, _) <- rs ]
-  , erBodyFallbackCauses = erBodyFallbackCauses er ++ [ (f, c) | (f, c, _) <- rs ]
-  , erFallbackConstructs = erFallbackConstructs er ++ [ (f, [constructOf c g]) | (f, c, g) <- rs ]
+  , erBodyFallback       = erBodyFallback er ++ map rcFn rs
+  , erBodyFallbackCauses = erBodyFallbackCauses er ++ [ (rcFn c, rcCause c) | c <- rs ]
+  , erFallbackConstructs = erFallbackConstructs er ++ [ (rcFn c, [constructOf c]) | c <- rs ]
   , erDiagnostics        = erDiagnostics er ++ concatMap diagsFor rs
   }
   where
-    moved = Set.fromList [ f | (f, _, _) <- rs ]
-    constructOf FallbackCalleePostUnassumed g = postUnassumedConstruct g
-    constructOf _                           g = abstractionConstruct g
+    moved = Set.fromList (map rcFn rs)
     repairOf FallbackCalleePostUnassumed g = postUnassumedRepair g
     repairOf _                           g = abstractionRepair g
-    diagsFor (f, c, g) =
-      let cause = renderFallbackCause c
-          w     = mkBodyFallbackWarning f cause [constructOf c g] []
-      in  w { diagMessage = diagMessage w <> repairOf c g }
-        : [ mkDecreasesUndischarged f cause i | Just i <- [lookup f (erMeasuredRecursive er)] ]
+    diagsFor c =
+      let f     = rcFn c
+          cause = renderFallbackCause (rcCause c)
+          w     = mkBodyFallbackWarning f cause [constructOf c] []
+      in  w { diagMessage = diagMessage w <> repairOf (rcInner c) (rcCallee c) }
+        : [ welldefWarning f o | rcCause c == FallbackClauseWelldefUnproved
+                               , i <- rcWdIds c, Just o <- [Map.lookup i table] ]
+        ++ [ mkDecreasesUndischarged f cause i | Just i <- [lookup f (erMeasuredRecursive er)] ]
+    welldefWarning f o =
+      let clause = if coClause o == "wd-pre" then "pre" else "post"
+          msg = "W-CLAUSE-WELLDEF-UNPROVED: the " <> clause <> " of '" <> f
+                <> "' is not proved defined where it is evaluated"
+                <> maybe "" (": " <>) (coSite o)
+                <> ". Its truth was proved, but on the path that reaches it the verifier did not assume every fact of a call it makes, so the clause is kept and checked at run time."
+      in (mkWarning Nothing msg)
+           { diagCode    = Just "W-CLAUSE-WELLDEF-UNPROVED"
+           , diagPointer = Just (coJsonPtr o) }
