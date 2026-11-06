@@ -16,6 +16,9 @@ module LLMLL.Contracts
   , instrumentStatement
   , wrapPre
   , wrapPost
+  , guardClause
+  , clauseGuardTag
+  , clauseGuardedOps
 
     -- * Contract Modes (v0.3)
   , ContractsMode(..)
@@ -322,7 +325,7 @@ wrapPre funcName (Just (EHole (HProofRequired _ (Just p)))) body =
   wrapPre funcName (Just p) body
 wrapPre funcName (Just preExpr) body =
   EIf
-    (EOp "not" [preExpr])
+    (EOp "not" [guardClause ("Precondition of " <> funcName) preExpr])
     (EApp "runtime-error"
       [ELit (LitString ("Precondition violated in " <> funcName))])
     body
@@ -342,10 +345,60 @@ wrapPost funcName (Just postExpr) body =
   ELet
     [ (PVar "result", Nothing, body) ]
     (EIf
-      (EOp "not" [postExpr])  -- postExpr can reference 'result'
+      (EOp "not" [guardClause ("Postcondition of " <> funcName) postExpr])  -- postExpr can reference 'result'
       (EApp "runtime-error"
         [ELit (LitString ("Postcondition violated in " <> funcName))])
       (EVar "result"))
+
+-- | CLAUSE-WELLDEF-1 (clause-welldef-proposal.md Rev 3 §4.6): inside a
+-- clause, a partial operation outside its precondition is a violation of
+-- that clause. The run-time check therefore stops with
+-- @Precondition of <fn> is undefined: <op> <reason>@ (or @Postcondition@),
+-- not with the builtin's own error or a bare 'ArithException'.
+--
+-- 'guardClause' rewrites each partial builtin in the clause to an internal
+-- name, 'clauseGuardTag' plus the builtin, with the context string as the
+-- first argument. @%@ cannot appear in an LLMLL identifier (the
+-- 'LLMLL.GuardClassifier.intBuiltinTag' precedent), so no user name, binder
+-- or callee can carry the tag, and the codegen rename pass (RESERVED-NAME-1)
+-- leaves it alone. The Haskell helpers it lowers to take the reserved
+-- @llmll_@ prefix ('CodegenHs.emitApp').
+--
+-- A user call is not rewritten: the callee's own pre check names the
+-- callee. RESERVED-NAME-1 keeps the builtin names unshadowable, so no scope
+-- walk is needed. @rem@ is not a builtin (a user may define it), so it is
+-- not rewritten either. A body is never passed here.
+guardClause :: Text -> Expr -> Expr
+guardClause ctx = go
+  where
+    go e = case e of
+      EApp f as
+        | f `elem` clauseGuardedOps -> guarded f (map go as)
+        | otherwise                 -> EApp f (map go as)
+      EOp o as
+        | o `elem` clauseGuardedOps -> guarded o (map go as)
+        | otherwise                 -> EOp o (map go as)
+      ELit _          -> e
+      EVar _          -> e
+      ELet bs b       -> ELet [ (p, t, go x) | (p, t, x) <- bs ] (go b)
+      EIf c t f       -> EIf (go c) (go t) (go f)
+      EMatch sc arms  -> EMatch (go sc) [ (p, go x) | (p, x) <- arms ]
+      EPair a b       -> EPair (go a) (go b)
+      EHole _         -> e
+      EAwait x        -> EAwait (go x)
+      ELambda ps b    -> ELambda ps (go b)
+      EDo steps       -> EDo [ st { dsExpr = go (dsExpr st) } | st <- steps ]
+    guarded op as = EApp (clauseGuardTag <> op) (ELit (LitString ctx) : as)
+
+-- | The prefix of the internal name 'guardClause' gives a guarded builtin.
+clauseGuardTag :: Text
+clauseGuardTag = "clause%"
+
+-- | The partial builtins a clause check guards (§4.6 scope): the three the
+-- verifier reflects (@map-get@, @bytes-get@, @bytes-set@), and @unwrap@,
+-- @/@, @mod@ and @%@, which no clause obligation covers.
+clauseGuardedOps :: [Name]
+clauseGuardedOps = ["map-get", "bytes-get", "bytes-set", "unwrap", "/", "mod", "%"]
 
 -- ---------------------------------------------------------------------------
 -- Compile-time Contract Evaluation (Symbolic)

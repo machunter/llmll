@@ -46,7 +46,7 @@ import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName, convIn, convOut, lowerFfiType, ffiBoundaryMisuse, lowerBoundaryMisuse)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
 import LLMLL.AstEmit (stmtToJson, emitJsonAST)
-import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, wrapPre, wrapPost, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, buildFuncEnv, maxFuel)
+import LLMLL.Contracts (ContractsMode(..), instrumentStatement, instrumentContracts, wrapPre, wrapPost, guardClause, clauseGuardTag, applyContractsMode, evalContract, ContractResult(..), evalExprStatic, evalExprStaticWith, buildFuncEnv, maxFuel)
 import LLMLL.PBT (runPropertyTests, PBTResult(..), PBTRun(..), PBTStatus(..)
                  , pbtTrustWriteback, headContractedSubject, HeadResolution(..)
                  , canonicalPropBodyHash, canonicalDefEvidenceHash, canonicalExpr)
@@ -26522,7 +26522,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- contexted preamble function is reached through (S2/S3 gates).
       let gate = Map.fromList
             [ ("list_contains", TCEq), ("list_sort", TCOrd), ("list_sort_by", TCOrd)
-            , ("map_has", TCKey), ("map_get", TCKey), ("map_put", TCKey), ("llmll_compare", TCOrd) ]
+            , ("map_has", TCKey), ("map_get", TCKey), ("map_put", TCKey), ("llmll_compare", TCOrd)
+            -- CLAUSE-WELLDEF-1: the guarded map-get of a clause check is
+            -- reached through map-get's own argument, so map-get's gate.
+            , ("llmll_cl_map_get", TCKey) ]
           -- Contexts no type parameter can reach: the argument is int-typed in builtinEnv.
           notReached = ["wasi_http_response"]
           sigs = [ (fn, ctx)
@@ -27611,6 +27614,71 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "H-3 trust_report_version is 1.11.0 and verify_json_version is 1.1.0" $ do
       trustReportEmitVersion `shouldBe` "1.11.0"
       verifyJsonVersion `shouldBe` "1.1.0"
+
+  -- CLAUSE-WELLDEF-1 (commit 3 of 3): the run-time guard (clause-welldef-
+  -- proposal.md Rev 3 §4.6). A partial operation inside a clause check stops
+  -- with a message naming the function and the clause.
+  describe "CLAUSE-WELLDEF-1: run-time clause guard" $ do
+    let lit = ELit . LitInt
+        str = ELit . LitString
+        g op ctx as = EApp (clauseGuardTag <> op) (str ctx : as)
+        mget m k = EApp "map-get" [m, k]
+        notOf (EIf (EOp "not" [c]) _ _) = Just c
+        notOf _                         = Nothing
+
+    it "R1 wrapPre guards a map-get in the pre with \"Precondition of <fn>\"" $ do
+      let pre = EOp ">" [mget (EVar "m") (lit 3), lit 0]
+      notOf (wrapPre "g" (Just pre) (lit 1)) `shouldBe`
+        Just (EOp ">" [g "map-get" "Precondition of g" [EVar "m", lit 3], lit 0])
+
+    it "R2 wrapPost guards a bytes-get and a bytes-set in the post with \"Postcondition of <fn>\"" $ do
+      let post = EOp ">=" [EApp "bytes-get" [EApp "bytes-set" [EVar "b", lit 9, lit 300], lit 0], lit 0]
+      case wrapPost "h" (Just post) (lit 0) of
+        ELet [(PVar "result", Nothing, _)] (EIf (EOp "not" [c]) _ (EVar "result")) ->
+          c `shouldBe` EOp ">=" [g "bytes-get" "Postcondition of h"
+                                   [g "bytes-set" "Postcondition of h" [EVar "b", lit 9, lit 300], lit 0], lit 0]
+        other -> expectationFailure (show other)
+
+    it "R3 unwrap, /, mod and % are guarded; rem (not a builtin) is not" $ do
+      guardClause "C" (EApp "unwrap" [EVar "r"]) `shouldBe` g "unwrap" "C" [EVar "r"]
+      guardClause "C" (EOp "/" [lit 10, EVar "d"]) `shouldBe` g "/" "C" [lit 10, EVar "d"]
+      guardClause "C" (EApp "/" [lit 10, EVar "d"]) `shouldBe` g "/" "C" [lit 10, EVar "d"]
+      guardClause "C" (EOp "mod" [EVar "a", EVar "d"]) `shouldBe` g "mod" "C" [EVar "a", EVar "d"]
+      guardClause "C" (EOp "%" [EVar "a", EVar "d"]) `shouldBe` g "%" "C" [EVar "a", EVar "d"]
+      guardClause "C" (EApp "rem" [EVar "a", EVar "d"]) `shouldBe` EApp "rem" [EVar "a", EVar "d"]
+
+    it "R4 the body is not rewritten" $ do
+      let body = mget (EVar "m") (lit 3)
+      case wrapPre "g" (Just (EOp ">" [mget (EVar "m") (lit 3), lit 0])) body of
+        EIf _ _ b -> b `shouldBe` body
+        other     -> expectationFailure (show other)
+      case wrapPost "g" (Just (EOp ">=" [EVar "result", lit 0])) body of
+        ELet [(_, _, b)] _ -> b `shouldBe` body
+        other              -> expectationFailure (show other)
+
+    it "R5 a user call is not rewritten, but its arguments, a let, an if and a lambda are walked" $ do
+      let e = EApp "my-get" [mget (EVar "m") (lit 1)]
+      guardClause "C" e `shouldBe` EApp "my-get" [g "map-get" "C" [EVar "m", lit 1]]
+      guardClause "C" (ELet [(PVar "x", Nothing, mget (EVar "m") (lit 1))] (EIf (EVar "c") (EVar "x") (lit 0)))
+        `shouldBe` ELet [(PVar "x", Nothing, g "map-get" "C" [EVar "m", lit 1])] (EIf (EVar "c") (EVar "x") (lit 0))
+      guardClause "C" (ELambda [("x", TInt)] (EOp "/" [EVar "x", EVar "d"]))
+        `shouldBe` ELambda [("x", TInt)] (g "/" "C" [EVar "x", EVar "d"])
+      -- the tag cannot be an LLMLL identifier, so no user name carries it
+      T.any (== '%') clauseGuardTag `shouldBe` True
+
+    it "R6 the preamble defines the seven helpers and emitExpr lowers each guarded operation to one" $ do
+      let pre = T.unlines runtimePreamble
+          helpers = ["llmll_cl_map_get", "llmll_cl_bytes_get", "llmll_cl_bytes_set", "llmll_cl_unwrap", "llmll_cl_div", "llmll_cl_mod"]
+      forM_ helpers $ \h -> (h <> " ::") `shouldSatisfy` (`T.isInfixOf` pre)
+      all isReservedHsName helpers `shouldBe` True
+      emitExpr (g "map-get" "Precondition of g" [EVar "m", lit 3])
+        `shouldBe` "(llmll_cl_map_get (\"Precondition of g\") (m) ((3 :: Integer)))"
+      emitExpr (g "/" "Postcondition of dv" [lit 10, EVar "d"]) `shouldSatisfy` T.isInfixOf "llmll_cl_div"
+      emitExpr (g "%" "C" [EVar "a", EVar "d"]) `shouldSatisfy` T.isInfixOf "llmll_cl_mod"
+      emitExpr (g "mod" "C" [EVar "a", EVar "d"]) `shouldSatisfy` T.isInfixOf "llmll_cl_mod"
+      emitExpr (g "unwrap" "C" [EVar "r"]) `shouldSatisfy` T.isInfixOf "llmll_cl_unwrap"
+      emitExpr (g "bytes-get" "C" [EVar "b", EVar "i"]) `shouldSatisfy` T.isInfixOf "llmll_cl_bytes_get"
+      emitExpr (g "bytes-set" "C" [EVar "b", EVar "i", EVar "v"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uS) (llmll_cl_bytes_set"
 
   describe "VERIFY-BUDGET-1 solver guard" $ do
     let stopM = ResourceStop StopMemory (SolverLimits 64 0) 209 1.24

@@ -19,6 +19,12 @@ What a pass here means:
 * E20 (a body outside the fragment) is ill-defined and keeps its fallback cause.
 * A2S-13 (a caller reading a map key its callee's post reads) verifies: the
   definedness of an assumed callee post is assumed with it.
+* Run time (commit 3): a built program whose pre or post reads an absent key
+  or divides by zero stops with `Precondition of <fn> is undefined: ...` or
+  `Postcondition of <fn> is undefined: ...` (E4, E10). xm3: an imported `mk`
+  whose post is ill-defined writes no sidecar, so `--contracts unproven` keeps
+  the post and the run stops; a sidecar stamped "6" by an older binary that
+  claims the post verified is discarded the same way.
 * `verify --json` and `--proof-artifact` validate against their schemas, and
   the artifact carries the soundness-epoch member.
 """
@@ -163,3 +169,87 @@ def test_proof_artifact_carries_epoch_and_ill_defined(tmp_path):
     assert mk["evidence_level"] != "verified"
     jsonschema = pytest.importorskip("jsonschema")
     jsonschema.Draft202012Validator(ARTIFACT_SCHEMA).validate(art)
+
+
+# ---------------------------------------------------------------------------
+# Run time (CLAUSE-WELLDEF-1 commit 3): the clause guard
+# ---------------------------------------------------------------------------
+
+HARNESS = (
+    "(def-shell st [s: int r: Response] -> (int, Command) (pair (+ s 1) (wasi.io.stdout \"|\")))\n"
+    "(def-shell fin [s: int] -> bool (>= s 1))\n"
+)
+RT_SOURCES = {
+    "e4rt.llmll": "(import wasi.io (capability stdout))\n"
+                  "(def-shell g [m: map[int,int]] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) 1)\n"
+                  + HARNESS +
+                  "(def-main :mode cli :init (pair 0 (wasi.io.stdout (int-to-string (g (map-empty))))) :step st :done? fin)\n",
+    "e10rt.llmll": "(import wasi.io (capability stdout))\n"
+                   "(def-shell dv [d: int] -> int (post (>= (/ 10 d) 0)) d)\n"
+                   + HARNESS +
+                   "(def-main :mode cli :init (pair 0 (wasi.io.stdout (int-to-string (dv 0)))) :step st :done? fin)\n",
+    "mklib.llmll": "(def-shell mk [n: int] -> map[int,int] (post (= (map-get result 3) 0)) (map-empty))\n",
+    "app.llmll": "(import wasi.io (capability stdout))\n(import mklib)\n(open mklib)\n"
+                 + HARNESS +
+                 "(def-main :mode cli :init (pair 0 (wasi.io.stdout (if (map-has (mk 1) 3) \"key 3 present\" \"key 3 absent\"))) :step st :done? fin)\n",
+}
+# The sidecar llmll 0.36.0 (stamp "6") writes for mklib.llmll: it claims mk's
+# post verified. The hash is mk's real one, so only the stamp discards it.
+SIDECAR_6 = {
+    "axiom_disclosure_version": "1", "caller_obligations": [],
+    "checker_soundness_version": "6",
+    "mk": {"post": {"body_faithful": True,
+                    "display_level": {"level": "verified", "prover": "liquid-fixpoint"},
+                    "verified_hash": "sha256:5b611553029c6f87e620447b0339f88d5c2d118ebf12e4ce5958d3caaddedfe6"}},
+}
+BUILD_TIMEOUT_S = 600
+
+
+def _build_run(tmp_path: Path, name: str, *flags: str) -> subprocess.CompletedProcess:
+    import glob
+    out = tmp_path / ("out-" + name.replace(".llmll", ""))
+    b = subprocess.run(shlex.split(os.environ["LLMLL_BIN"]) + ["build", *flags, name, "-o", str(out)],
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT_S, cwd=str(tmp_path))
+    assert b.returncode == 0, b.stdout[-1500:] + b.stderr[-1500:]
+    exes = glob.glob(str(out / ".stack-work" / "install" / "*" / "*" / "*" / "bin" / "*"))
+    assert len(exes) == 1, exes
+    return subprocess.run([exes[0]], input="x\n", capture_output=True, text=True, timeout=30)
+
+
+def _put_rt(tmp_path: Path, *names: str) -> None:
+    for n in names:
+        (tmp_path / n).write_text(RT_SOURCES[n])
+
+
+@pytest.mark.parametrize("name,msg", [
+    ("e4rt.llmll", "Precondition of g is undefined: map-get key 3 not present"),
+    ("e10rt.llmll", "Postcondition of dv is undefined: division by zero"),
+])
+def test_runtime_clause_guard_message(tmp_path, name, msg):
+    _put_rt(tmp_path, name)
+    r = _build_run(tmp_path, name)
+    assert r.returncode == 1, (r.stdout, r.stderr[-800:])
+    assert msg in r.stderr, r.stderr[-800:]
+    assert "divide by zero" not in r.stderr
+    assert "pre-condition failed" not in r.stderr
+
+
+def test_xm3_ill_defined_post_is_kept_and_stops_the_run(tmp_path):
+    _put_rt(tmp_path, "mklib.llmll", "app.llmll")
+    v = subprocess.run(shlex.split(os.environ["LLMLL_BIN"]) + ["--json", "verify", "mklib.llmll"],
+                       capture_output=True, text=True, timeout=120, cwd=str(tmp_path))
+    assert v.returncode == 1, v.stdout + v.stderr
+    assert json.loads(v.stdout)["ill_defined"] == ["mk"]
+    assert not (tmp_path / "mklib.llmll.verified.json").exists()
+    r = _build_run(tmp_path, "app.llmll", "--contracts", "unproven")
+    assert r.returncode == 1, (r.stdout, r.stderr[-800:])
+    assert "Postcondition of mk is undefined: map-get key 3 not present" in r.stderr
+    assert "key 3 absent" not in r.stdout
+
+
+def test_xm3_stamp_6_sidecar_is_discarded(tmp_path):
+    _put_rt(tmp_path, "mklib.llmll", "app.llmll")
+    (tmp_path / "mklib.llmll.verified.json").write_text(json.dumps(SIDECAR_6))
+    r = _build_run(tmp_path, "app.llmll", "--contracts", "unproven")
+    assert r.returncode == 1, (r.stdout, r.stderr[-800:])
+    assert "Postcondition of mk is undefined: map-get key 3 not present" in r.stderr
