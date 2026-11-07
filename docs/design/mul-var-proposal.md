@@ -1,16 +1,37 @@
 ---
 name: mul-var-proposal
 title: "MUL-VAR-1: state and prove a product of two variables, so that an image layout can have a contract"
-status: "Rev 3, DRAFT 2026-11-07. Folds amendments A1 to A5 of mul-var-rev2-professor-review.md. z3 4.8.12 run recorded. Awaits a user decision. Not settled."
+status: "Rev 3, SETTLED 2026-11-07. The user took all six decisions as recommended and accepted the free-symbol change. Folds amendments A1 to A5 of mul-var-rev2-professor-review.md. z3 4.8.12 run recorded. Nothing with a product has gone through llmll verify."
 date: 2026-11-07
 author: language-team
-rows: "MUL-VAR-1 (G7, DECIDE). Depends on FQ-ARITH-FLAT-1 and FQ-NAME-COLLIDE-1 (both PLAN, unshipped). Related: CLAUSE-WELLDEF-1 (shipped v0.37.0), ABSTRACTION-VERDICT-1 (shipped v0.34.0), CDP-FQ-RACE-1 (G1, PLAN), BITWISE-WIDTH-1 (G7, PLAN), FFI-KERNEL-1 (G7, PLAN), CORE-SYNTAX-MSG-1 (G3, PLAN), LEAN-GA (parking lot). Proposes two rows, not filed: DIV-VAR-1, MUL-SLACK-1."
+rows: "MUL-VAR-1 (G7, PLAN). Depends on FQ-ARITH-FLAT-1 and FQ-NAME-COLLIDE-1 (both PLAN, unshipped). Related: CLAUSE-WELLDEF-1 (shipped v0.37.0), ABSTRACTION-VERDICT-1 (shipped v0.34.0), CDP-FQ-RACE-1 (G1, PLAN), BITWISE-WIDTH-1 (G7, PLAN), FFI-KERNEL-1 (G7, PLAN), CORE-SYNTAX-MSG-1 (G3, PLAN), LEAN-GA (parking lot). Filed at settlement: DIV-VAR-1 (G7, DECIDE), MUL-SLACK-1 (G7, MEASURE)."
 consumers: [user, professor, compiler-engineer, documentation-lead]
 ---
 
 # MUL-VAR-1: a product of two variables in a contract
 
-**Status: Rev 3, DRAFT 2026-11-07.** The user has not settled this record. The compiler was not changed. No roadmap row moved.
+**Status: Rev 3, SETTLED 2026-11-07.** The compiler was not changed. The roadmap row `MUL-VAR-1` moved from DECIDE to PLAN, and two rows were filed. See "Settlement".
+
+## Settlement
+
+**Settled 2026-11-07, Rev 3.** The user answered "yes to all". Each decision below is the user's, and each is the one this record recommended in "Decisions for the user".
+
+1. **Encoding.** B is the proof engine. Native z3 is used only for a validated `sat`. A native `unsat` never gives `verified`.
+2. **Refutation.** `refuted` is restored in the same release as the encoding, through the native recheck.
+3. **`def` bodies.** A `def` body may hold a product, so a `def` that holds one stays core. When `verify` falls back on that product, a strict-core caller gets the `core-membership-violation` text in "Messages", which names the callee, the product and its JSON pointer.
+4. **Disclosure.** One ground-fact family, `product-facts`. No new `assumed_facts` kind and no increase of `trust_report_version`. The verify schema does change, as "The verify schema" states: the `abstraction_fallback` pattern widens and `verify_json_version` goes from 1.1.0 to 1.2.0.
+5. **Variable divisors.** A separate row, `DIV-VAR-1`, filed at this settlement.
+6. **z3 4.8.12.** The gate passed at the design limit of 2000000 (CI run 42410952361), on script-built VCs only. A real rlimit of 200000 on Rev 3 and z3 4.8.12 is not run.
+
+**The free-symbol change is accepted.** Each monomial is one free integer symbol, `mul##k`, as "A design change beyond the amendments" states. No professor review has read this change: it is new in Rev 3.
+
+**What is not yet shown.** Nothing with a product has gone through `llmll verify`. Every number in this record comes from script-built VCs. The "Not run" list stands as written. **The first implementation step** is the witness table through `llmll verify`, with the Y4M and netpbm contracts restated (`examples/y4m/raster.llmll`, `examples/netpbm-swarm/kernel.llmll`).
+
+**Review.** The user chose no further professor round now. The next review comes when real contracts run through an implementation. The two reviews stay standalone: [`mul-var-professor-review.md`](mul-var-professor-review.md) (Rev 1) and [`mul-var-rev2-professor-review.md`](mul-var-rev2-professor-review.md) (Rev 2). Neither is folded into an appendix.
+
+**Ship order.** `FQ-NAME-COLLIDE-1` and `FQ-ARITH-FLAT-1` ship first, as "Ship order" states. Both have approved plans that target v0.37.1. **One reading note on `FQ-NAME-COLLIDE-1`.** "Recommendation" says that row "makes atom keys injective". Its approved plan does not change the encoding. It refuses a constraint whose names clash, through the fallback channel, with the cause `fq-name-collision`. So no clashing pair of names reaches the solver, and the atom keys of a constraint that is solved are distinct. The implementation must confirm that this check also sees `mul##k` and the atoms of the normal form.
+
+**Version numbers after the first rows.** `FQ-NAME-COLLIDE-1` takes `checker_soundness_version` "8" and `proof_artifact_version` 0.3.0. This record changes neither, so its "Versions" bullet stands.
 
 **How to read the numbers.** A number with no label comes from a run of `rev3.py` on this revision, on z3 4.15.4 and liquid-fixpoint 0.9.6.3.7. A number labelled "Rev 2 prototype", "review" or "Rev 1" is carried from that source and was not rerun. **Every VC here is built by a script. Nothing with a product went through `llmll verify`.** No emitter exists, so the tables show what the design does on hand-built VCs. CPU seconds count `fixpoint` with its z3 child, at a load average of 5 to 9, so read them as upper bounds. W22 cost 13.5, 13.7 and 18.0 CPU s in three places in one run, which shows the noise. **A number labelled z3 4.8.12 comes from CI run 42410952361 of this script** (see "z3 4.8.12"). That run covers the same script-built VCs and no `llmll verify`.
 
@@ -117,7 +138,7 @@ Withdrawn from Rev 2: the equation map `σ`; the 16-monomial and written-pair ca
 
 **Comment drift, carried.** The comment on `sanitizeFQId` says that liquid-fixpoint accepts only `[A-Za-z0-9_]` in a name. The review's `collide` witness also shows that its "fails closed" comment is incorrect: `FQ-NAME-COLLIDE-1` owns that.
 
-**Row drift, new.** The `FQ-ARITH-FLAT-1` row calls the parser an inference and says that the source was not read. This revision read `Parse.hs` at 0.9.6.3.7, and the engineer's plan is reported to have read it too (that plan was not read here). The documentation-lead may update that sentence when it next touches the row.
+**Row drift, new.** The `FQ-ARITH-FLAT-1` row calls the parser an inference and says that the source was not read. This revision read `Parse.hs` at 0.9.6.3.7, and the engineer's plan is reported to have read it too (that plan was not read here). The documentation-lead may update that sentence when it next touches the row. *Done at settlement, 2026-11-07: the row now cites the reading.*
 
 ## What happens today (Rev 1, llmll 0.37.0; not rerun)
 
@@ -882,7 +903,9 @@ This is an addition to the reflected fragment. Its soundness argument is above.
 9. **The Lean demo loses `square`.** Scope. A new example is needed, such as W23.
 10. **The model reader is new parsing of z3's output.** Soundness, mitigated. A mistake reads a value wrongly, and then an evaluation fails or a false model passes only if it satisfies the VC by exact evaluation. A passed model is a real VC counterexample whatever the reader did, so a reader bug cannot give a false `refuted` beyond today's meaning. Only matters for ergonomics.
 
-### Proposed rows, not filed
+### Proposed rows, filed at settlement
+
+Both rows were filed in G7 of `docs/compiler-team-roadmap.md` on 2026-11-07: `DIV-VAR-1` as DECIDE and `MUL-SLACK-1` as MEASURE. The text below is the proposal as it stood.
 
 **`DIV-VAR-1`** (no contract can state a division or `mod` by a variable). An image library needs `(/ i w)` and `(mod i w)` to turn an offset into coordinates, and `(/ (* x sw) dw)` for nearest-neighbour resize. Haskell `div` and SMT `div` agree only for a positive divisor (`LLMLL.md` §5.3.3), so this needs a proved `divisor > 0`, a definedness entry under `CLAUSE-WELLDEF-1`, and its own facts. Rev 1 measured three witnesses SAFE and one false variant UNSAFE under Option A.
 
