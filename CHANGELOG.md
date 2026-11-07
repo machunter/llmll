@@ -4,7 +4,7 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.36.0)
+## v0.37.0: a `pre` or `post` that cannot be evaluated at run time does not verify (2026-11-06)
 
 ### `CLAUSE-WELLDEF-1`: a `pre` or `post` that cannot be evaluated at run time does not verify
 
@@ -71,6 +71,24 @@
 - Design: [`docs/design/clause-welldef-proposal.md`](docs/design/clause-welldef-proposal.md)
   Rev 3, with the §4.3 site S9 note. Commits `7dcc9236`, `271080cb`, `157f97c1`, merge
   `253490b5`.
+
+**Measured, v0.36.0 against this release, each binary over its own copy of the tree
+(liquid-fixpoint 0.9.6.3.7):**
+
+- `scripts/fallback_census.py`, 291 files: no per-file change. Ratio 0.9845 (888 of 902), 119
+  files strict-pass, on both binaries. The ratchet still fails on the three files of
+  `CENSUS-BASELINE-1`, on both binaries; this release adds none.
+- `llmll --json verify` on all 720 tracked sources, outside the census roots as well: one exit
+  status changed, `f` in `scripts/doc-claims/contract-read-oob.llmll` (0 to 1), as the design
+  predicted. One function that was already refuted also gains `ill_defined`:
+  `f` in `scripts/tests/fixtures/bytes_set_len_ctor_sort/b4_oob.llmll`. Those two files are the
+  only ones in the tree with `ill_defined` or `welldef_unproved`. The other eight output changes
+  are constraint numbers and one temp-file hash in a message.
+- **Cost:** verifying all 720 files took 127.5 s, then 132.4 s (4%), with no timeouts. Serial runs
+  of `examples/y4m/hdr.llmll`, `examples/heartbleed/secure-channel/sc-channel.llmll` and
+  `examples/netpbm-swarm/lex.llmll` are unchanged in time and memory. The largest change seen is
+  `experiments/rfc-swarm/runs/rfc826-llmll-2026-09-12/07-feasibility/merge-before-opcode.llmll`,
+  0.39 s and 34 MB to 1.11 s and 50 MB.
 
 **Tests:** hspec 3003 → 3077, 0 failures; Python 720 → 738 passed, 10 skipped.
 
