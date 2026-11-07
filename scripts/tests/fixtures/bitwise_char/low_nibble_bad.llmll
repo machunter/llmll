@@ -1,0 +1,4 @@
+(def-shell low-nibble [x: int] -> int
+  (pre (>= x 0))
+  (post (and (>= result 0) (< result 16)))
+  (bit-and x 31))

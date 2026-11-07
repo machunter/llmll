@@ -1,0 +1,4 @@
+(def-shell first-code [s: string] -> int
+  (pre (> (string-length s) 0))
+  (post (and (>= result 0) (<= result 1114111)))
+  (string-code-at s 0))

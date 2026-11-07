@@ -1,0 +1,4 @@
+(def-shell rotl32-7 [x: int] -> int
+  (pre (and (>= x 0) (<= x 4294967295)))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (+ (mod (bit-shl x 7) 4294967296) (bit-shr x 24)))

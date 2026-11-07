@@ -48,7 +48,9 @@ module LLMLL.FixpointEmit
   , renderFallbackCause
   , BuiltinAxiom(..)              -- TRUST-AXIOM: one sealed-builtin axiom a function's evidence rests on
   , sealedAxiomBuiltins           -- TRUST-AXIOM: the builtins whose assumed post is an axiom
-  , abstractedBuiltins            -- ABSTRACTION-VERDICT-1 clause 1: partially reflected builtins (empty)
+  , abstractedBuiltins            -- ABSTRACTION-VERDICT-1 clause 1: partially reflected builtins
+  , exactBitBuiltins              -- BITWISE-1: the names with an exact reflection
+  , BitExact(..), bitExact, bitExactTerm  -- BITWISE-1: the exact-form recognizer (unit tests)
   , injectRangeFactsLabeled       -- TRUST-AXIOM family C: facts plus the families they belong to
   , arrayTheorySyms               -- FQ-FREEVAR-GUARD-1: the solver's interpreted symbols
   , selfEqReft                    -- FQ-NAME-COLLIDE-1: { v : s | v = t } without capture
@@ -161,6 +163,7 @@ import Control.Monad.State.Strict (State, evalState, get, put, MonadState)
 import Control.Monad.Reader (ReaderT, runReaderT, ask, local, lift)
 import Control.Applicative ((<|>))
 import Data.Char (isUpper, ord)
+import Data.Bits ((.&.))
 import Numeric (showHex)
 import Data.Graph (stronglyConnComp, SCC(..))
 
@@ -387,26 +390,91 @@ data BuiltinAxiom = BuiltinAxiom
   } deriving (Show, Eq)
 
 -- | TRUST-AXIOM: the builtins whose 'cvPostAssumption' is an axiom rather than
--- a discharged contract. These are exactly the four builtin 'CallVC' arms of
--- 'bodyToPredM'. A user function's 'CallVC' is NOT here: its post is the
--- callee's own contract, discharged by the callee's body VC under
--- assume-guarantee (LLMLL.md §5.3.4).
+-- a discharged contract. These are the six sealed builtin 'CallVC' arms of
+-- 'bodyToPredM': the four array arms and, since CHAR-CODE-1, the two character
+-- arms. The exact bit forms are NOT here ('exactBitBuiltins'): each result is the
+-- arithmetic term itself, which assumes nothing about the operation. A user
+-- function's 'CallVC' is NOT here: its post is the callee's own contract,
+-- discharged by the callee's body VC under assume-guarantee (LLMLL.md §5.3.4).
 --
 -- ONE SITE, deliberately. The collector and the emitting arms must not hold
 -- separate opinions about membership; 'LLMLL.TypeAdmissibility' exists because
 -- a mirrored gate drifted once already.
 sealedAxiomBuiltins :: Set.Set Name
-sealedAxiomBuiltins = Set.fromList ["bytes-get", "bytes-set", "bytes-zero", "map-get"]
+sealedAxiomBuiltins = Set.fromList
+  [ "bytes-get", "bytes-set", "bytes-zero", "map-get"
+  , "string-code-at", "string-from-code" ]
 
 -- | ABSTRACTION-VERDICT-1, clause 1 of docs/design/byte-io-proposal.md Rev 2
--- (Part 0): the builtins whose result the VC reflects only PARTIALLY (a UF with
--- a range fact, not an exact definition), so an UNSAFE answer that rests on one
--- may be a model no implementation realizes. EMPTY in this ticket: the first
--- members (the @strCode@ UF of @string-code@ and its facts) arrive with the
--- step 1 ticket (BITWISE-1 / CHAR-CODE-1), which fills this set. Clause 2 (two
--- calls to one callee) is 'erAbstracted' and does not read it.
+-- (Part 0): the builtins whose result the VC reflects only PARTIALLY, so an UNSAFE
+-- answer that rests on one may be a model no implementation realizes. CHAR-CODE-1
+-- fills it: @string-code-at@ is the @strCode@ UF with a range fact, and
+-- @string-from-code@ is a fresh string with a length fact. 'abstracted' marks a
+-- constraint whose environment holds such a result, with no call count. Clause 2
+-- (two calls to one callee) is the other half of 'erAbstracted'.
 abstractedBuiltins :: Set.Set Name
-abstractedBuiltins = Set.empty
+abstractedBuiltins = Set.fromList ["string-code-at", "string-from-code"]
+
+-- | BITWISE-1: the names whose 'CallVC' arm reflects an exact form. Two such
+-- calls in one constraint are two arithmetic terms, so clause 2 of the verdict
+-- rule does not read them ('cbAbstractable'), and they are not axioms
+-- ('sealedAxiomBuiltins'). One site. @bit-or@, @bit-xor@ and every inexact form
+-- have no arm: the caller falls back.
+exactBitBuiltins :: Set.Set Name
+exactBitBuiltins = Set.fromList ["bit-and", "bit-shl", "bit-shr"]
+
+-- | BITWISE-1 / CHAR-CODE-1: the builtins the ANF pass hoists, so a guard use
+-- carries its call-pre as @bytes-get@ does (D2). Only these names change: the
+-- pass fires on occurrence, so a program without them keeps its @.fq@ bytes. A
+-- hoisted inexact form reaches 'bodyToPredM', has no arm, and the caller falls
+-- back.
+bitCharCallNames :: Set.Set Name
+bitCharCallNames = Set.fromList
+  [ "bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"
+  , "string-code-at", "string-from-code" ]
+
+-- | BITWISE-1: a bit application with an exact reflection. The field is the
+-- operand the solver still sees and the numeral the form divides or multiplies
+-- by.
+data BitExact
+  = BitShl Expr Integer   -- ^ @(bit-shl e c)@ is @e * 2^c@; the field is @2^c@
+  | BitShr Expr Integer   -- ^ @(bit-shr e c)@ is @e div 2^c@; the field is @2^c@
+  | BitMask Expr Integer  -- ^ @(bit-and e m)@, @m = 2^w - 1@, is @e mod 2^w@; the field is @2^w@
+  deriving (Show, Eq)
+
+-- | BITWISE-1 (byte-io-proposal Part 5): the one recognizer of the exact forms,
+-- shared by the body arm and the clause arm. It tests values AFTER folding
+-- ('groundInt'), so a let-bound constant is not ground. A shift bound keeps a
+-- numeral of @c@ bits out of the @.fq@ file. @m >= 0@ is required: the test
+-- @m .&. (m + 1) == 0@ alone accepts -1, and @x .&. (-1) = x@, which is no
+-- @x mod 2^w@. A mask needs no size bound: the emitted numeral is one more than
+-- the literal the program wrote. 'Nothing' for every other form.
+bitExact :: Name -> [Expr] -> Maybe BitExact
+bitExact "bit-shl" [e, c] | Just k <- groundInt c, shiftOk k = Just (BitShl e (2 ^ k))
+bitExact "bit-shr" [e, c] | Just k <- groundInt c, shiftOk k = Just (BitShr e (2 ^ k))
+bitExact "bit-and" [a, b]
+  | Just m <- groundInt b, isMask m = Just (BitMask a (m + 1))
+  | Just m <- groundInt a, isMask m = Just (BitMask b (m + 1))
+bitExact _ _ = Nothing
+
+shiftOk :: Integer -> Bool
+shiftOk k = k >= 0 && k <= 4096
+
+isMask :: Integer -> Bool
+isMask m = m >= 0 && m .&. (m + 1) == 0
+
+-- | The operand of an exact form.
+bitExactOperand :: BitExact -> Expr
+bitExactOperand (BitShl e _)  = e
+bitExactOperand (BitShr e _)  = e
+bitExactOperand (BitMask e _) = e
+
+-- | The reflection of an exact form over its translated operand. Each equals the
+-- runtime value for every integer operand (Part 5, P3).
+bitExactTerm :: BitExact -> FQPred -> FQPred
+bitExactTerm (BitShl _ n)  p = FQBinArith FQMul p (FQLit n)
+bitExactTerm (BitShr _ n)  p = FQBinArith FQDiv p (FQLit n)
+bitExactTerm (BitMask _ n) p = FQBinArith FQMod p (FQLit n)
 
 -- | TRUST-AXIOM: the function a constraint belongs to. 'conTag' carries
 -- @[name, clause]@ at every emission site, so the head is the function name.
@@ -1173,6 +1241,9 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       -- Binders map to callees through the emitted BodyVC
       -- ('collectCallBinders'), never by parsing names; a map-returning call's
       -- $has/$val components count as the one call they belong to.
+      -- Clause 1 (CHAR-CODE-1): one result of an 'abstractedBuiltins' callee
+      -- marks the constraint, with no call count. Such a callee is a sealed
+      -- builtin, so it enters through its name and not through 'cbAbstractable'.
       bindNames = Map.fromList [ (bindId b, bindName b) | b <- binds ]
       abstracted = Map.fromList
         [ (conId c, callee)
@@ -1184,9 +1255,10 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                 | bid <- conEnv c
                 , Just nm <- [Map.lookup bid bindNames]
                 , Just b <- [Map.lookup nm bmap]
-                , cbAbstractable b
+                , cbAbstractable b || Set.member (cbCallee b) abstractedBuiltins
                 , let (cal, root) = (cbCallee b, cbRoot b) ]
-        , (callee, _) : _ <- [ [ x | x@(_, roots) <- Map.toAscList perCallee, Set.size roots >= 2 ] ] ]
+        , (callee, _) : _ <- [ [ x | x@(cal, roots) <- Map.toAscList perCallee
+                                   , Set.size roots >= 2 || Set.member cal abstractedBuiltins ] ] ]
       -- CALLEE-POST-UNASSUMED-1 (post-conj-split professor review P1, P8). A
       -- constraint is marked when its environment holds the result of a call
       -- whose callee post exists and was not assumed at that call
@@ -1880,6 +1952,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             seedD <- readIORef bodyCounterRef
             let anfNames = Map.keysSet cenv
                              `Set.union` Set.fromList ["bytes-get", "bytes-set", "map-get"]
+                             `Set.union` bitCharCallNames
                 (bodyD, seedD') = evalState
                   (do r <- aNormalizeBody anfNames (expandMapLets (Map.keysSet cenv) body')
                       c <- get
@@ -3945,6 +4018,9 @@ data PartialOp
   = PMapGet FQPred FQPred            -- ^ has-array, key
   | PBytesGet FQPred FQPred          -- ^ bytes, index
   | PBytesSet FQPred FQPred FQPred   -- ^ bytes, index, value
+  | PBitNonNeg FQPred                -- ^ BITWISE-1: the operand of an exact form
+  | PStringCodeAt FQPred FQPred      -- ^ CHAR-CODE-1: string, index (body only, D4)
+  | PStringFromCode FQPred           -- ^ CHAR-CODE-1: code (body only, D4)
   deriving (Show, Eq)
 
 -- | CLAUSE-WELLDEF-1: the ONE table of partial-builtin preconditions π_f.
@@ -3960,6 +4036,16 @@ partialPre (PBytesGet b i) =
   FQAnd [ FQBinPred FQLe (FQLit 0) i
         , FQBinPred FQLt i (FQApp "bytesLen" [b]) ]
 partialPre (PBytesSet b i v) = fst (bytesSetSpec b i v (FQVar "wd$unused"))
+-- The ground operand of an exact form (the shift count, the mask) needs no
+-- obligation: 'bitExact' has already required it to be non-negative.
+partialPre (PBitNonNeg e) = FQBinPred FQGe e (FQLit 0)
+partialPre (PStringCodeAt s i) =
+  FQAnd [ FQBinPred FQGe i (FQLit 0)
+        , FQBinPred FQLt i (FQApp "strLen" [s]) ]
+partialPre (PStringFromCode c) =
+  FQAnd [ FQBinPred FQGe c (FQLit 0)
+        , FQBinPred FQLe c (FQLit 1114111)
+        , FQOr [ FQBinPred FQLt c (FQLit 55296), FQBinPred FQGt c (FQLit 57343) ] ]
 
 -- | CLAUSE-WELLDEF-1: one definedness obligation of a clause, @C ⟹ π_f@.
 data WDObl = WDObl
@@ -3981,6 +4067,7 @@ wdSiteText o = exprToSExpr (woOp o) <> " needs " <> exprToSExpr (surfacePre (woO
       EApp "map-get"   [m, k]    -> EApp "map-has" [m, k]
       EApp "bytes-get" [b, i]    -> EApp "and" (inBounds b i)
       EApp "bytes-set" [b, i, v] -> EApp "and" (inBounds b i ++ [EApp "<=" [lit 0, v], EApp "<=" [v, lit 255]])
+      EApp op args | Just f <- bitExact op args -> EApp ">=" [bitExactOperand f, lit 0]
       _                          -> e
 
 -- | Convert a linear arithmetic LLMLL Expr to a FQPred.
@@ -4117,6 +4204,13 @@ exprToPredWD c e@(EApp "bytes-set" [b, i, v]) = do
   (y, oi) <- exprToPredWD c i
   (z, ov) <- exprToPredWD c v
   pure (FQApp "Map_store" [x, y, z], ob ++ oi ++ ov ++ [WDObl c (partialPre (PBytesSet x y z)) e])
+-- BITWISE-1: the exact forms ('bitExact'), each with a WD obligation over its
+-- operand. Every other bit form, and both character builtins (D4), reach the
+-- catch-all: the clause falls back with its `app:<name>` label.
+exprToPredWD c e@(EApp op args)
+  | Just form <- bitExact op args = do
+      (x, ox) <- exprToPredWD c (bitExactOperand form)
+      pure (bitExactTerm form x, ox ++ [WDObl c (partialPre (PBitNonNeg x)) e])
 -- LEVER-A2 (proposal §4): the map ops reflect via the two-array encoding —
 -- presence is the int-0/1 array (Rev 1.1), so `(map-has m k)` is the equation
 -- `Map_select(m$has, k) = 1` and `(map-get m k)` reads the value array. The
@@ -4564,6 +4658,7 @@ bodyToPredFromRS seed sortEnv refEnv scrutTags calleeSorts matchCtx cenv sccSet 
   -- runs FIRST: pure map-typed lets substitute into their bodies, reducing the
   -- §5.1 pipeline shape to the composite form. Inert for map-let-free bodies.
   let callNames = Map.keysSet cenv `Set.union` Set.fromList ["bytes-get", "bytes-set", "map-get"]
+                    `Set.union` bitCharCallNames
       (result, finalCounter) = runStateFrom seed $ do
         expr' <- aNormalizeBody callNames (expandMapLets (Map.keysSet cenv) expr)
         runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') (refEnv, scrutTags, calleeSorts, matchCtx)
@@ -4804,6 +4899,21 @@ bytesSetSpec bP iP vP r =
           , FQBinPred FQLe vP (FQLit 255) ]
   , [ ("reflection", FQBinPred FQEq r (FQApp "Map_store" [bP, iP, vP]))
     , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [r]) (FQApp "bytesLen" [bP])) ] )
+
+-- | CHAR-CODE-1: the string argument of @string-code-at@, as @string-length@
+-- reads a measure argument: a variable under the renaming env, or a literal. A
+-- variable the sort env holds at another sort is refused: a let-bound string is
+-- recorded at the default sort ('predSortOf'), and the caller falls back rather
+-- than write an ill-sorted @strCode@ term.
+strArgTerm :: Map Name Name -> SortEnv -> Expr -> Maybe FQPred
+strArgTerm _ _ (ELit (LitString s)) = Just (FQApp (strlitConst s) [])
+strArgTerm env se (EVar v) =
+  let rn = fromMaybe v (Map.lookup v env)
+  in case Map.lookup rn se of
+       Nothing    -> Just (FQVar rn)
+       Just FQStr -> Just (FQVar rn)
+       Just _     -> Nothing
+strArgTerm _ _ _ = Nothing
 
 -- | Core body-to-predicate translation. Handles all operators directly
 -- (NOT delegating to exprToPred) to preserve the alpha-renaming environment.
@@ -5344,6 +5454,60 @@ bodyToPredM env se _ _ (EApp "map-get" [mE, kE]) =
       return . Just $ CallVC "map-get" [h, vl, k] [] (Just pre) (Just post) parts
                              r (mapSelValSort se vl) (SimpleVC [] (FQVar r)) Nothing False
     _ -> return Nothing
+
+-- BITWISE-1: an exact form ('bitExact') in the `bytes-get` shape. The operand's
+-- pre is PROVE-polarity (tag "call-pre:<name>") and the fresh result is EQUATED
+-- to the arithmetic term. A name the function binds with a let is not the
+-- builtin ('env'); a function-typed parameter took the user-call arm above.
+-- Every other bit form has no arm and the caller falls back.
+bodyToPredM env se cenv sccSet (EApp op args)
+  | Map.notMember op env
+  , Just form <- bitExact op args = do
+      mEvc <- bodyToPredM env se cenv sccSet (bitExactOperand form)
+      case mEvc of
+        Just (SimpleVC [] p) -> do
+          r <- freshName ("call_" <> T.replace "-" "_" op)
+          let pre   = partialPre (PBitNonNeg p)
+              parts = [("reflection", FQBinPred FQEq (FQVar r) (bitExactTerm form p))]
+              post  = conjoinAll (map snd parts)
+          return . Just $ CallVC op [p] [] (Just pre) (Just post) parts
+                                 r FQInt (SimpleVC [] (FQVar r)) Nothing False
+        _ -> return Nothing
+
+-- CHAR-CODE-1: `string-code-at s i` as the `strCode` UF with its range fact. A UF,
+-- so two equal calls agree by congruence. The fact leaves the value partly
+-- unknown, so an UNSAFE answer resting on it is not a disproof
+-- ('abstractedBuiltins'). The range has no surrogate hole: a string can hold one
+-- from argv or a directory listing (Part 3, P11).
+bodyToPredM env se cenv sccSet (EApp "string-code-at" [sE, iE])
+  | Map.notMember "string-code-at" env
+  , Just sP <- strArgTerm env se sE = do
+      mIvc <- bodyToPredM env se cenv sccSet iE
+      case mIvc of
+        Just (SimpleVC [] iP) -> do
+          r <- freshName "call_string_code_at"
+          let pre   = partialPre (PStringCodeAt sP iP)
+              parts = [ ("reflection", FQBinPred FQEq (FQVar r) (FQApp "strCode" [sP, iP]))
+                      , ("lemma",      FQBinPred FQGe (FQVar r) (FQLit 0))
+                      , ("lemma",      FQBinPred FQLe (FQVar r) (FQLit 1114111)) ]
+              post  = conjoinAll (map snd parts)
+          return . Just $ CallVC "string-code-at" [sP, iP] [] (Just pre) (Just post) parts
+                                 r FQInt (SimpleVC [] (FQVar r)) Nothing False
+        _ -> return Nothing
+
+-- CHAR-CODE-1: `string-from-code c` as a fresh string of length one.
+bodyToPredM env se cenv sccSet (EApp "string-from-code" [cE])
+  | Map.notMember "string-from-code" env = do
+      mCvc <- bodyToPredM env se cenv sccSet cE
+      case mCvc of
+        Just (SimpleVC [] cP) -> do
+          r <- freshName "call_string_from_code"
+          let pre   = partialPre (PStringFromCode cP)
+              parts = [("lemma", FQBinPred FQEq (FQApp "strLen" [FQVar r]) (FQLit 1))]
+              post  = conjoinAll (map snd parts)
+          return . Just $ CallVC "string-from-code" [cP] [] (Just pre) (Just post) parts
+                                 r FQStr (SimpleVC [] (FQVar r)) Nothing False
+        _ -> return Nothing
 
 -- Normalize EOp to EApp
 bodyToPredM env se cenv sccSet (EOp name args) = bodyToPredM env se cenv sccSet (EApp name args)
@@ -6049,7 +6213,7 @@ collectCallSites (CallVC c args _ _ _ _ _ _ cont _ _) = (c, args) : collectCallS
 -- otherwise yields three rows differing only in an index literal, all asserting
 -- that `bytes-get` reflects to `Map_select`. What a reader needs is the SET of
 -- sealed builtins the evidence rests on, which 'sealedAxiomBuiltins' bounds at
--- four. The first occurrence supplies the representative predicate.
+-- six. The first occurrence supplies the representative predicate.
 collectBuiltinAxioms :: Name -> BodyVC -> [BuiltinAxiom]
 collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
   where
@@ -6137,7 +6301,10 @@ data CallBinder = CallBinder
 -- because their result is pinned by an exact reflection
 -- ('sealedAxiomBuiltins'), so two reads of one array agree in the theory
 -- already; a call with a congruence key is excluded too (CALL-CONGRUENCE-1:
--- it has a fact for every earlier same-key call on its path).
+-- it has a fact for every earlier same-key call on its path). So is an exact
+-- bit form ('exactBitBuiltins'), whose result is an arithmetic term. That arm
+-- writes parts and a call through a parameter of the same name does not, so the
+-- parameter stays abstractable.
 --
 -- CALLEE-POST-UNASSUMED-1 ('cbUnassumed'): every call, congruence-keyed or
 -- not, carries its node's flag. The sealed builtins always assume their
@@ -6148,14 +6315,15 @@ data CallBinder = CallBinder
 collectCallBinders :: BodyVC -> [(Name, CallBinder)]
 collectCallBinders (SimpleVC _ _)     = []
 collectCallBinders (BranchVC _ _ t e) = collectCallBinders t ++ collectCallBinders e
-collectCallBinders (CallVC c _ _ _ _ _ rv rs cont ck pu) =
+collectCallBinders (CallVC c _ _ _ _ parts rv rs cont ck pu) =
   [ (b, cb) | b <- rv : [ rv <> sfx | isMapArrRetSort rs, sfx <- ["$has", "$val"] ] ]
     ++ collectCallBinders cont
   where
+    exactBit = Set.member c exactBitBuiltins && not (null parts)
     cb = CallBinder
       { cbCallee       = c
       , cbRoot         = rv
-      , cbAbstractable = not (Set.member c sealedAxiomBuiltins) && isNothing ck
+      , cbAbstractable = not (Set.member c sealedAxiomBuiltins) && isNothing ck && not exactBit
       , cbUnassumed    = pu
       }
 
@@ -6476,6 +6644,8 @@ measureArgVars :: Expr -> Set.Set Name
 measureArgVars e = case e of
   EApp "string-length" [EVar v] -> Set.singleton v
   EApp "list-length"   [EVar v] -> Set.singleton v
+  -- CHAR-CODE-1: the string argument of the `strCode` term and of its `strLen` pre.
+  EApp "string-code-at" [EVar v, i] -> Set.insert v (measureArgVars i)
   EApp _ args   -> Set.unions (map measureArgVars args)
   EOp _ args    -> Set.unions (map measureArgVars args)
   EIf a b c     -> Set.unions (map measureArgVars [a, b, c])
@@ -6730,6 +6900,8 @@ measureConstant "listLen"  = FQConstant "listLen"  [FQList] FQInt
 -- callers assume it via assume-guarantee. The former LHS assumption
 -- ('resultLenFact') and binder refinement ('bytesLenReft') are both deleted.
 measureConstant "bytesLen" = FQConstant "bytesLen" [FQArr FQInt FQInt] FQInt
+-- CHAR-CODE-1: declared only when used, like the others.
+measureConstant "strCode"  = FQConstant "strCode"  [FQStr, FQInt] FQInt
 measureConstant n          = FQConstant n          [FQStr]  FQInt  -- strLen + default
 
 -- | F-NIW-1: collect every refinement predicate along a (possibly aliased) type's

@@ -25,6 +25,7 @@ import Data.List (isPrefixOf, intercalate, foldl')
 import qualified Text.Regex.TDFA as LRX
 import qualified Data.Char as LChar
 import qualified Data.Foldable as LFold
+import qualified Data.Bits as LBits
 import qualified Data.List as LList
 import qualified Data.Map.Strict as Map
 import Control.Exception (try, evaluate, SomeException)
@@ -284,6 +285,50 @@ llmll_min = min
 
 llmll_max :: Integer -> Integer -> Integer
 llmll_max = max
+
+-- BITWISE-1 (docs/design/byte-io-proposal.md Part 5). Each body checks its pre on
+-- the unbounded int and raises a named error, as bytes_get does. A shift count is
+-- compared as an Integer before it narrows to Int (INT-INDEX-WRAP-1).
+bit_and :: Integer -> Integer -> Integer
+bit_and a b
+  | a < 0 || b < 0 = error ("bit-and: pre-condition failed: operands " ++ show a ++ " and " ++ show b ++ " must be non-negative")
+  | otherwise      = a LBits..&. b
+
+bit_or :: Integer -> Integer -> Integer
+bit_or a b
+  | a < 0 || b < 0 = error ("bit-or: pre-condition failed: operands " ++ show a ++ " and " ++ show b ++ " must be non-negative")
+  | otherwise      = a LBits..|. b
+
+bit_xor :: Integer -> Integer -> Integer
+bit_xor a b
+  | a < 0 || b < 0 = error ("bit-xor: pre-condition failed: operands " ++ show a ++ " and " ++ show b ++ " must be non-negative")
+  | otherwise      = LBits.xor a b
+
+bit_shl :: Integer -> Integer -> Integer
+bit_shl a k
+  | a < 0 || k < 0                  = error ("bit-shl: pre-condition failed: value " ++ show a ++ " and shift " ++ show k ++ " must be non-negative")
+  | k > toInteger (maxBound :: Int) = error ("bit-shl: shift " ++ show k ++ " is too large to represent the result")
+  | otherwise                       = LBits.shiftL a (fromInteger k)
+
+bit_shr :: Integer -> Integer -> Integer
+bit_shr a k
+  | a < 0 || k < 0                  = error ("bit-shr: pre-condition failed: value " ++ show a ++ " and shift " ++ show k ++ " must be non-negative")
+  | k > toInteger (maxBound :: Int) = 0
+  | otherwise                       = LBits.shiftR a (fromInteger k)
+
+-- CHAR-CODE-1 (Part 3). string_code_at delegates to string_char_at, so it shares
+-- the Integer index check and the STR-INDEX-LINEAR-1 cache. Past the end it has
+-- no value to answer: every non-negative int is a possible code.
+string_code_at :: String -> Integer -> Integer
+string_code_at s i = case string_char_at s i of
+  (c:_) -> toInteger (LChar.ord c)
+  []    -> error ("string-code-at: pre-condition failed: index " ++ show i ++ " out of bounds for a string of length " ++ show (length s))
+
+string_from_code :: Integer -> String
+string_from_code c
+  | c < 0 || c > 1114111     = error ("string-from-code: pre-condition failed: code " ++ show c ++ " outside 0..1114111")
+  | c >= 55296 && c <= 57343 = error ("string-from-code: pre-condition failed: code " ++ show c ++ " is a surrogate")
+  | otherwise                = [LChar.chr (fromInteger c)]
 -- END RUNTIME-PURE
 
 -- STR-INDEX-LINEAR-1: the list-walk definitions the cached ones replaced. Not

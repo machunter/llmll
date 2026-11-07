@@ -54,6 +54,7 @@ module LLMLL.Checkout
   , buildFuncEntries
   , buildCheckoutFuncs   -- HOLE-STATUS: the brief's available_functions list
   , arrayOpFuncEntries   -- LEVER-A3: type-relevance-gated array-op vocabulary
+  , bitCharFuncEntries   -- BITWISE-1 / CHAR-CODE-1: the same rule for the bit and character builtins
   , sourceLabel
   ) where
 
@@ -1159,6 +1160,9 @@ buildCheckoutFuncs stmts cache trustMap mEnclosing aliasMap scopeTys =
   ++
   -- LEVER-A3: array-op builtin vocabulary, type-relevance gated.
   arrayOpFuncEntries aliasMap scopeTys
+  ++
+  -- BITWISE-1 / CHAR-CODE-1: the same vocabulary rule for the other PROVE pres.
+  bitCharFuncEntries aliasMap scopeTys
 
 -- | HOLE-STATUS-SIBLING: does this function body still hold a hole, anywhere?
 --
@@ -1240,6 +1244,41 @@ arrayOpFuncEntries aliasMap scopeTys =
       , mk "map-keys"    ["map[k,v]"] "list[k]" Nothing
       , mk "map-entries" ["map[k,v]"] "list[(k, v)]" Nothing
       ]
+
+-- | BITWISE-1 / CHAR-CODE-1: the bit and character builtins as brief vocabulary,
+-- with their preconditions over the display binders p0..pn: the obligation the
+-- agent owes at a call. Listed only when a relevant type is in scope: the bit
+-- operations at an int or a bytes value, @string-from-code@ at an int or a
+-- string, @string-code-at@ at a string. Separate from 'arrayOpFuncEntries', whose
+-- rule is that an int or string scope lists no array operation.
+bitCharFuncEntries :: Map.Map Name Type -> [Type] -> [FuncEntry]
+bitCharFuncEntries aliasMap scopeTys =
+     (if intRel || bytesRel then bitEntries else [])
+  ++ [ mk "string-code-at" ["string", "int"] "int"
+         (Just "(and (>= p1 0) (< p1 (string-length p0)))") | strRel ]
+  ++ [ mk "string-from-code" ["int"] "string"
+         (Just "(and (and (>= p0 0) (<= p0 1114111)) (or (< p0 55296) (> p0 57343)))") | intRel || strRel ]
+  where
+    resolved = map (resolveTy (8 :: Int)) scopeTys
+    resolveTy n (TCustom c) | n > 0, Just t <- Map.lookup c aliasMap = resolveTy (n - 1) t
+    resolveTy n (TDependent _ t _) | n > 0 = resolveTy (n - 1) t
+    resolveTy _ t = t
+    intRel   = TInt `elem` resolved
+    strRel   = TString `elem` resolved
+    bytesRel = not (null [ () | TBytes _ <- resolved ])
+    mk name ps ret mPre = FuncEntry
+      { feName   = name
+      , feParams = zipWith (\i t -> ("p" <> T.pack (show (i :: Int)), t)) [0..] ps
+      , feReturn = ret
+      , feStatus = "builtin"
+      , fePre    = mPre
+      , fePost   = Nothing
+      , feTier   = Nothing
+      }
+    nonNeg = Just "(and (>= p0 0) (>= p1 0))"
+    bitEntries =
+      [ mk op ["int", "int"] "int" nonNeg
+      | op <- ["bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"] ]
 
 -- | Render ScopeSource as JSON-friendly text.
 sourceLabel :: ScopeSource -> Text

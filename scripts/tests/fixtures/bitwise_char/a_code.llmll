@@ -1,0 +1,3 @@
+(def-shell a-code [] -> int
+  (post (= result 97))
+  (string-code-at "a" 0))

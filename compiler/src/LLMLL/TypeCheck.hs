@@ -172,6 +172,15 @@ builtinEnv = Map.fromList $
   , ("string-concat",   TFn [TString, TString] TString)
   , ("string-slice",    TFn [TString, TInt, TInt] TString)
   , ("string-char-at",  TFn [TString, TInt] TString)
+  -- CHAR-CODE-1 (docs/design/byte-io-proposal.md Part 3). Each carries a pre.
+  , ("string-code-at",  TFn [TString, TInt] TInt)
+  , ("string-from-code", TFn [TInt] TString)
+  -- BITWISE-1 (Part 5). Non-negative operands; the value comes first in a shift.
+  , ("bit-and",         TFn [TInt, TInt] TInt)
+  , ("bit-or",          TFn [TInt, TInt] TInt)
+  , ("bit-xor",         TFn [TInt, TInt] TInt)
+  , ("bit-shl",         TFn [TInt, TInt] TInt)
+  , ("bit-shr",         TFn [TInt, TInt] TInt)
   , ("string-split",    TFn [TString, TString] (TList TString))
   , ("string-trim",     TFn [TString] TString)
   , ("string-concat-many", TFn [TList TString] TString)

@@ -127,11 +127,12 @@ _LEGACY_BUILTINS_REF = """\
 
 ## Built-in Functions (pre-v0.3.4 static reference)
 
-abs, err, first, int-to-string, is-ok, list-append, list-contains,
+abs, bit-and, bit-or, bit-shl, bit-shr, bit-xor, err, first, int-to-string,
+is-ok, list-append, list-contains,
 list-empty, list-filter, list-fold, list-head, list-length, list-map,
 list-nth, list-prepend, list-tail, max, min, ok, pair, range,
-regex-match, second, seq-commands, string-char-at, string-concat,
-string-concat-many, string-contains, string-empty?, string-length,
+regex-match, second, seq-commands, string-char-at, string-code-at, string-concat,
+string-concat-many, string-contains, string-empty?, string-from-code, string-length,
 string-slice, string-split, string-to-int, string-trim, unwrap, unwrap-or
 
 ## Operators
