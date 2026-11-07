@@ -1,64 +1,101 @@
 ---
 name: mul-var-proposal
 title: "MUL-VAR-1: state and prove a product of two variables, so that an image layout can have a contract"
-status: "Rev 1, DRAFT 2026-11-07. Awaits a user decision. Not settled. No professor pass yet."
+status: "Rev 2, DRAFT 2026-11-07. Answers mul-var-professor-review.md. Awaits a user decision. Not settled."
 date: 2026-11-07
 author: language-team
-rows: "MUL-VAR-1 (G7, DECIDE). Related: CLAUSE-WELLDEF-1 (shipped v0.37.0), ABSTRACTION-VERDICT-1 (shipped v0.34.0), BITWISE-WIDTH-1 (G7, PLAN), FFI-KERNEL-1 (G7, PLAN), CORE-SYNTAX-MSG-1 (G3, PLAN), LEAN-GA (parking lot). Proposes one row, not filed: DIV-VAR-1."
+rows: "MUL-VAR-1 (G7, DECIDE). Related: CLAUSE-WELLDEF-1 (shipped v0.37.0), ABSTRACTION-VERDICT-1 (shipped v0.34.0), BITWISE-WIDTH-1 (G7, PLAN), FFI-KERNEL-1 (G7, PLAN), CORE-SYNTAX-MSG-1 (G3, PLAN), LEAN-GA (parking lot). Proposes two rows, not filed: DIV-VAR-1, MUL-SLACK-1."
 consumers: [user, professor, compiler-engineer, documentation-lead]
 ---
 
 # MUL-VAR-1: a product of two variables in a contract
 
-**Status: Rev 1, DRAFT 2026-11-07.** The user has not settled this record. Every number below was measured on 2026-11-07 unless a line says otherwise. The compiler was not changed. Each encoding was tested on a verification condition (VC) built by hand, in the shape the emitter writes.
+**Status: Rev 2, DRAFT 2026-11-07.** The user has not settled this record. The compiler was not changed.
+
+**How to read the numbers.** A number with no label comes from a run on this revision, on z3 4.15.4 and liquid-fixpoint 0.9.6.3.7. A number labelled "Rev 1" or "review" is carried from that document and was not rerun, unless the line says so. **Every VC here is built by a script. Nothing went through `llmll verify`.** z3 4.8.12 was not run (see "Not run"). The machine had a load average of 80 to 180 during these runs, so the record reports CPU seconds for `fixpoint` (with its z3 child) and treats a wall-clock time as an upper bound.
+
+The scripts are `nf.py` and `rev2.py`, in the session scratchpad folder `mulvar`. They are not committed. The first implementation step must repeat the tables through `llmll verify`.
 
 ## Restatement
 
-An image library states sizes and offsets as products: `w*h*channels`, `y*stride + x`. LLMLL cannot prove a product of two variables today, so no contract can say that a pixel offset is inside its buffer. This record chooses how `verify` handles `(* a b)` when neither operand is a constant.
+An image library states sizes and offsets as products: `w*h*channels`, `y*stride + x`. LLMLL cannot prove a product of two variables today, so no contract can say that a pixel offset is inside its buffer. This record chooses how `verify` handles `(* a b)` when neither operand is a constant, and how it reports a false claim that holds one.
 
 ## Recommendation
 
-**Reflect `(* a b)` as one uninterpreted function `mul`, with ground facts that are theorems of integer multiplication.** This is Option B below. The facts include one that the row did not name, the *row fact*: `a < c ∧ b ≤ d ∧ b ≥ 0 ∧ c ≥ 0 ⟹ a·b + b ≤ c·d`. Without it, the central obligation `y*w + x < w*h` fails.
+Three parts ship together in one release:
 
-| Option | True witnesses proved (of 27) | False witnesses wrongly proved (of 9) | Can it hang? | Stays decidable? | New trust |
-|---|---:|---:|---|---|---|
-| **B. `mul` + ground facts (recommended)** | 24 | 0 | No | Yes, QF-UFLIA | None beyond `*` being integer multiplication |
-| A. Native `*` to z3 | 26 | 0 | Yes; needs a per-query timeout | No, QF-NIA | The z3 nonlinear engine |
-| C. Named product, no facts | 2 | 0 | No | Yes | None |
-| C′. The row's wording: monotonicity and bound facts only | 6 | 0 | No | Yes | None |
-| D. Lean path | Not measured | Not measured | n/a | n/a | Not in the default verdict |
-| E. Cursor pattern, no change | 0 | 0 | No | Yes | None |
+1. **Normal form.** A product becomes a polynomial over atoms. A monomial is a sorted multiset of atoms, printed as one uninterpreted symbol. Commutativity, associativity and distribution then hold by construction.
+2. **Fixed fact set.** The emitter adds ground theorems of integer multiplication to each constraint that holds a product. The set is part of the language surface.
+3. **Native recheck.** On UNSAFE, the compiler runs z3 on the same constraint with `*` interpreted. A `sat` whose model passes an exact-integer check restores `refuted`. Any other answer gives the fallback outcome. A native `unsat` never gives `verified`.
 
-Option A proves more and costs less on this set. It is the serious alternative. Option B is recommended for two reasons. Its verdict does not depend on the nonlinear heuristics of a z3 version, and CI and Docker run a z3 (4.8.12) that this measurement could not reach. It also keeps `Σ_auto` decidable, so one hard obligation cannot stop a whole file.
+| Encoding | True proved (of 53) | False wrongly proved (of 19) | False reported `refuted` (of 19) | Can it hang? |
+|---|---:|---:|---:|---|
+| **Rev 2 B + recheck (recommended)** | **48** | 0 | **19** | z3: no. `fixpoint`: not on any witness, but see the expansion cap |
+| Rev 1 B, measured on the 38 true witnesses it can express | 27 of 38 | 0 of 17 | 0, fallback only | Not measured on long sums |
+| A, native `*` as the proof engine | 52 | 0 | not measured as a design | Yes (W23), or a false UNSAFE under a timeout |
+
+Row A counts the native `unsat` results of the recheck query on this witness set. Rev 1 table entries for options C, C′, D and E are in "Option comparison".
+
+**Blocking finding 1 is resolved** on this witness set: M1 to M9 and ten more false claims all give `sat` with a validated model, in at most 0.050 s wall at load 80 or higher. No true witness gives `sat`. **Blocking finding 2 is resolved** for P1 to P6: the generated form proves all six, with no hand-written equation. Five true witnesses do not prove: W14, W23, W25, Q8 and Q9. Each is listed with its cause in "What B does not prove".
 
 ## Decisions for the user
 
-1. **Encoding.** Option B (recommended) or Option A.
-2. **Refutation.** Under either option, a failing constraint that holds a product cannot report `refuted` from the solver's answer alone (see "Verdict"). Accept the fallback outcome in the first release (recommended), or also file a recheck row that restores `refuted`.
-3. **`def` bodies.** Admit a two-variable `*` in the strict core (recommended), or keep it for `def-shell` bodies only.
-4. **Disclosure.** Add one per-function `assumed_facts` line for `mul` facts, with no effect on the trust level (recommended), or add none, because the facts are theorems.
-5. **Variable divisors.** File `DIV-VAR-1` as a separate row (recommended), or widen this row. Resize and offset-to-coordinates need it.
-6. **z3 4.8.12.** Run the witnesses on the CI z3 before settlement. The classifier refused the download in this session. It is required if decision 1 goes to Option A, and a check otherwise.
+Each decision shows the professor's position as an input. The user decides.
+
+**1. Encoding.** *Professor:* B for proofs, native z3 for `sat` only, A rejected as a proof engine, on W23's false UNSAFE (review 2.23 s; 2.13 s in this run). *Recommendation:* the same result, with a different reason. The false UNSAFE alone does not reject A, because the recheck in this record would cure it: the same direct z3 call reports `timeout` on W23. The reasons to reject A are these. A `verified` would depend on the z3 nonlinear engine and its version. One obligation can stop a whole file: W23 ran past 40 s with no per-query limit (Rev 1 measurement 4). The cost of this choice is real: A proves W14, W25, Q8 and Q9, and B does not. *Alternative that the user may prefer:* accept a native `unsat` as `verified`. That gives 52 of 53 at low cost, and it brings all the version dependence back. It is not recommended.
+
+**2. Refutation.** *Professor:* restore `refuted` in the same release. *Recommendation:* agree. 19 of 19 false witnesses report `refuted` in this design. A separate row would ship a release in which an off-by-one offset exits 0. This rests on z3 4.15.4 only; see decision 6.
+
+**3. `def` bodies.** *Professor:* admit, with a message condition. *Recommendation:* agree. "Messages" gives the text.
+
+**4. Disclosure.** *Professor:* one family C ground-fact family, no new `assumed_facts` kind, no increase of `trust_report_version`. *Recommendation:* agree. `ground_fact_families` is an array of free strings (`docs/llmll-trust-report.schema.json`), and `markGroundFacts` takes any family name, so no schema change is needed. The family is named `product-facts`. The existing report text says "rides `codegen_semantics_version`", and that is correct here: the facts rest on `int-unbounded-1`.
+
+**5. Variable divisors.** *Professor:* a separate `DIV-VAR-1`. *Recommendation:* agree. `(/ e k)` with a positive ground `k` stays an exact atom in this design. A variable divisor stays refused, with its existing `nonlinear` label. This revision measured no variable divisor.
+
+**6. z3 4.8.12.** *Professor:* run on it, including the recheck, and record which false witnesses still report `refuted`. *Recommendation:* agree, and make it a gate before implementation starts. **NOT RUN.** It is not on this machine: `which -a z3` and the Homebrew Cellar give 4.15.4 only, a search of the home folder found no other z3, and `docker images` returned no match for z3 or llmll. The whole-disk search was stopped before it finished, so it is not a proof of absence. The run needs the user's permission to obtain that version, or a CI run of `rev2.py`. Soundness does not depend on the result: a weaker z3 can only lose a refutation or a proof.
+
+## Change log, Rev 1 to Rev 2
+
+| Review finding | Change |
+|---|---|
+| Gap 1, blocks: an offset bug exits 0 | "Verdict" adds the recheck, states what it checks, and gives a result for each z3 answer. Measurement 3 |
+| Gap 2, blocks: regrouped products | "Normal form" replaces canonical nested `mul`. F6 goes away, and F9 replaces the proposed cross congruence and literal-factor equations. Measurement 1 |
+| Gap 3: "stays decidable" | The option table drops that column. "Spec text" keeps `Σ_auto` unchanged and adds a separate class. "Sound and incomplete" stays |
+| Gap 4: the mark needs a new scan | "The mark" specifies a scan over each emitted constraint. Measurement 5 covers each site. This pass also found a second wrong verdict, `ill-defined`; the rule closes it |
+| Gap 5: name collision | The symbol is `mul##nl`. Measurement 6 |
+| Gap 6: a filter is a language change | "Fact set" is normative. Measurement 2 shows that three filters each lost a realistic witness, so the set has no alignment filter. It has three stated caps, each with its measurement |
+| Gap 6: slack products | Measurement row only: proposed `MUL-SLACK-1`. Not in scope |
+| Gap 7: Lean worklist | "Lean worklist" selects from the fallback outcome |
+| Gap 8: late `def` fallback | "Messages" |
+| Gap 9: `assumed_facts` | Decision 4 |
+| Gap 10: `int-unbounded-1`, F5 | "Soundness" states both. `*` is total, so it has no WD entry. `mul##nl` has no call binder, so call counts do not apply |
+| Gap 11: citations | "Design-reference set" is rewritten |
+| Gap 12: evidence limits | "How to read the numbers", "Not run", risks |
+| Review question 1: other functions in a recheck | "What `refuted` means" |
+| Review question 2: is the set normative, and cached fallbacks | "Changing the fact set" |
+
+Three Rev 1 statements are withdrawn. "The engineer may filter" is withdrawn by gap 6. "Rests on nothing beyond `*`" is withdrawn by gap 10. The option name "`mul`" is withdrawn by gap 5.
 
 ## Context located
 
-1. `examples/y4m/FRICTION.md` F5: `frame-bytes` cannot be stated; the cursor workaround gives up seek.
-2. `examples/netpbm-swarm/FRICTION.md` F12, F14: nonlinear gates differ; whole-image facts cannot be stated.
-3. `compiler/src/LLMLL/FixpointEmit.hs`: `exprToPredWD` and `bodyToPredM` refuse `*` after `constArithTerm`; the label comes from the `nonlinearOps` list.
-4. `compiler/src/LLMLL/Syntax.hs`: `isCoreBodySyntactic` and `constArithAdmitted` gate `def` bodies.
-5. `compiler/src/LLMLL/HoleAnalysis.hs`: `isNonLinear` shares `constArithAdmitted`; the Lean worklist reads it.
-6. `compiler/src/LLMLL/LeanTranslate.hs`: admits `*`, rejects `/` and `mod`.
-7. `compiler/src/LLMLL/AbstractionVerdict.hs`, `docs/design/byte-io-proposal.md` Part 0: an abstracted term turns UNSAFE into the fallback outcome.
-8. `docs/design/byte-io-proposal.md` "Part 6": `band` is an uninterpreted function with ground facts. This record uses the same form.
-9. `docs/design/ffi-buffer-proposal.md` Part 3 and edge case 13: `(out-len (* w h))` is refused, so the worked example passes `npix`.
-10. `LLMLL.md` §5.3.3: the fragment classes, the path-(a) ground-fact discipline, and the "Outside" clause.
-11. `.github/workflows/version-gate.yml`: CI proves with apt z3 4.8.12, the same as the Docker image.
+1. `docs/design/mul-var-professor-review.md`: the findings that this revision answers.
+2. `compiler/src/LLMLL/FixpointEmit.hs`: `abstracted` and `postUnassumed` read call binders only; `exprToPredWD` and `bodyToPredM` refuse `*`.
+3. `compiler/src/LLMLL/AbstractionVerdict.hs`, `applyAbstractionVerdict`: a candidate needs a body-faithful function; `hardFns` gives `aoIllDefined` with no such test.
+4. `compiler/src/LLMLL/FixpointIR.hs`: `predSymbols` walks every predicate form; `sanitizeFQId` maps a name to `[A-Za-z0-9_]`.
+5. `compiler/src/LLMLL/Lexer.hs`, `pWord`: a source name can hold letters, digits, `-`, `_`, `.` and `?`, so it cannot hold `#`.
+6. `compiler/src/LLMLL/Feasibility.hs`, `runZ3`: the direct z3 precedent; `fqPredToSMT` abstains on a function term.
+7. `compiler/src/LLMLL/VerifiedCache.hs`: `refuted` is not persisted; a sidecar with another `checker_soundness_version` is discarded.
+8. `compiler/src/LLMLL/ProofArtifact.hs`: replay reruns the solver on the stored VC and fails closed on a mismatch.
+9. `compiler/app/Main.hs`, `runLeanstralPipeline`: the worklist selects with `isNonLinear`.
+10. `compiler/src/LLMLL/Diagnostic.hs`, `mkCoreMembershipViolation`: the caller-side text.
+11. `LLMLL.md:13-14`, §5.3.3 and §13.12: `Σ_auto`, the "Outside" clause, the ground-fact families.
+12. `examples/y4m/FRICTION.md` F5 and `examples/netpbm-swarm/FRICTION.md` F12, F14: the source of the row. Carried from Rev 1.
 
-No draft existed on this topic.
+**Spec drift, carried from Rev 1 and still open.** `LLMLL.md` §5.3.3 says nonlinear terms "route to `?proof-required`"; Rev 1 measured a `W-BODY-FALLBACK` with no hole on 0.37.0. The spec should move. liquid-fixpoint reads a z3 `unknown` as UNSAFE under `--smtTimeout`; this design does not pass that flag.
 
-**Spec drift, two findings.** First, `LLMLL.md` §5.3.3 says nonlinear terms "route to `?proof-required`". Measured on 0.37.0, a `def-shell` with `(post (< result (* w h)))` falls back with `W-BODY-FALLBACK`, `Refused by: nonlinear:*`, and no hole. The spec text should move to match. Second, liquid-fixpoint reads a z3 `unknown` as UNSAFE under `--smtTimeout` (measurement 5). The spec's account of `refuted` does not consider this, because no emitted VC is expected to reach `unknown` today.
+**Comment drift, new.** The comment on `sanitizeFQId` says that liquid-fixpoint accepts only `[A-Za-z0-9_]` in a name. On 0.9.6.3.7, `$`, `#`, `'` and `.` are accepted after the first character; only a leading `$` failed. The comment is incorrect but the code is safe.
 
-## What happens today (llmll 0.37.0, liquid-fixpoint 0.9.6.3.7, z3 4.15.4)
+## What happens today (Rev 1, llmll 0.37.0; not rerun)
 
 | Input | Result |
 |---|---|
@@ -66,76 +103,127 @@ No draft existed on this topic.
 | `def-shell area`, the same | exit 0, post not proved: `contract-post-outside-fragment`, `Refused by: nonlinear:*` |
 | `def-shell off`, post `(< result (* w h))`, body `(+ (* y w) x)` | exit 0, post not proved, `Refused by: nonlinear:*` |
 | `def-shell off`, `(= n (* w h))` in the `pre` | exit 0, post not proved: `contract-pre-outside-fragment` |
-| The same post as `?proof-required` | exit 0, post not proved, `Refused by: hole`; two warnings |
-| `def off`, products passed as `n` and `r`, with `(<= (+ r w) n)` in the `pre` | **verified.** The row fact became a `pre` that no caller can prove |
 | `(* 3 w)`, `(+ (* 8 y) x)` | verified, as `SIGMA-CONST-ARITH-1` specifies |
 
 ## Measurements
 
-The witnesses are 27 true claims and 9 false claims. The true claims cover buffer length, row offset, stride, variable channels, crop size and offset, chroma planes, a whole Y4M frame, frame `i` of `k`, a 3-D offset, a two-image blit, and three claims chosen to be hard. A random search over small integers found a counterexample for each false claim and none for any true claim.
+**Witness set.** 53 true and 19 false claims. W1 to W26 with W5b and M1 to M9 are from Rev 1. P1 to P7 and N1, N2 are from the review. R1 to R4 and N3 are the Rev 1 "fixpoint only" claims, now run under B. **Q1 to Q15 and N4 to N10 are new in this revision**, from a second pass at regrouping, aliases, padded strides and mixed theories. No witness was removed or changed.
 
-**1. Results.** Each cell is the z3 result in a 10 s limit. "fail" means z3 found a model of the encoded negation. For A, that is a real counterexample. For C, C′ and B, it may not be. `fixpoint` gave the same answer as z3 on A, C′ and B for all 36 witnesses, except W23 under A, which `fixpoint` did not finish in 30 s.
+**1. Generated facts, fixed set.** Results are the same under `fixpoint` and z3 alone for all 72 witnesses (z3 limit 10 s). "NF" means that the normal form made the goal an identity, so no query is sent.
 
-| Witness | A native | C named | C′ bound | B ground facts |
-|---|---|---|---|---|
-| W1 `w*h = h*w` | proved | proved | proved | proved |
-| W2 buffer `w*h*3` | proved | fail | proved | proved |
-| **W3 `0 ≤ y*w+x < w*h`** | **proved** | **fail** | **fail** | **proved** |
-| W4 stride `y*st + 3x + c < h*st` | proved | fail | fail | proved |
-| W5 variable channels, named offset | proved | fail | fail | proved |
-| W5b variable channels, unnamed | proved | fail | fail | proved |
-| W6 crop size `cw*ch ≤ w*h` | proved | fail | proved | proved |
-| W7 crop offset | proved | fail | fail | proved |
-| W8 chroma offset | proved | fail | fail | proved |
-| W9 V plane inside a frame | proved | fail | fail | proved |
-| W10 frame `i` of `k` | proved | fail | fail | proved |
-| W11 distribution | proved | fail | fail | proved |
-| W12 next row | proved | fail | fail | proved |
-| W13 byte index against a length | proved | fail | fail | proved |
-| W14 `4*cw*ch ≥ w*h` | proved | fail | fail | **fail** |
-| W15 half width times half height `≤ w*h` | proved | fail | proved | proved |
-| W16 horizontal flip offset | proved | fail | fail | proved |
-| W17 transpose offset | proved | fail | fail | proved |
-| W18 factor reached through an alias | proved | fail | fail | proved |
-| W19 3-D offset | proved | fail | fail | proved |
-| W20 `w,h ≤ 65535 ⟹ 3*w*h ≤ 2^63−1` | proved | fail | fail | proved with the F7 fact (below); fail without |
-| W21 frame inside a file | proved | fail | fail | proved |
-| W22 four-factor monotonicity | proved | fail | proved | proved |
-| W23 `x*x ≠ 2*y*y` | **timeout** | fail | fail | **fail** |
-| W24 Pythagorean parity | proved | proved | proved | proved |
-| W25 `(a+b)^2 ≥ 4ab` | proved | fail | fail | **fail** |
-| W26 two-image blit | proved | fail | fail | proved |
-| M1 to M9, nine false claims | none proved | none proved | none proved | none proved |
+| Group | True proved | Not proved |
+|---|---:|---|
+| W1 to W26 with W5b (27) | 24 | **W14, W23, W25** |
+| P1 to P7 (7) | **7** | none |
+| R1 to R4 (4) | 4 | none |
+| Q1 to Q15 (15) | 13 | **Q8, Q9** |
+| **All true (53)** | **48** | 5 |
+| False, M1 to M9 and N1 to N10 (19) | 0 wrongly proved | none |
 
-Option A also proved four more true claims through `fixpoint`, and refused one false claim: rotate-90 offset, BMP row stride, a four-plane total, a bound from a product in the `pre`, and a rotate-90 with the wrong stride. These were not run under B.
+| Witness | Rev 1 B | Rev 2 | Facts | CPU s |
+|---|---|---|---:|---:|
+| P1 `w*(h*c) = (w*h)*c` | fail | proved, NF | 252 | no query |
+| P2 regrouped value | fail | proved | 252 | 0.69 |
+| P3 offset, buffer `h*(w*ch)` | fail | proved | 1241 | 3.96 |
+| P4 `st=w*ch`, buffer `(w*h)*ch` | fail | proved | 1053 | 3.00 |
+| P5 `ch=3` | fail | proved | 10 | 0.05 |
+| P6 commuted aliases, any sign | fail | proved | 10 | 0.05 |
+| W20 `3*w*h ≤ 2^63−1` | fail without F7 | proved | 12 | 0.06 |
+| R3 four-plane total | fail | proved (F7b) | 355 | 0.98 |
 
-**2. Time.** Through `fixpoint`, A took at most 0.086 s on each decided witness. B took at most 0.916 s (W26, 8 product terms and 530 facts). The cost of B is in the fact count. It is about `10T + 8T(T−1)` facts for `T` product terms in one constraint, plus any distribution equations.
+**Which witnesses change.** Against Rev 1 B on the 38 true witnesses it can express: W20, P1 to P6 and R3 move from fail to proved. **No witness moved from proved to fail.** No false witness changes. For comparison, the review's hand-written equations gave P3 SAFE at 529 facts, 2.7 s (review). The generated form costs more, because it holds every binary split of every monomial.
 
-| Product terms in one constraint | Facts (B) | `fixpoint`, B | `fixpoint`, A | z3 alone, B |
-|---:|---:|---:|---:|---:|
-| 4 | 136 | 0.5 s | 0.11 s | 0.02 s |
-| 7 | 406 | 1.0 s | 0.09 s | 0.03 s |
-| 12 | 1176 | 2.9 s | 0.07 s | 0.04 s |
-| 22 | 3916 | 9.8 s | 0.18 s | 0.23 s |
-| 42 | 14196 | 39.8 s | 0.16 s | 1.17 s |
+W3, the crux, takes 32 facts and 0.10 CPU s. Over all 72 witnesses, the median is 0.11 CPU s and the total 115.9 CPU s. The largest is W22 at 19114 facts and 59.0 CPU s. A three-factor offset is about 1250 facts and 4 CPU s.
 
-z3 alone takes a small part of `fixpoint`'s time on B. So a smaller fact set, or a filter on which pairs get facts, should recover most of the cost. The engineer may filter, because a missing fact can only lose a proof.
+**2. The fixed set, against filters.** This is why the set has no alignment filter. Each row counts z3 results over the 53 true witnesses; no filter proved a false witness.
 
-**3. Stability of A.** Six witnesses gave the same result under five random seeds. The crux stayed proved in about 0.01 s with up to 16 unrelated product facts in scope. Two real files, `examples/netpbm-swarm/lex.llmll` and `examples/y4m/raster.llmll`, were re-solved with the crux appended, and each stayed SAFE (6.4 s and 7.1 s, against 6.5 s and 6.8 s). A product beside `bytesLen` and an array sort also decided correctly. This was all on one z3 version. **z3 4.8.12 was not measured.**
+| Alignment rule | True proved | Lost against no filter | Total CPU s (`fixpoint`) | W22 CPU s |
+|---|---:|---|---:|---:|
+| **No filter (recommended)** | **48** | none | 119.1 | 61.1 |
+| One side has equal degree | 48 | none | 95.3 | 43.1 |
+| Equal degree, or one shared factor | 47 | **Q11** | not run | not run |
+| Equal degree on both sides | 47 | **Q11** | not run | not run |
+| Equal degree, and F5 on a shared factor | 46 | **Q10, Q11** | 21.3 on the first 64 witnesses | 5.8 |
 
-**4. Option A can hang.** W23 is true, and z3 does not decide it. With no per-query limit, `fixpoint` was still running when killed at 40 s, on W23 alone and when appended to each real file. Under `llmll` this stops at `--time-limit` (default 120 s), with no verdict for any function in the file.
+Q10 is a row inside a wider stride, and Q11 is a padded stride with variable channels. Both are ordinary image layouts. So a filter that looks free on the original set loses real shapes, as the review said. The first two rows ran side by side, so they compare; this is why row one reads 119.1 and not the 115.9 of measurement 1. "One side has equal degree" saves 20% and loses nothing here. It is one more rule for an author to reason about, and it is not recommended. The user can choose it.
 
-**5. A per-query timeout gives a false UNSAFE.** With `--smtTimeout 2000`, W23 returns **UNSAFE in about 2 s, although it is true.** liquid-fixpoint does not separate `unknown` from `sat`. Appended to the real files, the run ended UNSAFE in 11.2 s and 10.7 s. So Option A must also treat UNSAFE as the fallback outcome.
+**Printing.** Each monomial printed once as an environment binder, with facts that name the binder, halves the cost against nested terms: 34.7 against 65.9 total CPU s on one filter and witness set, and 11.3 against 29.2 on W22. The cause in `fixpoint` was not located. z3 alone took 1.45 s on W22, so most of the cost is before z3.
 
-**6. The facts are true.** Each fact was checked on Haskell `Integer`, exhaustively on `-7..7` and on 18 boundary values up to `2^127`, with 0 failures. z3 also proved each inequality under native multiplication. A control, the row fact without `b ≥ 0`, failed in both, so the check can fail. The facts together with each witness's hypotheses were satisfiable on the three largest witnesses.
+**3. The recheck.** Native z3 on the normal-form constraint, with no facts. Three runs of each witness under `-T:2`.
 
-**7. Corpus.** Of 2002 `.llmll` files on disk, including untracked run output, 6 files hold 9 functions refused for `nonlinear:*`. Each verdict below follows from the rule; it was not built and run: `square` (`examples/leanstral-demo/square.llmll`), `g` (`scripts/doc-claims/nonlinear-body-fallback.llmll`), `nonneg` (one experiment run), `nonlinear_post` (the census fixture), `pick` (`scripts/tests/fixtures/fn_shadow_1/pk.llmll`), and `sq-pos`, `sq-let`, `prod`, `pre-sq` (`scripts/tests/fixtures/fallback_attrib/attrib.llmll`).
+| Claim | Result | Max wall s | Max `rlimit-count` |
+|---|---|---:|---:|
+| M1 to M9 (9) | `sat`, model validated, 9 of 9 | 0.038 | 7918 |
+| N1 to N10 (10) | `sat`, model validated, 10 of 10 | 0.050 | 15074 |
+| True (53) | `unsat` on 52; `timeout` on W23; **`sat` on none** | 0.162 on `unsat` | 186173 |
 
-## Design proposal (Option B)
+- **Reproduction of the review.** On the original (not normal-form) query with `:model_validate`: M1 to M9 all `sat`, at most 0.037 s (review: 0.048 s); 26 true `unsat`; W23 `timeout`; no true `sat`. W23 through `fixpoint --smtTimeout 2000` gave UNSAFE in 2.13 s (review: 2.23 s).
+- **Validator controls.** Of 100 models with one value increased by 1, the check rejected 83, and 17 were still real counterexamples. On true W3, 5000 random valuations gave 0 accepted.
+- **Deterministic limit.** Under `(set-option :rlimit N)` with no clock: at N = 200000 and N = 2000000, 19 of 19 false witnesses gave `sat`, and no true witness did. W23 gave `unknown` in 0.14 s and 2.02 s.
+- **Noise.** M1 with 32 unrelated products in scope: `sat`, 0.034 s, validated.
+- **Mixed theories.** N4 and N5 hold `bytesLen` and an array read. Both validate. No witness holds `strLen` or the two-array map encoding.
+
+**4. Facts are true, and the generator is correct.**
+
+- Each schema: native z3 gives `unsat` for the negation on `Int`. F5 gives `sat` on `Real`, as the review reported. Controls F5 without `b ≥ 0` and F7b without `b ≥ 0` give `sat`, so the check can fail.
+- Each generated instance: 37248 facts across all witnesses, evaluated on exact integers with the product as `mul##nl`, up to `2^63`. 1301161 evaluations had a true premise. **0 failures.**
+- Normal form against source: 96900 evaluations on the W, P, R, M and N witnesses without a function term, 0 differences.
+- Hypotheses plus facts are satisfiable with `mul##nl` uninterpreted, for all 72 witnesses. So the facts add no contradiction on this set.
+
+**5. Each mark site.** True claims that B cannot prove, of shape W23 or W25, one product position per row. Each is hand-built.
+
+| Site | `fixpoint` | Marked | Recheck | Verdict | With no mark |
+|---|---|---|---|---|---|
+| Environment binder | UNSAFE | yes | `timeout` | fallback | false `refuted` |
+| `lhs` | UNSAFE | yes | `timeout` | fallback | false `refuted` |
+| `rhs` | UNSAFE | yes | `timeout` | fallback | false `refuted` |
+| Callee post after substitution | UNSAFE | yes | `timeout` | fallback | false `refuted` |
+| S9 definedness assumption | UNSAFE | yes | `timeout` | fallback | false `refuted` |
+| Definedness goal | UNSAFE | yes | `unsat` | fallback | false `ill-defined` |
+| Environment binder, W25 shape | UNSAFE | yes | `unsat` | fallback | false `refuted` |
+| Control: no product, false | UNSAFE | no | `sat` | `refuted` | `refuted` |
+
+**6. Names.** With `constant mul##nl`, a binder named `mul`, `mul_nl` or `m_0` gives a normal solver answer. Rev 1's `constant mul` beside a binder `mul` reproduced the "Multiple sorts" crash. `fixpoint-0.9.6.3.1` also accepts `mul##nl`.
+
+**7. Scale.** The crux with K more product goals, under the fixed set.
+
+| K | Pairs `T` | Facts | `fixpoint` result | CPU s | z3 alone, wall s |
+|---:|---:|---:|---|---:|---:|
+| 2 | 4 | 120 | SAFE | 0.33 | 0.03 |
+| 5 | 7 | 357 | SAFE | 0.96 | 0.04 |
+| 10 | 12 | 1032 | SAFE | 2.82 | 0.06 |
+| 20 | 22 | 3432 | SAFE | 9.57 | 0.53 |
+| 40 | 42 | 12432 | SAFE | 35.9 | 4.26 |
+| 62 | 64 | 28800 | SAFE | 85.6 | 19.1 |
+| 63 | 65, over the cap | 585 | UNSAFE, so fallback | 1.10 | 0.09 |
+
+A product of more factors, or of longer sums, under the same set:
+
+| Input | Monomials | Pairs `T` | Facts | `fixpoint` result | CPU s | z3 alone, wall s |
+|---|---:|---:|---:|---|---:|---:|
+| Monotone, degree 3 | 1 each side | 12 | 1080 | SAFE | 3.19 | not run |
+| Monotone, degree 4 | 1 each side | 50 | 19114 | SAFE | 59.0 | not run |
+| Monotone, degree 5 | 1 each side | 180, over the cap | 1620 | UNSAFE, so fallback | 2.32 | not run |
+| `(a+b)*(c+d)` | 4 | 5 | 197 | SAFE | 0.88 | 0.03 |
+| 3 terms × 3 terms | 9 | 9 | 621 | SAFE | 1.83 | 0.05 |
+| 4 terms × 4 terms | 16 | 16 | 1968 | SAFE | 13.2 | 0.08 |
+| 2 × 2 × 2 terms | 8 | 37 | 10437 | SAFE | 35.9 | 0.66 |
+| 3 × 3 × 2 terms | 18 | 75, over the cap | 675 | SAFE | 30.6 | 0.05 |
+| **3 × 3 × 3 terms** | **27** | 108, over the cap | 972 | **no result in 200 s wall (93.9 CPU s)** | | **0.07** |
+
+**The last row is a hazard this revision found.** z3 alone answers in 0.07 s, and `fixpoint` gives no answer in 200 s, so the cost is before z3. It is in the long sum and not in the fact count: 3 × 3 × 2 has 675 facts and costs 30.6 CPU s, and W5b has 1241 facts and costs 3.9. **The cause was not located.** "Fact set" therefore caps expansion at 16 monomials. Before a further cap on written pairs, 3 × 3 cost 27.4 CPU s, against 1.83 with it.
+
+The written-pair cap was added after the table in measurement 1 ran. A rerun under z3 gave the same result, `T` and fact count on all 72 witnesses, so the CPU column was not rerun.
+
+**8. Slack products, a measurement row only (review, not rerun).** The RLT schema proved 33 of 34 in z3 alone, and gave no `fixpoint` result in 300 s at K=20, against 15.05 s for Rev 1 B on the same input. Its cause was not located. It is not in scope; see `MUL-SLACK-1`.
+
+**9. Carried from Rev 1, not rerun.** Option A on two real files, seeds, and `--leanstral-mock`. The corpus count: of 2002 `.llmll` files on disk, 6 files hold 9 functions refused for `nonlinear:*`.
+
+## Design proposal
 
 ### Surface
 
-There is no new syntax. `(* a b)` already parses and type-checks as `int → int → int`. JSON-AST does not change. A contract may now use it, and if decision 3 is accepted, so may a `def` body:
+There is no new syntax. `(* a b)` already parses and type-checks as `int → int → int` (`compiler/src/LLMLL/TypeCheck.hs`), and no float form exists. JSON-AST does not change. A contract may now use it, and under decision 3 so may a `def` body.
 
 ```lisp
 (def pixel-offset [w: int h: int y: int x: int] -> int
@@ -146,137 +234,302 @@ There is no new syntax. `(* a b)` already parses and type-checks as `int → int
 
 ### Semantics
 
-Evaluation does not change. `int` lowers to Haskell `Integer` (`LLMLL.md` §3), and `*` is total on it. So `*` adds no definedness obligation under `CLAUSE-WELLDEF-1`, and a partial read inside a factor keeps its own obligation.
+Evaluation does not change. `int` lowers to Haskell `Integer`, and `*` is total on it. So `*` has no definedness entry under `CLAUSE-WELLDEF-1`, and a partial read inside a factor keeps its own obligation. No state is added, and `mul##nl` exists only in the VC, so strict immutability holds.
 
-**Reflection.** A product whose operands are not ground is normalized and reflected:
+### Normal form
 
-- A constant factor moves out: `(* (* 3 x) w)` is `3·mul(x, w)`. A form with a ground operand stays exact linear arithmetic, and its `.fq` does not change.
-- Arguments are in one canonical order, so `mul(w, h)` and `mul(h, w)` are one term.
-- A factor may itself hold a `mul` term, as `mul(mul(w, h), ch)`.
+The form applies to a constraint that holds a product of two non-constant terms. Any other constraint is printed as today, so its text does not change.
 
-`constant mul : (func(0, [int; int; int]))` is declared only in a file that uses it.
+1. **Atoms.** An atom is a variable, a function application, or `(/ e k)` with `k` a positive ground constant. `e` and each function argument are in normal form themselves.
+2. **Polynomial.** Every integer term is expanded to a sum of `c · m`, with `c` an integer and `m` a monomial, a sorted multiset of atoms. So commutativity, associativity and distribution hold by construction. `(* w (* h c))` and `(* (* w h) c)` are one term. F6 of Rev 1 is removed, because no sum remains inside a product.
+3. **Symbol.** A monomial of degree 2 or more prints as a left-nested application in ascending atom order: `mul##nl(mul##nl(a, b), c)`. The ground order is the order of the printed atom.
+4. **Binder.** Each distinct monomial is one environment binder, `m##k`, with refinement `v = mul##nl(...)`. Facts and clauses name the binder.
+5. **After substitution.** The form applies after callee-post substitution, so a caller's terms and a callee's terms meet.
+6. **A goal that reduces to a constant.** liquid-fixpoint refuses `rhs (0 = 0)` and `rhs true` with "RHS without single conjunct" (measured on P1). If the goal reduces to true, the emitter sends no constraint for it and the clause is proved. If it reduces to false, the emitter sends `rhs false`, and the verdict rule applies (N9).
+7. **A conjunct that reduces to true** in a larger goal is dropped.
 
-**Facts.** The emitter adds these ground facts to each constraint, over the product terms of that constraint, after substitution. Each is a hypothesis, flat in the `lhs`, as `FQ-FLAT-NEST-1` requires.
+**Equation resolution.** Regrouping through a name needs this, because `st` in `y*st` is an atom.
 
-| Fact | Statement | Instances | Why it holds |
-|---|---|---|---:|
-| F1 sign | `a ≥ 0 ∧ b ≥ 0 ⟹ ab ≥ 0`; `a ≤ 0 ∧ b ≥ 0 ⟹ ab ≤ 0` | each term, both orders | Sign of a product |
-| F2 zero, one | `a = 0 ⟹ ab = 0`; `a = 1 ⟹ ab = b` | each term, both orders | Ring identities |
-| F3 growth | `a ≥ 1 ∧ b ≥ 0 ⟹ ab ≥ b` | each term, both orders | `(a−1)·b ≥ 0` |
-| F4 monotone | `a ≤ c ∧ b ≤ d ∧ b ≥ 0 ∧ c ≥ 0 ⟹ ab ≤ cd` | ordered pairs, 4 alignments | `ab ≤ cb ≤ cd` |
-| **F5 row** | `a < c ∧ b ≤ d ∧ b ≥ 0 ∧ c ≥ 0 ⟹ ab + b ≤ cd` | ordered pairs, 4 alignments | `(a+1)·b ≤ cb ≤ cd` |
-| F6 distribution | `mul(s + t, b) = mul(s, b) + mul(t, b)`, and a constant in a factor expands | each term with a sum as a factor | Ring identity |
-| F7 literal bound | `0 ≤ a ≤ A ∧ 0 ≤ b ≤ B ⟹ ab ≤ A·B` | each term, per literal pair in the hypotheses | F4 at constants |
-| F8 square | `mul(n, n) ≥ 0` | each term with equal factors | `n² ≥ 0` |
+- The emitter reads each **top-level** equation of the constraint: a conjunct of a binder refinement, in `conEnv` order, then of the `lhs`.
+- If one side of the equation is a single atom with coefficient 1, and that atom is not a division, the atom resolves to the other side, after earlier resolutions.
+- It tries the left side first. It skips an atom that already resolved, or one that occurs in the other side. So the map has no cycle.
+- An equation in a disjunct or under an implication is not read. Q9 shows the cost.
 
-**F5 is what the crux needs.** `y*w + x < y*w + w ≤ h*w` is linear once F5 gives its second step. C′ has F1 to F4 and fails W3. All pairs are used, with no syntactic match on a shared factor, so an alias such as `(= s w)` still works (W18).
+This gives `σ`, the resolved form of each monomial. `σ` does not change a clause. It only decides which facts exist, so no fact depends on a path.
 
-F7 and F8 were each measured alone: F7 moves W20 from fail to proved, and F8 proves `n*n ≥ 0`. The 24 in the table counts W20 under F7. The other measurements use F1 to F6.
+### Fact set
 
-**Termination.** F6 adds terms, and each added term has fewer atoms in the factor it expands. No other fact adds a term. So the closure is finite.
+**This set is normative. It is part of the language surface, and it decides which programs verify.** A fact is a hypothesis in the `lhs`, flat, as `FQ-FLAT-NEST-1` requires. Let `P`, the pair set of a constraint, be:
 
-### Verdict
+- each product `(* a b)` as written, after `σ`, where neither side is constant and the product expands to at most 4 monomials; and
+- each binary split `(A, B)` of each monomial after `σ`, recursively, up to degree 6.
 
-`mul` joins clause 1 of the abstracted-term rule in `docs/design/byte-io-proposal.md` Part 0, as `band` does. The facts are true but incomplete, so UNSAFE means only that the abstraction admits a counterexample.
+| Fact | Statement | Instances | Certificate |
+|---|---|---|---|
+| F1 sign | `a ≥ 0 ∧ b ≥ 0 ⟹ ab ≥ 0`; `a ≤ 0 ∧ b ≥ 0 ⟹ ab ≤ 0` | each pair, both orders | sign |
+| F2 zero, one | `a = 0 ⟹ ab = 0`; `a = 1 ⟹ ab = b` | each pair, both orders | ring |
+| F3 growth | `a ≥ 1 ∧ b ≥ 0 ⟹ ab ≥ b` | each pair, both orders | `(a−1)·b ≥ 0` |
+| F4 monotone | `a ≤ c ∧ b ≤ d ∧ b ≥ 0 ∧ c ≥ 0 ⟹ ab ≤ cd` | ordered pairs, 4 alignments, no filter | `(c−a)·b + c·(d−b)` |
+| **F5 row** | `a < c ∧ b ≤ d ∧ b ≥ 0 ∧ c ≥ 0 ⟹ ab + b ≤ cd` | ordered pairs, 4 alignments, no filter | `(c−a−1)·b + c·(d−b)`, **integers only** |
+| F7 literal bound | `⋀ (0 ≤ aᵢ ≤ Aᵢ) ⟹ m ≤ ∏Aᵢ` | each monomial whose atoms all have a top-level literal upper bound, `Aᵢ ≥ 0` | F4 at constants |
+| F7b literal comparand | `a ≤ K ∧ b ≥ 0 ⟹ ab ≤ K·b`; with `K ≥ 0`, `a ≥ K ∧ b ≥ 0 ⟹ ab ≥ K·b` | each pair with a single-atom side that has a top-level literal bound | `(K−a)·b ≥ 0` |
+| F8 square | `aa ≥ 0` | each pair with equal sides | square |
+| F9 link | `E ⟹ m = σ(m)`, where `E` is the conjunction of the equations that `σ` used | each monomial, division or application that `σ` changes | congruence |
 
-| Solver | Constraint holds no `mul` | Constraint holds `mul` |
-|---|---|---|
-| SAFE | `verified` | `verified` |
-| UNSAFE | `refuted` | fallback, cause `abstraction-unsafe`, construct `abstraction:nonlinear:*` |
+**A fact whose premise is a true constant loses that premise. A fact with a false constant premise, or a true constant conclusion, is dropped.** There is no other filter.
 
-**The cost is real.** All nine false witnesses would report the fallback outcome, with exit 0, not `refuted`. The disclosure stays: `W-BODY-FALLBACK` prints, the post stays a run-time check, and `--strict-verified-core` and `patch --require-proof` refuse the function. An agent that fills holes with `--require-proof` still gets a refusal. Option A has the same cost, by measurement 5.
+**The caps.** Each is part of the set, and measurement 7 gives the cost on each side.
 
-**Restoring `refuted` (decision 2).** Native z3 found a model for all nine false witnesses in under 0.02 s. A later row could run z3 directly on a failed constraint, and evaluate the model on `Integer`. A model that evaluates to a counterexample is a real disproof. A concrete search is weaker: 200000 samples missed M8 on one range, and M4 and M5 on the other. This is not needed for the first release.
+- **Written pairs, 4 monomials,** as above. A longer sum keeps its splits and loses only the pair as written.
+- **Pairs, 64.** If `|P| > 64`, F4 and F5 are omitted for that constraint. The other facts stay. `fixpoint` reached 85.6 CPU s at 64 pairs.
+- **Expansion, 16 monomials.** A single product that expands to more than 16 monomials is refused with `nonlinear:*`, as today, because 27 monomials gave no `fixpoint` result. The prototype does not apply this cap: it is the rule that measurement 7 implies, and the inputs over it were run to show why.
+- **Degree, 6.** A monomial above degree 6 gets no splits. No witness reaches it.
 
-### Option comparison
+The message names any cap that applied (see "Messages").
 
-**A. Native `*`.** The emitter passes `(w * h)` to liquid-fixpoint, which hands it to z3. It needs no new facts and adds almost no time. It also proves W14 and W25, and it handles variable divisors (measured: `(/ i w)` and `(mod i w)` under `w > 0`, and `(/ (* x sw) dw)` for nearest-neighbour resize, each SAFE). Its costs:
+F6 is gone. The review's proposed cross congruence and literal factor are F9: the first resolves `a` to `d` and `b` to `c`, and the second resolves `ch` to 3.
 
-- A `verified` result depends on the z3 nonlinear engine, and on its version. CI and the published image use 4.8.12; this session used 4.15.4.
-- It needs `--smtTimeout`, which measurement 5 shows can report a true obligation as UNSAFE, and which makes the result depend on machine load.
-- `Σ_auto` is no longer a decidable class, which `LLMLL.md` §5.3.3 states as its defining property.
-- `replay-artifact` must then reproduce a nonlinear result, and `FIXPOINT-VERSION-1` shows that an artifact does not yet name its solver version.
+**Termination.** `σ` has no cycle. A split makes strictly smaller monomials. F4, F5 and F9 add no new product to `P`. So generation ends.
 
-If the 4.8.12 run also proves all 26, and the user accepts the timeout rule, Option A is defensible. It should then be scoped with the timeout passed only for a file that holds a product, so that every other `.fq` run is unchanged.
+**F5 is what the crux needs.** `y*w + x < y*w + w ≤ h*w` is linear once F5 gives the second step. Rev 1's C′ had F1 to F4 and failed W3.
 
-**C. Named product.** A product named once and reasoned about linearly proves almost nothing (2 of 27), because no fact relates `n` to `r`. The measured `def off` shows what happens: the author moves the row fact into a `pre`, where no caller can prove it. This is the `npix` shape in `docs/design/ffi-buffer-proposal.md`, which checks `npix = w*h` at run time.
+**Changing the fact set.** This answers review question 2.
 
-**C′. Monotonicity and bound facts.** This is the row's first example. It proves crop size, down-scale and monotonicity, and fails every offset witness. It is not enough on its own.
+- A change is a language change. It needs a CHANGELOG entry, a rerun of the witness table, and `scripts/fallback_census.py`, and a test holds the family counts on W3, P3 and W22 at their stated values.
+- An **added** fact can only add proofs. A **removed** fact can move a program from `verified` to fallback.
+- Neither needs `checker_soundness_version`, because each fact is a theorem. A `verified` sidecar written under a larger set stays true.
+- A fallback is not a positive record, and `refuted` is not persisted (`compiler/src/LLMLL/VerifiedCache.hs`). So a stale result is at worst `asserted` until the next run, which is the safe side.
+- A replay runs the stored VC with its stored facts, so an older artifact replays unchanged, if its soundness stamp matches.
 
-**D. Lean.** `verify --leanstral-mock` on the crux reports "not verified (fail-closed): degenerate proof term". The real path needs an API key and a Lean project, so it was not run. `LeanTranslate` rejects `/`, so W8, W9, W14 and W15 cannot translate as written. The production path is parked under `LEAN-GA`, and the result is not part of the default verdict. Routing every layout contract there is the wrong default. It stays the route for what B misses, such as W23.
+### The mark
 
-**E. Cursor.** `examples/y4m/raster.llmll` proves each byte step. It gives no seek, no stated size, and no check of a byte count against a proved size (F5). It stays a valid pattern, and it does not serve random access, blit or crop by offset.
+`mul##nl` has no call binder, so `abstracted` and `cbAbstractable` cannot see it. A new scan is needed, and it reads the constraint as emitted, not the source:
+
+```
+productMarked c  ⟺  mul##nl ∈ ⋃ { predSymbols p | p ∈ refinements (conEnv c) ∪ {conLhs c, conRhs c} }
+```
+
+- **Every site.** After emission, a program term can only be in an environment binder, the `lhs` or the `rhs`. A callee post after substitution, an S9 assumption and a `let` are binders or `lhs` conjuncts. A definedness goal is an `rhs`. So this one walk covers each site by construction, with no per-site code. Measurement 5 holds a witness for each.
+- **`predSymbols` is total** over the predicate forms, and it includes kvar arguments. No emission site in `compiler/src/LLMLL/FixpointEmit.hs` builds an `FQKVar` today, so no product can reach a constraint through a kvar solution.
+- **`sanitizeFQId` must not rewrite the symbol.** `predSymbols` and `emitPred` both call it, and it would give `mul__nl`, a name that source can spell. The reserved symbols need a path past it, and `FQ-FREEVAR-GUARD-1` must treat them as declared.
+- **Scan after the fact pass, over the kept constraints,** beside `abstracted` and `postUnassumed`.
+- **The mark is coarse.** It reads the whole environment, as those two do. So a linear bug beside a product is marked. The recheck is what keeps that bug `refuted` (N6, N7).
+
+**A second wrong verdict, found in this revision.** Rule 1 of `applyAbstractionVerdict` makes an id a candidate only when its function is body-faithful. `aoIllDefined` and `aoMeasureBad` come from `hardFns`, which has no such test. So a marked definedness id in a function with a fallback body would be a hard id. A true clause holding a product in a `def-shell` would then give a **false `ill-defined`, exit 1**. This reading is from the code; no run reached it. So for the product mark, **candidacy does not need a body-faithful function.** The other marks keep their rule. A test needs a `def-shell` with an untranslated body and a clause whose definedness goal has shape W25.
+
+A marked id with no origin must not exist. A test asserts that each constraint holding `mul##nl` has an owner.
+
+### Verdict and recheck
+
+This is the formal form of the review's illustrative rule. For each failing id of an UNSAFE answer:
+
+| Id | Recheck | z3 answer | Result for the id |
+|---|---|---|---|
+| Not product-marked | none | n/a | as today |
+| Product-marked, and another mark as well | none | n/a | keeps its marks, as today |
+| Product-marked only | yes | `sat`, model validated | **the product mark is removed**, so the id is complete |
+| Product-marked only | yes | `sat`, model fails validation | keeps the mark, and an internal warning names z3 |
+| Product-marked only | yes | `unsat` | keeps the mark. **Never `verified`** |
+| Product-marked only | yes | `unknown`, limit reached, process error, z3 missing | keeps the mark |
+| Product-marked only | no: the translator abstains | n/a | keeps the mark |
+
+The existing rule then decides, with no other change:
+
+| Function's failing ids | Outcome |
+|---|---|
+| A complete id, truth partition | `refuted`, exit 1 |
+| A complete id, definedness partition | `ill-defined`, exit 1 |
+| A complete id, `descent` or `decreases` | the existing measure failure |
+| All marked, none only definedness | fallback, cause `abstraction-unsafe`, construct `abstraction:nonlinear:*`, exit 0 |
+| All marked, all definedness | fallback, cause `clause-welldef-unproved`, exit 0 |
+
+So the off-by-one M1 is `refuted`, and an off-by-one in a `bytes-get` call-pre reports `refuted` by the same route, because its id is in the truth partition. A wrong bound in a clause is `ill-defined`. N6 shows that a linear bug in a caller stays `refuted` when a callee post brings a product in. That is the regression the review named.
+
+**What is checked.** The query holds the failed constraint's environment refinements, its `lhs` without the F facts and F9 links, and the negated `rhs`. `mul##nl` prints as `*`. The other ground-fact families (`measure-nonneg`, `byte-range` and others) stay, because they are part of what a program value can be. Product facts are dropped, because under `*` they are theorems and add nothing.
+
+**What `sat` is validated against.** The compiler asks `(get-value ...)` for each variable and each function application in the constraint. It then evaluates, in its own `Integer` arithmetic:
+
+1. every hypothesis, which must be true;
+2. the goal, which must be false;
+3. each product as exact multiplication, and `(/ e k)` as Haskell `div`; and
+4. function consistency: two applications of one function with equal arguments must have equal results.
+
+Any failure, or a value it cannot read, gives the mark back. This check does not use z3's `:model_validate`, so its truth does not depend on z3. A false `refuted` then needs a false VC, which is a defect today as well.
+
+**The limit.** `(set-option :rlimit 2000000)`, plus a 5 s process guard. A clock limit makes `refuted` depend on machine load; `rlimit` does not, on one z3 version. 2000000 is 132 times the largest count on a false witness (15074). W23 reached `unknown` in 2.02 s. The rlimit unit may differ on z3 4.8.12: **not run.**
+
+**The budget.** A function rechecks at most 8 failing ids, in id order, and stops at its first validated id, because one complete id is enough. The time counts under `--time-limit`. Beyond 8, ids keep the mark.
+
+**What `refuted` means.** This answers review question 1. If the constraint also holds `strLen`, `bytesLen` or `Map_select`, a `sat` model interprets that function too. That is the same meaning as a QF-LIA UNSAFE over those symbols today: the VC has a countermodel, with the function free apart from its stated facts. The recheck removes the `*` abstraction and adds no other. So `refuted` keeps its meaning. Clause 1 and clause 2 marks stay separate and block the recheck, because they name an abstraction the query cannot remove. The translator must extend `fqPredToSMT` past its abstention on function terms. Where it cannot translate a term, it abstains, and the id keeps the mark.
+
+**A `sat` varies by z3 version; a `verified` does not.** A weaker z3 can only lose a refutation. CI must not assert `refuted` on a z3 where it was not measured.
+
+**Replay.** A function's artifact records the outcome as today, with no new enum value. A replay of a rechecked `refuted` reruns the recheck on the stored VC. If it does not reproduce, it fails closed (`classifyReplay`).
+
+**Report the model.** `LLMLL.md:13-14` says that no counterexample input is printed. A validated model is a real one, so the `refuted` text should print it, for example `counterexample: h=25 w=21 x=21 y=24`. JSON does not change. The engineer can take this or leave it.
+
+### Messages
+
+**Callee, at `verify`.** `W-BODY-FALLBACK` names the term and what the recheck found:
+
+```
+W-BODY-FALLBACK f: the post is not proved. A product is in the failing constraint.
+  Refused by: abstraction:nonlinear:*   at <JSON pointer>
+  Product facts did not prove it. Native z3 found no counterexample (<unsat | limit | abstained>).
+  The post stays a run-time check. A strict-core def that calls f will be refused.
+```
+
+Over the pair cap, the second line becomes "this constraint holds 65 product pairs; the limit is 64, so monotonicity facts were not added".
+
+**Caller, at core admission.** Today, `check` refuses a product in a `def` at once. After decision 3, a `def` with an unprovable product passes `check`, falls back at `verify`, and then causes `core-membership-violation` at its callers. `mkCoreMembershipViolation` keeps its kind and gains a variant with the cause:
+
+```
+def 'c': callee 'f' is not body-faithful, because verify fell back on a product at <JSON pointer>
+  (abstraction:nonlinear:*). Only verified functions are admissible in strict-core bodies.
+Suggestion: restate f's post, supply evidence with ?proof-required, or write 'c' as a def-shell.
+```
+
+Core admission reads persisted evidence. If the sidecar does not hold the fallback construct, it must carry it for this text. The engineer confirms this.
+
+### Disclosure
+
+Add the family `product-facts` to `ground_fact_families`. `LLMLL.md` §13.12 goes from four families to five, with the statement of the set. No new `assumed_facts` kind and no increase of `trust_report_version`. A test checks each schema by native z3, as measurement 4 does, once and not per program. `verified` stays `verified`, with no cap.
+
+### Lean worklist
+
+`runLeanstralPipeline` selects a fallback function with `isNonLinear b`. `isNonLinear` stops flagging a two-variable `*`, for the same reason that it stopped flagging `(* 8 r)`. So W14, W23 and W25 would leave the list. **Select from the outcome:** a function in the fallback set whose construct is `abstraction:nonlinear:*`, or whose body holds a remaining nonlinear operator.
+
+`nlPreH` and `nlPostH` in `compiler/src/LLMLL/HoleAnalysis.hs` then stop creating a `non-linear-contract` hole for a product. A static hole on W3 would be noise, because B proves it. The `TypeCheck` warning on an explicit `?proof-required` keeps its form, and its text must stop saying that QF-LIA cannot discharge it when the operator is `*`.
+
+### Spec text
+
+**`Σ_auto` does not widen.** `LLMLL.md:13-14` defines `Σ_auto` by a complete decision, and neither statement holds for a term with `mul##nl`. QF-UFLIA is decidable, but the solver then decides the abstraction and not the property. So §5.3.3 gains a separate class. Draft for the documentation-lead:
+
+> **Abstracted products — sound, not complete.** A product of two non-constant `int` terms is normalized and reflected to an uninterpreted symbol, with a fixed set of ground theorems of integer multiplication. The solver's question is decidable, but it is a question about the abstraction. SAFE is a proof of the property, resting on `int-unbounded-1`. UNSAFE is not: the function is `refuted` only when an interpreted solver query gives a model that an exact-integer evaluation confirms, and otherwise it falls back. Nothing here is outside the trust of `verified`. No class of programs is claimed complete. The witness table is the coverage evidence. Nonlinear integer arithmetic remains undecidable (Matiyasevich 1970).
+
+The review's answer to Rev 1's open question stands: **no fixed one-round ground set is known to be complete for a natural bilinear class.** This record claims none, and it keeps "sound and incomplete".
 
 ### What B does not prove
 
-W14 and W25 are true and fail. W23 is true and fails. Each falls back with disclosure, and an author can use `?proof-required`, or `check` evidence. W14 needs a fact with scaled factors; adding it is possible later, since a new true fact can only add proofs.
+| Witness | Claim | Why | What the author can do |
+|---|---|---|---|
+| W14 | `4·cw·ch ≥ w·h` | needs `w ≤ 2·cw` scaled into a monotone fact | fallback; `?proof-required` |
+| W23 | `x² ≠ 2y²` | irrationality; no local fact reaches it | fallback; Lean route. Native z3 also does not decide it |
+| W25 | `(a+b)² ≥ 4ab` | needs `(a−b)² ≥ 0`, and F8 sees only written squares | fallback; restate as `(a−b)*(a−b) ≥ 0` |
+| Q8 | `a≤d ∧ d≤a ∧ b≤c ∧ c≤b ⟹ ab = cd`, any sign | the equality is derived, not written, so no F9 | write `(= a d)` |
+| Q9 | an equation inside a disjunct | `σ` reads top-level equations only | split the branch |
+
+Native z3 proves W14, W25, Q8 and Q9. Each of these reports fallback, with "no counterexample". A new true fact can only add proofs, so each can be added later, under "Changing the fact set".
+
+### Option comparison
+
+**A. Native `*` as the proof engine.** It has no new facts, and it costs almost nothing (Rev 1: at most 0.086 s per decided witness). Its costs are version dependence, `--smtTimeout` with a false UNSAFE, and `replay-artifact` having to reproduce a nonlinear result. The recheck takes its strength as a refuter without any of those.
+
+**Rev 1's C, C′, D and E, carried and not rerun.** C, a named product with no facts, proved 2 of 27. C′, the row's wording, proved 6 of 27 and failed every offset witness. D, the Lean path: `verify --leanstral-mock` says "not verified (fail-closed)", the real path was not run, and `LeanTranslate` rejects `/`. It stays the route for W23. E, the cursor pattern, gives no seek and no stated size.
 
 ### Design-reference set
 
-These are named from general knowledge and were not checked in this session. Dafny offers `--disable-nonlinear-arithmetic` and a lemma library, because native nonlinear proofs are unstable. Verus isolates them in `by(nonlinear_arith)`. Liquid Haskell has `--linear`, which makes `*` uninterpreted. Cimatti and others use the same sign, monotonicity and tangent facts in incremental linearization, for SMT over nonlinear arithmetic. Option B is a fixed, one-round form of that method. The professor should check this paragraph.
+Sources are from the review's search unless marked. Cimatti and others, incremental linearization: TOCL 19(3), 2018, and for NIA SAT 2018. That method is a refinement loop over a linear abstraction. **This design has no refinement loop.** It is related in that it adds true lemmas to an abstraction, and in no stronger way. This record makes no claim about that work's lemma names, because they were not confirmed. Dafny `--disable-nonlinear-arithmetic`: its man page says more manual work and more predictable. Verus `by(nonlinear_arith)`: default mode disables nonlinear theories, and the query is separate, which is the shape of the recheck. Sherali–Adams RLT: `MUL-SLACK-1` only. Handelman 1988 (Pacific J. Math. 132(1), pp. 35-62): the review confirmed the record from secondary sources and not from the paper, so it is secondary here. It concerns compact polytopes, and `w` and `h` are unbounded.
+
+Matiyasevich 1970, searched in this revision: *Enumerable sets are Diophantine*, Doklady Akad. Nauk SSSR 191, pp. 279-282; English in Soviet Mathematics 11(2), pp. 354-357 ([MacTutor](https://mathshistory.st-andrews.ac.uk/Biographies/Matiyasevich/), [mathnet](https://mathnet.ru/eng/im1910)). The result depends on Davis, Putnam and Robinson, and is often called MRDP.
+
+Local fact, in this revision: `fixpoint --help` on 0.9.6.3.7 prints "`--linear`: Use uninterpreted integer multiplication and division". The review reported no description, and that is corrected here. This record makes no claim about any Liquid Haskell flag.
 
 ## Edge cases and degenerate inputs
 
-1. **Positive witness for the abstraction mark.** M1: `(>= y 0)`, `(< y h)`, `(>= x 0)`, `(<= x w)`, post `(< (+ (* y w) x) (* w h))`. It is false at `h=25, w=21, x=21, y=24`. Behaviour: UNSAFE, the constraint holds `mul`, so the fallback outcome and exit 0. Channel: trust. Citation: Verdict.
-2. **Negative factors.** M5: `(>= (* w h) 0)` with no `pre`. F1 does not fire, so it is not proved, which is correct at `w=-3`. M4 is the same with `y=-1`. Channel: contract.
-3. **Zero extents.** `w=0` or `h=0`. W3's `pre` then has no solution, because `x < w` or `y < h` fails with `x, y ≥ 0`. F2 gives `w*h = 0`, so a zero-size buffer is sound. Channel: contract.
-4. **A square.** `(* n n)` with `n` negative. F8 gives `≥ 0`. The control `n*n ≥ 1` is false at `n=0` and stays unproved. Channel: contract.
-5. **A constant factor.** `(* 3 w)`. It stays exact, the `.fq` is byte-identical, and UNSAFE stays `refuted`. Channel: contract. Citation: `SIGMA-CONST-ARITH-1`.
-6. **A partial read in a factor.** `(* (map-get m k) w)` in a post. `mul` adds no obligation, and `map-get` keeps its `wd-post`. Channel: contract. Citation: `CLAUSE-WELLDEF-1`.
-7. **A callee post with a product.** `(post (= result (* w h)))` at a call `(area a b)`. The caller assumes `result = mul(a, b)`. Facts are generated after substitution, so the caller's terms get them. Channel: contract.
-8. **A product in `decreases`.** `(decreases (* w h))`. It stays refused in this record: descent is proved over exact terms, and a fallback there has separate rules. Channel: contract. Citation: `LLMLL.md` §5.3.
-9. **An undecidable claim.** W23. No hang under B: z3 returned a model of the encoded negation inside the 10 s limit, then the rule gives the fallback outcome. Channel: trust.
-10. **A large value at the FFI boundary.** A product passed to a kernel `int` can pass `2^63−1`. `int` is `Integer`, so the product is right, and the `int64` range obligation of `docs/design/ffi-buffer-proposal.md` Part 4 stays a hard obligation. W20 shows that a range `pre` can prove it. Channel: contract.
-11. **Many product terms.** 42 terms in one constraint gave 14196 facts and 39.8 s. Facts grow as `8T²`. The `--time-limit` still bounds the run. The engineer may filter pairs. Spec is silent (intentional).
-12. **A kernel `out-len`.** `(out-len (* w h))` stays refused (`ffi-kernel-term-unsupported`). A caller can now prove `(= npix (* w h))` and pass `npix`, which removes the run-time-only check that the FFI record's worked example describes. Lifting the refusal is a later change to that record. Channel: type.
+1. **Positive witness for the recheck.** M1: `(>= y 0)`, `(< y h)`, `(>= x 0)`, `(<= x w)`, post `(< (+ (* y w) x) (* w h))`. `fixpoint` UNSAFE, marked, native `sat`, validated. `refuted`, exit 1. Channel: contract.
+2. **Positive witness for the mark.** W23 at each site of measurement 5. `fixpoint` UNSAFE, marked, native not `sat`. Fallback, exit 0, not `refuted`. Channel: trust.
+3. **Negative factors.** M5, `(>= (* w h) 0)` with no `pre`. F1 does not fire. Native `sat`. `refuted`, which is correct at `w=-3`. Channel: contract.
+4. **Zero extents.** `w=0` in W3's `pre` has no solution, because `0 ≤ x < w` fails. F2 gives `w*h = 0`. Channel: contract.
+5. **A constant factor.** `(* 3 w)` is not a product of two non-constants. The `.fq` stays byte-identical, and UNSAFE stays `refuted` with no recheck. Channel: contract. Citation: `SIGMA-CONST-ARITH-1`.
+6. **A `let` constant.** `(let [(ch 3)] (* (* w h) ch))`, as P5. F9 links it. Channel: contract.
+7. **A partial read in a factor.** `(* (map-get m k) w)` in a post. `mul##nl` adds no obligation, and `map-get` keeps its `wd-post`. The atom's value is an integer, so each fact holds. Channel: contract. Citation: `CLAUSE-WELLDEF-1`.
+8. **A callee post with a product.** `(post (= result (* w h)))` at `(area a b)`. The caller assumes `result = mul##nl(a, b)`, after substitution. A linear bug in that caller stays `refuted` (N6). Channel: contract.
+9. **A goal that is an identity.** P1. The normal form proves it, and no constraint is sent. Channel: contract.
+10. **A goal that is a false constant.** N9, `(< (* w h) (* h w))`. `rhs false`, UNSAFE, native `sat`, `refuted`. Channel: contract.
+11. **A product in `decreases`.** It stays refused: descent is proved over exact terms. Channel: contract. Citation: `LLMLL.md` §5.3.
+12. **A parameter named `mul` or `mul_nl`.** No collision (measurement 6). A test holds it. Channel: spec is silent (intentional).
+13. **Over a cap.** 65 pairs: F4 and F5 are omitted, and a claim that needs them falls back, with a message naming the cap. `(a+b+c)*(d+e+f)*(g+h+i)`: refused with `nonlinear:*`, as today. Channel: trust.
+14. **Machine integers.** Under any codegen with a fixed-width `int`, F1, F3, F4, F5 and F8 are false. The stamp `codegen_semantics_version` covers this, and this family must follow it. Channel: trust.
+15. **A float product.** No float `*` exists. A future one must not receive F5, which needs integrality: `a=0, c=½, b=d=1` breaks it. Channel: type.
+16. **A kernel `out-len`.** `(out-len (* w h))` stays refused. A caller can now prove `(= npix (* w h))` and pass `npix`. Channel: type. Citation: `docs/design/ffi-buffer-proposal.md`.
 
 ## Verification mapping
 
 | Obligation | Channel | Fragment | Citation |
 |---|---|---|---|
-| A contract or body VC that holds `mul` | contract | **(a) QF-UFLIA, auto-discharged.** Ground facts over one uninterpreted function: the measure-class discipline, path-(a), without a claim of completeness against QF-NIA | `LLMLL.md` §5.3.3; `FixpointEmit.hs` |
-| The truth of each fact F1 to F8 | not an obligation | Proved once, by the arguments in the table, and checked as in measurement 6. Not a per-program obligation | this record |
-| A claim that the facts cannot reach (W14, W23, W25) | trust | (b) nonlinear: falls back. (c) `?proof-required` is available, and the Lean path stays experimental | `LLMLL.md` §5.3.5 |
-| Variable divisor | outside this record | (b), refused as today. Proposed row `DIV-VAR-1` | `FixpointEmit.hs` |
+| A contract or body VC that holds `mul##nl` | contract | **(b) nonlinear, with surface-form restriction: a decidable encoding (QF-UFLIA) of an undecidable class.** Not (a): it does not join `Σ_auto`, and it is not complete | `LLMLL.md` §5.3.3 |
+| The truth of each fact | not an obligation | Each schema is checked once, in a test | "Soundness" |
+| A failed constraint's recheck | none: it can only remove a mark | QF-NIA, used for `sat` only | "Verdict and recheck" |
+| A claim that the facts cannot reach | trust | (b): falls back. (c) `?proof-required` is available, and the Lean path stays experimental | `LLMLL.md` §5.3.5 |
+| Variable divisor | outside this record | (b), refused as today | `DIV-VAR-1` |
 
-**Strict immutability.** No state is added. `mul` exists only in the VC.
+### Soundness
 
-**Soundness argument.** Each fact is a theorem of integer multiplication, the run-time semantics of `*` is exact `Integer` multiplication, and `mul` is functional, so EUF congruence is true of it. So a VC proved with the facts is true of the program. No fact restricts a value that the program can produce.
+**SAFE.** Each fact is a theorem at every integer valuation, with `mul##nl` read as `*`. Take that standard model. If `H ∧ F ⟹ G` is valid, then `F` is true there, so `H ⟹ G` is true. So no path condition is needed for a fact, and short-circuit context does not matter. EUF congruence is true of `*`.
 
-**Trust.** The facts rest on no assumption about a sealed builtin or a codegen choice beyond `*` itself. This differs from the `TRUST-AXIOM` population, which depends on what codegen emits. Decision 4 still proposes one disclosure line, because a reader of the VC meets `mul` and its facts. `verified` stays `verified`, with no cap.
+**The base.** The facts rest on `int-unbounded-1`: `*` is exact `Integer` multiplication. A machine-integer codegen would make F1, F3, F4, F5 and F8 false. **F5 is integer-only.** Its certificate needs `a < c ⟹ c−a−1 ≥ 0`.
+
+**Reach.** The normal form uses ring identities only, so it does not change the value of a term. `σ` adds facts and does not rewrite a clause, and F9 carries its premises, so it is true with no hypothesis. `*` is total, so it has no WD entry. `mul##nl` has no call binder, so the call counts of `CALL-CONGRUENCE-1` and clause 2 do not apply.
+
+**`refuted`.** The exact-integer check confirms that the valuation satisfies the VC's hypotheses and falsifies its goal. So it adds nothing to the trust base beyond the VC being faithful, which every `refuted` needs today.
+
+**Trust.** The facts add nothing to the sealed-builtin axioms. Their family is disclosed.
 
 ## Affected surface
 
 This is an addition to the reflected fragment. Its soundness argument is above.
 
-- `compiler/src/LLMLL/FixpointEmit.hs`: the `*` arms of `exprToPredWD` and `bodyToPredM`; the normalization; a ground-fact pass per constraint; the `nonlinear:*` label, which now applies to `/`, `mod` and the rest, not to `*`.
-- `compiler/src/LLMLL/AbstractionVerdict.hs`: `mul` as an abstracted term.
-- `compiler/src/LLMLL/Syntax.hs`: `isCoreBodySyntactic`, under decision 3. `LLMLL.md` §12 `core-expr` excludes "non-linear ops" and must move with it.
-- `compiler/src/LLMLL/HoleAnalysis.hs`: `isNonLinear` stops flagging a two-variable `*`, as `SIGMA-CONST-ARITH-1` did for a constant one. This also narrows the Lean worklist in `compiler/app/Main.hs`.
-- `compiler/src/LLMLL/TrustReport.hs` and `docs/llmll-trust-report.schema.json`: one `assumed_facts` kind, under decision 4, with a minor increase of `trust_report_version`.
-- **Fixtures that exist to show the refusal must move to a claim B cannot prove:** `examples/leanstral-demo/square.llmll` (the Lean demo loses its example), `scripts/doc-claims/nonlinear-body-fallback.llmll`, `scripts/tests/fixtures/fallback-census/census-constructs.llmll`, `scripts/tests/fixtures/fallback_attrib/attrib.llmll`, with `scripts/tests/test_fallback_attrib_1.py`, `scripts/tests/test_fallback_census.py` and `compiler/test/Spec.hs`.
-- `LLMLL.md` §5.3.3 and §5.3.5; `docs/getting-started.md`; `docs/compiler-team-roadmap.md` (`MUL-VAR-1`, new `DIV-VAR-1`); `docs/design/INDEX.md`. These are the documentation-lead's.
-- **Versions.** Clauses that did not translate now translate, and every clause that translated before emits the same term. So the `LLMLL.md` §4 rule for `checker_soundness_version` keeps the stamp, and it requires a byte-identical `.fq` sweep over the corpus as evidence. `proof_artifact_version` does not change, because no enum value is new: the construct is free text under the existing `abstraction-unsafe` cause. The engineer confirms both.
-- **No conflict with `docs/design/byte-io-proposal.md`.** `BITWISE-1` keeps exact QF-LIA forms, and `band` keeps its own facts. `mul` adds a second symbol of the same kind. A shift by a variable stays refused.
+- `compiler/src/LLMLL/FixpointEmit.hs`: the `*` arms of `exprToPredWD` and `bodyToPredM`; the normal form, `σ`, the fact pass and the binder pass; the `productMarked` scan; the `nonlinear:*` label stops applying to `*`.
+- `compiler/src/LLMLL/FixpointIR.hs`: a way past `sanitizeFQId` for the reserved symbols, in `emitPred` and `predSymbols`; the free-variable guard.
+- `compiler/src/LLMLL/AbstractionVerdict.hs`: the product mark, the candidacy rule, the recheck's removal of a mark before rule 1.
+- A recheck module, or `compiler/src/LLMLL/Feasibility.hs`: the translator, the limit and the exact-integer check.
+- `compiler/src/LLMLL/Syntax.hs`: `isCoreBodySyntactic`, under decision 3. `LLMLL.md` §12 `core-expr` moves with it.
+- `compiler/src/LLMLL/HoleAnalysis.hs`, `compiler/src/LLMLL/TypeCheck.hs`, `compiler/app/Main.hs`: "Lean worklist".
+- `compiler/src/LLMLL/Diagnostic.hs`: "Messages".
+- `compiler/src/LLMLL/TrustReport.hs`: the family only.
+- **Fixtures that exist to show the refusal move to a claim B cannot prove** (Rev 1 list, not rechecked): `examples/leanstral-demo/square.llmll`, `scripts/doc-claims/nonlinear-body-fallback.llmll`, `scripts/tests/fixtures/fallback-census/census-constructs.llmll`, `scripts/tests/fixtures/fallback_attrib/attrib.llmll`, with `scripts/tests/test_fallback_attrib_1.py`, `scripts/tests/test_fallback_census.py` and `compiler/test/Spec.hs`.
+- `LLMLL.md` §0, §5.3.3, §5.3.4, §5.3.5, §12, §13.12; `docs/getting-started.md`; `docs/compiler-team-roadmap.md`; `docs/design/INDEX.md`. These are the documentation-lead's.
+- **Versions.** A VC with no product is byte-identical, which the first step must prove with a sweep. `checker_soundness_version` keeps its value, because no recorded verdict can stop being true: this is an argument, for the engineer to confirm. `proof_artifact_version` keeps its value, because no enum value is new. `trust_report_version` keeps its value (decision 4). A caller of a callee with a product post gets a new VC, because that post was not assumed before. Its verdict can move, in a known direction, from `callee-post-unassumed` toward `verified`.
 
 ## Ship order
 
-This row depends on nothing unshipped. `CLAUSE-WELLDEF-1` and `ABSTRACTION-VERDICT-1` have shipped. It should land before the library's contract surface is written against `npix`, and before `FFI-KERNEL-1` if the kernel vocabulary is to change.
+This row depends on nothing unshipped. Its first step is the 4.8.12 run (decision 6). Its second is the same witness table through `llmll verify`, and the Y4M and netpbm contracts restated. It should land before the library's contract surface is written against `npix`.
+
+## Not run
+
+| Item | What it needs |
+|---|---|
+| **Any witness or VC through `llmll verify`** | an implementation; first implementation step |
+| **z3 4.8.12, for B, the recheck and the rlimit unit** | the user's permission to obtain that version, or a CI run of `rev2.py`. An earlier download was denied, and this revision did not try again |
+| `strLen`, two-array map encoding, opaque sorts in the recheck | an implementation of the translator |
+| Y4M and netpbm contracts restated | an implementation |
+| The false `ill-defined` path in `applyAbstractionVerdict` | a code reading only; no run reached it |
+| Real path context, `let` binders and mixed theories at scale | an implementation |
+| `scripts/fallback_census.py`, the byte-identical sweep | an implementation |
+| Lean path | an API key and a Lean project (Rev 1) |
+| Option A's stability, seeds and real files, on this revision | carried from Rev 1 |
+| CPU for the middle two filter rows in measurement 2 | not run: their z3 counts already showed a lost witness |
+| The expansion cap in the prototype | it is stated from measurement 7; implement and rerun |
+| A long hypothesis that no single product causes | a new witness; first implementation step |
 
 ## Risks and open questions
 
-1. **False witnesses lose `refuted`.** Verification-ergonomics. Cite: Verdict. Complicates: agents get a fallback, not a refusal, unless they use `--require-proof`. The cost is a loss of information, not of soundness.
-2. **The witness set was written by the author of this record.** Scope. It covers the operations this library is expected to need, and a real library will meet more. Complicates: a miss gives a disclosed fallback. The Y4M and netpbm contracts should be re-stated as a first test.
-3. **Fact volume.** Verification-ergonomics. Cite: measurement 2. Matters at scale: 22 terms cost 9.8 s, while the largest witness has 8. No real function was measured, because no real function can state a product today.
-4. **The whole measurement used hand-built VCs.** Scope. The emitter's real path context, `let` binders and mixed theories were approximated, not run. Complicates: the first implementation step must repeat the table through `llmll verify`.
-5. **The z3 version is unmeasured.** Soundness is not affected, since SAFE from a correct solver is a proof. Decisive for Option A. B stays in QF-UFLIA, which the existing emitter already uses, so less change is expected. That expectation is not measured.
-6. **Trust in z3's nonlinear engine, under Option A only.** Soundness. Not measured, and not measurable here. Matters if decision 1 goes to A.
-7. **The Lean demo loses `square`.** Scope. Cite: Affected surface. A new example is needed, such as W23.
+1. **The witness set is still written by this team.** Scope. Two independent passes each found gaps: the review's P set found regrouping, and this revision's Q10 and Q11 found padded strides and overturned the filter that looked best. Expect more from real contracts. Complicates: a miss gives a disclosed fallback, and a new fact can only add proofs. The Y4M and netpbm restatement is the next test.
+2. **`fixpoint` cost on long sums.** Decidability in practice. The 3 × 3 × 3 input gave no result in 200 s, with z3 alone at 0.07 s and the cause not located. The expansion cap removes that input and no witness. A different long hypothesis, such as a sum of many separate products, could reach the same cost, and this revision did not test one. `--time-limit` stays the outer bound, and it then gives no verdict for a whole file. Complicates: the record cannot claim that B never stalls. The first implementation step must test this.
+3. **Fact cost.** Verification-ergonomics. A three-factor offset is about 4 CPU s per constraint on a loaded machine, and a function holds several constraints. The default `--time-limit` is 120 s for a file. Complicates, at scale. Rev 1 had 530 facts at 0.916 s on W26; W26 here is 494 facts at 1.79 CPU s under load. z3 alone is far faster, and the cost is in `fixpoint`, for a cause not located. `MUL-SLACK-1` covers this.
+4. **`refuted` varies by z3 version.** Verification-ergonomics. A weaker z3 loses refutations. Decision 6 measures this. Blocks: only if 4.8.12 loses most of them, and then decision 2 must be reopened.
+5. **Equation resolution reads conjunct order.** Verification-ergonomics. `σ` is a function of the order of `conEnv`. Two orders can give different facts, and so a different verdict, on a program whose equations overlap. No witness shows a difference; none was built to look for one. Complicates: the emitter must keep the order stable, and a test should reverse the equations on the witnesses.
+6. **Hand-built VCs.** Scope. The emitter's real shape was approximated. Complicates: the first step repeats the table.
+7. **A native `unsat` is thrown away.** Verification-ergonomics. W14, W25, Q8 and Q9 are true, z3 says so, and the program falls back. This is the price of keeping `verified` free of the nonlinear engine. Decision 1 names the alternative.
+8. **The Lean demo loses `square`.** Scope. A new example is needed, such as W23.
 
-### Proposed row, not filed
+### Proposed rows, not filed
 
-**`DIV-VAR-1`** (no contract can state a division or `mod` by a variable). An image library needs `(/ i w)` and `(mod i w)` to turn an offset into coordinates, and `(/ (* x sw) dw)` for nearest-neighbour resize. Haskell `div` and SMT `div` agree only for a positive divisor (`LLMLL.md` §5.3.3), so this needs a proved `divisor > 0`, a definedness entry under `CLAUSE-WELLDEF-1`, and its own facts. Measured under Option A: the three witnesses are SAFE, and one false variant is UNSAFE. It was not measured under Option B.
+**`DIV-VAR-1`** (no contract can state a division or `mod` by a variable). An image library needs `(/ i w)` and `(mod i w)` to turn an offset into coordinates, and `(/ (* x sw) dw)` for nearest-neighbour resize. Haskell `div` and SMT `div` agree only for a positive divisor (`LLMLL.md` §5.3.3), so this needs a proved `divisor > 0`, a definedness entry under `CLAUSE-WELLDEF-1`, and its own facts. Rev 1 measured three witnesses SAFE and one false variant UNSAFE under Option A.
+
+**`MUL-SLACK-1`** (measurement only, not in scope for this release). Why is `fixpoint` far slower than z3 on large arithmetic constraints? Three inputs show it: the RLT slack-product schema (review), the fact set at scale, and a long sum. The schema proved W14, W20 and W25 in z3 (review). If the cause is removed, the schema gives a statable certificate class, and risks 2 and 3 become smaller.
 
 ## Open questions for the professor
 
-1. Is a one-round ground set of sign, monotonicity and row facts a known complete procedure for some useful class of bilinear integer constraints? If it is, the record can state that class in place of a witness count, and `LLMLL.md` §5.3.3 can claim it. If not, the claim stays "sound and incomplete". This changes the spec text that this record promotes.
+None. The review's two open questions are answered in "What `refuted` means" and "Changing the fact set". z3 4.8.12 is a measurement, not a question.
