@@ -91,8 +91,9 @@
   0.39 s and 34 MB to 1.11 s and 50 MB.
 - **`--cdp`, one serial pass per binary over the same 720 sources:** all 224 scores are equal
   (mean 0.7743 on both). The only difference is `contract-read-oob`: exit 0 to 1, and headline
-  `def-shell-out-of-scope` to `not-requested`, because `ill-defined` stops before scoring. Run
-  in parallel, scores vary between runs of one binary, so compare them only from serial runs.
+  `def-shell-out-of-scope` to `not-requested`, because `ill-defined` stops before scoring. Compare
+  scores only from serial runs: concurrent `--cdp` runs that share a function name overwrite each
+  other's constraint file (`CDP-FQ-RACE-1`, open).
 - **`make refute-crux-gate`:** 99 passed, 0 failed. The `--cdp` and refute-crux measurements ran
   after the tag was pushed.
 
