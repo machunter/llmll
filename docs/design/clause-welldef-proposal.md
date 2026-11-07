@@ -518,6 +518,7 @@ Measured on the tracked tree at `491d96b1`, with `scan.py`, `scan2.py`, `wdgen.p
 - **Result: one change of exit status, `f` in `scripts/doc-claims/contract-read-oob.llmll`.** The 11 mutant files are `refuted` before and after. So the emulation cannot show whether they also gain the `ill-defined` marker; that is not measured. The other 11 files are unchanged.
 - **Limits.** The emulation cannot test a body-fallback function, because the extra post is only assumed. Those functions emit no `wd-post` (S5), so this limit does not affect a verdict. It also assumes the pre when it emulates a `wd-pre` obligation. The one pre in the corpus is guarded, so this does not change the count.
 - **`.fq` changes** are limited to functions in the 41 files. The census baseline must be measured again.
+- **Measured on the implementation, 2026-11-06 (v0.36.0 against v0.37.0, all 720 tracked sources).** The prediction held: one change of exit status, `f` in `scripts/doc-claims/contract-read-oob.llmll`. The census of 291 files has no per-file change. The question this section left open is answered for the tree: of the files that were already refuted, one gains the `ill-defined` marker, `scripts/tests/fixtures/bytes_set_len_ctor_sort/b4_oob.llmll`, and no swarm mutant does.
 
 ### 7.2 The spec-local rule (the first review's open question)
 
