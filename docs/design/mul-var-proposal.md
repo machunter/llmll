@@ -1,7 +1,7 @@
 ---
 name: mul-var-proposal
 title: "MUL-VAR-1: state and prove a product of two variables, so that an image layout can have a contract"
-status: "Rev 3, DRAFT 2026-11-07. Folds amendments A1 to A5 of mul-var-rev2-professor-review.md. Awaits the z3 4.8.12 run and a user decision. Not settled."
+status: "Rev 3, DRAFT 2026-11-07. Folds amendments A1 to A5 of mul-var-rev2-professor-review.md. z3 4.8.12 run recorded. Awaits a user decision. Not settled."
 date: 2026-11-07
 author: language-team
 rows: "MUL-VAR-1 (G7, DECIDE). Depends on FQ-ARITH-FLAT-1 and FQ-NAME-COLLIDE-1 (both PLAN, unshipped). Related: CLAUSE-WELLDEF-1 (shipped v0.37.0), ABSTRACTION-VERDICT-1 (shipped v0.34.0), CDP-FQ-RACE-1 (G1, PLAN), BITWISE-WIDTH-1 (G7, PLAN), FFI-KERNEL-1 (G7, PLAN), CORE-SYNTAX-MSG-1 (G3, PLAN), LEAN-GA (parking lot). Proposes two rows, not filed: DIV-VAR-1, MUL-SLACK-1."
@@ -12,9 +12,9 @@ consumers: [user, professor, compiler-engineer, documentation-lead]
 
 **Status: Rev 3, DRAFT 2026-11-07.** The user has not settled this record. The compiler was not changed. No roadmap row moved.
 
-**How to read the numbers.** A number with no label comes from a run of `rev3.py` on this revision, on z3 4.15.4 and liquid-fixpoint 0.9.6.3.7. A number labelled "Rev 2 prototype", "review" or "Rev 1" is carried from that source and was not rerun. **Every VC here is built by a script. Nothing with a product went through `llmll verify`.** No emitter exists, so the tables show what the design does on hand-built VCs. CPU seconds count `fixpoint` with its z3 child, at a load average of 5 to 9, so read them as upper bounds. W22 cost 13.5, 13.7 and 18.0 CPU s in three places in one run, which shows the noise. **z3 4.8.12 was NOT RUN on this revision** (see "z3 4.8.12").
+**How to read the numbers.** A number with no label comes from a run of `rev3.py` on this revision, on z3 4.15.4 and liquid-fixpoint 0.9.6.3.7. A number labelled "Rev 2 prototype", "review" or "Rev 1" is carried from that source and was not rerun. **Every VC here is built by a script. Nothing with a product went through `llmll verify`.** No emitter exists, so the tables show what the design does on hand-built VCs. CPU seconds count `fixpoint` with its z3 child, at a load average of 5 to 9, so read them as upper bounds. W22 cost 13.5, 13.7 and 18.0 CPU s in three places in one run, which shows the noise. **A number labelled z3 4.8.12 comes from CI run 42410952361 of this script** (see "z3 4.8.12"). That run covers the same script-built VCs and no `llmll verify`.
 
-**The script.** `rev3.py` is one file with no imports beyond the Python standard library, no arguments and no local paths. It is in the session scratchpad folder `mulvar`, and it is not committed. Its SHA-256 is `7c0e03d0cd7a7191c889b5818dff26bc6bac87d7a660459f1087dfd45723ad50`. The record therefore copies each number that it uses. The first implementation step must repeat the tables through `llmll verify`.
+**The script.** `rev3.py` is one file with no imports beyond the Python standard library, no arguments and no local paths. It is in the session scratchpad folder `mulvar`, and it is not committed. Both runs in this record used the file with SHA-256 `7c0e03d0cd7a7191c889b5818dff26bc6bac87d7a660459f1087dfd45723ad50`. That file has one defect, which voids one output row: see "The void row". The corrected file has SHA-256 `14e9441d20f55f4025ae33eb5029114e0ef1fb5ac59a90efa33b884c6b4cda12`. The record copies each number that it uses, because the script and its output are temporary files. The first implementation step must repeat the tables through `llmll verify`.
 
 ## Restatement
 
@@ -39,7 +39,7 @@ Three parts ship together in one release, after two rows that ship first:
 
 Row A counts the native `unsat` results of the recheck query on this witness set.
 
-**Blocking finding 1 of the Rev 1 review is now resolved for byte buffers on this witness set, on z3 4.15.4 only.** The validator reads real `get-value` output: arrays as finite maps, `Str` as tokens. All 39 false witnesses give `sat` with a validated model, and 12 of them hold an array or a `Str` (N4, N5, KF4, BF1 to BF9). No true witness gives `sat`. Measurement 7 shows the raw output. **Finding 2 stays resolved:** P1 to P7 prove with no hand-written equation.
+**Blocking finding 1 of the Rev 1 review is now resolved for byte buffers on this witness set, on script-built VCs, on z3 4.15.4 and z3 4.8.12.** No VC here came from the emitter, so the real emitter's shape is NOT RUN. The validator reads real `get-value` output: arrays as finite maps, `Str` as tokens. All 39 false witnesses give `sat` with a validated model, and 12 of them hold an array or a `Str` (N4, N5, KF4, BF1 to BF9). No true witness gives `sat`. Measurement 7 shows the raw output. **Finding 2 stays resolved:** P1 to P7 prove with no hand-written equation.
 
 Four true witnesses do not prove: W14, W23, W25 and Y5. Each is listed with its cause in "What B does not prove". Q8, Q9 and K1 now prove.
 
@@ -49,7 +49,7 @@ Each decision shows the professor's position as an input. The user decides. **No
 
 **1. Encoding.** *Professor:* B for proofs, native z3 for `sat` only. *Recommendation:* agree. A `verified` must not depend on the z3 nonlinear engine or its version. The cost is real but smaller than in Rev 2: A proves W14, W25 and Y5, and B does not. *Alternative that the user may prefer:* accept a native `unsat` as `verified`. That gives 92 of 93 at low cost, and it brings all the version dependence back. It is not recommended.
 
-**2. Refutation.** *Professor:* restore `refuted` in the same release. *Recommendation:* agree. 39 of 39 false witnesses report `refuted` on z3 4.15.4. A separate row would ship a release in which an off-by-one offset exits 0.
+**2. Refutation.** *Professor:* restore `refuted` in the same release. *Recommendation:* agree. 39 of 39 false witnesses report `refuted` on script-built VCs, on z3 4.15.4 and z3 4.8.12. A separate row would ship a release in which an off-by-one offset exits 0.
 
 **3. `def` bodies.** *Professor:* admit, with a message condition. *Recommendation:* agree. "Messages" gives the text.
 
@@ -57,7 +57,7 @@ Each decision shows the professor's position as an input. The user decides. **No
 
 **5. Variable divisors.** *Professor:* a separate `DIV-VAR-1`. *Recommendation:* agree. **Changed in detail:** `mod` with a positive ground divisor is now an atom, and `(/ e k)` with a positive ground `k` stays one. A variable divisor stays refused. The refusal scan runs on the written term, before expansion, so a cancellation cannot delete a refused term (measurement 6).
 
-**6. z3 4.8.12.** *Professor:* the gate passes on the Rev 2 report, with corrections. *Recommendation:* the gate applies to Rev 3 too, because the fact set changed. **The Rev 3 run is NOT RUN.** The user runs `rev3.py` in CI and the results go into this record before settlement. Soundness does not depend on the result: a weaker z3 can only lose a refutation or a proof.
+**6. z3 4.8.12.** *Professor:* the gate passes on the Rev 2 report, with corrections. *Recommendation:* the gate applies to Rev 3 too, because the fact set changed. **The Rev 3 run passes at the design limit of 2000000.** All 132 witnesses get the same verdict on z3 4.8.12 as on z3 4.15.4, with no true `sat` and 39 of 39 models validated. It covers script-built VCs, not `llmll verify`, and a real rlimit of 200000 on Rev 3 and z3 4.8.12 is NOT RUN. Soundness does not depend on the result: a weaker z3 can only lose a refutation or a proof.
 
 ### A design change beyond the amendments
 
@@ -117,7 +117,7 @@ Withdrawn from Rev 2: the equation map `σ`; the 16-monomial and written-pair ca
 
 **Comment drift, carried.** The comment on `sanitizeFQId` says that liquid-fixpoint accepts only `[A-Za-z0-9_]` in a name. The review's `collide` witness also shows that its "fails closed" comment is incorrect: `FQ-NAME-COLLIDE-1` owns that.
 
-**Row drift, new.** The `FQ-ARITH-FLAT-1` row calls the parser an inference and says that the source was not read. This revision read it. The documentation-lead may update that sentence when it next touches the row.
+**Row drift, new.** The `FQ-ARITH-FLAT-1` row calls the parser an inference and says that the source was not read. This revision read `Parse.hs` at 0.9.6.3.7, and the engineer's plan is reported to have read it too (that plan was not read here). The documentation-lead may update that sentence when it next touches the row.
 
 ## What happens today (Rev 1, llmll 0.37.0; not rerun)
 
@@ -167,10 +167,10 @@ Over all witnesses, the median is 0.044 CPU s and the total is 40.3. The largest
 
 | Claim | Result | Max wall s | Max `rlimit-count` |
 |---|---|---:|---:|
-| False (39) | `sat`, model validated, 39 of 39 | 0.036, over three runs | 15070 |
+| False (39) | `sat`, model validated, 39 of 39 | 0.036, over three runs at 2000000 | 15070 |
 | True (93) | `unsat` on 92; `unknown` on W23; **`sat` on none** | | 186173 on `unsat` |
 
-At rlimit 200000 and at 2000000 the outcomes are the same on this z3. W23 reaches `unknown` in 0.72 s and 0.55 s. M1 with 32 unrelated products in scope gives `sat`, validated, at rlimit 8302. Two controls hold from Rev 2 in new form: see measurement 7.
+W23 reaches `unknown` at the limit, in 0.72 s and 0.55 s. The first of those comes from the output row labelled 200000, which really ran at 2000000: see "The void row". M1 with 32 unrelated products in scope gives `sat`, validated, at rlimit 8302. Two controls hold from Rev 2 in new form: see measurement 7.
 
 **3. Invariance.** The property is in "Invariance". The test compares fact sets as sets, with no names in the comparison except through the renaming.
 
@@ -306,7 +306,7 @@ Rev 2's 3 × 3 × 3 input gave no result in 200 s (Rev 2 prototype) and 280 CPU 
 | Control: `(* 0 (/ x 2))` | accepted, cancels, 0 facts |
 | Control: `(* (mod x (+ 1 2)) w)`, a ground divisor | accepted, 10 facts |
 
-**7. The validator on real models (A4).** This is real `get-value` output from z3 4.15.4, as the run printed it. Each was read and evaluated by the checker, by two evaluators: one over the normal form, one over the source term.
+**7. The validator on real models (A4).** This is real `get-value` output from z3 4.15.4, as the run printed it. "z3 4.8.12" lists the models that differ on that version. Each was read and evaluated by the checker, by two evaluators: one over the normal form, one over the source term.
 
 ```
 PF: (c 4) (ch 1) (chroma 1) (cw 1) (dst 1) (frame 3) (h 1) (luma 1) (pad 2) (rowb 4) (src 6) (st 6) (total 6) (v 2) (w 1) (x 0) (y 1)
@@ -322,7 +322,7 @@ BF8: (j (- 1)) (k 1) (mv (store ((as const (Array Int Str)) Str!val!0) (- 1) Str
 BF9: (b ((as const (Array Int Int)) 0)) (c 1) (h 1) (pad 0) (src 2) (st 2) (v 0) (w 2) (x 0) (y 1) ((bytesLen b) 2)
 ```
 
-- **Array forms seen on 4.15.4:** `((as const (Array Int Int)) d)` and nested `store`. The reader also handles `let`, `lambda` and `(_ as-array k)`, from a `get-model` definition. **No run produced those three, so they are untested.** An unreadable value gives the mark back.
+- **Array forms seen on 4.15.4 and 4.8.12:** `((as const (Array Int Int)) d)` and nested `store`. The token form is `Str!val!k` on both. The reader also handles `let`, `lambda` and `(_ as-array k)`, from a `get-model` definition. **None of the 11 models that each run prints holds those three. The runs do not log the other 28 models, so those paths are not shown to have run.** An unreadable value gives the mark back.
 - **Tamper controls, all false witnesses.** One integer changed: 171 rejected, 34 still a counterexample. One array changed at every written index and the default: 15 tampered, 13 rejected. One `Str` token replaced: 7 tampered, 4 rejected. One function result changed: 17 tampered, 11 rejected. A tampered model that passes still satisfies the hypotheses and falsifies the goal under exact evaluation, so it is also a counterexample.
 - **Function consistency.** BF6 with one `strLen` result changed gives `MODEL FAILS, function consistency`.
 - **`byte-range` stays in the query (test).** B1 is `v = select b i`, goal `v*v ≤ 65025`. With `byte-range`: native `unsat`. Without it: `sat`, validated, with `b` the constant array of -256 and `v = -256`. **That is a false `refuted`, and the validator cannot catch it, because the VC without the family really has that model.** So the family must stay, and a test holds it.
@@ -356,9 +356,68 @@ BF9: (b ((as const (Array Int Int)) 0)) (c 1) (h 1) (pad 0) (src 2) (st 2) (v 0)
 
 ### z3 4.8.12
 
-**Rev 3: NOT RUN.** The fact set, the printing, the query and the validator all changed, so no earlier run covers them. The user runs `rev3.py` in CI. Until then, every claim in this record about `refuted` and about the validator holds for z3 4.15.4 only. The array and token forms that z3 4.8.12 prints are not known.
+**Rev 3, measured.** From `https://github.com/machunter/llmll/actions/runs/42410952361`, conclusion `success`, head `d446321a`, file header z3 4.8.12 and fixpoint 0.9.6.3.7, 701 s wall, load about 1. The script at that head has SHA-256 `7c0e03d0cd7a7191c889b5818dff26bc6bac87d7a660459f1087dfd45723ad50`, which is the local run's file. **It covers script-built VCs only. Nothing with a product went through `llmll verify`.**
 
-**Rev 2 prototype results, not Rev 3.** From `https://github.com/machunter/llmll/actions/runs/42404692268`, head `748d0462`, conclusion `success`, file header z3 4.8.12 and fixpoint 0.9.6.3.7. These numbers are copied here because the file does not last.
+| Measure | z3 4.8.12, Rev 3 | z3 4.15.4, Rev 3 |
+|---|---:|---:|
+| True proved (93) | 89; misses W14, W23, W25, Y5 | 89; the same misses |
+| False wrongly proved (39) | 0 | 0 |
+| False `refuted`, model validated (39) | 39, 39 | 39, 39 |
+| True `sat` | none | none |
+| z3 and `fixpoint` disagree | none | none |
+| Recheck on W14, W25, Y5 | `unsat` | `unsat` |
+| Recheck on W23 | `unknown`, 2.23 s, count 2000028; no `timeout` | `unknown`, 0.55 to 0.72 s, count 2000028; no `timeout` |
+| Max false `rlimit-count` | **14703** (N2) | **15070** (N2) |
+| Max true `unsat` `rlimit-count` | **1368835** (W22) | **186173** (W22) |
+| True `unsat` with a count above 200000 | **29** | **0** |
+| Count on W14, W25, Y5 | 443397, 151215, 359075 | 1348, 46433, 3571 |
+| Max recheck wall on a false witness, s | 0.029 | 0.036 |
+| Max recheck wall on a true `unsat`, s | 0.724 (Y6) | not listed |
+| M1 with 0, 8, 32 unrelated products, count, all validated | 2728, 3681, 7208 | 3036, 4176, 8302 |
+| Fact set under the invariance test | 1056 comparisons, 0 differ; control differs on 9 | the same |
+| Fact blocks byte-identical; `.fq` digests under six seeds | 132 of 132; one digest, `0a94314ed7778754` | the same |
+| O1, O2, O3, Q8, Q9, K1, 9 forms each | `unsat` and SAFE on all | the same |
+| All 132, one combined variant | no verdict change, no disagreement | the same |
+| Tamper, integers | **163 rejected, 42 still a counterexample** | **171 rejected, 34 still a counterexample** |
+| Tamper, arrays; tokens; function results, rejected | 13 of 15; 4 of 7; 11 of 17 | the same |
+| Function consistency control | `MODEL FAILS` | the same |
+| B1 with `byte-range`; without | `unsat`; `sat`, validated, `v = -953` | `unsat`; `sat`, validated, `v = -256` |
+| Generated facts, failures; true-premise evaluations | 58487, 0; **749448** | 58487, 0; **742801** |
+| Normal form evaluations, differences | 105240, 0 | the same |
+| Total CPU s; median; W22 | 40.3; 0.0505; 12.7 | 40.3; 0.044; 13.5 |
+| Python; load; wall s; solver calls | 3.11.18; about 1; 701; 1125 z3, 394 `fixpoint` | 3.9.6; 5 to 9; 730; the same calls |
+
+**Every difference between the two runs.**
+
+1. **Verdicts: none.** Over all 132 witnesses, the z3 answer, `fixpoint` answer, `T`, facts, families, closure, degree, cap state, recheck answer, model state and verdict are identical.
+2. **Recheck wording: none.** W23 reads `unknown` on both, and no recheck reads `timeout`. Each mark site in measurement 9 reads the same word on both.
+3. **Scale, chains, refusal, schemas, names: no result differs.** `T`, facts, bytes and solver answers match on each row. Only CPU and wall times move. For example, depth 18 costs 7.79 CPU s against 9.75, and a sum of 20 nested costs 28.9 against 33.2. A nested 3 × 3 × 3 sum and a nested kernel of 25 give no result in 70 s on both.
+4. **`rlimit-count` differs on the recheck queries,** as the table shows. The largest true count is 7.4 times larger on 4.8.12. It stays under the design limit.
+5. **Models differ on 4 of the 11 printed witnesses, and all still validate.** The other 7 print the same values. On 4.8.12:
+
+```
+PF: (c 1) (ch 1) (chroma 1) (cw 1) (dst 3) (frame 4) (h 1) (luma 2) (pad 0) (rowb 2) (src 3) (st 2) (total 2) (v 3) (w 2) (x 1) (y 1)
+KF4: (b ((as const (Array Int Int)) 8)) (ch 2) (h 2) (k 2) (w 2) (x 1) (y 1) ((bytesLen b) 8)
+BF1: (b (store ((as const (Array Int Int)) 4) 0 8)) (c (store ((as const (Array Int Int)) 4) 0 7)) (h 1) (w 0) (x 0) (y 0) ((bytesLen b) 0) ((bytesLen c) 0)
+BF9: (b ((as const (Array Int Int)) 0)) (c 1) (h 1) (pad 1) (src 2) (st 2) (v 0) (w 1) (x 0) (y 1) ((bytesLen b) 2)
+```
+
+6. **The integer tamper split and the B1 model value differ.** Different models can give a different split. Both variants pass the check in the same way, and the conclusion on `byte-range` is unchanged.
+7. **The true-premise count differs, 749448 against 742801.** The generator check makes no z3 call, and its failures are 0 on both. The Python versions also differ. The cause was not traced.
+
+**What the run does not show.** Any path through `llmll verify`, the emitter's real array and `Str` shape, the model reader's `let`, `lambda` and `as-array` paths, and a real rlimit of 200000 on Rev 3.
+
+### The void row
+
+**The output row labelled `rlimit 200000` in section 10 of the script is void, in both Rev 3 runs.** `recheck` takes `rlimit=`, and the published file called `native_query(vs, vc, goal)` without passing it. So that row ran at 2000000. The evidence on 4.8.12: that row reports a max true `unsat` of 1368835 and W23 `unknown` at 2.23 s, the same as the 2000000 row. **No result in this record rests on that row, except where it is named as a run at 2000000.**
+
+- **Results at 2000000 stay valid,** because every other call used that default. The query text at the default does not change with the fix.
+- **The fix passes `rlimit=rlimit` at that call.** Both published runs predate it.
+- **The other parameters were checked.** `recheck` is the only caller of `native_query`, and section 10 is the only caller that passes `rlimit`. `ground_facts` reaches the VC, and the `byte-range` control shows its effect. `ground` and `get` keep their defaults at the one call, and no caller needs another value. `sorts` is passed wherever a witness has one. Calls without `sorts` use integer-only inputs. So no other row is affected.
+- **A real 200000 on Rev 3:** one local check of the corrected file on z3 4.15.4 gives 39 of 39 `sat` and validated, and W23 `unknown` at count 200028 in 0.04 s. **On z3 4.8.12 it is NOT RUN.** There, 29 true witnesses count above 200000 at the design limit, so their answers at 200000 are not known. They cannot change a verdict unless they read `sat`.
+- **The only real 200000 on z3 4.8.12** is the Rev 2 prototype row below, on a different query.
+
+**Rev 2 prototype results, not Rev 3, kept for comparison.** From `https://github.com/machunter/llmll/actions/runs/42404692268`, head `748d0462`, conclusion `success`, file header z3 4.8.12 and fixpoint 0.9.6.3.7. These numbers are copied here because the file does not last.
 
 | Measure | z3 4.8.12, Rev 2 prototype | z3 4.15.4, Rev 2 prototype |
 |---|---:|---:|
@@ -600,7 +659,7 @@ If the constraint also holds `strLen`, `bytesLen` or `Map_select`, a `sat` model
 
 ### The limit and the budget
 
-**The limit.** `(set-option :rlimit 2000000)`, plus a 5 s process guard. A clock limit makes `refuted` depend on machine load; `rlimit` does not, on one z3 version. The largest false count is 15070 on 4.15.4, and 14707 on 4.8.12 (Rev 2 prototype). On `sat` the unit is close across the two versions. On a true `unsat` it is not, 1368835 against 186173 (Rev 2 prototype), and only `sat` decides the outcome. The review notes that 2000000 costs about 2.18 s per hard id on an unloaded runner (Rev 2 prototype), so 8 ids cost about 17 s per function, with no change in outcome on these witnesses against 200000. **Keep 2000000 until the table runs through `llmll verify`, and then choose again from real counts.**
+**The limit.** `(set-option :rlimit 2000000)`, plus a 5 s process guard. A clock limit makes `refuted` depend on machine load; `rlimit` does not, on one z3 version. The largest false count is 15070 on 4.15.4 and 14703 on 4.8.12. On `sat` the unit is close across the two versions. On a true `unsat` it is not, 1368835 against 186173, and only `sat` decides the outcome. W23 costs 2.23 s at this limit on an unloaded 4.8.12 runner, so 8 such ids cost about 18 s per function. Rev 3 on 4.8.12 has no measurement at a lower limit (see "The void row"). The Rev 2 prototype kept all 19 false witnesses `sat` at a real 200000, on a different query. **Keep 2000000 until the table runs through `llmll verify`, and then choose again from real counts.**
 
 **The budget.** Within each function, **each partition (truth, definedness, measure) rechecks at most 8 failing ids, in id order, and stops at its first validated id.** One complete id is enough for a partition, and stopping per partition keeps the qualification that `test_e3_ill_defined_and_refuted_qualified` holds: a function that is ill-defined and refuted stays both. The time counts under `--time-limit`. Beyond 8, ids keep the mark.
 
@@ -786,15 +845,15 @@ This is an addition to the reflected fragment. Its soundness argument is above.
 
 1. **`FQ-NAME-COLLIDE-1`,** because an atom key is a printed name. It is a false proof on 0.37.0 and it should ship regardless (review).
 2. **`FQ-ARITH-FLAT-1`,** on its own, because it repairs the cost of a long sum with no language change. A sum of 20 costs 33.2 CPU s nested and 0.026 flat. This record's limits are measured on that printing.
-3. **MUL-VAR-1.** Its first step is the z3 4.8.12 run of `rev3.py` (decision 6), which precedes settlement. Its second is the same witness table through `llmll verify`, and the Y4M and netpbm contracts restated. It should land before the library's contract surface is written against `npix`.
+3. **MUL-VAR-1.** The z3 4.8.12 run of `rev3.py` (decision 6) is done. Its first implementation step is the same witness table through `llmll verify`, and the Y4M and netpbm contracts restated. It should land before the library's contract surface is written against `npix`.
 
 ## Not run
 
 | Item | What it needs |
 |---|---|
 | **Any witness or VC with a product through `llmll verify`** | an implementation; first implementation step |
-| **z3 4.8.12 on Rev 3: facts, recheck, validator, limits, array and token forms** | the user's CI run of `rev3.py`. Not downloaded, not installed, not pushed by this revision |
-| The model reader's `let`, `lambda` and `as-array` paths | a z3 that prints them; the CI run may reach them |
+| **A real rlimit of 200000 on Rev 3 and z3 4.8.12** | a CI run of the corrected `rev3.py`, if the limit is to be chosen before the `llmll verify` run. The design limit does not need it |
+| The model reader's `let`, `lambda` and `as-array` paths | a z3 that prints them, and a run that logs all 39 models. The 11 models printed on each of 4.15.4 and 4.8.12 do not hold them |
 | The two-array map and `Str` encoding as the emitter really prints them | an implementation. B4, BF5 and BF8 are hand-built to the shape in `compiler/src/LLMLL/FixpointEmit.hs` |
 | Y4M and netpbm contracts restated | an implementation |
 | `--cdp`, diverge and `patch` with the recheck, and any `--cdp` score | an implementation |
@@ -812,7 +871,7 @@ This is an addition to the reflected fragment. Its soundness argument is above.
 
 ## Risks and open questions
 
-1. **`refuted` on z3 4.8.12 is unknown for Rev 3.** Verification-ergonomics. The validator now reads printed values, so it depends on what that version prints. An unread form loses `refuted` and stays safe. Blocks settlement until the run comes back, and blocks the design only if most false witnesses lose it. Then decision 2 reopens.
+1. **`refuted` depends on what a z3 version prints.** Verification-ergonomics. The validator reads printed values. 39 of 39 validate on 4.15.4 and 4.8.12, on script-built VCs. An unread form loses `refuted` and stays safe. Complicates: the real emitter's terms are not yet measured.
 2. **The witness set is still written by this team and the professor.** Scope. Each pass has found gaps: the review's P set, this team's Q10 and Q11, the review's O, K and Y sets, and this revision's fourth caller. Expect more from real contracts. Complicates: a miss gives a disclosed fallback, and a new fact can only add proofs. The Y4M and netpbm restatement is the next test.
 3. **Hand-built VCs.** Scope. The emitter's real shape was approximated. A real function has several constraints, and a real environment has more binders. Complicates: the first implementation step repeats the table.
 4. **Moved terms lose the rule.** Verification-ergonomics. `(= (- x y) 1)` gives no rule, where `(= x (+ y 1))` does. An author can see this only from a fallback. Complicates. A rule from any atom with coefficient 1 would remove it, and it would grow the closure on each definition, so this record does not propose it.
