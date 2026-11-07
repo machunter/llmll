@@ -89,6 +89,12 @@
   `examples/netpbm-swarm/lex.llmll` are unchanged in time and memory. The largest change seen is
   `experiments/rfc-swarm/runs/rfc826-llmll-2026-09-12/07-feasibility/merge-before-opcode.llmll`,
   0.39 s and 34 MB to 1.11 s and 50 MB.
+- **`--cdp`, one serial pass per binary over the same 720 sources:** all 224 scores are equal
+  (mean 0.7743 on both). The only difference is `contract-read-oob`: exit 0 to 1, and headline
+  `def-shell-out-of-scope` to `not-requested`, because `ill-defined` stops before scoring. Run
+  in parallel, scores vary between runs of one binary, so compare them only from serial runs.
+- **`make refute-crux-gate`:** 99 passed, 0 failed. The `--cdp` and refute-crux measurements ran
+  after the tag was pushed.
 
 **Tests:** hspec 3003 → 3077, 0 failures; Python 720 → 738 passed, 10 skipped.
 
