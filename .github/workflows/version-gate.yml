@@ -592,7 +592,8 @@ jobs:
       # and count guards as above: 37 gate cells plus 32 schema cells. The
       # VERIFY-BUDGET-1 doc pass (c680eadb) added test_vs_resource_limit_validates
       # and left this count at 68, so C5 failed on main from then until it was
-      # raised to 69.
+      # raised to 69. FQ-OUT-SPECIAL-1 (9496a672) added the `--fq-out {dir}`
+      # matrix row, two cells, so 71; C5 failed on main at 4d216151 until then.
       - name: Run TRUST-REPORT-GATE-1 cells (pytest, needs the solver)
         run: |
           set -euo pipefail
@@ -603,8 +604,8 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/trust-report-gate.log"; then
             echo "a TRUST-REPORT-GATE-1 cell skipped; fixpoint and jsonschema must be present here"; exit 1
           fi
-          grep -q ' 69 passed' "$RUNNER_TEMP/trust-report-gate.log" \
-            || { echo "TRUST-REPORT-GATE-1: expected 69 passed cells"; exit 1; }
+          grep -q ' 71 passed' "$RUNNER_TEMP/trust-report-gate.log" \
+            || { echo "TRUST-REPORT-GATE-1: expected 71 passed cells"; exit 1; }
 
       # REGEX-CAPTURE-1 / REGEX-CASE-1's end-to-end cells. They build and run one
       # program with GHC (needs the toolchain), run `check` per agreement row,
