@@ -17,6 +17,10 @@ module LLMLL.DiagnosticFQ
   , parseFQResultJSON
   , parseFQOutcome
   , runFQSolver
+    -- * FQ-OUT-SPECIAL-1: solve only a private file, and check the count
+  , parseFQNumCstr
+  , decideSolved
+  , solveFQText
   , resourceStopText
   , resourceStopValue
     -- * Where the constraint file and the run build directory go
@@ -53,7 +57,10 @@ import qualified Crypto.Hash.SHA256 as SHA
 import qualified Data.ByteString as BS
 
 import LLMLL.FixpointIR (FQConstraintId)
-import LLMLL.SolverGuard (ResourceStop(..), SolverLimits(..), renderStopKind, runSolverGuarded)
+import LLMLL.SolverGuard (ResourceStop(..), SolverLimits(..), renderStopKind, runSolverGuarded, solverFormText)
+import Control.Exception (IOException, SomeException, bracket, try)
+import System.Directory (getTemporaryDirectory, removeFile)
+import System.IO (hClose, openBinaryTempFile)
 import LLMLL.Diagnostic
   ( Diagnostic(..), DiagnosticReport(..), Severity(..)
   , mkError, reportDiagnostics )
@@ -128,6 +135,109 @@ runFQSolver bin args = do
   pure $ case r of
     Left stop            -> FQResourceLimit stop
     Right (code, o, e)   -> parseFQOutcome code (T.pack o <> T.pack e)
+
+-- | FQ-OUT-SPECIAL-1: solve the emitted @.fq@ text and return the verdict.
+--
+-- The solver reads only a file this call creates with 'openBinaryTempFile'
+-- (exclusive create, mode 0600, a fresh name in 'getTemporaryDirectory') and
+-- removes afterwards. Before, every caller handed the solver a path that
+-- anyone could name in advance (@--fq-out@, the default
+-- @/tmp/llmll-<base>-<tag>.fq@, @/tmp/llmll-cdp-<fn>.fq@, ...). A symlink to
+-- @/dev/null@, a FIFO, or a concurrent writer at that path made the solver
+-- read no constraints and answer Safe, and a false program got a @verified@
+-- record (measured on v0.37.0 with plain @llmll verify@).
+--
+-- @copies@ are output only: each gets the same text, in the solver's
+-- qualifier form, before the solver starts, and is never read back. A copy
+-- that cannot be written does not throw; it is returned with its error.
+--
+-- @expected@ is the number of constraints the emitter produced. A Safe or
+-- Unsafe answer counts only if the solver reports that it checked exactly
+-- that many ('decideSolved').
+solveFQText :: FilePath      -- ^ the solver binary
+            -> Int           -- ^ emitted constraint count
+            -> Text          -- ^ the @.fq@ text
+            -> [FilePath]    -- ^ output copies
+            -> IO (FQVerifyResult, [(FilePath, Text)])
+solveFQText bin expected fqText copies = do
+  txt <- solverFormText bin fqText
+  let bytes = TE.encodeUtf8 txt
+  failed <- concat <$> mapM (writeCopy bytes) copies
+  tmpDir <- getTemporaryDirectory
+  res <- bracket (openBinaryTempFile tmpDir "llmll-solve.fq")
+                 (\(path, h) -> ignoreIO (hClose h) >> ignoreIO (removeFile path))
+                 (\(path, h) -> do
+                    BS.hPut h bytes
+                    hClose h
+                    r <- runSolverGuarded bin ["-q", "--json", path]
+                    pure $ case r of
+                      Left stop          -> FQResourceLimit stop
+                      Right (code, o, e) -> decideSolved expected code (T.pack o <> T.pack e))
+  pure (res, failed)
+  where
+    writeCopy :: BS.ByteString -> FilePath -> IO [(FilePath, Text)]
+    writeCopy bytes p = do
+      r <- try (BS.writeFile p bytes) :: IO (Either IOException ())
+      pure $ case r of
+        Left err -> [(p, T.pack (show err))]
+        Right () -> []
+    ignoreIO :: IO () -> IO ()
+    ignoreIO act = do
+      _ <- try act :: IO (Either SomeException ())
+      pure ()
+
+-- | FQ-OUT-SPECIAL-1: the 'parseFQOutcome' verdict, kept only when the solver
+-- reports that it checked exactly @expected@ constraints. A Safe answer over
+-- fewer constraints than were emitted is not a proof of the emitted ones.
+-- Zero is a legal count: a closed-true post emits no constraint (POST-TRUE-1).
+-- A missing count (a text banner, no JSON stats) is no verdict either.
+-- 'FQError' and 'FQResourceLimit' pass through.
+decideSolved :: Int -> ExitCode -> Text -> FQVerifyResult
+decideSolved expected code merged =
+  case parseFQOutcome code merged of
+    r@FQSafe       -> counted r
+    r@(FQUnsafe _) -> counted r
+    other          -> other
+  where
+    counted r = case parseFQNumCstr merged of
+      Just n
+        | n == expected -> r
+        | otherwise     -> FQError $ "liquid-fixpoint checked " <> T.pack (show n)
+                             <> " of " <> T.pack (show expected)
+                             <> " emitted constraints; no verdict"
+      Nothing -> FQError "liquid-fixpoint reported no constraint count; no verdict"
+
+-- | FQ-OUT-SPECIAL-1: the @numCstr@ the solver reports in its @-q --json@
+-- envelope, from either shape (top-level @tag@, or under @status@ from
+-- 0.9.6.3.4), Safe and Unsafe:
+--   @{"tag":"Safe","contents":{"numCstr":N,..}}@
+--   @{"tag":"Unsafe","contents":[{"numCstr":N,..},[ids]]}@
+-- 'Nothing' when no envelope decodes or it carries no count.
+parseFQNumCstr :: Text -> Maybe Int
+parseFQNumCstr txt =
+  listToMaybe (mapMaybe tryDecode candidates)
+  where
+    cleaned    = stripAnsi txt
+    candidates = filter looksJson (T.lines cleaned) ++ [T.strip cleaned]
+    looksJson l = "{" `T.isPrefixOf` T.strip l
+    tryDecode s =
+      A.decode (BL.fromStrict (TE.encodeUtf8 (T.strip s))) >>= envelopeCount
+
+    envelopeCount :: Value -> Maybe Int
+    envelopeCount (Object o)
+      | Nothing <- KM.lookup "tag" o
+      , Just st@(Object _) <- KM.lookup "status" o
+      = envelopeCount st
+    envelopeCount (Object o) =
+      case KM.lookup "contents" o of
+        Just st@(Object _)                        -> statsCount st
+        Just (Array arr) | (st : _) <- toList arr -> statsCount st
+        _                                         -> Nothing
+    envelopeCount _ = Nothing
+
+    statsCount :: Value -> Maybe Int
+    statsCount (Object s) = KM.lookup "numCstr" s >>= parseMaybe parseJSON
+    statsCount _          = Nothing
 
 -- | Parse liquid-fixpoint stdout into a structured result.
 --
@@ -230,6 +340,11 @@ parseFQResultJSON txt =
 -- 'System.IO.openTempFile': the accumulation a fresh temp file per run would
 -- cause is worse than the residual it would close. The residual is two
 -- concurrent runs of the SAME absolute path, which write identical bytes.
+--
+-- FQ-OUT-SPECIAL-1: this path is OUTPUT ONLY. llmll writes a copy of the
+-- constraint text there for a human, and the solver never reads it: it reads
+-- a private temp file ('solveFQText'). A symlink, a FIFO or a concurrent
+-- writer at this path therefore cannot change a verdict.
 fqPathFor :: Maybe FilePath   -- ^ an explicit @--fq-out@, which is honoured as given
           -> FilePath         -- ^ the ABSOLUTE path of the source file
           -> FilePath

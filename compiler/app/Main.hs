@@ -16,12 +16,12 @@
 --   patch      — v0.3: apply RFC 6902 JSON-Patch to a checked-out hole
 module Main (main) where
 
-import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8, openTempFile, hClose)
+import System.IO (hSetEncoding, hFlush, hPutStrLn, stdout, stderr, utf8)
 import Data.Version (showVersion)
 import Paths_llmll (version)
 import System.Exit (exitFailure, exitSuccess, exitWith, ExitCode(..))
 import System.FilePath (takeBaseName, takeFileName, (</>), takeExtension)
-import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist, getTemporaryDirectory, removeFile, makeAbsolute, listDirectory, doesDirectoryExist)
+import System.Directory (createDirectoryIfMissing, findExecutable, doesFileExist, removeFile, makeAbsolute, listDirectory, doesDirectoryExist)
 import System.Environment (lookupEnv)
 import Data.Maybe (fromMaybe, isJust, mapMaybe, listToMaybe)
 import System.Process (readProcessWithExitCode)
@@ -67,8 +67,8 @@ import LLMLL.Diagnostic
   , mkReuseWarning, decodeSourceUtf8, importNeedsFile)
 -- D4: liquid-fixpoint verification backend
 import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitResult(..), FallbackCause(..), renderFallbackCause, EmitOptions(..), defaultEmitOptions, buildAliasMap, augmentContractPost, AliasMap, BuiltinAxiom(..))
-import LLMLL.DiagnosticFQ (parseFQResult, parseFQResultJSON, runFQSolver, resourceStopText, resourceStopValue, fqPathFor, runDirFor, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..))
-import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, getSolverLimits, renderLimits, parseLimits, runSolverGuarded, installSolverSignalHandlers)
+import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, resourceStopValue, fqPathFor, runDirFor, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..))
+import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, getSolverLimits, renderLimits, parseLimits, installSolverSignalHandlers)
 -- ABSTRACTION-VERDICT-1: every solver consumer that turns UNSAFE into a claim
 import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns, aoReportCtx, abstractionConstruct, postUnassumedConstruct)
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
@@ -106,6 +106,7 @@ import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligat
 import LLMLL.SpecCoverage (runCoverage, runCoverageWithLevels, formatCoverageText, formatCoverageJson, formatCoverageJsonWith)
 import LLMLL.ObligationAssembly (assembleReport, holeContractBrief, assembleConsumedGuarantees, trustLabel, recursiveNames, recursiveSCCs, descentDischargedFns, exprToSExpr, importedContractedFns)
 import LLMLL.FixpointEmit (cacheAwareAliasMap, cacheAwareContractEnv, KeyEnv, buildKeyEnv)
+import LLMLL.FixpointIR (FQFile(..))
 import LLMLL.Feasibility (feasibilityOf, renderWitness, FeasVerdict(..))
 import LLMLL.HoleAnalysis (enclosingFunc)
 import System.Process (createProcess, proc, std_in, std_out, std_err, StdStream(..), waitForProcess, readCreateProcessWithExitCode, cwd)
@@ -1482,10 +1483,12 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
       -- The tag hashes the ABSOLUTE path, so the same file keeps one stable slot
       -- and repeated runs do not accumulate files. An explicit '--fq-out' is
       -- unchanged: the caller named the path and owns the collision.
+      --
+      -- FQ-OUT-SPECIAL-1: the path is an output copy only. It is written by
+      -- 'solveFQText' below (or, with no solver, on the solver-absent path),
+      -- and the solver never reads it.
       fqPath <- fqPathFor mFqOut <$> makeAbsolute fp
-      writeFileUtf8 fqPath fqText
       unless json $ do
-        TIO.putStrLn $ "   .fq written to " <> T.pack fqPath
         unless (null skipped) $
           TIO.putStrLn $ "   skipped (non-linear): " <> T.intercalate ", " skipped
         -- v0.8.0: report body-faithful and fallback functions
@@ -1605,6 +1608,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- distinct from 1 = refuted / strict-core). The .fq stub is still
           -- written so an expert can run fixpoint by hand.
           let reason = "liquid-fixpoint / z3 not found on PATH -- the proof did NOT run"
+          writeFileUtf8 fqPath fqText
           if json
             then writeIORef envVerdict $ objectFields $
                    object [ "file" .= fp, "fq_file" .= fqPath
@@ -1654,7 +1658,18 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- requires the exit code to corroborate what the scrape claims.
           -- VERIFY-BUDGET-1: through the guard. A run over the memory or time
           -- limit is stopped and reads 'FQResourceLimit'.
-          fqResultRaw <- runFQSolver lfBin ["-q", "--json", fqPath]
+          -- FQ-OUT-SPECIAL-1: the solver reads a private temp file, and its
+          -- answer counts only if it checked every emitted constraint. The
+          -- '--fq-out' / default path gets a copy, which nothing reads back. A
+          -- copy that cannot be written is a warning, not a failure: the
+          -- verify exit law lets '--fq-out' change no exit but 4.
+          (fqResultRaw, copyFails) <-
+            solveFQText lfBin (length (fqConstraints (erFQFile emitR0))) fqText [fqPath]
+          case lookup fqPath copyFails of
+            Nothing  -> unless json $ TIO.putStrLn $ "   .fq written to " <> T.pack fqPath
+            Just err -> let msg = "⚠️  .fq not written to " <> T.pack fqPath <> ": " <> err
+                        in if json then TIO.hPutStrLn stderr msg
+                                   else TIO.putStrLn ("   " <> msg)
           let -- VERDICT-UNSTABLE-1: the exit code is part of the verdict. A
               -- solver that died must not be reported as a refutation.
               -- ABSTRACTION-VERDICT-1 (byte-io-proposal Rev 2, Part 0, clause
@@ -2457,12 +2472,12 @@ checkCDPCandidate gm lfBin typeDefs wc = do
     then pure Nothing
     else do
       let fqText = erFQText emitR
-          fqPath = "/tmp/llmll-cdp-" <> T.unpack (wcFunctionName wc) <> ".fq"
-      writeFileUtf8 fqPath fqText
       -- ABSTRACTION-VERDICT-1: '-q --json' so the UNSAFE ids resolve. A mutant
       -- killed only by the missing call congruence is not a kill: its solver
       -- answer is not a disproof, so the candidate is unvalidated.
-      raw <- runFQSolver lfBin ["-q", "--json", fqPath]   -- VERIFY-BUDGET-1
+      -- FQ-OUT-SPECIAL-1 (closes CDP-FQ-RACE-1): a private temp file, not the
+      -- shared /tmp/llmll-cdp-<fn>.fq, and the count check.
+      (raw, _) <- solveFQText lfBin (length (fqConstraints (erFQFile emitR))) fqText []   -- VERIFY-BUDGET-1
       let av = applyAbstractionVerdict emitR raw
       -- CALLEE-POST-UNASSUMED-1: nor is a kill through a dropped callee post.
       if syntheticName `elem` aoFallbackFns av
@@ -2488,12 +2503,12 @@ checkWeaknessCandidate gm lfBin _json typeDefs wc = do
     then pure [mkCandidateUnvalidated (wcFunctionName wc) (wcTrivialLabel wc)]
     else do
       let fqText = erFQText emitR
-          fqPath = "/tmp/llmll-weakness-" <> T.unpack (wcFunctionName wc) <> ".fq"
-      writeFileUtf8 fqPath fqText
       -- Run the solver
       -- VERIFY-BUDGET-1: a stopped run has no verdict, so no diagnostic.
-      guarded <- runSolverGuarded lfBin [fqPath]
-      let fqResult = either FQResourceLimit (\(_, out, err) -> parseFQResult (T.pack out <> T.pack err)) guarded
+      -- FQ-OUT-SPECIAL-1: a private temp file, not the shared
+      -- /tmp/llmll-weakness-<fn>.fq, read by '-q --json' with the exit code
+      -- and the count check, not by a text scrape.
+      (fqResult, _) <- solveFQText lfBin (length (fqConstraints (erFQFile emitR))) fqText []
       case fqResult of
         -- The trivial body satisfies the contracts → spec is weak. Per
         -- §4.4.6, this diagnostic raises only under ':strict' (default);
@@ -3030,13 +3045,10 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
             -- races when concurrent diverge-report processes classify a fill for
             -- the same function name (e.g. two scaffolds that share a hole-fn
             -- name, run concurrently) — corrupting each other's .fq mid-solve.
-            tmpDir <- getTemporaryDirectory
-            (fqPath, fqH) <- openTempFile tmpDir ("llmll-diverge-" <> T.unpack fname <> ".fq")
-            hClose fqH
-            writeFileUtf8 fqPath fqText
+            -- FQ-OUT-SPECIAL-1: 'solveFQText' makes that temp file, and adds
+            -- the count check.
             -- ABSTRACTION-VERDICT-1: '-q --json' so the UNSAFE ids resolve.
-            raw <- runFQSolver lfBin ["-q", "--json", fqPath]   -- VERIFY-BUDGET-1
-            removeFile fqPath
+            (raw, _) <- solveFQText lfBin (length (fqConstraints (erFQFile emitR))) fqText []   -- VERIFY-BUDGET-1
             -- DIVERGE-NOSOLVER-1: only UNSAFE refutes. A solver that ran and
             -- returned no verdict was recorded as refuted; it is unavailable.
             -- ABSTRACTION-VERDICT-1: a fill whose only failures need two calls
@@ -3595,6 +3607,11 @@ captureSolverMeta lfBin = do
     probe bin args = do (_c, o, _e) <- readProcessWithExitCode bin args ""
                         pure (T.strip (T.pack o))
 
+-- | FQ-OUT-SPECIAL-1: the number of constraints in a stored @.fq@ text: the
+-- lines that are exactly @constraint:@, as 'emitFQFile' writes each one.
+countConstraintBlocks :: T.Text -> Int
+countConstraintBlocks = length . filter (== "constraint:") . T.lines
+
 fqToSolverResult :: FQVerifyResult -> SolverResult
 fqToSolverResult FQSafe       = RSafe
 fqToSolverResult (FQUnsafe _) = RUnsafeRefuted
@@ -3751,14 +3768,12 @@ doReplayArtifact json gm artFp = do
               let meta = case recorded of
                     Nothing -> meta0 { smResourceLimits = Nothing }
                     Just _  -> meta0
-              let tmp = "/tmp/llmll-replay-artifact.fq"
-              writeFileUtf8 tmp (paVc art)
-              guarded <- runSolverGuarded lfBin ["-q", "--json", tmp]
-              let rerun  = case guarded of
-                    Left _ -> RNoVC
-                    Right (_c, o, err) ->
-                      let merged = T.pack o <> T.pack err
-                      in fqToSolverResult (fromMaybe (parseFQResult merged) (parseFQResultJSON merged))
+              -- FQ-OUT-SPECIAL-1: a private temp file, not the shared
+              -- /tmp/llmll-replay-artifact.fq, and the count check against the
+              -- constraint blocks of the stored VC. No verdict ('FQError',
+              -- 'FQResourceLimit') maps to 'RNoVC', which fails closed.
+              (rerunFQ, _) <- solveFQText lfBin (countConstraintBlocks (paVc art)) (paVc art) []
+              let rerun  = fqToSolverResult rerunFQ
               case classifyReplayChecked srcChecks recomputed meta rerun art of
                 ReplayReproduced r ->
                   TIO.putStrLn ("\x2705 replay reproduced verdict: " <> T.pack (show r)) >> exitSuccess

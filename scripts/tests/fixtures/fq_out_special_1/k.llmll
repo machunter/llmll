@@ -1,0 +1,1 @@
+(def k [x: int] -> int (post (>= 1 0)) x)

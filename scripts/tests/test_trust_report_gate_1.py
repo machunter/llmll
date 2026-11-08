@@ -288,6 +288,9 @@ FLAGS = [
     (["--obligation-report"], REPORTING),
     (["--proof-artifact", "{out}"], REPORTING),
     (["--fq-out", "{out}"], REPORTING),
+    # FQ-OUT-SPECIAL-1: a copy that cannot be written (here a directory) is a
+    # warning; it does not fail a passing run.
+    (["--fq-out", "{dir}"], REPORTING),
     (["--strict-verify"], REPORTING),
     (["--strict-verified-core"], GATE),
     (["--leanstral-mock"], REPORTING),
@@ -308,7 +311,7 @@ def _documents(stdout):
 
 
 def _flag_args(args, tmp_path):
-    return [a.replace("{out}", str(tmp_path / "out.bin")) for a in args]
+    return [a.replace("{out}", str(tmp_path / "out.bin")).replace("{dir}", str(tmp_path)) for a in args]
 
 
 @needs_binary

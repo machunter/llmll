@@ -29,7 +29,7 @@ import LLMLL.ObligationAssembly
   , assembleConsumedGuarantees, assembleFunctionLists
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
-import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, fqResultToReportWD, WdReportCtx(..), WdFailKind(..), emptyWdReportCtx, isWdClause, runFQSolver, resourceStopText, resourceStopValue)
+import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, fqResultToReportWD, WdReportCtx(..), WdFailKind(..), emptyWdReportCtx, isWdClause, runFQSolver, resourceStopText, resourceStopValue, parseFQNumCstr, decideSolved, solveFQText)
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..), selfEqReft, arrayTheorySyms)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..), FQBind(..), fqNameCollisions, fqFreeSymbols)
@@ -27822,6 +27822,64 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           dClean = ([("x", TInt)], Just TInt, mkC (Just (geE "x" 0)) (Just (geE "result" 0)))
       fmap fqNameCollisions (buildSubsumptionFQ Map.empty s dClash) `shouldSatisfy` maybe False (not . null)
       fmap fqNameCollisions (buildSubsumptionFQ Map.empty s dClean) `shouldBe` Just []
+
+  -- -----------------------------------------------------------------------
+  -- FQ-OUT-SPECIAL-1: the solver reads only a private temp file, and a verdict
+  -- counts only when it checked exactly the emitted constraint count. The
+  -- envelopes are the literal output of liquid-fixpoint 0.9.6.3.7 and 0.9.6.3.1.
+  -- -----------------------------------------------------------------------
+  describe "FQ-OUT-SPECIAL-1" $ do
+    let safe0New = "{\"nonCutsSolution\":[],\"solution\":[],\"status\":{\"contents\":{\"numBrkt\":0,\"numChck\":0,\"numCstr\":0,\"numIter\":0,\"numVald\":0},\"tag\":\"Safe\"}}" :: T.Text
+        safe2New = "{\"nonCutsSolution\":[],\"solution\":[],\"status\":{\"contents\":{\"numBrkt\":2,\"numChck\":2,\"numCstr\":2,\"numIter\":2,\"numVald\":2},\"tag\":\"Safe\"}}" :: T.Text
+        safe0Old = "{\"contents\":{\"numBrkt\":0,\"numChck\":0,\"numCstr\":0,\"numIter\":0,\"numVald\":0},\"tag\":\"Safe\"}" :: T.Text
+        safe2Old = "{\"contents\":{\"numBrkt\":2,\"numChck\":2,\"numCstr\":2,\"numIter\":2,\"numVald\":2},\"tag\":\"Safe\"}" :: T.Text
+        unsafeN n = "{\"nonCutsSolution\":[],\"solution\":[],\"status\":{\"contents\":[{\"numBrkt\":1,\"numChck\":1,\"numCstr\":" <> T.pack (show (n :: Int)) <> ",\"numIter\":1,\"numVald\":0},[1]],\"tag\":\"Unsafe\"}}"
+        isErr r = case r of { FQError _ -> True; _ -> False }
+        failingFq = T.unlines
+          [ "bind 0 x : {v : int | true}"
+          , "constraint:"
+          , "  env [0]"
+          , "  lhs {v : int | (v = x)}"
+          , "  rhs {v : int | (v = 99)}"
+          , "  id 1"
+          , "  tag [1]" ]
+        withSolver k = do
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          maybe (pendingWith "liquid-fixpoint/fixpoint not installed") k mLF
+    it "H1: numCstr is read from both envelope shapes" $ do
+      map parseFQNumCstr [safe0New, safe2New, safe0Old, safe2Old]
+        `shouldBe` [Just 0, Just 2, Just 0, Just 2]
+      parseFQNumCstr (unsafeN 1) `shouldBe` Just 1
+      parseFQNumCstr "SAFE" `shouldBe` Nothing
+    it "H2: a Safe answer over fewer constraints than emitted is no verdict" $
+      decideSolved 1 ExitSuccess safe0New `shouldSatisfy` isErr
+    it "H3: zero constraints emitted and zero checked is Safe (a closed-true post)" $
+      decideSolved 0 ExitSuccess safe0New `shouldBe` FQSafe
+    it "H4: an Unsafe answer counts only when the count matches" $ do
+      decideSolved 1 (ExitFailure 1) (unsafeN 2) `shouldSatisfy` isErr
+      decideSolved 1 (ExitFailure 1) (unsafeN 1) `shouldBe` FQUnsafe [1]
+    it "H5: a text-only Safe banner carries no count, so it is no verdict" $
+      decideSolved 0 ExitSuccess "Safe ( 0 constraints checked)\nSAFE" `shouldSatisfy` isErr
+    it "H6: the real solver on empty text, one constraint expected, gives no verdict" $
+      withSolver $ \lf -> do
+        (r, fails) <- solveFQText lf 1 "" []
+        r `shouldSatisfy` isErr
+        fails `shouldBe` []
+    it "H7: a copy that cannot be written is reported, not thrown, and the verdict stands" $
+      withSolver $ \lf -> do
+        tmp <- getTemporaryDirectory
+        (r, fails) <- solveFQText lf 1 failingFq [tmp]
+        r `shouldBe` FQUnsafe [1]
+        map fst fails `shouldBe` [tmp]
+    it "H8: the --fq-out / default path is written only on the solver-absent path, and no solve goes through runFQSolver" $ do
+      mainSrc <- TIO.readFile "app/Main.hs"
+      let sites = T.breakOnAll "writeFileUtf8 fqPath" mainSrc
+          upToSite = fst (T.breakOn "writeFileUtf8 fqPath" mainSrc)
+      length sites `shouldBe` 1
+      T.takeEnd 400 upToSite `shouldSatisfy` T.isInfixOf "liquid-fixpoint / z3 not found on PATH"
+      srcs <- mapM TIO.readFile ["app/Main.hs", "src/LLMLL/PatchApply.hs", "src/LLMLL/RefineReuse.hs"]
+      map (T.isInfixOf "runFQSolver") srcs `shouldBe` [False, False, False]
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

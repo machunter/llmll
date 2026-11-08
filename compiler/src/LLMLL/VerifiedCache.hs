@@ -409,6 +409,14 @@ reservedCallerObligationsKey = "caller_obligations"
 -- values as one and an older sidecar can hold a false `verified`. A stamp of
 -- "8" means such a function's VC was withdrawn. Every older sidecar is
 -- discarded once.
+--
+-- "8" also covers FQ-OUT-SPECIAL-1, which ships in the same release: the
+-- solver read the constraints back from a path anyone could name in advance
+-- (@--fq-out@, or the default @/tmp/llmll-<base>-<tag>.fq@), so a symlink to
+-- @/dev/null@, a FIFO, or a concurrent writer there made it check no
+-- constraints and answer Safe. A stamp of "8" also means the solver read a
+-- private temp file and reported checking exactly the emitted constraint
+-- count. If this fix is ever reverted while "8" stays, raise the epoch to "9".
 checkerSoundnessVersion :: Text
 checkerSoundnessVersion = "8"
 

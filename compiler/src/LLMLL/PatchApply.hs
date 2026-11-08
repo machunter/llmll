@@ -54,12 +54,13 @@ import LLMLL.Checkout (loadLock, saveLock, expireStale, CheckoutToken(..), Check
 import LLMLL.ParserJSON (parseJSONASTValue)
 import LLMLL.TypeCheck (typeCheckWithCacheRet, emptyEnv)
 import LLMLL.LoadClosure (loadImportClosure)
-import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch, writeFileUtf8)
+import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch)
 import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, Type, normalizeDefStmt)
 import LLMLL.ObligationAssembly (exprToSExpr)
 import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause)
+import LLMLL.FixpointIR (FQFile(..))
 import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoReportCtx)
-import LLMLL.DiagnosticFQ (runFQSolver, resourceStopText, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
+import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
 import Data.List (find, nub)
@@ -67,7 +68,6 @@ import Data.Foldable (toList)
 
 import Data.Time.Clock (getCurrentTime)
 import System.Directory (doesFileExist, findExecutable)
-import System.FilePath (takeBaseName)
 import qualified Data.Text.IO as TIO
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.ByteString as BS
@@ -681,10 +681,8 @@ reVerify fp cache retTypes stmts bodyTargets
       case mLF of
         Nothing -> pure (Left SolverNotFound)  -- no solver: the proof cannot run
         Just lfBin -> do
-          -- Write .fq to temp file
-          let baseName = takeBaseName fp
-              fqPath   = "/tmp/llmll-patch-" <> baseName <> ".fq"
-          writeFileUtf8 fqPath fqText
+          -- FQ-OUT-SPECIAL-1: 'solveFQText' solves a private temp file, not
+          -- the shared /tmp/llmll-patch-<base>.fq, and checks the count.
           -- Run solver. VERIFY-RPT-1 (Commit 2): '-q --json' yields resolvable
           -- constraint ids so the PatchVerifyError payload carries source
           -- pointers; fall back to the text scrape if the envelope fails to
@@ -692,7 +690,7 @@ reVerify fp cache retTypes stmts bodyTargets
           -- diagnostic applies here too — the payload is never empty on reject.
           -- VERIFY-BUDGET-1: through the guard, so a solver over its memory
           -- or time limit is stopped and the patch is not written.
-          rawResult <- runFQSolver lfBin ["-q", "--json", fqPath]
+          (rawResult, _) <- solveFQText lfBin (length (fqConstraints (erFQFile emitR))) fqText []
           let -- VERDICT-UNSTABLE-1: same rule as 'doVerify'. A dead solver
               -- must not reject a patch as if the contract were refuted.
               -- ABSTRACTION-VERDICT-1: the effective verdict, as 'doVerify'
