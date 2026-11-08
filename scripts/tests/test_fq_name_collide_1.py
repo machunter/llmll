@@ -60,8 +60,20 @@ def _run(args, cwd):
     return subprocess.CompletedProcess(p.args, p.returncode, out, err)
 
 
+# A dotted parameter parses from source, but llmll-ast.schema.json's name pattern
+# rejects it, so as a tracked file it would fail test_schema_valid_1. It is
+# written here instead.
+INLINE = {
+    "dot.llmll": ";; FQ-NAME-COLLIDE-1: a.b beside a_b. False: (g 1 0).\n"
+                 "(def g [a.b: int a_b: int] -> int (pre (>= a.b 1)) (post (>= a_b 1)) 0)\n",
+}
+
+
 def _verify(tmp_path, name, *flags):
-    shutil.copy(FIX / name, tmp_path / name)
+    if name in INLINE:
+        (tmp_path / name).write_text(INLINE[name], encoding="utf-8")
+    else:
+        shutil.copy(FIX / name, tmp_path / name)
     p = _run(["--json", "verify", *flags, name], tmp_path)
     return p, json.loads(p.stdout)
 
@@ -80,7 +92,7 @@ def _level(side, fn):
 FALSE_PROOFS = [
     ("collide.llmll", "collide"),
     ("ques-dot.llmll", "f"),
-    ("ques-dot.llmll", "g"),
+    ("dot.llmll", "g"),
     ("bool-sort.llmll", "f"),
     ("string-len.llmll", "f"),
     ("tag-carrier.llmll", "f"),
