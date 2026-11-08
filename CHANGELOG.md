@@ -4,7 +4,19 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.37.0)
+## v0.37.1: two false proofs closed, through solver names and the `.fq` path (2026-11-08)
+
+**Measured, v0.37.0 against this release, each binary over its own copy of the tree
+(liquid-fixpoint 0.9.6.3.7):**
+
+- `llmll --json verify` on all 742 tracked sources: 15 files change exit, verdict, `all_proved`
+  or fallback causes, and all 15 are witnesses in `scripts/tests/fixtures/fq_name_collide_1/`.
+  No other file changes. `v-capture.llmll` goes from exit 0 to 1 (refuted), `v-id.llmll` from
+  1 to 0 (proved), `json-carrier.ast.json` from 0 to 1 (its `$` binder is refused), and the
+  others gain `fq-name-collision`.
+- `scripts/fallback_census.py`, 291 files: no per-file change. Ratio 0.985 (888 of 902), 119
+  files strict-pass, on both binaries.
+- **Cost:** verifying all 742 files took 130.3 s, then 128.7 s, both on an idle machine.
 
 ### `FQ-NAME-COLLIDE-1`: two source names that reach the solver as one symbol no longer prove a false program
 
