@@ -4,6 +4,53 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.37.0)
+
+### `FQ-NAME-COLLIDE-1`: two source names that reach the solver as one symbol no longer prove a false program
+
+- **`(def collide [a-b: int a_b: int] -> int (pre (>= a-b 1)) (post (>= a_b 1)) 0)` verified on
+  v0.37.0**, and `(collide 1 0)` violates the post. `a-b` and `a_b` print as one `.fq` name, so
+  the solver identified the two values. A function with a constraint in which two source names
+  print as one name, one name is bound twice, or a binder spells an internal name (`result`, `v`,
+  `_bv_*`, `strlit_*`, `ctor_*`) now falls back with cause `fq-name-collision`, and `verify`
+  raises `W-FQ-NAME-COLLIDE`: "'collide' emitted a constraint in which 'a-b', 'a_b' reach the
+  solver as one symbol, so it could identify two values. Its body VC is withdrawn and its post is
+  assumed. Rename the parameter or binder so that no two names differ only in '-', '?', '.' or
+  '_', and none spells an internal name (result, v, _bv_*, strlit_*, ctor_*)." A flagged
+  constraint that no function owns is a file error, exit 1.
+- **A parameter named `v` gets a correct verdict.** A `let` binder's refinement printed
+  `v = (v + 1)`, which captured the parameter, so `(def f [v: int] -> int (post (= result 99))
+  (let [(y (+ v 1))] y))` verified. The five `v = t` sites now choose another refinement
+  variable when `t` names `v`: that program is refuted, and a true program with a parameter `v`
+  is no longer refuted.
+- The JSON-AST reader refuses `$` in a binder name. `RefineReuse` abstains on a clash, and the
+  Lean translator returns `Unsupported` for a repeated parameter or one named `result`.
+- **`checker_soundness_version` "7" → "8"**: every existing sidecar is discarded once, and a
+  v0.37.0 proof artifact fails closed on replay. `proof_artifact_version` 0.2.0 → 0.3.0, and
+  `docs/proof-artifact.schema.json` adds `fq-name-collision` to `fallback_reason`.
+  `scripts/fallback_census.py` knows the cause. No tracked source has a clash: the `.fq` text is
+  byte-identical on every tracked source.
+
+### `FQ-OUT-SPECIAL-1`: the solver reads only a private temporary file
+
+- **`llmll verify --fq-out /dev/null` on `(def h [x: int] -> int (post (= result 99)) x)` printed
+  SAFE on v0.37.0** and wrote a `verified` sidecar: the solver read the empty special file and
+  checked no constraint. A symlink or FIFO planted at the default `/tmp/llmll-<base>-<tag>.fq`,
+  or a concurrent truncation of it, did the same with no flag. Every verdict-bearing solve
+  (`verify`, `--weakness-check`, `--cdp`, `patch`, refinement reuse, `replay-artifact`) now
+  writes a private temporary file for the solver. Safe or Unsafe counts only when the solver
+  reports checking the emitted number of constraints; otherwise the run has no verdict
+  ("liquid-fixpoint checked N of M emitted constraints; no verdict").
+- **`--fq-out` and the default path are output-only copies.** A copy that cannot be written
+  prints `⚠️  .fq not written to <path>: <error>` (on stderr under `--json`) and does not change
+  the exit code; v0.37.0 exited 1. The `.fq written to` line now follows
+  `Running liquid-fixpoint ...`. The fixed paths `/tmp/llmll-weakness-<fn>.fq`,
+  `/tmp/llmll-cdp-<fn>.fq`, `/tmp/llmll-patch-<base>.fq` and `/tmp/llmll-replay-artifact.fq` are
+  gone, which also closes `CDP-FQ-RACE-1`.
+- No version changes beyond `FQ-NAME-COLLIDE-1`'s: both fixes share stamp "8".
+
+**Tests:** hspec 3077 → 3098, 0 failures; Python 738 → 776 passed, 10 → 11 skipped.
+
 ## v0.37.0: a `pre` or `post` that cannot be evaluated at run time does not verify (2026-11-06)
 
 ### `CLAUSE-WELLDEF-1`: a `pre` or `post` that cannot be evaluated at run time does not verify
