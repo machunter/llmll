@@ -22,6 +22,7 @@ module LLMLL.SolverGuard
   , renderStopKind
   , ResourceStop(..)
   , runSolverGuarded
+  , solverFormText
   , QualSyntax(..)
   , decideQualSyntax
   , sumGroupRssKb
@@ -227,12 +228,22 @@ adaptQualifiers bin args =
       case TE.decodeUtf8' bytes of
         Left _    -> pure ()
         Right txt -> when (hasQualifier txt) $ do
-          q <- qualSyntaxFor bin
-          let txt' = qualifiersToBraces txt
-          when (q == QualBraces && txt' /= txt) $
+          txt' <- solverFormText bin txt
+          when (txt' /= txt) $
             BS.writeFile path (TE.encodeUtf8 txt')
-  where
-    hasQualifier t = "qualif " `T.isPrefixOf` t || "\nqualif " `T.isInfixOf` t
+
+-- | FQ-OUT-SPECIAL-1: the @.fq@ text in the qualifier syntax @bin@ reads. The
+-- probe runs once per solver, and only for a text that holds a qualifier line.
+-- Idempotent: text already in the brace form is returned unchanged.
+solverFormText :: FilePath -> Text -> IO Text
+solverFormText bin txt
+  | hasQualifier txt = do
+      q <- qualSyntaxFor bin
+      pure (if q == QualBraces then qualifiersToBraces txt else txt)
+  | otherwise = pure txt
+
+hasQualifier :: Text -> Bool
+hasQualifier t = "qualif " `T.isPrefixOf` t || "\nqualif " `T.isInfixOf` t
 
 -- | The guard itself, with no change to the @.fq@ file.
 runGuardedRaw :: FilePath -> [String] -> IO (Either ResourceStop (ExitCode, String, String))

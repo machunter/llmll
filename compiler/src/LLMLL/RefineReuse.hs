@@ -51,23 +51,19 @@ import           Data.Char (isUpper)
 import           Control.Monad (forM)
 import           Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import qualified Data.Map.Strict as Map
 import           Data.Aeson (ToJSON(..), object, (.=))
-import           System.Directory (getTemporaryDirectory, removeFile)
-import           System.IO (openTempFile, hClose, hSetEncoding, utf8)
-import           Control.Exception (catch, IOException)
 
 import           LLMLL.Syntax
   ( Name, Type(..), Expr(..), Contract(..) )
 import           LLMLL.FixpointIR
   ( FQFile(..), FQBind(..), FQReft(..), FQConstraint(..)
-  , FQPred(..), emptyFQFile, emitFQFile )
+  , FQPred(..), emptyFQFile, emitFQFile, fqNameCollisions )
 import           LLMLL.FixpointEmit (AliasMap, typeToSortA, exprToPred, contractMentionsArrOp)
 import           LLMLL.ObligationAssembly (substExpr, classifyContractFragment)
 import           LLMLL.PBT (canonicalExpr)
 import           LLMLL.DiagnosticFQ
-  ( FQVerifyResult(..), runFQSolver )
+  ( FQVerifyResult(..), solveFQText )
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -200,19 +196,13 @@ buildSubsumptionFQ aliases (sPs, sRet, sC) (dPs, _dRet, dC) = do
   pure emptyFQFile { fqBinds = binds, fqConstraints = [cPre, cPost] }
 
 -- | Run liquid-fixpoint on a bare subsumption @.fq@ and return its verdict.
--- Writes to a unique temp file (removed after), mirroring the PatchApply solve.
+-- FQ-OUT-SPECIAL-1: 'solveFQText' writes the unique temp file (removed after,
+-- UTF-8 whatever the locale) and checks the constraint count.
+-- VERIFY-BUDGET-1: through the guard; a stopped run is not 'FQSafe', so the
+-- check abstains.
 solveSubsumptionFQ :: FilePath -> FQFile -> IO FQVerifyResult
-solveSubsumptionFQ lfBin fq = do
-  tmpDir     <- getTemporaryDirectory
-  (path, h)  <- openTempFile tmpDir "llmll-reuse.fq"
-  hSetEncoding h utf8   -- BUILD-ENCODING-1: not the ambient locale
-  TIO.hPutStr h (emitFQFile fq)
-  hClose h
-  -- VERIFY-BUDGET-1: through the guard; a stopped run is not 'FQSafe', so
-  -- the check abstains.
-  r <- runFQSolver lfBin ["-q", "--json", path]
-  removeFile path `catch` \(_ :: IOException) -> pure ()
-  pure r
+solveSubsumptionFQ lfBin fq =
+  fst <$> solveFQText lfBin (length (fqConstraints fq)) (emitFQFile fq) []
 
 -- | Solver-backed subsumption check: does candidate @D@ subsume spawned @Cs@?
 -- Abstains ('False') when the constraint cannot be built (non-QF-LIA) or the
@@ -222,6 +212,10 @@ contractSubsumes :: FilePath -> AliasMap -> DefContract -> DefContract -> IO Boo
 contractSubsumes lfBin aliases (_, sPs, sRet, sC) (_, dPs, dRet, dC) =
   case buildSubsumptionFQ aliases (sPs, sRet, sC) (dPs, dRet, dC) of
     Nothing -> pure False
+    -- FQ-NAME-COLLIDE-1: two names that reach the solver as one symbol could
+    -- make the subsumption hold by identifying two values, so the check
+    -- abstains rather than suggest a false reuse.
+    Just fq | not (null (fqNameCollisions fq)) -> pure False
     Just fq -> do
       r <- solveSubsumptionFQ lfBin fq
       pure $ case r of FQSafe -> True; _ -> False

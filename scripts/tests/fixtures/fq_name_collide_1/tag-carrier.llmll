@@ -1,0 +1,3 @@
+;; FQ-NAME-COLLIDE-1: the internal tag carrier s$tag prints as s_tag. False: (f (B 0) 7).
+(type Box (| B int) (| C int))
+(def f [s: Box s_tag: int] -> int (post (or (= s_tag 0) (= s_tag 1))) (match s ((B q) 0) ((C q) 0)))

@@ -1,0 +1,3 @@
+;; FQ-NAME-COLLIDE-1: tag-carrier with distinct names. False: (f (B 0) 7).
+(type Box (| B int) (| C int))
+(def f [s: Box t: int] -> int (post (or (= t 0) (= t 1))) (match s ((B q) 0) ((C q) 0)))

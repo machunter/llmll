@@ -64,7 +64,14 @@ translateObligation
   -> Contract             -- ^ pre\/post
   -> Expr                 -- ^ the real body
   -> TranslateResult
-translateObligation name params mRet contract body =
+translateObligation name params mRet contract body
+  -- FQ-NAME-COLLIDE-1: 'sanitizeName' maps @-@ to @_@, so @a-b@ and @a_b@ print
+  -- as one Lean binder, and the second shadows the first. The same holds for a
+  -- repeated parameter and for a parameter named @result@. The theorem would
+  -- then state something other than the program, so the path stops here.
+  | length (Set.fromList (map sanitizeName binderNames)) /= length binderNames =
+      Unsupported "parameter names collide after sanitization (FQ-NAME-COLLIDE-1)"
+  | otherwise =
   case mRet of
     Nothing  -> Unsupported "return type required to bind `result`"
     Just ret -> case typeToLean ret of
@@ -98,6 +105,8 @@ translateObligation name params mRet contract body =
                                  <> " (h_body : result = " <> bodyLean <> ")"
                                  <> " : " <> postLean <> " := by"
                       in LeanTheorem $ "import Mathlib.Tactic\n\n" <> header <> "\n  sorry"
+  where
+    binderNames = map fst params ++ ["result"]
 
 -- | Translate a function body over the faithful QF-LIA + integer-@*@ fragment.
 --

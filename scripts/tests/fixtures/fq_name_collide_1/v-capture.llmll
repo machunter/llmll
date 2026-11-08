@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: a parameter v captured by the refinement variable. False: (f 0).
+(def f [v: int] -> int (post (= result 99)) (let [(y (+ v 1))] y))

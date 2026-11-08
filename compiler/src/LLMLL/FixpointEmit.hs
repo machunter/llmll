@@ -51,6 +51,7 @@ module LLMLL.FixpointEmit
   , abstractedBuiltins            -- ABSTRACTION-VERDICT-1 clause 1: partially reflected builtins (empty)
   , injectRangeFactsLabeled       -- TRUST-AXIOM family C: facts plus the families they belong to
   , arrayTheorySyms               -- FQ-FREEVAR-GUARD-1: the solver's interpreted symbols
+  , selfEqReft                    -- FQ-NAME-COLLIDE-1: { v : s | v = t } without capture
   , hasHole                       -- FALLBACK-CENSUS-1: shared hole walker (defined in Syntax)
   , refusedConstructs             -- FALLBACK-CENSUS-1: per-clause refusal labels
   , bodyRefusalLabels             -- SHELL-FALLBACK-SILENT-1: per-body refusal labels
@@ -170,7 +171,7 @@ import LLMLL.Syntax
 import LLMLL.TypeAdmissibility
 import LLMLL.FixpointIR
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, isWdClause)
-import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkBodyFallbackWarning, mkDecreasesUndischarged)
+import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkError, mkBodyFallbackWarning, mkDecreasesUndischarged)
 import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare, reflectMinMaxAbs)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
@@ -271,6 +272,11 @@ data FallbackCause
   -- 'erFallbackConstructs' as @post-unassumed:app:<callee>@.
   | FallbackCalleePostUnassumed -- ^ UNSAFE only through calls whose callee post was not assumed
   | FallbackClauseWelldefUnproved -- ^ CLAUSE-WELLDEF-1: only a definedness obligation failed, and only over marked hypotheses
+  -- FQ-NAME-COLLIDE-1: an emitted constraint holds two names the solver reads
+  -- as one symbol ('fqNameCollisions'), so a SAFE answer may rest on two
+  -- program values being identified. Decided over the assembled file, beside
+  -- 'FallbackUnboundSymbols', and it takes the cause when both fire.
+  | FallbackNameCollision  -- ^ an emitted constraint names two values with one solver symbol
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 renderFallbackCause :: FallbackCause -> Text
@@ -287,6 +293,7 @@ renderFallbackCause FallbackUnboundSymbols   = "constraint-symbols-unbound"
 renderFallbackCause FallbackAbstraction      = "abstraction-unsafe"
 renderFallbackCause FallbackCalleePostUnassumed = "callee-post-unassumed"
 renderFallbackCause FallbackClauseWelldefUnproved = "clause-welldef-unproved"
+renderFallbackCause FallbackNameCollision = "fq-name-collision"
 
 -- | LEVER-A1: the array-theory operation symbols are INTERPRETED by the solver
 -- (native map theory). Declaring them as UF constants would shadow the theory,
@@ -1081,19 +1088,36 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                      [ (coFunction o, Set.fromList syms)
                      | (cid, syms) <- freeCons
                      , Just o <- [Map.lookup cid table] ]
-      routed     = Map.keysSet freeByFn
+      -- FQ-NAME-COLLIDE-1: the same routing for a constraint whose names reach
+      -- the solver as one symbol. Here the solver need not crash: it can answer
+      -- SAFE over two values it reads as one, so the function's VC is withdrawn
+      -- and its post is assumed, never proved. When both guards flag one
+      -- function, the collision takes the cause.
+      collCons   = fqNameCollisions fqFile0
+      collByFn   = Map.fromListWith Set.union
+                     [ (coFunction o, Set.fromList syms)
+                     | (cid, syms) <- collCons
+                     , Just o <- [Map.lookup cid table] ]
+      collRouted = Map.keysSet collByFn
+      routed     = Map.keysSet freeByFn `Set.union` collRouted
       -- A flagged constraint with no origin cannot be attributed to a function,
       -- so it is KEPT and the solver still refuses the file. That is exactly the
       -- behaviour this guard replaces, narrowed to the one case it cannot
       -- decide, and it is now reported instead of reaching the user as a crash.
       orphans    = [ (cid, syms) | (cid, syms) <- freeCons
                    , isNothing (Map.lookup cid table) ]
+      -- FQ-NAME-COLLIDE-1: an unattributed collision has no function to route,
+      -- and the solver may answer SAFE on it, so it is an ERROR for the file
+      -- ('verify' exits 1 and writes no sidecar).
+      collOrphans = [ (cid, syms) | (cid, syms) <- collCons
+                    , isNothing (Map.lookup cid table) ]
       keptCons   = [ c | c <- consts
                    , maybe True (not . (`Set.member` routed)) (ownerOf c) ]
       fqFile     = fqFile0 { fqConstraints = keptCons }
       bfaithful' = [ n | n <- bfaithful, not (n `Set.member` routed) ]
       bfallback' = bfallback
-                ++ [ (n, FallbackUnboundSymbols)
+                ++ [ (n, if n `Set.member` collRouted then FallbackNameCollision
+                                                     else FallbackUnboundSymbols)
                    | n <- Set.toList routed, n `notElem` map fst bfallback ]
       -- DECREASES-LEN-1 (DX): the guard's warnings carry a code in the JSON
       -- diagnostic, as W-BODY-FALLBACK does, so an agent can key on them.
@@ -1109,6 +1133,22 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                <> ", which its own environment does not declare, and no origin"
                <> " attributes the constraint to a function."
            | (cid, syms) <- orphans ]
+        ++ [ (mkWarning Nothing $ "W-FQ-NAME-COLLIDE: '" <> n
+               <> "' emitted a constraint in which " <> T.intercalate ", " (map quoteName (Set.toList syms))
+               <> " reach the solver as one symbol, so it could identify two values."
+               <> " Its body VC is withdrawn and its post is assumed."
+               <> " Rename the parameter or binder so that no two names differ only in"
+               <> " '-', '?', '.' or '_', and none spells an internal name"
+               <> " (result, v, _bv_*, strlit_*, ctor_*).")
+               { diagCode = Just "W-FQ-NAME-COLLIDE", diagKind = Just "fq-name-collision" }
+           | (n, syms) <- Map.toList collByFn ]
+        ++ [ (mkError Nothing $ "fq-name-collision: constraint " <> T.pack (show cid)
+               <> " holds " <> T.intercalate ", " (map quoteName syms)
+               <> ", which reach the solver as one symbol, and no origin attributes"
+               <> " the constraint to a function. The file cannot be verified.")
+               { diagKind = Just "fq-name-collision" }
+           | (cid, syms) <- collOrphans ]
+      quoteName t = "'" <> t <> "'"
       -- DECREASES-LEN-1: descent is emitted inside the body VC only, so a
       -- self-recursive def-shell that declares a measure and ends in the
       -- fallback set (any cause, including the FREEVAR routing just above) had
@@ -1913,11 +1953,9 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                         -- A2.2-string: the get-step binder carries the chain's value
                         -- sort (Str for a string-map read) so the pin is well-sorted.
                         MRGet v _ sel vSort ->
-                          addBind (FQBind bid v (FQReft "v" vSort
-                                    (FQBinPred FQEq (FQVar "v") sel)))
+                          addBind (FQBind bid v (selfEqReft vSort sel))
                         MRDef v t ->
-                          addBind (FQBind bid v (FQReft "v" FQInt
-                                    (FQBinPred FQEq (FQVar "v") t)))
+                          addBind (FQBind bid v (selfEqReft FQInt t))
                       return bid
                     -- A2.2-string: result$val threads the return type's value-array
                     -- sort ((Map_t int Str) for a string-valued map return).
@@ -2092,8 +2130,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                       -- Emit binders for each let-binding in this path
                       lbBindIds <- mapM (\lb -> do
                         bid <- freshBid
-                        let b = FQBind bid (lbName lb) (FQReft "v" (lbSort lb)
-                                  (FQBinPred FQEq (FQVar "v") (lbRhs lb)))
+                        let b = FQBind bid (lbName lb) (selfEqReft (lbSort lb) (lbRhs lb))
                         addBind b
                         return bid) lbs
                       -- Emit result binder(s): the scalar result, or (map-ret
@@ -2220,8 +2257,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                             usableLbs  = inScopeLbs scope0 (nub pathLbs)
                         lbCtxBindIds <- mapM (\lb -> do
                           bid <- freshBid
-                          addBind (FQBind bid (lbName lb) (FQReft "v" (lbSort lb)
-                                    (FQBinPred FQEq (FQVar "v") (lbRhs lb))))
+                          addBind (FQBind bid (lbName lb) (selfEqReft (lbSort lb) (lbRhs lb)))
                           return bid) usableLbs
                         cid <- freshCid
                         let cpTag = "call-pre:" <> callee
@@ -2308,8 +2344,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                       return bid) dCtxDecls
                                     lbCtxBindIds <- mapM (\lb -> do
                                       bid <- freshBid
-                                      addBind (FQBind bid (lbName lb) (FQReft "v" (lbSort lb)
-                                                (FQBinPred FQEq (FQVar "v") (lbRhs lb))))
+                                      addBind (FQBind bid (lbName lb) (selfEqReft (lbSort lb) (lbRhs lb)))
                                       return bid) usableLbs
                                     dcid <- freshCid
                                     let ctxPosts = [ post | (_, _, post) <- ctxCalls, post /= FQTrue ]
@@ -4542,6 +4577,25 @@ bodyToPredFromRS seed sortEnv refEnv scrutTags calleeSorts matchCtx cenv sccSet 
       in evalState go s
 
 -- | Fresh name generator for alpha-renaming.
+-- | FQ-NAME-COLLIDE-1: the refinement @{ v : s | v = t }@ that pins a binder
+-- to its defining term. When @t@ names @v@ itself (a parameter called @v@), the
+-- bound variable would capture it: @{ v : int | v = (v + 1) }@ is false and
+-- makes the whole environment false, and @{ v : int | v = v }@ says nothing.
+-- So the bound variable is @v@ unless @t@ names it, and otherwise the first of
+-- @v0@, @v1@, ... that @t@ does not name. The text is unchanged whenever no
+-- capture was present.
+selfEqReft :: FQSort -> FQPred -> FQReft
+selfEqReft srt t = FQReft w srt (FQBinPred FQEq (FQVar w) t)
+  where
+    -- 'predSymbols' returns printed names, and every candidate is printed as
+    -- itself, so this compares what the solver reads. The list is infinite and
+    -- 'named' finite, so a candidate always exists.
+    named = predSymbols t
+    w = case [ c | c <- "v" : [ "v" <> T.pack (show i) | i <- [0 :: Int ..] ]
+                 , not (c `Set.member` named) ] of
+          (c : _) -> c
+          []      -> "v"
+
 freshName :: MonadState Int m => Name -> m Text
 freshName base = do
   n <- get

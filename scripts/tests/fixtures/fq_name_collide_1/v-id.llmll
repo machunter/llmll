@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: the same capture on a true program. True.
+(def f [v: int] -> int (post (= result v)) (let [(y v)] y))

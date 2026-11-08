@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: a parameter that spells a fresh let name. False: (f 0).
+(def f [_bv_y_0: int] -> int (post (= _bv_y_0 1)) (let [(y 1)] 0))

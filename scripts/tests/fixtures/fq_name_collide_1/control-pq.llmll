@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: collide with distinct names. False: (collide 1 0).
+(def collide [p: int q: int] -> int (pre (>= p 1)) (post (>= q 1)) 0)

@@ -55,9 +55,9 @@ FORGED_SRC = """(module sq
 """
 
 FORGED = {
-    # The current stamp (CLAUSE-WELLDEF-1 moved it to "7"): a forged record must
+    # The current stamp (FQ-NAME-COLLIDE-1 moved it to "8"): a forged record must
     # be refused by the evidence checks, not merely discarded for an old stamp.
-    "checker_soundness_version": "7",
+    "checker_soundness_version": "8",
     "sq3": {
         "post": {"display_level": {"level": "verified", "prover": "liquid-fixpoint"}},
         "pre": {"display_level": {"level": "asserted"}},
@@ -288,6 +288,9 @@ FLAGS = [
     (["--obligation-report"], REPORTING),
     (["--proof-artifact", "{out}"], REPORTING),
     (["--fq-out", "{out}"], REPORTING),
+    # FQ-OUT-SPECIAL-1: a copy that cannot be written (here a directory) is a
+    # warning; it does not fail a passing run.
+    (["--fq-out", "{dir}"], REPORTING),
     (["--strict-verify"], REPORTING),
     (["--strict-verified-core"], GATE),
     (["--leanstral-mock"], REPORTING),
@@ -308,7 +311,7 @@ def _documents(stdout):
 
 
 def _flag_args(args, tmp_path):
-    return [a.replace("{out}", str(tmp_path / "out.bin")) for a in args]
+    return [a.replace("{out}", str(tmp_path / "out.bin")).replace("{dir}", str(tmp_path)) for a in args]
 
 
 @needs_binary

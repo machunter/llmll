@@ -1,0 +1,1 @@
+{"axiom_disclosure_version":"1","caller_obligations":[{"fn":"collide","requires":"(>= a-b 1)"}],"checker_soundness_version":"7","collide":{"post":{"body_faithful":true,"display_level":{"level":"verified","prover":"liquid-fixpoint"},"verified_hash":"sha256:3df625eb9bbf3fbb449d673e3a6149e9ca3c35309aac01b760d334fc43bd0c8b"},"pre":{"display_level":{"level":"asserted"}}}}

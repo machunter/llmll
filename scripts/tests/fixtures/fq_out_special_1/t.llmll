@@ -1,0 +1,1 @@
+(def t [x: int] -> int (post (= result x)) x)

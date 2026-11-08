@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: one name bound twice. The name is ambiguous.
+(def f [x: int x: int] -> int (pre (>= x 1)) (post (>= x 1)) 0)

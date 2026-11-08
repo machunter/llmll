@@ -1,0 +1,3 @@
+;; FQ-NAME-COLLIDE-1: a parameter named result. False: (f 1).
+(type PosInt (where [n: int] (> n 0)))
+(def f [result: PosInt] -> int (post (= result 99)) 0)

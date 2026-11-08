@@ -93,6 +93,9 @@ KNOWN_CAUSES = (
     # truth was proved and only a clause's definedness was not; the post is
     # assumed, so it stays in the ratio's denominator.
     "clause-welldef-unproved",
+    # FQ-NAME-COLLIDE-1: decided over the assembled file. The post is assumed,
+    # so it stays in the ratio's denominator.
+    "fq-name-collision",
 )
 
 # Outcomes worth confirming alone before they are believed: each depends on the

@@ -402,8 +402,23 @@ reservedCallerObligationsKey = "caller_obligations"
 -- `verified` record for a clause the generated program stops in
 -- (clause-welldef-proposal.md Rev 3 §4.8). A stamp of "7" means the
 -- definedness obligations were checked. Every older sidecar is discarded once.
+--
+-- "8" (FQ-NAME-COLLIDE-1): two program names could reach the solver as one
+-- symbol (@a-b@ beside @a_b@, a parameter spelled like an internal name, a
+-- parameter @v@ captured by a refinement variable), so the solver read two
+-- values as one and an older sidecar can hold a false `verified`. A stamp of
+-- "8" means such a function's VC was withdrawn. Every older sidecar is
+-- discarded once.
+--
+-- "8" also covers FQ-OUT-SPECIAL-1, which ships in the same release: the
+-- solver read the constraints back from a path anyone could name in advance
+-- (@--fq-out@, or the default @/tmp/llmll-<base>-<tag>.fq@), so a symlink to
+-- @/dev/null@, a FIFO, or a concurrent writer there made it check no
+-- constraints and answer Safe. A stamp of "8" also means the solver read a
+-- private temp file and reported checking exactly the emitted constraint
+-- count. If this fix is ever reverted while "8" stays, raise the epoch to "9".
 checkerSoundnessVersion :: Text
-checkerSoundnessVersion = "7"
+checkerSoundnessVersion = "8"
 
 -- | SAFE-ARG: reserved top-level sidecar key carrying 'checkerSoundnessVersion'.
 reservedCheckerSoundnessKey :: Text

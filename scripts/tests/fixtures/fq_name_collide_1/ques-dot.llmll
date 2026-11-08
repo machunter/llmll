@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: a?b beside a_b. False: (f 1 0).
+(def f [a?b: int a_b: int] -> int (pre (>= a?b 1)) (post (>= a_b 1)) 0)

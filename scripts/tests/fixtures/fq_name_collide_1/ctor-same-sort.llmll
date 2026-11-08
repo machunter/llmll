@@ -1,0 +1,3 @@
+;; FQ-NAME-COLLIDE-1: a parameter that spells a constructor symbol at its sort. False: (f (P 1)).
+(type S (| N) (| P int))
+(def f [ctor_n: S] -> S (post (= result ctor_n)) N)

@@ -177,6 +177,8 @@ parseJSONAST mode fp bs
       -- GENERICS-1
       | "type-params-not-supported:" `T.isInfixOf` msg = "type-params-not-supported"
       | "unknown-type-var:"        `T.isInfixOf` msg = "unknown-type-var"
+      -- FQ-NAME-COLLIDE-1
+      | "invalid-name:"            `T.isInfixOf` msg = "invalid-name"
       | otherwise = "json-decode-error"
 
 -- | AST-RETURNS-KEY-1: the fix for a definition-head key the reader does not
@@ -761,7 +763,7 @@ resolveNamedType n                 = TCustom n
 
 parseTypedParam :: Value -> Parser (Name, Type)
 parseTypedParam = withObject "TypedParam" $ \o -> do
-  name    <- o .: "name"
+  name    <- o .: "name" >>= binderName
   untyped <- o .:? "untyped" .!= False
   if untyped
     then pure (name, TCustom "_")
@@ -866,6 +868,17 @@ parseExpr = withObject "Expr" $ \o -> do
 
     _ -> fail $ "unknown Expr kind: " ++ T.unpack kind
 
+-- | FQ-NAME-COLLIDE-1: a parameter, @let@ or match binder may not hold @$@.
+-- The verifier spells its internal binders with @$@ (@s$tag@, @m$has@), which
+-- the @.llmll@ lexer can never produce, and its name check exempts a repeated
+-- @$@ binder on that ground. A JSON-AST binder spelled @s$tag@ beside @s: Box@
+-- would otherwise be read as the tag of @s@ and prove a false post.
+binderName :: Name -> Parser Name
+binderName n
+  | "$" `T.isInfixOf` n = fail $ "invalid-name: binder '" ++ T.unpack n
+      ++ "' holds '$', which is reserved for names the verifier makes"
+  | otherwise = pure n
+
 parseLet1Binding :: Value -> Parser (Pattern, Maybe Type, Expr)
 parseLet1Binding = withObject "LetBinding" $ \o -> do
   -- N3: reject unexpected keys — schema declares additionalProperties: false
@@ -874,7 +887,7 @@ parseLet1Binding = withObject "LetBinding" $ \o -> do
   pat <- do
     mName <- o .:? "name" :: Parser (Maybe Name)
     case mName of
-      Just n  -> pure (PVar n)
+      Just n  -> PVar <$> binderName n
       Nothing -> o .: "pattern" >>= parsePattern
   expr <- o .: "expr" >>= parseExpr
   pure (pat, Nothing, expr)
@@ -890,7 +903,7 @@ parsePattern = withObject "Pattern" $ \o -> do
   kind <- o .: "kind" :: Parser Text
   case kind of
     "wildcard"    -> pure PWildcard
-    "bind"        -> PVar <$> o .: "name"
+    "bind"        -> PVar <$> (o .: "name" >>= binderName)
     "literal"     -> PLiteral <$> parseLiteralValue o
     "constructor" -> do
       ctor <- o .: "constructor"
