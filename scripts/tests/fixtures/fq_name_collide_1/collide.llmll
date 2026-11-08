@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: a-b and a_b print as one solver symbol. False: (collide 1 0).
+(def collide [a-b: int a_b: int] -> int (pre (>= a-b 1)) (post (>= a_b 1)) 0)

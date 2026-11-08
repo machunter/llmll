@@ -62,7 +62,7 @@ import           LLMLL.Syntax
   ( Name, Type(..), Expr(..), Contract(..) )
 import           LLMLL.FixpointIR
   ( FQFile(..), FQBind(..), FQReft(..), FQConstraint(..)
-  , FQPred(..), emptyFQFile, emitFQFile )
+  , FQPred(..), emptyFQFile, emitFQFile, fqNameCollisions )
 import           LLMLL.FixpointEmit (AliasMap, typeToSortA, exprToPred, contractMentionsArrOp)
 import           LLMLL.ObligationAssembly (substExpr, classifyContractFragment)
 import           LLMLL.PBT (canonicalExpr)
@@ -222,6 +222,10 @@ contractSubsumes :: FilePath -> AliasMap -> DefContract -> DefContract -> IO Boo
 contractSubsumes lfBin aliases (_, sPs, sRet, sC) (_, dPs, dRet, dC) =
   case buildSubsumptionFQ aliases (sPs, sRet, sC) (dPs, dRet, dC) of
     Nothing -> pure False
+    -- FQ-NAME-COLLIDE-1: two names that reach the solver as one symbol could
+    -- make the subsumption hold by identifying two values, so the check
+    -- abstains rather than suggest a false reuse.
+    Just fq | not (null (fqNameCollisions fq)) -> pure False
     Just fq -> do
       r <- solveSubsumptionFQ lfBin fq
       pure $ case r of FQSafe -> True; _ -> False

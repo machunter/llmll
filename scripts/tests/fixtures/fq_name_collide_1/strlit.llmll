@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: a parameter that spells an interned string constant. False: (f "b").
+(def f [strlit_000061: string] -> string (post (= result strlit_000061)) "a")

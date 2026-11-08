@@ -260,8 +260,9 @@ data ProofArtifact = ProofArtifact
 -- 'ComposedVersions', the per-function 'ill_defined' flag and the
 -- 'fallback_reason' value @clause-welldef-unproved@. (0.1.0 admits
 -- @callee-post-unassumed@ since v0.36.0.)
+-- FQ-NAME-COLLIDE-1 (0.3.0): the 'fallback_reason' value @fq-name-collision@.
 proofArtifactVersion :: Text
-proofArtifactVersion = "0.2.0"
+proofArtifactVersion = "0.3.0"
 
 -- | The dormant codegen-semantics stamp (LLMLL.md §5.3.5:1051) — unbounded @int@ today.
 codegenSemanticsVersion :: Text

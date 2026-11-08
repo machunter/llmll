@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: a clash at bool. False: (f true false).
+(def f [a-b: bool a_b: bool] -> int (pre a-b) (post a_b) 0)

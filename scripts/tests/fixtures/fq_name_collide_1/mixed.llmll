@@ -1,0 +1,3 @@
+;; FQ-NAME-COLLIDE-1: a clash in one function leaves the proof of the other.
+(def collide [a-b: int a_b: int] -> int (pre (>= a-b 1)) (post (>= a_b 1)) 0)
+(def good [n: int] -> int (pre (>= n 1)) (post (>= result 1)) n)

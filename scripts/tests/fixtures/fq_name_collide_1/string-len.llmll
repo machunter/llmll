@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: a clash at string. False: (f "x" "").
+(def f [a-b: string a_b: string] -> int (pre (>= (string-length a-b) 1)) (post (>= (string-length a_b) 1)) 0)

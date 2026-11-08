@@ -31,8 +31,8 @@ import LLMLL.ObligationAssembly
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, fqResultToReportWD, WdReportCtx(..), WdFailKind(..), emptyWdReportCtx, isWdClause, runFQSolver, resourceStopText, resourceStopValue)
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..))
-import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..))
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..), selfEqReft, arrayTheorySyms)
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..), FQBind(..), fqNameCollisions, fqFreeSymbols)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkTrustGapDeclaredWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8, formatParseDiagSExp, mkBodyFallbackWarning)
@@ -22208,10 +22208,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         concatMap teAssumedFacts (trEntries report) `shouldBe` []
         formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
       -- FN-SHADOW-1 moved the stamp to "4", LET-CALL-CONT-1 to "5" (LCC-6),
-      -- AND-GUARD-PRE-1 to "6", CLAUSE-WELLDEF-1 to "7" (pinned by AGP-9);
-      -- FS-13 pins "3" as discarded.
-      it "RF-P4 checker_soundness_version is \"7\" (CLAUSE-WELLDEF-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
-        checkerSoundnessVersion `shouldBe` "7"
+      -- AND-GUARD-PRE-1 to "6", CLAUSE-WELLDEF-1 to "7", FQ-NAME-COLLIDE-1 to
+      -- "8" (pinned by AGP-9); FS-13 pins "3" as discarded.
+      it "RF-P4 checker_soundness_version is \"8\" (FQ-NAME-COLLIDE-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "8"
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "2")]) `shouldBe` True
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
 
@@ -22522,7 +22522,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       causeOf "r" er `shouldBe` Nothing
       erBodyFaithfulFns er `shouldBe` ["r"]
 
-    it "the closed vocabulary is twelve values and renderFallbackCause stays injective" $ do
+    it "the closed vocabulary is fourteen values and renderFallbackCause stays injective" $ do
       -- MAP-RET-POST-1 added the ninth: 'FallbackUnboundMapResult'.
       -- FQ-FREEVAR-GUARD-1 added the tenth: 'FallbackUnboundSymbols', the
       -- general form of the same defect, decided over the assembled file rather
@@ -22538,8 +22538,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- path as 'FallbackAbstraction'.
       -- CLAUSE-WELLDEF-1 added the thirteenth: 'FallbackClauseWelldefUnproved',
       -- decided after the solver on the same path.
-      length cs `shouldBe` 13
-      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 13
+      -- FQ-NAME-COLLIDE-1 added the fourteenth: 'FallbackNameCollision',
+      -- decided over the assembled file beside 'FallbackUnboundSymbols'.
+      length cs `shouldBe` 14
+      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 14
 
     it "a nonlinear post names the operator, not the whole clause" $ do
       -- SIGMA-CONST-ARITH-1: (* n 2) is admitted now; (* n n) is still refused.
@@ -27095,11 +27097,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
              (EIf (EOp "<=>" [EApp "map-has" ri, EOp ">=" [EVar "_bv_anf_0", ELit (LitInt 0)]]) (ELit (LitInt 1)) (ELit (LitInt 0)))
       r <- emitG [ sigM "giff" <> "(if (<=> (map-has r i) (>= (map-get r i) 0)) 1 0))" ]
       callPreLhs (erFQText r) `shouldBe` ["  lhs { v : int | true }"]
-    -- CLAUSE-WELLDEF-1 moved the stamp past "6" (CW-S1 pins "6" as discarded).
-    it "AGP-9 checker_soundness_version is \"7\": a sidecar stamped \"5\" is discarded" $ do
-      checkerSoundnessVersion `shouldBe` "7"
+    -- CLAUSE-WELLDEF-1 moved the stamp past "6" (CW-S1 pins "6" as discarded);
+    -- FQ-NAME-COLLIDE-1 moved it past "7".
+    it "AGP-9 checker_soundness_version is \"8\": a sidecar stamped \"5\" or \"7\" is discarded" $ do
+      checkerSoundnessVersion `shouldBe` "8"
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "5")]) `shouldBe` True
-      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "7")]) `shouldBe` False
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "7")]) `shouldBe` True
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "8")]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- VERIFY-BUDGET-1: the solver guard
@@ -27566,10 +27570,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "A4 the writer emits the epoch member" $ do
       let js = BLC.unpack (encode liveComposedVersions)
-      js `shouldSatisfy` isInfixOf "\"checker_soundness_version\":\"7\""
+      js `shouldSatisfy` isInfixOf "\"checker_soundness_version\":\"8\""
 
-    it "A5 proof_artifact_version is 0.2.0" $
-      proofArtifactVersion `shouldBe` "0.2.0"
+    it "A5 proof_artifact_version is 0.3.0 (FQ-NAME-COLLIDE-1)" $
+      proofArtifactVersion `shouldBe` "0.3.0"
 
     it "A6 the kernel refuses a positive tier flagged ill_defined, on mint and on read" $ do
       mkFnRecord pos { fiIllDefined = True } `shouldSatisfy` isLeft
@@ -27722,6 +27726,102 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case r of
         FQResourceLimit s -> rsKind s `shouldBe` StopTime
         other             -> expectationFailure ("expected FQResourceLimit, got " ++ show other)
+
+  -- -----------------------------------------------------------------------
+  -- FQ-NAME-COLLIDE-1: two names that reach the solver as one symbol. Each
+  -- source below was a false `verified` on v0.37.0 (exit 0, all_proved); the
+  -- fixtures in scripts/tests/fixtures/fq_name_collide_1 run them end to end.
+  -- -----------------------------------------------------------------------
+  describe "FQ-NAME-COLLIDE-1 name collision guard" $ do
+    let intB i n = FQBind i n (FQReft "v" FQInt FQTrue)
+        con env lhs rhs = FQConstraint 0 env (FQReft "result" FQInt lhs) (FQReft "result" FQInt rhs) ["f", "post"]
+        ge x k = FQBinPred FQGe (FQVar x) (FQLit k)
+        fnc file = fqNameCollisions file
+        emitSrcN src = case parseStatements GrammarCoreInversion "test" src of
+          Left err    -> error ("parse failed: " <> show err)
+          Right stmts -> emitFixpointWith (EmitOptions True Nothing) "test.llmll" stmts
+    it "FNC-1: R1 flags two source spellings that print as one symbol" $ do
+      let f = emptyFQFile { fqBinds = [intB 0 "a-b", intB 1 "a_b", intB 2 "result"]
+                          , fqConstraints = [con [0, 1, 2] (ge "a-b" 1) (ge "a_b" 1)] }
+      fnc f `shouldBe` [(0, ["a-b", "a_b"])]
+    it "FNC-2: R2 flags one name bound twice in one environment" $ do
+      let f = emptyFQFile { fqBinds = [intB 0 "result", intB 1 "result"]
+                          , fqConstraints = [con [0, 1] FQTrue (ge "result" 1)] }
+      fnc f `shouldBe` [(0, ["result"])]
+    it "FNC-3: R3 flags a binder that spells a constant or a constructor symbol" $ do
+      let k  = emptyFQFile { fqConstants = [FQConstant "strlit_000061" [] FQStr]
+                           , fqBinds = [FQBind 0 "strlit_000061" (FQReft "v" FQStr FQTrue)]
+                           , fqConstraints = [con [0] FQTrue FQTrue] }
+          dd = emptyFQFile { fqDataDecls = [FQDataDecl "S" 0 [("N", []), ("P", [FQInt])]]
+                           , fqBinds = [FQBind 0 "ctor-n" (FQReft "v" (FQData "S") FQTrue)]
+                           , fqConstraints = [con [0] FQTrue FQTrue] }
+      fnc k `shouldBe` [(0, ["strlit_000061"])]
+      fnc dd `shouldBe` [(0, ["ctor-n"])]
+    it "FNC-4: an internal x$tag binder bound twice is not flagged" $ do
+      let f = emptyFQFile { fqBinds = [intB 0 "x$tag", intB 1 "x$tag"]
+                          , fqConstraints = [con [0, 1] FQTrue (ge "x$tag" 0)] }
+      fnc f `shouldBe` []
+    it "FNC-5: on a clean file both boundary checks report nothing" $ do
+      er <- emitSrcN "(def f [foo-bar: int] -> int (pre (>= foo-bar 1)) (post (>= result 1)) foo-bar)"
+      fnc (erFQFile er) `shouldBe` []
+      fqFreeSymbols arrayTheorySyms (erFQFile er) `shouldBe` []
+      erBodyFaithfulFns er `shouldBe` ["f"]
+    it "FNC-6: selfEqReft keeps v when the term does not name it" $ do
+      let t = FQBinArith FQAdd (FQVar "n") (FQLit 1)
+      selfEqReft FQInt t `shouldBe` FQReft "v" FQInt (FQBinPred FQEq (FQVar "v") t)
+    it "FNC-7: selfEqReft picks another variable, not named by the term, when it names v" $ do
+      let t  = FQBinArith FQAdd (FQVar "v") (FQVar "v0")
+          FQReft w _ p = selfEqReft FQInt t
+      w `shouldBe` "v1"
+      p `shouldBe` FQBinPred FQEq (FQVar "v1") t
+      er <- emitSrcN "(def f [v: int] -> int (post (= result 99)) (let [(y (+ v 1))] y))"
+      erFQText er `shouldSatisfy` T.isInfixOf "{ v0 : int | (v0 = (v + 1)) }"
+      erFQText er `shouldNotSatisfy` T.isInfixOf "(v = (v + 1))"
+    it "FNC-8: each false-proof witness falls back on fq-name-collision" $ do
+      let srcs =
+            [ ("collide", "(def collide [a-b: int a_b: int] -> int (pre (>= a-b 1)) (post (>= a_b 1)) 0)")
+            , ("f", "(def f [a?b: int a_b: int] -> int (pre (>= a?b 1)) (post (>= a_b 1)) 0)")
+            , ("f", "(def f [a.b: int a_b: int] -> int (pre (>= a.b 1)) (post (>= a_b 1)) 0)")
+            , ("f", "(def f [a-b: bool a_b: bool] -> int (pre a-b) (post a_b) 0)")
+            , ("f", "(def f [a-b: string a_b: string] -> int (pre (>= (string-length a-b) 1)) (post (>= (string-length a_b) 1)) 0)")
+            , ("f", "(type Box (| B int) (| C int))\n(def f [s: Box s_tag: int] -> int (post (or (= s_tag 0) (= s_tag 1))) (match s ((B q) 0) ((C q) 0)))")
+            , ("f", "(def f [m: map[int,int] m_has: bytes[4]] -> int (pre (map-has m 1)) (post (= (bytes-get m_has 1) 1)) 0)")
+            , ("f", "(def f [_bv_y_0: int] -> int (post (= _bv_y_0 1)) (let [(y 1)] 0))")
+            , ("f", "(type PosInt (where [n: int] (> n 0)))\n(def f [result: PosInt] -> int (post (= result 99)) 0)")
+            , ("f", "(def f [strlit_000061: string] -> string (post (= result strlit_000061)) \"a\")")
+            , ("f", "(type S (| N) (| P int))\n(def f [ctor_n: S] -> S (post (= result ctor_n)) N)")
+            , ("f", "(def f [x: int x: int] -> int (pre (>= x 1)) (post (>= x 1)) 0)") ]
+      forM_ srcs $ \(fn, src) -> do
+        er <- emitSrcN src
+        (src, lookup fn (erBodyFallbackCauses er)) `shouldBe` (src, Just FallbackNameCollision)
+        (src, fn `elem` erBodyFaithfulFns er) `shouldBe` (src, False)
+    it "FNC-9: collide's constraints are withdrawn from the file" $ do
+      er <- emitSrcN "(def collide [a-b: int a_b: int] -> int (pre (>= a-b 1)) (post (>= a_b 1)) 0)"
+      fqConstraints (erFQFile er) `shouldBe` []
+    it "FNC-10: the warning names both spellings and carries its code" $ do
+      er <- emitSrcN "(def collide [a-b: int a_b: int] -> int (pre (>= a-b 1)) (post (>= a_b 1)) 0)"
+      let ds = [ d | d <- erDiagnostics er, diagCode d == Just "W-FQ-NAME-COLLIDE" ]
+      length ds `shouldBe` 1
+      map diagMessage ds `shouldSatisfy` all (\m -> T.isInfixOf "'a-b'" m && T.isInfixOf "'a_b'" m)
+    it "FNC-11: the new cause renders on the census's closed vocabulary" $ do
+      renderFallbackCause FallbackNameCollision `shouldBe` "fq-name-collision"
+    it "FNC-12: a Lean translation of a colliding signature is Unsupported" $ do
+      let c = Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] []
+          isUnsupported r = case r of { Unsupported _ -> True; _ -> False }
+      translateObligation "f" [("a-b", TInt), ("a_b", TInt)] (Just TInt) c (EVar "a_b")
+        `shouldSatisfy` isUnsupported
+      translateObligation "f" [("result", TInt)] (Just TInt) c (EVar "result")
+        `shouldSatisfy` isUnsupported
+      translateObligation "f" [("a-b", TInt)] (Just TInt) c (EVar "a-b")
+        `shouldSatisfy` (not . isUnsupported)
+    it "FNC-13: a subsumption file with a collision is flagged, so contractSubsumes abstains" $ do
+      let mkC pre post = Contract pre Nothing post Nothing Nothing [] []
+          geE x k = EApp ">=" [EVar x, ELit (LitInt k)]
+          s = ([("x", TInt)], Just TInt, mkC (Just (geE "x" 0)) (Just (geE "result" 0)))
+          dClash = ([("x", TInt)], Just TInt, mkC (Just (EApp ">=" [EVar "a-b", EVar "a_b"])) (Just (geE "result" 0)))
+          dClean = ([("x", TInt)], Just TInt, mkC (Just (geE "x" 0)) (Just (geE "result" 0)))
+      fmap fqNameCollisions (buildSubsumptionFQ Map.empty s dClash) `shouldSatisfy` maybe False (not . null)
+      fmap fqNameCollisions (buildSubsumptionFQ Map.empty s dClean) `shouldBe` Just []
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

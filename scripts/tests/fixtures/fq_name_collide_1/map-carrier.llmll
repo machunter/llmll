@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1: the map carrier m$has prints as m_has. False: a map holding key 1, and zero bytes.
+(def f [m: map[int,int] m_has: bytes[4]] -> int (pre (map-has m 1)) (post (= (bytes-get m_has 1) 1)) 0)

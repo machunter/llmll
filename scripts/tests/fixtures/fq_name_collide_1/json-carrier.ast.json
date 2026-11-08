@@ -1,0 +1,128 @@
+{
+  "llmll_version": "0.37.0",
+  "schemaVersion": "0.15.0",
+  "statements": [
+    {
+      "body": {
+        "kind": "sum",
+        "variants": [
+          {
+            "constructor": "B",
+            "payload": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          },
+          {
+            "constructor": "C",
+            "payload": {
+              "kind": "primitive",
+              "name": "int"
+            }
+          }
+        ]
+      },
+      "kind": "type-decl",
+      "name": "Box"
+    },
+    {
+      "body": {
+        "arms": [
+          {
+            "body": {
+              "kind": "lit-int",
+              "value": 0
+            },
+            "pattern": {
+              "constructor": "B",
+              "kind": "constructor",
+              "sub_patterns": [
+                {
+                  "kind": "bind",
+                  "name": "q"
+                }
+              ]
+            }
+          },
+          {
+            "body": {
+              "kind": "lit-int",
+              "value": 0
+            },
+            "pattern": {
+              "constructor": "C",
+              "kind": "constructor",
+              "sub_patterns": [
+                {
+                  "kind": "bind",
+                  "name": "q"
+                }
+              ]
+            }
+          }
+        ],
+        "kind": "match",
+        "scrutinee": {
+          "kind": "var",
+          "name": "s"
+        }
+      },
+      "kind": "def",
+      "name": "f",
+      "params": [
+        {
+          "name": "s",
+          "param_type": {
+            "kind": "named",
+            "name": "Box"
+          }
+        },
+        {
+          "name": "s$tag",
+          "param_type": {
+            "kind": "primitive",
+            "name": "int"
+          }
+        }
+      ],
+      "post": {
+        "args": [
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s$tag"
+              },
+              {
+                "kind": "lit-int",
+                "value": 0
+              }
+            ],
+            "kind": "op",
+            "op": "="
+          },
+          {
+            "args": [
+              {
+                "kind": "var",
+                "name": "s$tag"
+              },
+              {
+                "kind": "lit-int",
+                "value": 1
+              }
+            ],
+            "kind": "op",
+            "op": "="
+          }
+        ],
+        "kind": "op",
+        "op": "or"
+      },
+      "return_type": {
+        "kind": "primitive",
+        "name": "int"
+      }
+    }
+  ]
+}

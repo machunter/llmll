@@ -48,6 +48,9 @@ module LLMLL.FixpointIR
     -- * Emission-boundary scope check (FQ-FREEVAR-GUARD-1)
   , predSymbols
   , fqFreeSymbols
+    -- * Emission-boundary name check (FQ-NAME-COLLIDE-1)
+  , predRawSymbols
+  , fqNameCollisions
   ) where
 
 import Data.Text (Text)
@@ -289,6 +292,12 @@ emitConstant c =
 -- plus internal _bv_/call_ names), so .fq output is byte-identical except where a
 -- name would otherwise be rejected. Applied at this single emission chokepoint so
 -- binders and references mangle identically and still resolve.
+--
+-- FQ-NAME-COLLIDE-1: the map is NOT injective. @a-b@, @a?b@, @a.b@ and @a_b@ all
+-- print as @a_b@, and the solver then reads two program values as one. The
+-- encoding is kept, so a file with no clash prints unchanged; 'fqNameCollisions'
+-- finds each constraint where two names meet in one symbol, and the emitter
+-- withdraws the owning function's VC.
 sanitizeFQId :: Text -> Text
 sanitizeFQId = T.map (\c -> if isAlphaNum c || c == '_' then c else '_')
 
@@ -309,10 +318,12 @@ sanitizeFQId = T.map (\c -> if isAlphaNum c || c == '_' then c else '_')
 -- duplicate within or across type definitions), so the prefix alone separates
 -- the namespaces and no type qualification is needed.
 --
--- Residual, deliberately accepted: 'sanitizeFQId' maps every illegal character
--- to @_@, so a binder literally named @ctor_denied@ (or @ctor-denied@) would
--- still collide. That is reachable only by naming a binder after the internal
--- convention, and it fails closed as before.
+-- Residual: a binder literally named @ctor_denied@ (or @ctor-denied@) still
+-- prints as the constructor symbol. This does not always fail closed. At another
+-- sort the solver stops with a sort error, but at the constructor's own sort the
+-- binder and the constructor are one value, and a false post was proved
+-- (FQ-NAME-COLLIDE-1, row 10). 'fqNameCollisions' rule R3 now flags such a
+-- binder, and the emitter withdraws the owning function's VC.
 --
 -- This is the single definition of the convention. Declaration and every use
 -- site route through it, which is what was missing before.
@@ -558,3 +569,81 @@ fqFreeSymbols theory f =
             : reftFree (conRhs c)
             : [ reftFree (bindReft b) | b <- envBinds ] )
       in named Set.\\ inScope
+
+-- ---------------------------------------------------------------------------
+-- FQ-NAME-COLLIDE-1: the emission-boundary name check
+-- ---------------------------------------------------------------------------
+
+-- | Every name a predicate holds, as the emitter wrote it, BEFORE
+-- 'sanitizeFQId': a variable and an application head, recursively, including
+-- the arguments of a kvar. 'predSymbols' returns the printed form; this returns
+-- the source form, so two spellings that print as one symbol stay apart.
+predRawSymbols :: FQPred -> Set.Set Text
+predRawSymbols p = case p of
+  FQTrue           -> Set.empty
+  FQFalse          -> Set.empty
+  FQLit _          -> Set.empty
+  FQVar v          -> Set.singleton v
+  FQNot q          -> predRawSymbols q
+  FQAnd ps         -> Set.unions (map predRawSymbols ps)
+  FQOr  ps         -> Set.unions (map predRawSymbols ps)
+  FQBinPred _ a b  -> predRawSymbols a `Set.union` predRawSymbols b
+  FQBinArith _ a b -> predRawSymbols a `Set.union` predRawSymbols b
+  FQKVar _ args    -> Set.unions (map predRawSymbols args)
+  FQApp f args     -> Set.insert f (Set.unions (map predRawSymbols args))
+  FQIte c a b      -> Set.unions (map predRawSymbols [c, a, b])
+
+-- | FQ-NAME-COLLIDE-1. Report, for each constraint, the names that reach the
+-- solver as one symbol although the program means two values. 'sanitizeFQId'
+-- is not injective, and the emitter's internal names share one namespace with
+-- the program's, so the solver can read two values as one and prove a false
+-- post. The check reads the constraint and the closure of its environment, as
+-- 'fqFreeSymbols' does. Three rules:
+--
+--   * R1, different source spellings. Two different raw names, among the
+--     environment binders and the variables and application heads of every
+--     refinement, that 'sanitizeFQId' maps to one symbol (@a-b@ and @a_b@).
+--   * R2, one name bound twice. Two binders of the environment with one raw
+--     name (a parameter @result@ beside the result binder, a parameter spelled
+--     like a fresh @_bv_@ name). A raw name that holds @$@ is exempt: the
+--     @.llmll@ lexer never produces @$@, so such a binder is internal, and
+--     nested matches legitimately repeat the @x$tag@ binder. The JSON-AST
+--     reader refuses @$@ in a binder, which is what makes the exemption sound.
+--   * R3, a binder that is a declared symbol. An environment binder whose
+--     printed name is a @constant@ (a measure, an interned @strlit_@), a
+--     constructor symbol or a selector.
+--
+-- Each flagged constraint comes back with the clashing names, raw, for the
+-- diagnostic. A file with no clash returns @[]@.
+fqNameCollisions :: FQFile -> [(FQConstraintId, [Text])]
+fqNameCollisions f =
+    [ (conId c, names)
+    | c <- fqConstraints f
+    , let names = clashes c
+    , not (null names) ]
+  where
+    bindMap = Map.fromList [ (bindId b, b) | b <- fqBinds f ]
+
+    declared = Set.unions
+      [ Set.fromList [ sanitizeFQId (fqcName k) | k <- fqConstants f ]
+      , Set.fromList $ concat
+          [ fqCtorSym cn
+            : [ fqCtorSym cn <> "_" <> T.pack (show i) | i <- [0 .. length flds - 1] ]
+          | d <- fqDataDecls f, (cn, flds) <- ddCtors d ] ]
+
+    clashes c =
+      let envBinds = [ b | i <- conEnv c, Just b <- [Map.lookup i bindMap] ]
+          raw = Set.unions
+            ( Set.fromList (map bindName envBinds)
+            : predRawSymbols (reftPred (conLhs c))
+            : predRawSymbols (reftPred (conRhs c))
+            : [ predRawSymbols (reftPred (bindReft b)) | b <- envBinds ] )
+          byImage = Map.fromListWith Set.union
+            [ (sanitizeFQId n, Set.singleton n) | n <- Set.toList raw ]
+          r1 = concat [ Set.toList ns | ns <- Map.elems byImage, Set.size ns > 1 ]
+          r2 = [ n | (n, k) <- Map.toList (Map.fromListWith (+)
+                                 [ (bindName b, 1 :: Int) | b <- envBinds ])
+                   , k > 1, not ("$" `T.isInfixOf` n) ]
+          r3 = [ bindName b | b <- envBinds
+                            , sanitizeFQId (bindName b) `Set.member` declared ]
+      in Set.toList (Set.fromList (r1 ++ r2 ++ r3))

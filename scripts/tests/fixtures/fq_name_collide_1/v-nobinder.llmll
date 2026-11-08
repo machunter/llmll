@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1 companion: a parameter v with no binder. True.
+(def f [v: int] -> int (post (= result (+ v 1))) (+ v 1))

@@ -1,0 +1,2 @@
+;; FQ-NAME-COLLIDE-1 companion: a hyphen alone is not a clash. True.
+(def f [foo-bar: int] -> int (pre (>= foo-bar 1)) (post (>= result 1)) foo-bar)

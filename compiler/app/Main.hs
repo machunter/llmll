@@ -1513,6 +1513,19 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
         unless (null (erOverflowTaintedFns emitR0)) $
           TIO.putStrLn $ "   overflow-tainted: " <> T.intercalate ", " (erOverflowTaintedFns emitR0)
 
+      -- FQ-NAME-COLLIDE-1: a name collision the emitter could not attribute to
+      -- a function. The solver may answer SAFE on it, so the file is not
+      -- solved: exit 1, and no sidecar is written.
+      let collisionErrs = [ d | d <- erDiagnostics emitR0
+                              , diagSeverity d == SevError
+                              , diagKind d == Just "fq-name-collision" ]
+      unless (null collisionErrs) $ do
+        if json
+          then writeIORef envVerdict $ objectFields $
+                 object [ "file" .= fp, "diagnostics" .= collisionErrs ]
+          else mapM_ (\d -> TIO.putStrLn $ "ERROR: " <> diagMessage d) collisionErrs
+        finishVerify (ExitFailure 1)
+
       -- v0.9.0 COMP-6 + INT-1 (v0.10.8): --strict-verified-core enforcement.
       -- Refuses both (a) functions that fell back from body-faithful verification
       -- and (b) body-faithful functions whose verified evidence is overflow-tainted
