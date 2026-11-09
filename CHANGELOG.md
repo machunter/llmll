@@ -4,6 +4,33 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.37.1)
+
+### `BITWISE-1` + `CHAR-CODE-1`: bit operations and character codes
+
+- **Seven pure builtins, callable from `def`:** `bit-and`, `bit-or`, `bit-xor` (`int int -> int`,
+  both operands `>= 0`), `bit-shl`, `bit-shr` (`int int -> int`, value first, both `>= 0`),
+  `string-code-at` (`string int -> int`, `0 <= i < (string-length s)`, result `0..1114111`) and
+  `string-from-code` (`int -> string`, `0..1114111` and not a surrogate `55296..57343`). Each
+  raises a named error when its pre fails. Values are unbounded, as for every `int`.
+- **Three bit forms reflect exactly:** `(bit-shl e c)` and `(bit-shr e c)` with a ground `c` in
+  `0..4096`, and `(bit-and e m)` with a ground `m = 2^w - 1 >= 0`. `(bit-and x 255)` verifies;
+  `(bit-and x 254)`, `bit-or`, `bit-xor`, a negative or non-ground shift and a shift above 4096
+  make the caller fall back with `Refused by: app:<name>`. A rotate such as
+  `(+ (mod (bit-shl x 7) 4294967296) (bit-shr x 25))` verifies a 32-bit range post.
+- **Character codes reflect in bodies only:** `string-code-at` as `strCode(s, i)` with range
+  `0..1114111`, `string-from-code` as a fresh string of length 1. Both pres are proved at the call.
+  An UNSAFE answer that rests on either result falls back with `abstraction:app:<name>` instead of
+  refuting, even with one call: "The verifier knows only part of what 'string-code-at' returns, so
+  the counterexample may be one no run can produce." In a clause both are outside the fragment.
+- **Clauses:** an exact bit form in a clause adds the obligation that its operand is `>= 0`;
+  failing it is `ill-defined`. A built program whose clause evaluates any of the seven outside its
+  pre stops with `Precondition of <fn> is undefined` or `Postcondition of <fn> is undefined`.
+- The two character builtins join the sealed axiom set and are disclosed by `--trust-report`.
+  No version changes. `.fq` text is byte-identical on every tracked source.
+
+**Tests:** hspec 3098 → 3151, 0 failures; Python 776 → 814 passed, 11 skipped.
+
 ## v0.37.1: two false proofs closed, through solver names and the `.fq` path (2026-11-08)
 
 **Measured, v0.37.0 against this release, each binary over its own copy of the tree

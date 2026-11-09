@@ -217,6 +217,8 @@ LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core*
 | `EPair` / pair returns (`first`, `second`, `pair`) | ✅ (datatype selectors) | n/a |
 | Non-recursive datatype construction | ✅ | n/a |
 | `bytes[n]` and `map` operations (`bytes-get`/`-set`/`-length`/`-zero`, `map-has`/`-get`/`-put`/`-empty`) | ✅ (array theory; index-in-bounds and key-presence are proof obligations) | non-`{int,string}` keys, direct `(map-empty)` reads, whole-structure `=`: contract-only |
+| Bit operations: `bit-shl` / `bit-shr` by a ground `0..4096`, `bit-and` with a mask `2^w - 1` | ✅ (exact: `* 2^c`, `div 2^c`, `mod 2^w`; operands `>= 0` are proof obligations) | `bit-or`, `bit-xor`, any other mask or shift: contract-only |
+| Character codes (`string-code-at`, `string-from-code`) in a body | ✅ partial (`strCode` with range `0..1114111`; a result of length 1); an UNSAFE answer resting on one falls back | in a `pre` or `post`: contract-only |
 | String literals in `=` / `!=`, `string-length` of a literal | ✅ | string structure (concat, substring, regex): contract-only |
 | `EMatch` (recursive-sum payload), `ELambda`, `EDo` | ❌ | contract-only / runtime |
 | `letrec` (own body VC) | ❌ | runtime + `:decreases` |
