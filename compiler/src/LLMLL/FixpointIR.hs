@@ -347,7 +347,8 @@ emitPred (FQBinPred FQEq  (FQNot l) r) = emitPred (FQBinPred FQNeq l r)
 emitPred (FQBinPred FQNeq l (FQNot r)) = emitPred (FQBinPred FQEq  l r)
 emitPred (FQBinPred FQNeq (FQNot l) r) = emitPred (FQBinPred FQEq  l r)
 emitPred (FQBinPred op l r)   = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
-emitPred (FQBinArith op l r)  = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
+-- FQ-ARITH-FLAT-1: an arithmetic chain keeps one outer pair; see 'arithChain'.
+emitPred (FQBinArith op l r)  = "(" <> arithChain op l r <> ")"
 -- FQ-FLAT-NEST-1: nested conjunctions (and nested disjunctions) are printed as one
 -- flat chain. 'conjoin' builds two-operand pairs, so a body with a chain of calls
 -- reached liquid-fixpoint as '((((a && b) && c) && d) ...)'. liquid-fixpoint
@@ -390,6 +391,67 @@ flattenOr :: [FQPred] -> [FQPred]
 flattenOr = concatMap go
   where go (FQOr qs) = flattenOr qs
         go q         = [q]
+
+-- | FQ-ARITH-FLAT-1: an arithmetic chain, printed with no outer parentheses.
+--
+-- liquid-fixpoint's parser costs time exponential in parenthesis depth. At
+-- each @(@, 'appliableExprP' tries 'tupleP' first, which reads the whole
+-- expression and then fails for want of a comma, and @parens exprP@ reads the
+-- same text again (liquid-fixpoint 0.9.6.3.7, src/Language/Fixpoint/Parse.hs
+-- lines 987-988). A sum printed with one pair per operation cost 8 CPU s at 18
+-- terms, and a 20-term sum stopped @verify@ at its time limit (exit 5); printed
+-- flat it checks in 0.04 s. This is the arithmetic counterpart of
+-- FQ-FLAT-NEST-1.
+--
+-- A pair is dropped only where the solver's fixity table (Parse.hs:944-947:
+-- @*@ and @/@ at 7, @+@ and @-@ at 6, @mod@ at 5, all left-associative) reads
+-- the same term back:
+--
+--   * a left operand of equal or higher precedence: @(a - b) - c@ prints
+--     @a - b - c@, @(a * 2) + b@ prints @a * 2 + b@;
+--   * a right operand of strictly higher precedence: @a + (b * 2)@ prints
+--     @a + b * 2@;
+--   * a right operand with the same associative operator, @+@ or @*@:
+--     @a + (b + c)@ prints @a + b + c@, which the solver reads as
+--     @(a + b) + c@. That is equal over unbounded @int@, which is the only
+--     regrouping this function does. It applies only when every operator on
+--     the operand's left spine at that precedence is the same one:
+--     @a * ((b / 2) * c)@ keeps its pair, since @a * b / 2 * c@ reads as
+--     @((a * b) / 2) * c@.
+--
+-- @mod@ never joins a chain, on either side: it binds looser than @+@, so
+-- @a + b mod 3@ reads as @(a + b) mod 3@. A right operand that is a
+-- subtraction, a division or a different operator of the same precedence
+-- (@a - (b - c)@, @a * (b / 2)@, @a + (b - c)@) keeps its pair, and so does a
+-- looser operand (@(a + b) * 2@). Anything that is not arithmetic prints as
+-- before, through 'emitPredParens'.
+arithChain :: FQBinOp -> FQPred -> FQPred -> Text
+arithChain op l r = arithLeft l <> " " <> emitOp op <> " " <> arithRight r
+  where
+    arithLeft (FQBinArith o a b)
+      | chainOp o, chainOp op, arithPrec o >= arithPrec op = arithChain o a b
+    arithLeft e = emitPredParens e
+    arithRight (FQBinArith o a b)
+      | chainOp o, chainOp op, arithPrec o > arithPrec op = arithChain o a b
+      | o == op, op `elem` [FQAdd, FQMul], pureSpine a    = arithChain o a b
+    arithRight e = emitPredParens e
+    -- The regrouped operand's left spine joins the outer chain, so every
+    -- operator on it at this precedence must be 'op' too. Otherwise
+    -- @a * ((b / 2) * c)@ would print @a * b / 2 * c@, which the solver reads
+    -- as @((a * b) / 2) * c@: not equal under integer division.
+    pureSpine (FQBinArith o a _)
+      | chainOp o, arithPrec o == arithPrec op = o == op && pureSpine a
+    pureSpine _ = True
+
+-- | FQ-ARITH-FLAT-1: the operators that may share a chain. @mod@ is not one.
+chainOp :: FQBinOp -> Bool
+chainOp o = o `elem` [FQAdd, FQSub, FQMul, FQDiv]
+
+-- | FQ-ARITH-FLAT-1: precedence in liquid-fixpoint's table, for 'chainOp' only.
+arithPrec :: FQBinOp -> Int
+arithPrec o
+  | o `elem` [FQMul, FQDiv] = 7
+  | otherwise               = 6
 
 -- | Wrap compound predicates in parentheses to prevent precedence ambiguity.
 -- FQAnd/FQOr/FQNot sub-expressions must be parenthesized when used as operands.

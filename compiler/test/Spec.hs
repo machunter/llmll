@@ -136,6 +136,7 @@ import Test.QuickCheck (NonNegative(..))
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
 import Test.QuickCheck (property, choose)
+import Text.Read (readMaybe)  -- FQ-ARITH-FLAT-1: FA-13, FA-14
 
 -- | Run a TC action in an empty environment and return (errors, result).
 -- Used by U-Full tests to directly test structuralUnify.
@@ -8510,6 +8511,140 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             t = emitPred deep
         length (T.breakOnAll " && " t) `shouldBe` 199
         t `shouldNotSatisfy` T.isInfixOf "(("
+
+    -- FQ-ARITH-FLAT-1: liquid-fixpoint parses each parenthesis level twice
+    -- (Parse.hs:987-988), so a sum printed one pair per operation cost 2^depth
+    -- and a 20-term sum stopped verify at its limit. Arithmetic prints as one
+    -- chain, and a pair stays wherever the solver's fixity table needs it.
+    describe "FQ-ARITH-FLAT-1 flat arithmetic chains" $ do
+      let v = FQVar
+          n = FQLit
+          add = FQBinArith FQAdd
+          sub = FQBinArith FQSub
+          mul = FQBinArith FQMul
+          dvd = FQBinArith FQDiv
+          md  = FQBinArith FQMod
+          depth = maximum . scanl (\d c -> if c == '(' then d + 1 else if c == ')' then d - 1 else d) (0 :: Int) . T.unpack
+      it "FA-1: a left-nested sum of 200 terms prints with no inner parenthesis" $ do
+        let t = emitPred (foldl (\acc i -> add acc (v (T.pack ("x" <> show i)))) (v "x0") [1 .. 199 :: Int])
+        length (T.breakOnAll " + " t) `shouldBe` 199
+        T.count "(" t `shouldBe` 1
+
+      it "FA-2: a right-nested sum prints as one chain" $
+        emitPred (add (v "a") (add (v "b") (add (v "c") (v "d")))) `shouldBe` "(a + b + c + d)"
+
+      it "FA-3: a subtraction keeps a right operand's pair, and a mixed right operand keeps its pair" $ do
+        emitPred (sub (v "a") (sub (v "b") (v "c"))) `shouldBe` "(a - (b - c))"
+        emitPred (sub (v "a") (add (v "b") (v "c"))) `shouldBe` "(a - (b + c))"
+        emitPred (add (v "a") (sub (v "b") (v "c"))) `shouldBe` "(a + (b - c))"
+        emitPred (sub (sub (v "a") (v "b")) (v "c")) `shouldBe` "(a - b - c)"
+
+      it "FA-4: a quotient right of a product, and a sum under a product, keep their pair" $ do
+        emitPred (mul (v "a") (dvd (v "b") (n 2))) `shouldBe` "(a * (b / 2))"
+        emitPred (mul (add (v "a") (v "b")) (n 2)) `shouldBe` "((a + b) * 2)"
+        emitPred (dvd (v "a") (mul (v "b") (n 2))) `shouldBe` "(a / (b * 2))"
+        -- A product whose left spine holds a quotient is not regrouped:
+        -- '2 * a / 2 * 3' reads as '((2 * a) / 2) * 3' (found by FA-13).
+        emitPred (mul (n 2) (mul (dvd (v "a") (n 2)) (n 3))) `shouldBe` "(2 * (a / 2 * 3))"
+        emitPred (mul (v "a") (mul (mul (dvd (v "b") (n 2)) (v "c")) (n 3)))
+          `shouldBe` "(a * (b / 2 * c * 3))"
+        emitPred (add (v "a") (add (sub (v "b") (v "c")) (v "d"))) `shouldBe` "(a + (b - c + d))"
+
+      it "FA-5: mod never joins a chain, on either side" $ do
+        emitPred (md (add (v "x") (n 1)) (n 3)) `shouldBe` "((x + 1) mod 3)"
+        emitPred (add (v "a") (md (v "b") (n 3))) `shouldBe` "(a + (b mod 3))"
+        emitPred (add (md (v "b") (n 3)) (v "a")) `shouldBe` "((b mod 3) + a)"
+        emitPred (md (md (v "a") (n 3)) (n 2)) `shouldBe` "((a mod 3) mod 2)"
+
+      it "FA-6: a product under a sum, and a left quotient, drop the inner pair" $ do
+        emitPred (add (mul (v "a") (n 2)) (mul (v "b") (n 3))) `shouldBe` "(a * 2 + b * 3)"
+        emitPred (mul (dvd (v "x") (n 2)) (n 3)) `shouldBe` "(x / 2 * 3)"
+        emitPred (mul (v "a") (mul (v "b") (n 2))) `shouldBe` "(a * b * 2)"
+        emitPred (sub (v "a") (n (-3))) `shouldBe` "(a - -3)"
+
+      it "FA-7: a chain keeps one pair as an application argument and as a comparison operand" $ do
+        emitPred (FQApp "Map_select" [v "m", add (v "i") (add (v "j") (n 1))])
+          `shouldBe` "(Map_select m (i + j + 1))"
+        emitPred (FQBinPred FQGe (add (add (v "a") (v "b")) (v "c")) (n 0))
+          `shouldBe` "((a + b + c) >= 0)"
+        emitPred (add (FQApp "strLen" [v "s"]) (FQIte (FQBinPred FQGe (v "a") (n 0)) (v "a") (n 0)))
+          `shouldBe` "((strLen s) + (if (a >= 0) then a else 0))"
+
+      it "FA-12: a sum in an emitted file reaches the solver at depth one" $ do
+        let terms = [ v (T.pack ("x" <> show i)) | i <- [0 .. 29 :: Int] ]
+            rhs = FQReft "v" FQInt (FQBinPred FQEq (FQVar "v") (foldl1 add terms))
+            c = FQConstraint 0 [] (FQReft "v" FQInt FQTrue) rhs []
+            f = emptyFQFile { fqConstraints = [c] }
+            sumText = "(" <> T.intercalate " + " [ "x" <> T.pack (show i) | i <- [0 .. 29 :: Int] ] <> ")"
+            rhsLine = head [ l | l <- T.lines (emitFQFile f), "  rhs " `T.isPrefixOf` l ]
+        rhsLine `shouldSatisfy` T.isInfixOf sumText
+        depth sumText `shouldBe` 1
+        depth rhsLine `shouldSatisfy` (<= 2)
+
+      -- FA-13, FA-14: read the printed text back under the solver's fixity
+      -- table (Parse.hs:944-947, a prefix '-' at 9 binds a numeral) and compare
+      -- with the tree. The regrouping test at unit level, with no solver.
+      let genArith :: Int -> Gen FQPred
+          genArith 0 = oneof [v <$> elements ["a", "b", "c"], n <$> elements [-3, -1, 0, 1, 2, 5]]
+          genArith d = oneof
+            [ genArith 0
+            , FQBinArith <$> elements [FQAdd, FQSub] <*> genArith (d - 1) <*> genArith (d - 1)
+            , (\t k onLeft -> if onLeft then mul t (n k) else mul (n k) t)
+                <$> genArith (d - 1) <*> elements [-2, 2, 3] <*> elements [True, False]
+            , FQBinArith <$> elements [FQDiv, FQMod] <*> genArith (d - 1) <*> (n <$> elements [2, 3, 7])
+            ]
+          -- A precedence-climbing reader of the printed text.
+          readArith :: T.Text -> Maybe FQPred
+          readArith s = case raExpr 0 (T.words (T.replace "(" " ( " (T.replace ")" " ) " s))) of
+                          Just (e, []) -> Just e
+                          _            -> Nothing
+            where
+              raOp :: T.Text -> Maybe (FQBinOp, Int)
+              raOp w = lookup w [("+", (FQAdd, 6)), ("-", (FQSub, 6)), ("*", (FQMul, 7)), ("/", (FQDiv, 7)), ("mod", (FQMod, 5))]
+              raExpr :: Int -> [T.Text] -> Maybe (FQPred, [T.Text])
+              raExpr p ws = raAtom ws >>= uncurry (raClimb p)
+              raClimb p l (w : ws) | Just (o, q) <- raOp w, q >= p = do
+                (r, ws') <- raExpr (q + 1) ws
+                raClimb p (FQBinArith o l r) ws'
+              raClimb _ l ws = Just (l, ws)
+              raAtom ("(" : ws) = case raExpr 0 ws of
+                                  Just (e, ")" : ws') -> Just (e, ws')
+                                  _                   -> Nothing
+              raAtom (w : ws) | Just k <- readMaybe (T.unpack w) = Just (n k, ws)
+                            | T.all isAlphaNum w, isNothing (raOp w) = Just (v w, ws)
+              raAtom _ = Nothing
+          evalArith :: (T.Text -> Integer) -> FQPred -> Maybe Integer
+          evalArith env e = case e of
+            FQVar x -> Just (env x)
+            FQLit k -> Just k
+            FQBinArith o a b -> do
+              x <- evalArith env a
+              y <- evalArith env b
+              case o of
+                FQAdd -> Just (x + y)
+                FQSub -> Just (x - y)
+                FQMul -> Just (x * y)
+                FQDiv -> if y == 0 then Nothing else Just (x `div` y)
+                FQMod -> if y == 0 then Nothing else Just (x `mod` y)
+                _     -> Nothing
+            _ -> Nothing
+          -- '+' and '*' chains re-associated to the left: the only regrouping allowed.
+          reassoc :: FQPred -> FQPred
+          reassoc (FQBinArith o a b)
+            | o `elem` [FQAdd, FQMul] = foldl1 (FQBinArith o) (map reassoc (operands o a ++ operands o b))
+            | otherwise               = FQBinArith o (reassoc a) (reassoc b)
+            where operands o' (FQBinArith o'' x y) | o'' == o' = operands o' x ++ operands o' y
+                  operands _ x = [x]
+          reassoc e = e
+      it "FA-13: the printed text, read under the solver's table, has the tree's value" $
+        property $ forAll (genArith 5) $ \t ->
+          forAll (vectorOf 3 (choose (-20, 20))) $ \vals ->
+            let env x = fromMaybe 0 (lookup x (zip ["a", "b", "c"] vals))
+            in (readArith (emitPred t) >>= evalArith env) == evalArith env t
+
+      it "FA-14: the printed text reads back as the same tree, up to regrouping of + and *" $
+        property $ forAll (genArith 5) $ \t ->
+          fmap reassoc (readArith (emitPred t)) == Just (reassoc t)
 
     -- NIW (v0.12, Commit A): the .fq IR can represent and render measure-class
     -- uninterpreted-function applications (REF-META-3 §4.2 / REF-META-2 path-a).

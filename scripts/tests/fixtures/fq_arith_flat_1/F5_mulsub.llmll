@@ -1,0 +1,2 @@
+;; FQ-ARITH-FLAT-1 F5: false. 2 * (a - b) is not 2 * a - b. Refuting input: (f 0 1) gives -2, the post says -1.
+(def f [a: int b: int] -> int (post (= result (- (* 2 a) b))) (* 2 (- a b)))

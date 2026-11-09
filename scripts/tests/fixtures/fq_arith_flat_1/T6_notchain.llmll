@@ -1,0 +1,2 @@
+;; FQ-ARITH-FLAT-1 T6: true. A negation as a direct item of a disjunction.
+(def f [a: int] -> int (post (or (not (>= a 0)) (>= result 1))) (if (>= a 0) 1 0))

@@ -1,0 +1,2 @@
+;; FQ-ARITH-FLAT-1 T2: true. Two scaled terms, in either order.
+(def f [a: int b: int] -> int (post (= result (+ (* 2 a) (* 3 b)))) (+ (* 3 b) (* 2 a)))

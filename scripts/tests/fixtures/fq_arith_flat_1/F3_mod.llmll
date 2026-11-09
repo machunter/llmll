@@ -1,0 +1,2 @@
+;; FQ-ARITH-FLAT-1 F3: false. a + (b mod 3) is not (a + b) mod 3. Refuting input: (f 2 2) gives 1, the post says 4.
+(def f [a: int b: int] -> int (post (= result (+ a (mod b 3)))) (mod (+ a b) 3))

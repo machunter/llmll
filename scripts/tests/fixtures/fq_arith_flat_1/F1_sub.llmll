@@ -1,0 +1,2 @@
+;; FQ-ARITH-FLAT-1 F1: false. a - (b - c) is not a - b - c. Refuting input: (f 0 0 1) gives -1, the post says 1.
+(def f [a: int b: int c: int] -> int (post (= result (- a (- b c)))) (- (- a b) c))
