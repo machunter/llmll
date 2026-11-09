@@ -4,7 +4,18 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.37.1)
+## v0.38.0: bit operations and character codes (2026-11-08)
+
+**Measured, v0.37.1 against this release, each binary over its own copy of the tree
+(liquid-fixpoint 0.9.6.3.7):**
+
+- `llmll --json verify` on all 751 tracked sources: 9 files change, and all 9 are the new
+  fixtures in `scripts/tests/fixtures/bitwise_char/`, which v0.37.1 rejects because it does not
+  know the builtins. No other file changes exit, verdict, `all_proved` or fallback causes.
+- `scripts/fallback_census.py`, 291 files: no per-file change. Ratio 0.985 (888 of 902), 119
+  files strict-pass, on both binaries.
+- **Cost:** verifying all 751 files took 127.3 s, then 133.8 s. The median file is 0.01 s
+  slower; 1.3 s is the new fixtures, which v0.37.1 rejects before the solver.
 
 ### `BITWISE-1` + `CHAR-CODE-1`: bit operations and character codes
 
