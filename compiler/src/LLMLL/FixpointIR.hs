@@ -38,6 +38,7 @@ module LLMLL.FixpointIR
   , qualifiersToBraces    -- FIXPOINT-UPGRADE-1
     -- * Predicate emission
   , emitPred
+  , emitDisclosure        -- FQ-ARITH-FLAT-1: trust-report predicate text
   , emitSort              -- JSON-1: sort-rendering test
   , emitPredParens
     -- * STRLIT literal interning (shared by FixpointEmit + GuardClassifier)
@@ -337,16 +338,9 @@ emitPred FQTrue               = "true"
 emitPred FQFalse              = "false"
 emitPred (FQVar v)            = sanitizeFQId v
 emitPred (FQLit n)            = T.pack (show n)
--- BOOL-FRAG (v0.14.15): fixpoint accepts `not` only in predicate position, not as an
--- operand of (=)/(!=) — `result = (not b)` crashes ("free vars [not]") while &&/|| are
--- tolerated there. For bools, X = ¬Y ⟺ X ≠ Y, so push the negation through the
--- (dis)equality; this recurses, so nested `not`s collapse. `not` on an int is ill-typed
--- (TypeCheck rejects), so a FQNot operand of (=)/(!=) is always bool → the flip is sound.
-emitPred (FQBinPred FQEq  l (FQNot r)) = emitPred (FQBinPred FQNeq l r)
-emitPred (FQBinPred FQEq  (FQNot l) r) = emitPred (FQBinPred FQNeq l r)
-emitPred (FQBinPred FQNeq l (FQNot r)) = emitPred (FQBinPred FQEq  l r)
-emitPred (FQBinPred FQNeq (FQNot l) r) = emitPred (FQBinPred FQEq  l r)
-emitPred (FQBinPred op l r)   = "(" <> emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r <> ")"
+-- BOOL-FRAG (v0.14.15): the `not` flips of (=)/(!=) live in 'cmpBody', which every
+-- comparison goes through, in this position, as a chain item and at the top.
+emitPred (FQBinPred op l r)   = "(" <> cmpBody op l r <> ")"
 -- FQ-ARITH-FLAT-1: an arithmetic chain keeps one outer pair; see 'arithChain'.
 emitPred (FQBinArith op l r)  = "(" <> arithChain op l r <> ")"
 -- FQ-FLAT-NEST-1: nested conjunctions (and nested disjunctions) are printed as one
@@ -360,10 +354,10 @@ emitPred (FQBinArith op l r)  = "(" <> arithChain op l r <> ")"
 -- 'false', so dropping them keeps the meaning.
 emitPred (FQAnd ps) = case flattenAnd ps of
   []  -> "true"
-  qs  -> T.intercalate " && " (map emitPredParens qs)
+  qs  -> T.intercalate " && " (map emitItem qs)
 emitPred (FQOr ps) = case flattenOr ps of
   []  -> "false"
-  qs  -> T.intercalate " || " (map emitPredParens qs)
+  qs  -> T.intercalate " || " (map emitItem qs)
 emitPred (FQNot p)            = "(not " <> emitPredParens p <> ")"
 emitPred (FQKVar k args)      = "$" <> sanitizeFQId k <> "(" <> T.intercalate "," (map emitPred args) <> ")"
 -- PAIR-BOOL-COMP-1: fixpoint parses only a term as an application argument, so a
@@ -379,6 +373,56 @@ emitPred (FQApp f args)       = "(" <> sanitizeFQId f <> " " <> T.unwords (map e
     propShaped (FQOr  (_:_))  = True
     propShaped _              = False
 emitPred (FQIte c a b)        = "(if " <> emitPredParens c <> " then " <> emitPredParens a <> " else " <> emitPredParens b <> ")"
+
+-- | A comparison with no outer parentheses, after the BOOL-FRAG flips.
+--
+-- BOOL-FRAG (v0.14.15): fixpoint accepts `not` only in predicate position, not as an
+-- operand of (=)/(!=) — `result = (not b)` crashes ("free vars [not]") while &&/|| are
+-- tolerated there. For bools, X = ¬Y ⟺ X ≠ Y, so push the negation through the
+-- (dis)equality; this recurses, so nested `not`s collapse. `not` on an int is ill-typed
+-- (TypeCheck rejects), so a FQNot operand of (=)/(!=) is always bool → the flip is sound.
+cmpBody :: FQBinOp -> FQPred -> FQPred -> Text
+cmpBody FQEq  l (FQNot r) = cmpBody FQNeq l r
+cmpBody FQEq  (FQNot l) r = cmpBody FQNeq l r
+cmpBody FQNeq l (FQNot r) = cmpBody FQEq  l r
+cmpBody FQNeq (FQNot l) r = cmpBody FQEq  l r
+cmpBody op l r = emitPredParens l <> " " <> emitOp op <> " " <> emitPredParens r
+
+-- | FQ-ARITH-FLAT-1: a predicate in top position, the whole refinement of a
+-- @{ v : s | p }@ or the body of a qualifier. A comparison there prints with
+-- no pair of its own: @v >= 0@, not @(v >= 0)@. Nothing binds looser than the
+-- refinement bar or the qualifier's own pair, so the solver reads the same
+-- predicate back, and one parenthesis level fewer halves its parse cost (see
+-- 'arithChain'). Every other predicate prints as 'emitPred' prints it.
+emitTop :: FQPred -> Text
+emitTop (FQBinPred op l r) = cmpBody op l r
+emitTop p                  = emitPred p
+
+-- | FQ-ARITH-FLAT-1: a direct item of a flat @&&@ or @||@ chain. A comparison
+-- prints bare, since it binds tighter than both (Parse.hs:944-947: comparison
+-- at 4, @&&@ at 3, @||@ at 2), so @a >= 0 && b < 3@ reads as
+-- @(a >= 0) && (b < 3)@. An operand of a comparison, of @not@, of @if@ or of an
+-- application keeps its pair: only a chain item and 'emitTop' drop it.
+emitItem :: FQPred -> Text
+emitItem p@(FQBinPred {}) = emitTop p
+emitItem p                = emitPredParens p
+
+-- | FQ-ARITH-FLAT-1: a predicate as the trust report discloses it.
+--
+-- The disclosure text is not tied to the @.fq@ printing. At the top level a
+-- conjunction or disjunction prints each item with 'emitPred', so a comparison
+-- keeps its own pair (@(a >= 0) && (b < 3)@), as it did before the @.fq@
+-- printer dropped that pair for the solver's parse cost. Nested chains are
+-- spliced in, as 'emitPred' does. Any other node, and everything below the top
+-- level, prints exactly as 'emitPred' prints it.
+emitDisclosure :: FQPred -> Text
+emitDisclosure (FQAnd ps) = case flattenAnd ps of
+  []  -> "true"
+  qs  -> T.intercalate " && " (map emitPred qs)
+emitDisclosure (FQOr ps) = case flattenOr ps of
+  []  -> "false"
+  qs  -> T.intercalate " || " (map emitPred qs)
+emitDisclosure p = emitPred p
 
 -- | FQ-FLAT-NEST-1: splice nested 'FQAnd' operands into one list.
 flattenAnd :: [FQPred] -> [FQPred]
@@ -480,7 +524,7 @@ emitOp FQMod = "mod"
 emitReft :: FQReft -> Text
 emitReft r =
   "{ " <> sanitizeFQId (reftVar r) <> " : " <> emitSort (reftSort r)
-  <> " | " <> emitPred (reftPred r) <> " }"
+  <> " | " <> emitTop (reftPred r) <> " }"
 
 emitBind :: FQBind -> Text
 emitBind b =
@@ -504,7 +548,7 @@ emitQualifier :: FQQualifier -> Text
 emitQualifier q =
   "qualif " <> sanitizeFQId (qualName q)
   <> "(" <> T.intercalate ", " (map emitParam (qualParams q)) <> ")"
-  <> ": (" <> emitPred (qualBody q) <> ")"
+  <> ": (" <> emitTop (qualBody q) <> ")"
   where
     emitParam (nm, srt) = sanitizeFQId nm <> " : " <> emitSort srt
 

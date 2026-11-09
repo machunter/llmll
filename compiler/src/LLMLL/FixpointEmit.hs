@@ -6239,7 +6239,13 @@ collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
       -- here inspects the shape of the assembled post.
       , baConjuncts = [ (tag, render p) | (tag, p) <- pParts ]
       }
-      where render = emitPred . applySubst (Map.singleton rVar (FQVar "result"))
+      -- FQ-ARITH-FLAT-1: 'emitDisclosure', not 'emitPred'. The .fq printer
+      -- drops a comparison's own pair inside a chain; the disclosure keeps it,
+      -- so its text does not move with the solver's printing. 'baPredicate'
+      -- renders the WHOLE post and is never rebuilt by joining the conjunct
+      -- texts: a post can hold a fact that no part carries ('addCongruence'
+      -- conjoins the Ackermann fact into it), and the disclosure must not drop it.
+      where render = emitDisclosure . applySubst (Map.singleton rVar (FQVar "result"))
 
 -- | CALL-CONGRUENCE-1 (docs/design/ffi-determinism-proposal.md Part 3): add
 -- the Ackermann fact @(args_i = args_j) => (r_i = r_j)@ (professor P18) for
