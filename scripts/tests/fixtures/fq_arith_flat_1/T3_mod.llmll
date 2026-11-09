@@ -1,0 +1,2 @@
+;; FQ-ARITH-FLAT-1 T3: true. (a + b) mod 3 lies in [0, 3) for a + b >= 0.
+(def f [a: int b: int] -> int (pre (>= (+ a b) 0)) (post (and (>= result 0) (< result 3))) (mod (+ a b) 3))

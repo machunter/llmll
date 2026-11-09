@@ -1,0 +1,2 @@
+;; FQ-ARITH-FLAT-1 T5: true. Holds the BOOL-FRAG flip: (= a (not b)) prints as a /= b.
+(def f [a: bool b: bool] -> bool (pre (= a (not b))) (post (= result (not b))) a)

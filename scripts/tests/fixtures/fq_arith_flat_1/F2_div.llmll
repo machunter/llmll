@@ -1,0 +1,2 @@
+;; FQ-ARITH-FLAT-1 F2: false. 3 * (a / 2) is not (3 * a) / 2. Refuting input: (f 1) gives 1, the post says 0.
+(def f [a: int] -> int (post (= result (* 3 (/ a 2)))) (/ (* 3 a) 2))

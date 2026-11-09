@@ -32,7 +32,7 @@ import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligat
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, fqResultToReportWD, WdReportCtx(..), WdFailKind(..), emptyWdReportCtx, isWdClause, runFQSolver, resourceStopText, resourceStopValue, parseFQNumCstr, decideSolved, solveFQText)
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..), selfEqReft, arrayTheorySyms)
-import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..), FQBind(..), fqNameCollisions, fqFreeSymbols)
+import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitDisclosure, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..), FQBind(..), fqNameCollisions, fqFreeSymbols)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
 import LLMLL.Diagnostic (reportPhase, reportSuccess, reportDiagnostics, formatReportJson, diagKind, diagCode, diagMessage, diagPointer, diagSeverity, diagHoleSensitive, Severity(..), Diagnostic(..), DiagnosticReport(..), mkError, PatchOpInfo(..), rebaseToPatch, mkTrustGapWarning, mkTrustGapDeclaredWarning, mkReuseWarning, megaparsecToDiagnostic, decodeSourceUtf8, firstInvalidUtf8Offset, writeFileUtf8, formatParseDiagSExp, mkBodyFallbackWarning)
@@ -136,6 +136,7 @@ import Test.QuickCheck (NonNegative(..))
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
 import Test.QuickCheck (property, choose)
+import Text.Read (readMaybe)  -- FQ-ARITH-FLAT-1: FA-13, FA-14
 
 -- | Run a TC action in an empty environment and return (errors, result).
 -- Used by U-Full tests to directly test structuralUnify.
@@ -8446,7 +8447,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           gez = FQQualifier "GEZ" [("v", FQInt)] (FQBinPred FQGe (FQVar "v") (FQLit 0))
           two = FQQualifier "Le2" [("v", FQInt), ("x", FQInt)] (FQBinPred FQLe (FQVar "v") (FQVar "x"))
       it "FU-1: the emitter still writes the colon form" $
-        T.lines (qualText [gez]) `shouldContain` ["qualif GEZ(v : int): ((v >= 0))"]
+        T.lines (qualText [gez]) `shouldContain` ["qualif GEZ(v : int): (v >= 0)"]
 
       it "FU-2: a one-parameter qualifier becomes the brace form" $
         qualifiersToBraces "qualif GEZ(v : int): ((v >= 0))"
@@ -8454,7 +8455,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "FU-3: a two-parameter qualifier becomes the brace form" $
         T.lines (qualifiersToBraces (qualText [two]))
-          `shouldContain` ["qualif Le2(v : int, x : int) { ((v <= x)) }"]
+          `shouldContain` ["qualif Le2(v : int, x : int) { (v <= x) }"]
 
       it "FU-4: the rewrite is idempotent and keeps every other line" $ do
         let t = qualText [gez, two] <> "constraint:\n  lhs {v : int | (f(a): (b))}\n"
@@ -8490,18 +8491,18 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let ge x = FQBinPred FQGe (FQVar x) (FQLit 0)
       it "FN-1: a left-nested conjunction prints as one chain" $
         emitPred (FQAnd [FQAnd [FQAnd [ge "a", ge "b"], ge "c"], ge "d"])
-          `shouldBe` "(a >= 0) && (b >= 0) && (c >= 0) && (d >= 0)"
+          `shouldBe` "a >= 0 && b >= 0 && c >= 0 && d >= 0"
 
       it "FN-2: a right-nested disjunction prints as one chain" $
         emitPred (FQOr [ge "a", FQOr [ge "b", FQOr [ge "c"]]])
-          `shouldBe` "(a >= 0) || (b >= 0) || (c >= 0)"
+          `shouldBe` "a >= 0 || b >= 0 || c >= 0"
 
       it "FN-3: a disjunction inside a conjunction keeps its parentheses" $
         emitPred (FQAnd [FQAnd [FQOr [ge "a", ge "b"], ge "c"], FQOr [ge "d", FQAnd [ge "e", ge "f"]]])
-          `shouldBe` "((a >= 0) || (b >= 0)) && (c >= 0) && ((d >= 0) || ((e >= 0) && (f >= 0)))"
+          `shouldBe` "(a >= 0 || b >= 0) && c >= 0 && (d >= 0 || (e >= 0 && f >= 0))"
 
       it "FN-4: empty conjuncts and disjuncts drop out, and all-empty is true or false" $ do
-        emitPred (FQAnd [FQAnd [], ge "a", FQAnd [FQAnd []]]) `shouldBe` "(a >= 0)"
+        emitPred (FQAnd [FQAnd [], ge "a", FQAnd [FQAnd []]]) `shouldBe` "a >= 0"
         emitPred (FQAnd [FQAnd [], FQAnd [FQAnd []]]) `shouldBe` "true"
         emitPred (FQOr [FQOr [], FQOr []]) `shouldBe` "false"
 
@@ -8510,6 +8511,203 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             t = emitPred deep
         length (T.breakOnAll " && " t) `shouldBe` 199
         t `shouldNotSatisfy` T.isInfixOf "(("
+
+    -- FQ-ARITH-FLAT-1: liquid-fixpoint parses each parenthesis level twice
+    -- (Parse.hs:987-988), so a sum printed one pair per operation cost 2^depth
+    -- and a 20-term sum stopped verify at its limit. Arithmetic prints as one
+    -- chain, and a pair stays wherever the solver's fixity table needs it.
+    describe "FQ-ARITH-FLAT-1 flat arithmetic chains" $ do
+      let v = FQVar
+          n = FQLit
+          add = FQBinArith FQAdd
+          sub = FQBinArith FQSub
+          mul = FQBinArith FQMul
+          dvd = FQBinArith FQDiv
+          md  = FQBinArith FQMod
+          depth = maximum . scanl (\d c -> if c == '(' then d + 1 else if c == ')' then d - 1 else d) (0 :: Int) . T.unpack
+      it "FA-1: a left-nested sum of 200 terms prints with no inner parenthesis" $ do
+        let t = emitPred (foldl (\acc i -> add acc (v (T.pack ("x" <> show i)))) (v "x0") [1 .. 199 :: Int])
+        length (T.breakOnAll " + " t) `shouldBe` 199
+        T.count "(" t `shouldBe` 1
+
+      it "FA-2: a right-nested sum prints as one chain" $
+        emitPred (add (v "a") (add (v "b") (add (v "c") (v "d")))) `shouldBe` "(a + b + c + d)"
+
+      it "FA-3: a subtraction keeps a right operand's pair, and a mixed right operand keeps its pair" $ do
+        emitPred (sub (v "a") (sub (v "b") (v "c"))) `shouldBe` "(a - (b - c))"
+        emitPred (sub (v "a") (add (v "b") (v "c"))) `shouldBe` "(a - (b + c))"
+        emitPred (add (v "a") (sub (v "b") (v "c"))) `shouldBe` "(a + (b - c))"
+        emitPred (sub (sub (v "a") (v "b")) (v "c")) `shouldBe` "(a - b - c)"
+
+      it "FA-4: a quotient right of a product, and a sum under a product, keep their pair" $ do
+        emitPred (mul (v "a") (dvd (v "b") (n 2))) `shouldBe` "(a * (b / 2))"
+        emitPred (mul (add (v "a") (v "b")) (n 2)) `shouldBe` "((a + b) * 2)"
+        emitPred (dvd (v "a") (mul (v "b") (n 2))) `shouldBe` "(a / (b * 2))"
+        -- A product whose left spine holds a quotient is not regrouped:
+        -- '2 * a / 2 * 3' reads as '((2 * a) / 2) * 3' (found by FA-13).
+        emitPred (mul (n 2) (mul (dvd (v "a") (n 2)) (n 3))) `shouldBe` "(2 * (a / 2 * 3))"
+        emitPred (mul (v "a") (mul (mul (dvd (v "b") (n 2)) (v "c")) (n 3)))
+          `shouldBe` "(a * (b / 2 * c * 3))"
+        emitPred (add (v "a") (add (sub (v "b") (v "c")) (v "d"))) `shouldBe` "(a + (b - c + d))"
+
+      it "FA-5: mod never joins a chain, on either side" $ do
+        emitPred (md (add (v "x") (n 1)) (n 3)) `shouldBe` "((x + 1) mod 3)"
+        emitPred (add (v "a") (md (v "b") (n 3))) `shouldBe` "(a + (b mod 3))"
+        emitPred (add (md (v "b") (n 3)) (v "a")) `shouldBe` "((b mod 3) + a)"
+        emitPred (md (md (v "a") (n 3)) (n 2)) `shouldBe` "((a mod 3) mod 2)"
+
+      it "FA-6: a product under a sum, and a left quotient, drop the inner pair" $ do
+        emitPred (add (mul (v "a") (n 2)) (mul (v "b") (n 3))) `shouldBe` "(a * 2 + b * 3)"
+        emitPred (mul (dvd (v "x") (n 2)) (n 3)) `shouldBe` "(x / 2 * 3)"
+        emitPred (mul (v "a") (mul (v "b") (n 2))) `shouldBe` "(a * b * 2)"
+        emitPred (sub (v "a") (n (-3))) `shouldBe` "(a - -3)"
+
+      it "FA-7: a chain keeps one pair as an application argument and as a comparison operand" $ do
+        emitPred (FQApp "Map_select" [v "m", add (v "i") (add (v "j") (n 1))])
+          `shouldBe` "(Map_select m (i + j + 1))"
+        emitPred (FQBinPred FQGe (add (add (v "a") (v "b")) (v "c")) (n 0))
+          `shouldBe` "((a + b + c) >= 0)"
+        emitPred (add (FQApp "strLen" [v "s"]) (FQIte (FQBinPred FQGe (v "a") (n 0)) (v "a") (n 0)))
+          `shouldBe` "((strLen s) + (if (a >= 0) then a else 0))"
+
+      it "FA-12: a sum in an emitted file reaches the solver at depth one" $ do
+        let terms = [ v (T.pack ("x" <> show i)) | i <- [0 .. 29 :: Int] ]
+            rhs = FQReft "v" FQInt (FQBinPred FQEq (FQVar "v") (foldl1 add terms))
+            c = FQConstraint 0 [] (FQReft "v" FQInt FQTrue) rhs []
+            f = emptyFQFile { fqConstraints = [c] }
+            sumText = "(" <> T.intercalate " + " [ "x" <> T.pack (show i) | i <- [0 .. 29 :: Int] ] <> ")"
+            rhsLine = head [ l | l <- T.lines (emitFQFile f), "  rhs " `T.isPrefixOf` l ]
+        rhsLine `shouldSatisfy` T.isInfixOf sumText
+        depth sumText `shouldBe` 1
+        depth rhsLine `shouldSatisfy` (<= 2)
+
+      -- FA-13, FA-14: read the printed text back under the solver's fixity
+      -- table (Parse.hs:944-947, a prefix '-' at 9 binds a numeral) and compare
+      -- with the tree. The regrouping test at unit level, with no solver.
+      let genArith :: Int -> Gen FQPred
+          genArith 0 = oneof [v <$> elements ["a", "b", "c"], n <$> elements [-3, -1, 0, 1, 2, 5]]
+          genArith d = oneof
+            [ genArith 0
+            , FQBinArith <$> elements [FQAdd, FQSub] <*> genArith (d - 1) <*> genArith (d - 1)
+            , (\t k onLeft -> if onLeft then mul t (n k) else mul (n k) t)
+                <$> genArith (d - 1) <*> elements [-2, 2, 3] <*> elements [True, False]
+            , FQBinArith <$> elements [FQDiv, FQMod] <*> genArith (d - 1) <*> (n <$> elements [2, 3, 7])
+            ]
+          -- A precedence-climbing reader of the printed text.
+          readArith :: T.Text -> Maybe FQPred
+          readArith s = case raExpr 0 (T.words (T.replace "(" " ( " (T.replace ")" " ) " s))) of
+                          Just (e, []) -> Just e
+                          _            -> Nothing
+            where
+              raOp :: T.Text -> Maybe (FQBinOp, Int)
+              raOp w = lookup w [("+", (FQAdd, 6)), ("-", (FQSub, 6)), ("*", (FQMul, 7)), ("/", (FQDiv, 7)), ("mod", (FQMod, 5))]
+              raExpr :: Int -> [T.Text] -> Maybe (FQPred, [T.Text])
+              raExpr p ws = raAtom ws >>= uncurry (raClimb p)
+              raClimb p l (w : ws) | Just (o, q) <- raOp w, q >= p = do
+                (r, ws') <- raExpr (q + 1) ws
+                raClimb p (FQBinArith o l r) ws'
+              raClimb _ l ws = Just (l, ws)
+              raAtom ("(" : ws) = case raExpr 0 ws of
+                                  Just (e, ")" : ws') -> Just (e, ws')
+                                  _                   -> Nothing
+              raAtom (w : ws) | Just k <- readMaybe (T.unpack w) = Just (n k, ws)
+                            | T.all isAlphaNum w, isNothing (raOp w) = Just (v w, ws)
+              raAtom _ = Nothing
+          evalArith :: (T.Text -> Integer) -> FQPred -> Maybe Integer
+          evalArith env e = case e of
+            FQVar x -> Just (env x)
+            FQLit k -> Just k
+            FQBinArith o a b -> do
+              x <- evalArith env a
+              y <- evalArith env b
+              case o of
+                FQAdd -> Just (x + y)
+                FQSub -> Just (x - y)
+                FQMul -> Just (x * y)
+                FQDiv -> if y == 0 then Nothing else Just (x `div` y)
+                FQMod -> if y == 0 then Nothing else Just (x `mod` y)
+                _     -> Nothing
+            _ -> Nothing
+          -- '+' and '*' chains re-associated to the left: the only regrouping allowed.
+          reassoc :: FQPred -> FQPred
+          reassoc (FQBinArith o a b)
+            | o `elem` [FQAdd, FQMul] = foldl1 (FQBinArith o) (map reassoc (operands o a ++ operands o b))
+            | otherwise               = FQBinArith o (reassoc a) (reassoc b)
+            where operands o' (FQBinArith o'' x y) | o'' == o' = operands o' x ++ operands o' y
+                  operands _ x = [x]
+          reassoc e = e
+      it "FA-13: the printed text, read under the solver's table, has the tree's value" $
+        property $ forAll (genArith 5) $ \t ->
+          forAll (vectorOf 3 (choose (-20, 20))) $ \vals ->
+            let env x = fromMaybe 0 (lookup x (zip ["a", "b", "c"] vals))
+            in (readArith (emitPred t) >>= evalArith env) == evalArith env t
+
+      it "FA-14: the printed text reads back as the same tree, up to regrouping of + and *" $
+        property $ forAll (genArith 5) $ \t ->
+          fmap reassoc (readArith (emitPred t)) == Just (reassoc t)
+
+    -- FQ-ARITH-FLAT-1: a negation prints one pair, not two.
+    describe "FQ-ARITH-FLAT-1 one pair round a negation" $ do
+      let ge x = FQBinPred FQGe (FQVar x) (FQLit 0)
+      it "FA-8: a negation prints one pair as a chain item, under a negation and as a condition" $ do
+        emitPred (FQOr [FQNot (ge "a"), FQNot (ge "b")]) `shouldBe` "(not (a >= 0)) || (not (b >= 0))"
+        emitPred (FQNot (FQNot (ge "a"))) `shouldBe` "(not (not (a >= 0)))"
+        emitPred (FQIte (FQNot (ge "a")) (FQVar "x") (FQLit 0)) `shouldBe` "(if (not (a >= 0)) then x else 0)"
+        emitPred (FQApp "f" [FQNot (ge "a")]) `shouldBe` "(f (if (not (a >= 0)) then true else false))"
+
+    -- FQ-ARITH-FLAT-1 (P3): a comparison that is a direct '&&' or '||' item,
+    -- or a whole refinement, prints with no pair of its own. Comparison binds
+    -- tighter than both chains (Parse.hs:944-947), so the solver reads the
+    -- same predicate back. Everywhere else it keeps its pair.
+    describe "FQ-ARITH-FLAT-1 bare comparison in a chain or at the top" $ do
+      let ge x = FQBinPred FQGe (FQVar x) (FQLit 0)
+          reftLine p = head [ l | l <- T.lines (emitFQFile emptyFQFile { fqConstraints =
+                                [FQConstraint 0 [] (FQReft "v" FQInt FQTrue) (FQReft "v" FQInt p) []] })
+                              , "  rhs " `T.isPrefixOf` l ]
+      it "FA-9: the four BOOL-FRAG flips still print /= and = in a chain and at the top" $ do
+        let a = FQVar "a"; b = FQVar "b"
+        emitPred (FQAnd [FQBinPred FQEq a (FQNot b), FQBinPred FQEq (FQNot a) b])
+          `shouldBe` "a /= b && a /= b"
+        emitPred (FQOr [FQBinPred FQNeq a (FQNot b), FQBinPred FQNeq (FQNot a) b])
+          `shouldBe` "a = b || a = b"
+        reftLine (FQBinPred FQEq a (FQNot b)) `shouldBe` "  rhs { v : int | a /= b }"
+        reftLine (FQBinPred FQNeq (FQNot a) b) `shouldBe` "  rhs { v : int | a = b }"
+        -- An operand position keeps the flip and the pair.
+        emitPred (FQBinPred FQEq a (FQNot b)) `shouldBe` "(a /= b)"
+
+      it "FA-10: a comparison is bare only as a chain item or the whole refinement" $ do
+        emitPred (FQAnd [ge "a", FQOr [ge "b", ge "c"]]) `shouldBe` "a >= 0 && (b >= 0 || c >= 0)"
+        reftLine (ge "a") `shouldBe` "  rhs { v : int | a >= 0 }"
+        reftLine (FQAnd [ge "a", ge "b"]) `shouldBe` "  rhs { v : int | a >= 0 && b >= 0 }"
+        -- Under not, if, an application and another comparison: the pair stays.
+        emitPred (FQAnd [FQNot (ge "a"), ge "b"]) `shouldBe` "(not (a >= 0)) && b >= 0"
+        reftLine (FQNot (ge "a")) `shouldBe` "  rhs { v : int | (not (a >= 0)) }"
+        emitPred (FQAnd [FQIte (ge "a") (FQVar "x") (FQVar "y"), ge "b"])
+          `shouldBe` "(if (a >= 0) then x else y) && b >= 0"
+        emitPred (FQAnd [FQApp "f" [ge "a"], ge "b"])
+          `shouldBe` "(f (if (a >= 0) then true else false)) && b >= 0"
+        reftLine (FQBinPred FQEq (FQVar "p") (ge "a")) `shouldBe` "  rhs { v : int | p = (a >= 0) }"
+        reftLine (FQBinPred FQGe (FQBinArith FQAdd (FQVar "a") (FQVar "b")) (FQLit 0))
+          `shouldBe` "  rhs { v : int | (a + b) >= 0 }"
+
+      it "FA-11: a qualifier keeps its outer pair, and the brace rewrite still applies and is idempotent" $ do
+        let gez = FQQualifier "GEZ" [("v", FQInt)] (ge "v")
+            both = FQQualifier "Rng" [("v", FQInt)] (FQAnd [ge "v", FQBinPred FQLt (FQVar "v") (FQLit 8)])
+            t = emitFQFile emptyFQFile { fqQualifiers = [gez, both] }
+            once = qualifiersToBraces t
+        T.lines t `shouldContain` ["qualif GEZ(v : int): (v >= 0)"]
+        T.lines t `shouldContain` ["qualif Rng(v : int): (v >= 0 && v < 8)"]
+        T.lines once `shouldContain` ["qualif GEZ(v : int) { (v >= 0) }"]
+        T.lines once `shouldContain` ["qualif Rng(v : int) { (v >= 0 && v < 8) }"]
+        qualifiersToBraces once `shouldBe` once
+
+      it "FA-15: the trust-report disclosure keeps each comparison's pair; the .fq printer does not" $ do
+        let two = FQAnd [ge "a", FQBinPred FQLt (FQVar "b") (FQLit 3)]
+        emitDisclosure two `shouldBe` "(a >= 0) && (b < 3)"
+        emitPred two `shouldBe` "a >= 0 && b < 3"
+        emitDisclosure (FQOr [ge "a", FQOr [ge "b"]]) `shouldBe` "(a >= 0) || (b >= 0)"
+        emitDisclosure (ge "a") `shouldBe` emitPred (ge "a")
+        emitDisclosure (ge "a") `shouldBe` "(a >= 0)"
 
     -- NIW (v0.12, Commit A): the .fq IR can represent and render measure-class
     -- uninterpreted-function applications (REF-META-3 §4.2 / REF-META-2 path-a).
@@ -8964,12 +9162,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- FACT-AG-LEN Stage 1: the length equality is contributed to the effective
         -- PRECONDITION at the param name ('bytesLenParamPre'), so callers prove it
         -- and the body assumes it. It is no longer asserted on the binder.
-        fq `shouldSatisfy` T.isInfixOf "((bytesLen b) = 64)"          -- earned via the pre
-        fq `shouldNotSatisfy` T.isInfixOf "((bytesLen v) = 64)"       -- NOT the family-1 binder fact
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen b) = 64"          -- earned via the pre
+        fq `shouldNotSatisfy` T.isInfixOf "(bytesLen v) = 64"       -- NOT the family-1 binder fact
         fq `shouldSatisfy` T.isInfixOf "b : { v : (Map_t int int) | true }"
         fq `shouldSatisfy` T.isInfixOf "= (Map_select b i)"           -- exact pinning, never a skolem
-        fq `shouldSatisfy` T.isInfixOf "((Map_select b i) <= 255)"    -- family-2 byte range
-        fq `shouldSatisfy` T.isInfixOf "(i < (bytesLen b))"           -- the PROVE bound
+        fq `shouldSatisfy` T.isInfixOf "(Map_select b i) <= 255"    -- family-2 byte range
+        fq `shouldSatisfy` T.isInfixOf "i < (bytesLen b)"           -- the PROVE bound
         fq `shouldSatisfy` T.isInfixOf "constant bytesLen : (func(0 , [(Map_t int int); int]))"
         fq `shouldNotSatisfy` T.isInfixOf "constant Map_select"       -- theory symbols are interpreted, not UF
 
@@ -8995,7 +9193,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         let fq = erFQText er
         fq `shouldSatisfy` T.isInfixOf "(Map_store b 3 v)"
         fq `shouldSatisfy` T.isInfixOf "= (bytesLen b)"               -- length preservation
-        fq `shouldSatisfy` T.isInfixOf "(v <= 255)"                    -- value-range in the call-pre
+        fq `shouldSatisfy` T.isInfixOf "v <= 255"                    -- value-range in the call-pre
         fq `shouldNotSatisfy` T.isInfixOf "(Map_store b 3 v) >= 0"     -- array-sorted term gets NO range fact
 
       it "A1-4 bytes-zero: Map_default reflection + the result length as a GOAL + the Stage-2 constructor axiom" $ do
@@ -9003,7 +9201,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "zeros8"
         let fq = erFQText er
         fq `shouldSatisfy` T.isInfixOf "(Map_default 0)"
-        fq `shouldSatisfy` T.isInfixOf "((bytesLen result) = 8)"
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen result) = 8"
         -- FACT-AG-LEN Stage 2: the constructor axiom's length conjunct, which is
         -- what discharges the goal above. At Stage 2 'resultLenFact' still put the
         -- same fact on the constraint LHS, so the solver saw it twice and the
@@ -9028,9 +9226,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- ASSUME-polarity fact with a fresh result binder at the byte-array sort,
         -- and NO call-pre obligation (a constructor has nothing to prove).
         fq `shouldSatisfy` T.isInfixOf "_bv_call_bytes_zero_0 : { v : (Map_t int int) |"
-        fq `shouldSatisfy` T.isInfixOf "(_bv_call_bytes_zero_0 = (Map_default 0))"
+        fq `shouldSatisfy` T.isInfixOf "_bv_call_bytes_zero_0 = (Map_default 0)"
         fq `shouldSatisfy` T.isInfixOf "(bytesLen _bv_call_bytes_zero_0) = 8"
-        fq `shouldSatisfy` T.isInfixOf "(result = _bv_call_bytes_zero_0)"
+        fq `shouldSatisfy` T.isInfixOf "result = _bv_call_bytes_zero_0"
         erCallPreFns er `shouldNotSatisfy` elem "zeros8"
 
       it "A1-12 FACT-AG-LEN Stage 2 (edge case 7): the axiom's length comes from the DECLARED RETURN, never the post" $ do
@@ -9073,7 +9271,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFallback er    `shouldNotSatisfy` elem "mk32"
         let fq = erFQText er
         -- the length is the GOAL, discharged from the Stage 2 constructor axiom
-        fq `shouldSatisfy` T.isInfixOf "((bytesLen result) = 32)"
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen result) = 32"
         fq `shouldSatisfy` T.isInfixOf "(bytesLen _bv_call_bytes_zero_0) = 32"
         m <- solveFq er
         case m of
@@ -9244,9 +9442,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "wrap"
         let fq = erFQText er
         fq `shouldSatisfy` T.isInfixOf "key : { v : (Map_t int int) | true }"
-        fq `shouldSatisfy` T.isInfixOf "((bytesLen key) = 20)"
-        fq `shouldSatisfy` T.isInfixOf "((bytesLen message) = 20)"
-        fq `shouldNotSatisfy` T.isInfixOf "((bytesLen v) = 20)"   -- never the binder fact
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen key) = 20"
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen message) = 20"
+        fq `shouldNotSatisfy` T.isInfixOf "(bytesLen v) = 20"   -- never the binder fact
         fq `shouldNotSatisfy` T.isInfixOf "Map_select"            -- op-free: no reads reflected
         fq `shouldNotSatisfy` T.isInfixOf "Map_store"
 
@@ -9271,16 +9469,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- caller's bytes param binds at the array sort; FACT-AG-LEN Stage 1 moves
         -- its length off the binder and into the caller's own effective pre.
         fq `shouldSatisfy` T.isInfixOf "buf : { v : (Map_t int int) | true }"
-        fq `shouldSatisfy` T.isInfixOf "((bytesLen buf) = 8)"
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen buf) = 8"
         -- the callee's reflected post is assumed over the caller's binder
         fq `shouldSatisfy` T.isInfixOf "= (Map_select buf 3)"
         -- and the callee's bound is a PROVE obligation against the caller's fact
-        fq `shouldSatisfy` T.isInfixOf "(3 < (bytesLen buf))"
+        fq `shouldSatisfy` T.isInfixOf "3 < (bytesLen buf)"
         -- FACT-AG-LEN: the callee's LENGTH is now itself a caller obligation. The
         -- callee's pre carries `(bytesLen b) = 8`, so the call site must discharge
         -- it rather than inherit it from an unvalidated declaration (SAFE-ARG).
         -- It discharges here because the caller's own pre supplies the same fact.
-        fq `shouldSatisfy` T.isInfixOf "rhs { v : int | (3 >= 0) && (3 < (bytesLen buf)) && ((bytesLen buf) = 8) }"  -- FQ-FLAT-NEST-1: printed flat
+        fq `shouldSatisfy` T.isInfixOf "rhs { v : int | 3 >= 0 && 3 < (bytesLen buf) && (bytesLen buf) = 8 }"  -- FQ-FLAT-NEST-1: printed flat
 
       it "A1-10 FACT-AG-LEN: an ALIASED bytes[n] param earns the same length pre (edge case 5, the CR-01 shape)" $ do
         -- 'bytesLenParamPre' is defined over 'bytesLenOf', which resolves through
@@ -9293,7 +9491,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "  (post (>= result 0))"
           , "  0)" ])
         let fq = erFQText er
-        fq `shouldSatisfy` T.isInfixOf "((bytesLen k) = 32)"
+        fq `shouldSatisfy` T.isInfixOf "(bytesLen k) = 32"
         fq `shouldSatisfy` T.isInfixOf "k : { v : (Map_t int int) | true }"
 
       it "A1-9 (expectation flipped at A2): a mixed bytes+map body now discharges body-faithful" $ do
@@ -9340,10 +9538,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         fq `shouldSatisfy` T.isInfixOf "m_has : { v : (Map_t int int)"
         fq `shouldSatisfy` T.isInfixOf "m_val : { v : (Map_t int int)"
         -- result components pinned to the paired stores (int-0/1 presence)
-        fq `shouldSatisfy` T.isInfixOf "(result_has = (Map_store m_has k 1))"
-        fq `shouldSatisfy` T.isInfixOf "(result_val = (Map_store m_val k v))"
+        fq `shouldSatisfy` T.isInfixOf "result_has = (Map_store m_has k 1)"
+        fq `shouldSatisfy` T.isInfixOf "result_val = (Map_store m_val k v)"
         -- the reflected post reads the pinned components
-        fq `shouldSatisfy` T.isInfixOf "((Map_select result_has k) = 1)"
+        fq `shouldSatisfy` T.isInfixOf "(Map_select result_has k) = 1"
 
       it "A2-2 solver crux: get-after-put SAFE; the dropped-put twin REFUTED" $ do
         erGood <- emitA2 (cachePutSrc "(map-put m k v)")
@@ -9418,12 +9616,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "  (+ (bytes-get b i) (map-get m k)))" ])
         let fq = erFQText er
         -- byte-range facts exist for the BYTES select…
-        fq `shouldSatisfy` T.isInfixOf "((Map_select b i) <= 255)"
-        fq `shouldSatisfy` T.isInfixOf "((Map_select b i) >= 0)"
+        fq `shouldSatisfy` T.isInfixOf "(Map_select b i) <= 255"
+        fq `shouldSatisfy` T.isInfixOf "(Map_select b i) >= 0"
         -- …and are NEVER synthesized for a map-component select
-        fq `shouldNotSatisfy` T.isInfixOf "((Map_select m_val k) <= 255)"
-        fq `shouldNotSatisfy` T.isInfixOf "((Map_select m_val k) >= 0)"
-        fq `shouldNotSatisfy` T.isInfixOf "((Map_select m_has k) <= 255)"
+        fq `shouldNotSatisfy` T.isInfixOf "(Map_select m_val k) <= 255"
+        fq `shouldNotSatisfy` T.isInfixOf "(Map_select m_val k) >= 0"
+        fq `shouldNotSatisfy` T.isInfixOf "(Map_select m_has k) <= 255"
         -- and the phantom-fact unsoundness is refuted end-to-end: the map value
         -- is unbounded, so post <= 512 must be Unsafe (with a phantom 0..255 on
         -- the map select it would be vacuously Safe at <= 510)
@@ -10238,7 +10436,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         clauses `shouldSatisfy` elem "body-post-else"
         -- the else arm pins result to the param map component-wise (NOT a
         -- whole-structure (= result bal) — that would trip the §7 firewall)
-        erFQText er `shouldSatisfy` T.isInfixOf "(result_has = bal_has)"
+        erFQText er `shouldSatisfy` T.isInfixOf "result_has = bal_has"
 
       it "F011.3-2 map-valued if solver crux: correct clamp SAFE; the then-arm-drops-presence twin REFUTED" $ do
         erGood <- emitA2 (mapIfSrc "(> (map-get bal a) limit)" "(map-put bal a limit)" "bal")
@@ -11903,7 +12101,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- equality (= <scrut>$tag 0), and <scrut>$tag is DECLARED (no free var) as an
         -- int binder carrying the range fact — replacing the old free bool guard.
         fq `shouldSatisfy` T.isInfixOf "r_tag"
-        fq `shouldSatisfy` T.isInfixOf "(r_tag = 0) || (r_tag = 1)"
+        fq `shouldSatisfy` T.isInfixOf "r_tag = 0 || r_tag = 1"
 
       it "C3B-3: the Error payload binds at its real Str sort (not the int default)" $ do
         er <- emitSrc clampSrc
@@ -11995,7 +12193,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- the callee's assumed post (pulled into caller's VC) is desugared: the
         -- lowered tag `(s = 0)` is present; the raw `(s = A)` free-var form is gone.
         fq `shouldSatisfy` T.isInfixOf "(s = 0)"
-        fq `shouldSatisfy` (not . T.isInfixOf "(s = A)")
+        fq `shouldSatisfy` (not . T.isInfixOf "s = A")
 
     -- COMP-4 (d-elim): two-arm USER-ADT opaque-sum elimination — the Result-
     -- specific skolem-branch generalized to an arbitrary two-arm sum type with
@@ -21463,31 +21661,31 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "MTE-1: a 3-constructor nullary enum param binds at 0..2" $ do
       er <- emitSrc (level3 <> "(def-shell f [a: Level] -> Level (post (= result a)) a)")
-      erFQText er `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 2) }"
+      erFQText er `shouldSatisfy` T.isInfixOf "a : { v : int | v >= 0 && v <= 2 }"
 
     it "MTE-2: a 2-constructor nullary enum binds at 0..1 (arity is read, not assumed)" $ do
       er <- emitSrc "(type Pair2 (| P) (| Q))\n(def-shell f [a: Pair2] -> Pair2 (post (= result a)) a)"
-      erFQText er `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 1) }"
+      erFQText er `shouldSatisfy` T.isInfixOf "a : { v : int | v >= 0 && v <= 1 }"
 
     it "MTE-3: a 5-constructor nullary enum binds at 0..4" $ do
       er <- emitSrc "(type Five (| A) (| B) (| C) (| D) (| E))\n(def-shell f [a: Five] -> Five (post (= result a)) a)"
-      erFQText er `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 4) }"
+      erFQText er `shouldSatisfy` T.isInfixOf "a : { v : int | v >= 0 && v <= 4 }"
 
     it "MTE-4: a plain int param is untouched (guards against an over-broad gate)" $ do
       er <- emitSrc "(def-shell g [x: int] -> int (post (>= result 0)) x)"
       erFQText er `shouldSatisfy`    T.isInfixOf "x : { v : int | true }"
-      erFQText er `shouldNotSatisfy` T.isInfixOf "x : { v : int | (v >= 0) && (v <="
+      erFQText er `shouldNotSatisfy` T.isInfixOf "x : { v : int | v >= 0 && v <="
 
     it "MTE-5: a payload-bearing sum param gets no tag domain (it is not int-like)" $ do
       er <- emitSrc "(type Outcome (| Accepted int) (| Rejected int))\n(def-shell h [o: Outcome] -> int (post (>= result 0)) 0)"
-      erFQText er `shouldNotSatisfy` T.isInfixOf "o : { v : int | (v >= 0) && (v <="
+      erFQText er `shouldNotSatisfy` T.isInfixOf "o : { v : int | v >= 0 && v <="
 
     it "MTE-6: the direct and matched siblings both stay body-faithful (the pair, not the subject alone)" $ do
       direct  <- emitSrc (level3 <> "(def-shell f [a: Level] -> Level (post (= result a)) a)")
       matched <- emitSrc (level3 <> "(def-shell f [a: Level] -> Level (post (= result a)) (match a ((Lo) Lo) ((Mid) Mid) ((Hi) Hi)))")
       erBodyFaithfulFns direct  `shouldSatisfy` elem "f"
       erBodyFaithfulFns matched `shouldSatisfy` elem "f"
-      erFQText matched `shouldSatisfy` T.isInfixOf "a : { v : int | (v >= 0) && (v <= 2) }"
+      erFQText matched `shouldSatisfy` T.isInfixOf "a : { v : int | v >= 0 && v <= 2 }"
 
   -- -----------------------------------------------------------------------
   -- MATCH-TERM-EQ-1 residue (1): the body-post LHS bounds `result` to the tag
@@ -21523,15 +21721,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "MTE-R1: an enum-returning body-post LHS carries result's domain 0..2" $ do
       er <- emitSrc =<< fixture "result-call"
       erBodyFaithfulFns er `shouldSatisfy` elem "use-tot"
-      erFQText er `shouldSatisfy` T.isInfixOf "(result >= 0) && (result <= 2)"  -- FQ-FLAT-NEST-1: printed flat
+      erFQText er `shouldSatisfy` T.isInfixOf "result >= 0 && result <= 2"  -- FQ-FLAT-NEST-1: printed flat
 
     it "MTE-R2: an int-returning body-post LHS carries no result domain" $ do
       er <- emitSrc "(def-shell g [x: int] -> int (post (>= result 0)) x)"
-      erFQText er `shouldNotSatisfy` T.isInfixOf "(result >= 0) && (result <="
+      erFQText er `shouldNotSatisfy` T.isInfixOf "result >= 0 && result <="
 
     it "MTE-R3: a payload-bearing sum return gets no result domain" $ do
       er <- emitSrc "(type Outcome (| Accepted int) (| Rejected int))\n(def-shell h [x: int] -> Outcome (post true) (Accepted x))"
-      erFQText er `shouldNotSatisfy` T.isInfixOf "(result >= 0) && (result <="
+      erFQText er `shouldNotSatisfy` T.isInfixOf "result >= 0 && result <="
 
     it "MTE-R4: the subject (a call result, post names every constructor) is SAFE" $ do
       er <- emitSrc =<< fixture "result-call"
@@ -22113,7 +22311,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         src <- fixture "witness"
         er <- emitSrc src
         erBodyFaithfulFns er `shouldSatisfy` elem "ran-step"
-        erFQText er `shouldSatisfy` T.isInfixOf "_bv_n_0 : { v : int | (_bv_n_0 >= 100) }"
+        erFQText er `shouldSatisfy` T.isInfixOf "_bv_n_0 : { v : int | _bv_n_0 >= 100 }"
       it "RF-M2 a Response match with no request keeps the FQTrue skolem (no >= 100 anywhere)" $ do
         let src = T.unlines [ "(def-shell classify [x: Response] -> int (post (>= result 0)) (match x ((RCode n) n) (_ 0)))" ]
         er <- emitSrc src
@@ -24767,7 +24965,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         Left e -> expectationFailure (show e)
         Right stmts -> do
           r <- emitFixpointWith defaultEmitOptions { emitBodyVCs = True } "t.llmll" stmts
-          erFQText r `shouldSatisfy` T.isInfixOf "bytes_zero_0) = 7)"
+          erFQText r `shouldSatisfy` T.isInfixOf "bytes_zero_0) = 7"
           erFQText r `shouldSatisfy` (not . T.isInfixOf "-9223372036854775808")
 
     it "BLR-9 replay fails closed when the named source no longer passes check" $ do
@@ -26841,7 +27039,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         `shouldBe` ("(pair2 n " <> ite "(n < 0)" <> ")")
     it "PBC-2 a not argument is emitted as an if term" $
       emitPred (FQApp "ctor_yes" [FQNot (FQVar "b")])
-        `shouldBe` ("(ctor_yes " <> ite "((not b))" <> ")")
+        `shouldBe` ("(ctor_yes " <> ite "(not b)" <> ")")
     it "PBC-3 an and or an or argument is emitted as an if term" $ do
       emitPred (FQApp "ok" [FQAnd [FQVar "a", FQVar "b"]]) `shouldBe` ("(ok " <> ite "(a && b)" <> ")")
       emitPred (FQApp "ok" [FQOr [FQVar "a", FQVar "b"]]) `shouldBe` ("(ok " <> ite "(a || b)" <> ")")
@@ -26992,37 +27190,37 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "LCC-1 (+ 1 (map-get r i)) in a let RHS keeps the + 1 (c01)" $ do
       r <- emitL [ sig <> "(let [(x (+ 1 (map-get r i)))] x))" ]
       erBodyFaithfulFns r `shouldBe` ["f"]
-      erFQText r `shouldSatisfy` T.isInfixOf "v : int | (v = (1 + _bv_call_map_get_"
-      erFQText r `shouldNotSatisfy` T.isInfixOf "(result = _bv_call_map_get_"
+      erFQText r `shouldSatisfy` T.isInfixOf "v : int | v = (1 + _bv_call_map_get_"
+      erFQText r `shouldNotSatisfy` T.isInfixOf "result = _bv_call_map_get_"
     it "LCC-2 a user-written nested let in the RHS keeps its continuation (c04)" $ do
       r <- emitL [ sig <> "(let [(x (let [(y (map-get r i))] (+ y 1)))] x))" ]
       erBodyFaithfulFns r `shouldBe` ["f"]
-      erFQText r `shouldSatisfy` T.isInfixOf " + 1)) }"
-      erFQText r `shouldNotSatisfy` T.isInfixOf "(result = _bv_call_map_get_"
+      erFQText r `shouldSatisfy` T.isInfixOf " + 1) }"
+      erFQText r `shouldNotSatisfy` T.isInfixOf "result = _bv_call_map_get_"
     it "LCC-3 an if over the call result binds x per path (c06)" $ do
       r <- emitL [ sig <> "(let [(x (if (> (map-get r i) 0) 1 0))] x))" ]
       erBodyFaithfulFns r `shouldBe` ["f"]
       let fq = erFQText r
-      T.count "rhs { result : int | (result = (Map_select r_val i)) }" fq `shouldBe` 2
-      fq `shouldSatisfy` T.isInfixOf ": { v : int | (v = 1) }"
-      fq `shouldSatisfy` T.isInfixOf ": { v : int | (v = 0) }"
-      fq `shouldNotSatisfy` T.isInfixOf "(result = _bv_call_map_get_"
+      T.count "rhs { result : int | result = (Map_select r_val i) }" fq `shouldBe` 2
+      fq `shouldSatisfy` T.isInfixOf ": { v : int | v = 1 }"
+      fq `shouldSatisfy` T.isInfixOf ": { v : int | v = 0 }"
+      fq `shouldNotSatisfy` T.isInfixOf "result = _bv_call_map_get_"
     it "LCC-4 a bool leaf declares the let binder at bool (c07, a07)" $ do
       r <- emitL
         [ "(def p1 [r: map[int,int] i: int] -> int (post (>= result 0)) (let [(ok (if (map-has r i) (>= (map-get r i) 0) false))] (if ok 1 0)))"
         , "(def p2 [r: map[int,int] i: int] -> int (post (>= result 0)) (let [(ok (and (map-has r i) (>= (map-get r i) 0)))] (if ok 1 0)))" ]
       erBodyFaithfulFns r `shouldSatisfy` (\fs -> all (`elem` fs) ["p1", "p2"])
       let fq = erFQText r
-      fq `shouldSatisfy` T.isInfixOf ": { v : bool | (v = false) }"
-      fq `shouldSatisfy` T.isInfixOf ": { v : bool | (v = (_bv_call_map_get_"
+      fq `shouldSatisfy` T.isInfixOf ": { v : bool | v = false }"
+      fq `shouldSatisfy` T.isInfixOf ": { v : bool | v = (_bv_call_map_get_"
       -- AND-GUARD-PRE-1: p2's `and` is lowered to p1's `if`, so the call is
       -- no longer hoisted above the conjunction.
-      fq `shouldNotSatisfy` T.isInfixOf ": { v : bool | (v = (((Map_select r_has i) = 1) && (_bv_call_map_get_"
+      fq `shouldNotSatisfy` T.isInfixOf ": { v : bool | v = ((Map_select r_has i) = 1 && _bv_call_map_get_"
       fq `shouldNotSatisfy` T.isInfixOf "_bv_ok_2 : { v : int"
     it "LCC-5 a bare call RHS (identity continuation) still aliases: no let binder" $ do
       r <- emitL [ "(def f [r: map[int,int] i: int] -> int (pre (map-has r i)) (post (= result (+ (map-get r i) 1))) (let [(x (map-get r i))] (+ x 1)))" ]
       erBodyFaithfulFns r `shouldBe` ["f"]
-      erFQText r `shouldSatisfy` T.isInfixOf "(result = (_bv_call_map_get_0 + 1))"
+      erFQText r `shouldSatisfy` T.isInfixOf "result = (_bv_call_map_get_0 + 1)"
       erFQText r `shouldNotSatisfy` T.isInfixOf "_bv_x_"
     -- AND-GUARD-PRE-1 moved the stamp past "5" (AGP-9 pins "6").
     it "LCC-6 a sidecar stamped \"4\" (before LET-CALL-CONT-1) is discarded" $ do
@@ -27047,7 +27245,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         sigM n = "(def " <> n <> " [r: map[int,int] i: int] -> int (post (>= result 0)) "
         -- The lhs of the call-pre constraint whose rhs is the map-get pre.
         callPreLhs fq = [ l | (l, r) <- zip ls (drop 1 ls)
-                            , "rhs { v : int | ((Map_select r_has i) = 1) }" `T.isInfixOf` r ]
+                            , "rhs { v : int | (Map_select r_has i) = 1 }" `T.isInfixOf` r ]
           where ls = T.lines fq
     it "AGP-1 (unit) w1's guard lowers to nested ifs, the map-get hoisted inside the inner if" $ do
       normG "(if (and (map-has r i) (>= (map-get r i) 0)) 1 0)" `shouldBe`
@@ -27069,24 +27267,24 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erBodyFaithfulFns r `shouldBe` ["gor", "gnot", "gimp"]
       let fq = erFQText r
       callPreLhs fq `shouldBe`
-        [ "  lhs { v : int | (not ((not ((Map_select r_has i) = 1)))) }"
-        , "  lhs { v : int | ((Map_select r_has i) = 1) }" ]
-      fq `shouldSatisfy` T.isInfixOf "lhs { v : int | ((bytesLen b) >= 0) && (i >= 0) && (i < 8) && ((bytesLen b) = 8) }"  -- FQ-FLAT-NEST-1: printed flat
+        [ "  lhs { v : int | (not (not ((Map_select r_has i) = 1))) }"
+        , "  lhs { v : int | (Map_select r_has i) = 1 }" ]
+      fq `shouldSatisfy` T.isInfixOf "lhs { v : int | (bytesLen b) >= 0 && i >= 0 && i < 8 && (bytesLen b) = 8 }"  -- FQ-FLAT-NEST-1: printed flat
       fq `shouldNotSatisfy` T.isInfixOf "lhs { v : int | true }"
     it "AGP-4 value forms: a bool body and a let-bound and are body-faithful with a guarded call-pre" $ do
       r <- emitG
         [ "(def b08 [r: map[int,int] i: int] -> bool (post (=> result (map-has r i))) (and (map-has r i) (>= (map-get r i) 0)))"
         , sigM "a07" <> "(let [(ok (and (map-has r i) (>= (map-get r i) 0)))] (if ok 1 0)))" ]
       erBodyFaithfulFns r `shouldBe` ["b08", "a07"]
-      callPreLhs (erFQText r) `shouldBe` replicate 2 "  lhs { v : int | ((Map_select r_has i) = 1) }"
-      erFQText r `shouldSatisfy` T.isInfixOf ": { v : bool | (v = false) }"
+      callPreLhs (erFQText r) `shouldBe` replicate 2 "  lhs { v : int | (Map_select r_has i) = 1 }"
+      erFQText r `shouldSatisfy` T.isInfixOf ": { v : bool | v = false }"
     it "AGP-5 an and in argument position is bound to a fresh let, not an if argument" $ do
       r <- emitG
         [ "(def-shell h [x: bool] -> int (post (>= result 0)) (if x 1 0))"
         , "(def-shell garg [r: map[int,int] i: int] -> int (post (>= result 0)) (h (and (map-has r i) (>= (map-get r i) 0))))" ]
       erBodyFaithfulFns r `shouldBe` ["h", "garg"]
       erBodyFallback r `shouldBe` []
-      callPreLhs (erFQText r) `shouldBe` ["  lhs { v : int | ((Map_select r_has i) = 1) }"]
+      callPreLhs (erFQText r) `shouldBe` ["  lhs { v : int | (Map_select r_has i) = 1 }"]
       map diagMessage (erDiagnostics r) `shouldNotSatisfy` any (T.isInfixOf "Refused by: if")
     it "AGP-6 negatives: the earlier operand does not imply the pre (a15), or the call is first (a16)" $ do
       r <- emitG
@@ -27094,15 +27292,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         , sigM "a16" <> "(if (and (>= (map-get r i) 0) (map-has r i)) 1 0))" ]
       erBodyFaithfulFns r `shouldBe` ["a15", "a16"]
       callPreLhs (erFQText r) `shouldBe`
-        [ "  lhs { v : int | (i >= 0) }"
+        [ "  lhs { v : int | i >= 0 }"
         , "  lhs { v : int | true }" ]
     it "AGP-7 a recursive descent site under and carries the earlier operand (e03)" $ do
       r <- emitG [ "(def-shell cnt [n: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n) (if (and (> n 0) (>= (cnt (- n 1)) 0)) 1 0))" ]
       erBodyFaithfulFns r `shouldBe` ["cnt"]
       let fq = erFQText r
-      T.count "lhs { v : int | (n > 0) && (n >= 0) }" fq `shouldBe` 2
-      fq `shouldSatisfy` T.isInfixOf "rhs { v : int | ((n - 1) >= 0) }"
-      fq `shouldSatisfy` T.isInfixOf "rhs { v : int | ((n - 1) < n) }"
+      T.count "lhs { v : int | n > 0 && n >= 0 }" fq `shouldBe` 2
+      fq `shouldSatisfy` T.isInfixOf "rhs { v : int | (n - 1) >= 0 }"
+      fq `shouldSatisfy` T.isInfixOf "rhs { v : int | (n - 1) < n }"
     it "AGP-8 <=> evaluates both operands and is not lowered: its call-pre stays unguarded" $ do
       normG "(if (<=> (map-has r i) (>= (map-get r i) 0)) 1 0)" `shouldBe`
         ELet [(PVar "_bv_anf_0", Nothing, EApp "map-get" ri)]
@@ -28094,8 +28292,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       w `shouldBe` "v1"
       p `shouldBe` FQBinPred FQEq (FQVar "v1") t
       er <- emitSrcN "(def f [v: int] -> int (post (= result 99)) (let [(y (+ v 1))] y))"
-      erFQText er `shouldSatisfy` T.isInfixOf "{ v0 : int | (v0 = (v + 1)) }"
-      erFQText er `shouldNotSatisfy` T.isInfixOf "(v = (v + 1))"
+      erFQText er `shouldSatisfy` T.isInfixOf "{ v0 : int | v0 = (v + 1) }"
+      erFQText er `shouldNotSatisfy` (\t -> T.isInfixOf "(v = (v + 1))" t || T.isInfixOf " v = (v + 1)" t)
     it "FNC-8: each false-proof witness falls back on fq-name-collision" $ do
       let srcs =
             [ ("collide", "(def collide [a-b: int a_b: int] -> int (pre (>= a-b 1)) (post (>= a_b 1)) 0)")

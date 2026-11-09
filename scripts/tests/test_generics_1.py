@@ -113,7 +113,7 @@ def test_pick_positive_copy_carries_result_gt_zero(pick_verify):
     assert m, out
     fq = Path(m.group(1)).read_text(encoding="utf-8")
     # use-pos reads the copy's post, which includes PositiveInt's refinement.
-    assert "(_bv_call_pick_min__PositiveInt__0 > 0)" in fq
+    assert "_bv_call_pick_min__PositiveInt__0 > 0" in fq
 
 
 @needs_fixpoint

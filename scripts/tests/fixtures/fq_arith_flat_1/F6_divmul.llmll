@@ -1,0 +1,2 @@
+;; FQ-ARITH-FLAT-1 F6: false. (a / 2) * 2 is not (a * 2) / 2. Refuting input: (f 1) gives 0, the post says 1.
+(def f [a: int] -> int (post (= result (/ (* a 2) 2))) (* (/ a 2) 2))
