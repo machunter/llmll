@@ -83,7 +83,7 @@ import Data.Set (Set)
 import Data.Maybe (isJust, isNothing)
 
 import LLMLL.Syntax (Name)
-import LLMLL.FixpointEmit (EmitResult(..), FallbackCause(..), renderFallbackCause)
+import LLMLL.FixpointEmit (EmitResult(..), FallbackCause(..), renderFallbackCause, abstractedBuiltins)
 import LLMLL.FixpointIR (FQConstraintId)
 import LLMLL.DiagnosticFQ (FQVerifyResult(..), ConstraintOrigin(..), isWdClause, WdFailKind(..), WdReportCtx(..))
 import LLMLL.Diagnostic (Diagnostic(..), mkBodyFallbackWarning, mkDecreasesUndischarged, mkWarning)
@@ -158,8 +158,13 @@ welldefConstruct inner = "welldef:" <> inner
 -- when the two calls are syntactically equal (bind one, reuse the result); for
 -- calls whose arguments are only equal under a guard it names the limit.
 abstractionRepair :: Name -> Text
-abstractionRepair g =
-  " If two calls to '" <> g <> "' take equal arguments, bind one call with let and reuse its result."
+abstractionRepair g
+  -- CHAR-CODE-1: a clause 1 mark needs no second call, so there is nothing to
+  -- bind: the verifier holds only a partial fact about the one result.
+  | g `Set.member` abstractedBuiltins =
+      " The verifier knows only part of what '" <> g <> "' returns, so the counterexample may be one no run can produce."
+  | otherwise =
+      " If two calls to '" <> g <> "' take equal arguments, bind one call with let and reuse its result."
 
 -- | One reclassified function: its cause, the callee its marks name, and for
 -- 'FallbackClauseWelldefUnproved' the inner cause steps 2-3 picked (the cause

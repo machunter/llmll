@@ -1,0 +1,4 @@
+(def-shell hi-byte [w: int] -> int
+  (pre (and (>= w 0) (<= w 65535)))
+  (post (and (>= result 0) (<= result 255)))
+  (bit-shr w 7))

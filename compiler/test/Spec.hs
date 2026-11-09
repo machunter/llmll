@@ -127,6 +127,12 @@ import LLMLL.HoleAnalysis (extractCallsScoped)
 import LLMLL.TrustReport (uncheckedCallPres)
 import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames)
 import LLMLL.FixpointEmit (addCongruence, congruenceFact, conjoinAll)
+import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText)
+import LLMLL.Checkout (bitCharFuncEntries)
+import LLMLL.AbstractionVerdict (abstractionRepair)
+import LLMLL.Contracts (clauseGuardedOps)
+import qualified Data.Bits as Bits
+import Test.QuickCheck (NonNegative(..))
 import qualified System.IO as SIO
 import qualified GHC.IO.Handle as GIOH
 import Test.QuickCheck (property, choose)
@@ -11311,7 +11317,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               [ ("bytes-get",  EApp "bytes-get"  [EVar "b", ELit (LitInt 0)])
               , ("bytes-set",  EApp "bytes-set"  [EVar "b", ELit (LitInt 0), ELit (LitInt 7)])
               , ("bytes-zero", EApp "bytes-zero" [ELit (LitInt 4)])
-              , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"]) ]
+              , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"])
+              -- CHAR-CODE-1: a clause refuses both (D4), so each lemma takes case (a).
+              , ("string-code-at",   EApp "string-code-at"   [EVar "s", ELit (LitInt 0)])
+              , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)]) ]
             se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
         Map.keysSet canon `shouldBe` sealedAxiomBuiltins
         forM_ (Map.toList canon) $ \(nm, call) ->
@@ -18690,8 +18699,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- bind Prelude's compare, which returns Ordering), so it lands in the
       -- hand-written class below (7 -> 8), not in needsBinding: 96 stays 96,
       -- and resolvedElsewhere stays 9.
-      Map.size builtinEnv      `shouldBe` 128
-      length needsBinding      `shouldBe` 96
+      -- 128 -> 135 with BITWISE-1's five and CHAR-CODE-1's two. All seven take
+      -- Integer arguments, so each is a preamble body reached by the generic
+      -- emission and lands in needsBinding: 96 -> 103.
+      Map.size builtinEnv      `shouldBe` 135
+      length needsBinding      `shouldBe` 103
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -27236,12 +27248,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ ("bytes-get",  EApp "bytes-get"  [EVar "b", ELit (LitInt 0)])
             , ("bytes-set",  EApp "bytes-set"  [EVar "b", ELit (LitInt 0), ELit (LitInt 7)])
             , ("bytes-zero", EApp "bytes-zero" [ELit (LitInt 4)])
-            , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"]) ]
+            , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"])
+            , ("string-code-at",   EApp "string-code-at"   [EVar "s", ELit (LitInt 0)])
+            , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)]) ]
           se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
           table nm as = case (nm, as) of
             ("map-get",   [h, _, k]) -> Just (PMapGet h k)
             ("bytes-get", [b', i])   -> Just (PBytesGet b' i)
             ("bytes-set", [b', i, v]) -> Just (PBytesSet b' i v)
+            ("string-code-at", [s, i]) -> Just (PStringCodeAt s i)
+            ("string-from-code", [c])  -> Just (PStringFromCode c)
             _                        -> Nothing
       Map.keysSet canon `shouldBe` sealedAxiomBuiltins
       forM_ (Map.toList canon) $ \(nm, call) ->
@@ -27683,6 +27699,309 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       emitExpr (g "unwrap" "C" [EVar "r"]) `shouldSatisfy` T.isInfixOf "llmll_cl_unwrap"
       emitExpr (g "bytes-get" "C" [EVar "b", EVar "i"]) `shouldSatisfy` T.isInfixOf "llmll_cl_bytes_get"
       emitExpr (g "bytes-set" "C" [EVar "b", EVar "i", EVar "v"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uS) (llmll_cl_bytes_set"
+
+  -- -----------------------------------------------------------------------
+  -- BITWISE-1 + CHAR-CODE-1 (docs/design/byte-io-proposal.md Parts 3 and 5).
+  -- scripts/tests/test_bitwise_char.py holds the verdicts of whole programs.
+  -- -----------------------------------------------------------------------
+  describe "BITWISE-1 / CHAR-CODE-1" $ do
+    let p64 = 2 ^ (64 :: Int) :: Integer
+        lint = ELit . LitInt :: Integer -> Expr
+        lstr = ELit . LitString . T.pack
+        ev = evalExprStatic Map.empty
+        large n = [n, n + p64, n * p64 + 7]
+        raises :: String -> a -> IO ()
+        raises want x = do
+          r <- CE.try (CE.evaluate x)
+          case r of
+            Left (CE.ErrorCall m) -> m `shouldSatisfy` isInfixOf want
+            Right _               -> expectationFailure ("expected an error naming: " <> want)
+        total :: a -> IO Bool
+        total x = either (\(CE.ErrorCall _) -> False) (const True) <$> CE.try (CE.evaluate x)
+        -- T.pack rewrites a surrogate, so a literal cannot carry one through 'lstr'.
+        norm = filter (\c -> c < '\xD800' || c > '\xDFFF') :: String -> String
+        x_ = EVar "x"
+        parseS src = case parseStatements GrammarCoreInversion "t" (T.pack src) of
+          Left e   -> error (show e)
+          Right ss -> ss
+        emitS src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parseS src)
+        bodyOf se e = snd (bodyToPredFrom 0 (Map.fromList se) Map.empty Set.empty e)
+        -- A small evaluator of the table's predicates, over ints.
+        evI env p = case p of
+          FQLit n -> n
+          FQVar v -> Map.findWithDefault 0 v env
+          FQApp f _ -> Map.findWithDefault 0 f env
+          _ -> error ("evI: " <> show p)
+        evB :: Map.Map T.Text Integer -> FQPred -> Bool
+        evB env p = case p of
+          FQAnd ps -> all (evB env) ps
+          FQOr ps  -> any (evB env) ps
+          FQBinPred FQGe a b -> evI env a >= evI env b
+          FQBinPred FQLe a b -> evI env a <= evI env b
+          FQBinPred FQGt a b -> evI env a >  evI env b
+          FQBinPred FQLt a b -> evI env a <  evI env b
+          _ -> error ("evB: " <> show p)
+
+    it "BC-1 bit_and agrees with .&. above 2^64" $ property $ \(NonNegative a) (NonNegative b) ->
+      and [ RP.bit_and x y == x Bits..&. y | x <- large a, y <- large b ]
+    it "BC-2 bit_or agrees with .|. above 2^64" $ property $ \(NonNegative a) (NonNegative b) ->
+      and [ RP.bit_or x y == x Bits..|. y | x <- large a, y <- large b ]
+    it "BC-3 bit_xor agrees with xor above 2^64" $ property $ \(NonNegative a) (NonNegative b) ->
+      and [ RP.bit_xor x y == Bits.xor x y | x <- large a, y <- large b ]
+    it "BC-4 bit_shl agrees with shiftL and with a * 2^k" $ property $ \(NonNegative a) (NonNegative k0) ->
+      let k = k0 `mod` 200 :: Integer
+      in and [ RP.bit_shl x k == Bits.shiftL x (fromInteger k) && RP.bit_shl x k == x * 2 ^ k | x <- large a ]
+    it "BC-5 bit_shr agrees with shiftR and with floor(a / 2^k)" $ property $ \(NonNegative a) (NonNegative k0) ->
+      let k = k0 `mod` 200 :: Integer
+      in and [ RP.bit_shr x k == Bits.shiftR x (fromInteger k) && RP.bit_shr x k == x `div` 2 ^ k | x <- large a ]
+    it "BC-6 each bit operation raises a named error on a negative operand" $ do
+      raises "bit-and: pre-condition failed" (RP.bit_and (-1) 3)
+      raises "bit-and: pre-condition failed" (RP.bit_and 3 (-1))
+      raises "bit-or: pre-condition failed" (RP.bit_or (-1) 3)
+      raises "bit-xor: pre-condition failed" (RP.bit_xor 3 (negate p64))
+      raises "bit-shl: pre-condition failed" (RP.bit_shl (-1) 3)
+      raises "bit-shl: pre-condition failed" (RP.bit_shl 3 (-1))
+      raises "bit-shr: pre-condition failed" (RP.bit_shr (-1) 3)
+      raises "bit-shr: pre-condition failed" (RP.bit_shr 3 (-1))
+    it "BC-7 a shift above maxBound: bit-shr answers 0, bit-shl raises by name, neither wraps" $ do
+      let big = toInteger (maxBound :: Int) + 1
+      RP.bit_shr 5 big `shouldBe` 0
+      RP.bit_shr (p64 * p64) p64 `shouldBe` 0
+      RP.bit_shr 5 (p64 + 1) `shouldBe` 0   -- 2^64 + 1 would narrow to 1
+      raises "bit-shl: shift" (RP.bit_shl 1 big)
+      raises "bit-shl: shift" (RP.bit_shl 1 (p64 + 1))
+    it "BC-8 string_code_at agrees with ord at every index, across the cache boundary" $ property $ \s0 ->
+      let s = norm s0 ++ replicate 40 'q' ++ "\955"
+      in and [ RP.string_code_at s (toInteger i) == toInteger (fromEnum c) | (i, c) <- zip [0 :: Int ..] s ]
+    it "BC-9 string_code_at raises by name out of range, and does not wrap 2^64" $ do
+      raises "string-code-at: pre-condition failed" (RP.string_code_at "" 0)
+      raises "string-code-at: pre-condition failed" (RP.string_code_at "abc" 3)
+      raises "string-code-at: pre-condition failed" (RP.string_code_at "abc" (-1))
+      raises "string-code-at: pre-condition failed" (RP.string_code_at "abc" p64)
+      raises "string-code-at: pre-condition failed" (RP.string_code_at "abc" (p64 + 1))
+    it "BC-10 string_from_code at the surrogate and range edges" $ do
+      RP.string_from_code 55295 `shouldBe` "\55295"
+      RP.string_from_code 57344 `shouldBe` "\57344"
+      RP.string_from_code 1114111 `shouldBe` "\1114111"
+      RP.string_from_code 0 `shouldBe` "\0"
+      raises "is a surrogate" (RP.string_from_code 55296)
+      raises "is a surrogate" (RP.string_from_code 57343)
+      raises "outside 0..1114111" (RP.string_from_code 1114112)
+      raises "outside 0..1114111" (RP.string_from_code (-1))
+      raises "outside 0..1114111" (RP.string_from_code (p64 + 97))
+    it "BC-11 a text code point round-trips through string_from_code and string_code_at" $ property $ \(NonNegative c0) ->
+      let c = c0 `mod` 1114112 :: Integer
+      in (c >= 55296 && c <= 57343) || RP.string_code_at (RP.string_from_code c) 0 == c
+    it "BC-12 string-compare agrees with compare on the codes of one-character strings" $ property $ \a b ->
+      let sa = [a]; sb = [b]
+          sign o = toInteger (fromEnum (o :: Ordering)) - 1
+      in RP.string_compare sa sb == sign (compare (RP.string_code_at sa 0) (RP.string_code_at sb 0))
+    it "BC-13 the evaluator answers bit-and, bit-or and bit-xor as the runtime does" $ property $ \(NonNegative a) (NonNegative b) ->
+      and [ ev (EApp "bit-and" [lint x, lint y]) == Just (lint (RP.bit_and x y))
+              && ev (EApp "bit-or"  [lint x, lint y]) == Just (lint (RP.bit_or x y))
+              && ev (EApp "bit-xor" [lint x, lint y]) == Just (lint (RP.bit_xor x y))
+          | x <- large a, y <- large b ]
+    it "BC-14 the evaluator answers bit-shl and bit-shr as the runtime does" $ property $ \(NonNegative a) (NonNegative k0) ->
+      let k = k0 `mod` 200 :: Integer
+      in and [ ev (EApp "bit-shl" [lint x, lint k]) == Just (lint (RP.bit_shl x k))
+                 && ev (EApp "bit-shr" [lint x, lint k]) == Just (lint (RP.bit_shr x k))
+             | x <- large a ]
+    it "BC-15 a sample that fails a pre discards rather than raising" $ do
+      forM_ ["bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"] $ \op -> do
+        ev (EApp op [lint (-1), lint 1]) `shouldBe` Nothing
+        ev (EApp op [lint 1, lint (-1)]) `shouldBe` Nothing
+      ev (EApp "string-code-at" [lstr "abc", lint 3]) `shouldBe` Nothing
+      ev (EApp "string-code-at" [lstr "abc", lint (-1)]) `shouldBe` Nothing
+      ev (EApp "string-code-at" [lstr "abc", lint p64]) `shouldBe` Nothing
+      forM_ [-1, 55296, 57343, 1114112] $ \c ->
+        ev (EApp "string-from-code" [lint c]) `shouldBe` Nothing
+    it "BC-16 the evaluator keeps a huge shift out of the checker's memory" $ do
+      ev (EApp "bit-shl" [lint 1, lint p64]) `shouldBe` Nothing
+      ev (EApp "bit-shl" [lint 1, lint 100000000]) `shouldBe` Nothing
+      ev (EApp "bit-shr" [lint 5, lint p64]) `shouldBe` Just (lint 0)
+    it "BC-17 the evaluator answers the character builtins as the runtime does" $ property $ \s0 (NonNegative i0) ->
+      let s = norm s0 ++ "a"
+          i = i0 `mod` toInteger (length s)
+      in ev (EApp "string-code-at" [lstr s, lint i]) == Just (lint (RP.string_code_at s i))
+    it "BC-18 string-from-code in the evaluator at the edges" $ do
+      ev (EApp "string-from-code" [lint 97]) `shouldBe` Just (lstr "a")
+      ev (EApp "string-from-code" [lint 55295]) `shouldBe` Just (lstr "\55295")
+      ev (EApp "string-from-code" [lint 57344]) `shouldBe` Just (lstr "\57344")
+    it "BC-19 the recognizer on masks: 0, 1, 255, 2^64 - 1 are exact" $ do
+      bitExact "bit-and" [x_, lint 0] `shouldBe` Just (BitMask x_ 1)
+      bitExact "bit-and" [x_, lint 1] `shouldBe` Just (BitMask x_ 2)
+      bitExact "bit-and" [x_, lint 255] `shouldBe` Just (BitMask x_ 256)
+      bitExact "bit-and" [x_, lint (p64 - 1)] `shouldBe` Just (BitMask x_ p64)
+    it "BC-20 the recognizer refuses 254 and -1, the two near misses" $ do
+      bitExact "bit-and" [x_, lint 254] `shouldBe` Nothing
+      bitExact "bit-and" [x_, lint (-1)] `shouldBe` Nothing
+      bitExact "bit-and" [lint (-1), x_] `shouldBe` Nothing
+    it "BC-21 the recognizer on shifts: 0 and 4096 are exact, 4097 and -1 are not" $ do
+      bitExact "bit-shl" [x_, lint 0] `shouldBe` Just (BitShl x_ 1)
+      bitExact "bit-shl" [x_, lint 4096] `shouldBe` Just (BitShl x_ (2 ^ (4096 :: Int)))
+      bitExact "bit-shr" [x_, lint 4096] `shouldBe` Just (BitShr x_ (2 ^ (4096 :: Int)))
+      bitExact "bit-shl" [x_, lint 4097] `shouldBe` Nothing
+      bitExact "bit-shr" [x_, lint 4097] `shouldBe` Nothing
+      bitExact "bit-shl" [x_, lint (-1)] `shouldBe` Nothing
+    it "BC-22 the recognizer tests the value after folding, either operand order for a mask" $ do
+      bitExact "bit-and" [EOp "-" [lint 16, lint 1], x_] `shouldBe` Just (BitMask x_ 16)
+      bitExact "bit-and" [lint 15, x_] `shouldBe` Just (BitMask x_ 16)
+      bitExact "bit-shl" [x_, EOp "+" [lint 1, lint 2]] `shouldBe` Just (BitShl x_ 8)
+      bitExact "bit-shl" [x_, EVar "c"] `shouldBe` Nothing      -- a let-bound constant is not ground
+      bitExact "bit-and" [x_, EVar "m"] `shouldBe` Nothing
+    it "BC-23 the recognizer has no form for bit-or and bit-xor" $ do
+      bitExact "bit-or" [x_, lint 15] `shouldBe` Nothing
+      bitExact "bit-xor" [x_, lint 15] `shouldBe` Nothing
+    it "BC-24 each exact term equals the runtime on non-negative values (Part 5, P3)" $ property $ \(NonNegative a) (NonNegative k0) ->
+      let k = k0 `mod` 70 :: Integer
+          val p = case p of
+            FQBinArith FQMul (FQLit v) (FQLit n) -> v * n
+            FQBinArith FQDiv (FQLit v) (FQLit n) -> v `div` n
+            FQBinArith FQMod (FQLit v) (FQLit n) -> v `mod` n
+            other -> error (show other)
+          reflect nm args = maybe (error "not exact") (\f -> val (bitExactTerm f (FQLit (head args)))) (bitExact nm (map lint args))
+      in and [ reflect "bit-shl" [x, k] == RP.bit_shl x k
+                 && reflect "bit-shr" [x, k] == RP.bit_shr x k
+                 && reflect "bit-and" [x, 2 ^ k - 1] == RP.bit_and x (2 ^ k - 1)
+             | x <- large a ]
+    it "BC-25 a clause reflects an exact form with one obligation over its operand" $ do
+      let e = EApp "bit-shl" [x_, lint 3]
+      case exprToPredWD [] e of
+        Just (t, [o]) -> do
+          t `shouldBe` FQBinArith FQMul (FQVar "x") (FQLit 8)
+          woGoal o `shouldBe` partialPre (PBitNonNeg (FQVar "x"))
+          woGoal o `shouldBe` FQBinPred FQGe (FQVar "x") (FQLit 0)
+          wdSiteText o `shouldSatisfy` T.isInfixOf "needs"
+          wdSiteText o `shouldSatisfy` T.isInfixOf "(>= x 0)"
+        other -> expectationFailure (show other)
+    it "BC-26 a clause walks the operand of a mask first, under its context" $ do
+      case exprToPredWD [FQTrue] (EApp "bit-and" [EApp "bit-shr" [x_, lint 8], lint 255]) of
+        Just (t, os) -> do
+          t `shouldBe` FQBinArith FQMod (FQBinArith FQDiv (FQVar "x") (FQLit 256)) (FQLit 256)
+          length os `shouldBe` 2
+          map woCtx os `shouldBe` [[FQTrue], [FQTrue]]
+        other -> expectationFailure (show other)
+    it "BC-27 a clause refuses every inexact form with its app label" $ do
+      forM_ [ ("bit-or", [x_, lint 1]), ("bit-xor", [x_, lint 1]), ("bit-and", [x_, lint 254])
+            , ("bit-and", [x_, lint (-1)]), ("bit-shl", [x_, lint 5000]), ("bit-shr", [x_, EVar "k"])
+            , ("string-code-at", [EVar "s", lint 0]), ("string-from-code", [lint 97]) ] $ \(nm, as) -> do
+        exprToPred (EApp nm as) `shouldBe` Nothing
+        refusedConstructs (EApp nm as) `shouldBe` ["app:" <> nm]
+    it "BC-28 partialPre PBitNonNeg agrees with the runtime" $ do
+      forM_ [-1, 0, 1, p64, negate p64] $ \a -> do
+        ok <- total (RP.bit_shr a 1)
+        evB (Map.singleton "a" a) (partialPre (PBitNonNeg (FQVar "a"))) `shouldBe` ok
+    it "BC-29 partialPre PStringCodeAt agrees with the runtime" $ do
+      forM_ ["", "abc"] $ \s -> forM_ [-1, 0, 2, 3, p64] $ \i -> do
+        ok <- total (RP.string_code_at s i)
+        let env = Map.fromList [("i", i), ("strLen", toInteger (length s))]
+        evB env (partialPre (PStringCodeAt (FQVar "s") (FQVar "i"))) `shouldBe` ok
+    it "BC-30 partialPre PStringFromCode agrees with the runtime at every edge" $ do
+      forM_ [-1, 0, 55295, 55296, 57343, 57344, 1114111, 1114112, p64] $ \c -> do
+        ok <- total (RP.string_from_code c)
+        evB (Map.singleton "c" c) (partialPre (PStringFromCode (FQVar "c"))) `shouldBe` ok
+    it "BC-31 the exact body arm has the bytes-get shape, with the call-pre over its operand" $ do
+      case bodyOf [("x", FQInt)] (EApp "bit-shr" [x_, lint 8]) of
+        Just cv@CallVC{} -> do
+          cvCallee cv `shouldBe` "bit-shr"
+          cvPreObligation cv `shouldBe` Just (partialPre (PBitNonNeg (FQVar "x")))
+          map fst (cvPostParts cv) `shouldBe` ["reflection"]
+          cvPostAssumption cv `shouldBe`
+            Just (FQBinPred FQEq (FQVar (cvResultVar cv)) (FQBinArith FQDiv (FQVar "x") (FQLit 256)))
+        other -> expectationFailure (show other)
+    it "BC-32 an inexact form makes the body fall back, guard use included (D2)" $ do
+      let se = [("x", FQInt), ("c", FQInt)]
+          isNo e = isNothing (bodyOf se e)
+      isNo (EApp "bit-or" [x_, lint 1]) `shouldBe` True
+      isNo (EApp "bit-and" [x_, lint 254]) `shouldBe` True
+      isNo (EApp "bit-shl" [x_, EVar "c"]) `shouldBe` True
+      isNo (EIf (EOp "=" [EApp "bit-xor" [x_, lint 1], lint 0]) (lint 0) (lint 1)) `shouldBe` True
+    it "BC-33 an exact guard use is hoisted and carries its call-pre (D2)" $ do
+      let guardE = EIf (EOp "=" [EApp "bit-and" [x_, lint 1], lint 0]) (lint 0) (lint 1)
+      case bodyOf [("x", FQInt)] guardE of
+        Just cv@CallVC{} -> cvCallee cv `shouldBe` "bit-and"
+        other -> expectationFailure (show other)
+    it "BC-34 string-code-at reflects as strCode with a range lemma; string-from-code as a length-one string" $ do
+      case bodyOf [] (EApp "string-code-at" [EVar "s", lint 0]) of
+        Just cv@CallVC{} -> do
+          map fst (cvPostParts cv) `shouldBe` ["reflection", "lemma", "lemma"]
+          snd (head (cvPostParts cv)) `shouldBe`
+            FQBinPred FQEq (FQVar (cvResultVar cv)) (FQApp "strCode" [FQVar "s", FQLit 0])
+        other -> expectationFailure (show other)
+      case bodyOf [] (EApp "string-from-code" [lint 97]) of
+        Just cv@CallVC{} -> do
+          cvResultSort cv `shouldBe` FQStr
+          map snd (cvPostParts cv) `shouldBe`
+            [FQBinPred FQEq (FQApp "strLen" [FQVar (cvResultVar cv)]) (FQLit 1)]
+        other -> expectationFailure (show other)
+    it "BC-35 a string argument that is neither a variable nor a literal falls back" $ do
+      isNothing (bodyOf [] (EApp "string-code-at" [EApp "string-lower" [EVar "s"], lint 0])) `shouldBe` True
+    it "BC-36 the sets: the character names are sealed and abstracted, the exact forms neither" $ do
+      forM_ ["string-code-at", "string-from-code"] $ \n -> do
+        Set.member n sealedAxiomBuiltins `shouldBe` True
+        Set.member n abstractedBuiltins `shouldBe` True
+      Set.toList exactBitBuiltins `shouldBe` ["bit-and", "bit-shl", "bit-shr"]
+      Set.null (Set.intersection exactBitBuiltins sealedAxiomBuiltins) `shouldBe` True
+      Set.null (Set.intersection exactBitBuiltins abstractedBuiltins) `shouldBe` True
+    it "BC-37 strCode is declared only when used, at (Str, int) -> int" $ do
+      with <- emitS "(def-shell f [s: string] -> int (pre (> (string-length s) 0)) (post (>= result 0)) (string-code-at s 0))"
+      without <- emitS "(def-shell f [s: string] -> int (pre (> (string-length s) 0)) (post (>= result 0)) (string-length s))"
+      erFQText with `shouldSatisfy` T.isInfixOf "constant strCode"
+      erFQText without `shouldSatisfy` (not . T.isInfixOf "strCode")
+    it "BC-38 two exact shifts in one body are not abstracted (the cbAbstractable exclusion)" $ do
+      er <- emitS "(def-shell f [x: int] -> int (pre (>= x 0)) (post (= result 0)) (- (bit-shl x 3) (bit-shl x 3)))"
+      erBodyFaithfulFns er `shouldSatisfy` elem "f"
+      erAbstracted er `shouldBe` Map.empty
+    it "BC-39 one string-code-at marks the constraint with no call count (clause 1)" $ do
+      er <- emitS "(def-shell f [s: string] -> int (pre (> (string-length s) 0)) (post (= result 97)) (string-code-at s 0))"
+      Map.elems (erAbstracted er) `shouldSatisfy` elem "string-code-at"
+    it "BC-40 its own call-pre is not marked: the result is not yet in its environment" $ do
+      er <- emitS "(def-shell f [s: string] -> int (post (>= result 0)) (string-code-at s 0))"
+      let cpIds = [ i | (i, o) <- Map.toList (erConstraintTable er), coClause o == "call-pre:string-code-at" ]
+      length cpIds `shouldBe` 1
+      [ Map.lookup i (erAbstracted er) | i <- cpIds ] `shouldBe` [Nothing]
+    it "BC-41 every name lowers to its runtime definition, and each is reserved" $ do
+      forM_ [ ("bit-and", "bit_and", [x_, x_]), ("bit-or", "bit_or", [x_, x_]), ("bit-xor", "bit_xor", [x_, x_])
+            , ("bit-shl", "bit_shl", [x_, x_]), ("bit-shr", "bit_shr", [x_, x_])
+            , ("string-code-at", "string_code_at", [x_, x_]), ("string-from-code", "string_from_code", [x_]) ] $ \(nm, hs, as) -> do
+        emitApp nm as `shouldSatisfy` T.isPrefixOf ("(" <> hs <> " ")
+        (hs <> " ::") `shouldSatisfy` (`T.isInfixOf` T.unlines runtimePreamble)
+        isReservedHsName hs `shouldBe` True
+    it "BC-42 all seven are guarded in a clause and lower to a helper (D3, D4)" $ do
+      forM_ [ ("bit-and", [x_, x_]), ("bit-or", [x_, x_]), ("bit-xor", [x_, x_]), ("bit-shl", [x_, x_])
+            , ("bit-shr", [x_, x_]), ("string-code-at", [x_, x_]), ("string-from-code", [x_]) ] $ \(nm, as) -> do
+        (nm `elem` clauseGuardedOps) `shouldBe` True
+        emitExpr (guardClause "C" (EApp nm as)) `shouldSatisfy`
+          T.isInfixOf ("llmll_cl_" <> T.replace "-" "_" nm <> " ")
+    it "BC-43 the brief lists each at a relevant type, with its pre" $ do
+      let names ts = [ n | FuncEntry n _ _ _ _ _ _ <- bitCharFuncEntries Map.empty ts ]
+          preOf nm ts = [ p | FuncEntry n _ _ _ p _ _ <- bitCharFuncEntries Map.empty ts, n == nm ]
+          bits = ["bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"]
+      names [TInt] `shouldBe` bits ++ ["string-from-code"]
+      names [TBytes 4] `shouldBe` bits
+      names [TString] `shouldBe` ["string-code-at", "string-from-code"]
+      names [TBool] `shouldBe` []
+      preOf "bit-shl" [TInt] `shouldBe` [Just "(and (>= p0 0) (>= p1 0))"]
+      preOf "string-code-at" [TString] `shouldBe` [Just "(and (>= p1 0) (< p1 (string-length p0)))"]
+      preOf "string-from-code" [TInt] `shouldBe`
+        [Just "(and (and (>= p0 0) (<= p0 1114111)) (or (< p0 55296) (> p0 57343)))"]
+    it "BC-45 a clause 1 mark gets its own repair hint; a call-count mark keeps the old one" $ do
+      abstractionRepair "string-code-at" `shouldBe`
+        " The verifier knows only part of what 'string-code-at' returns, so the counterexample may be one no run can produce."
+      abstractionRepair "string-from-code" `shouldSatisfy` (not . T.isInfixOf "bind one call")
+      abstractionRepair "g" `shouldBe`
+        " If two calls to 'g' take equal arguments, bind one call with let and reuse its result."
+    it "BC-46 the patch message for a-code does not claim a second call" $
+      notProvedMessage (PatchedFn "a-code" False (Just "abstraction-unsafe") ["abstraction:app:string-code-at"])
+        `shouldBe` "'a-code' was not proved: the verifier knows only part of what 'string-code-at' returns, so the counterexample may be one no run can produce (abstraction:app:string-code-at). Its postcondition was assumed."
+    it "BC-44 the signatures are in builtinEnv, and PBT models every one" $ do
+      forM_ ["bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"] $ \n -> do
+        Map.lookup n builtinEnv `shouldBe` Just (TFn [TInt, TInt] TInt)
+        Set.member n modeledBuiltins `shouldBe` True
+      Map.lookup "string-code-at" builtinEnv `shouldBe` Just (TFn [TString, TInt] TInt)
+      Map.lookup "string-from-code" builtinEnv `shouldBe` Just (TFn [TInt] TString)
+      Set.member "string-code-at" modeledBuiltins `shouldBe` True
+      Set.member "string-from-code" modeledBuiltins `shouldBe` True
 
   describe "VERIFY-BUDGET-1 solver guard" $ do
     let stopM = ResourceStop StopMemory (SolverLimits 64 0) 209 1.24

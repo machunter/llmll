@@ -297,6 +297,9 @@ emitLibHs _modName hackagePkgs httpGet posixFs srcOf noEq ffiLines stmts = T.unl
   -- LIST-SORT-1: sort and sortOn, qualified on the same rule, so sortOn does
   -- not join the unqualified scope.
   , "import qualified Data.List as LList"
+  -- BITWISE-1: qualified on the same rule (.&., .|., shiftL and shiftR stay out
+  -- of the unqualified scope).
+  , "import qualified Data.Bits as LBits"
   , "import System.IO.Unsafe (unsafePerformIO)"
   -- STR-INDEX-LINEAR-1: string_char_at / string_slice read a cached array past
   -- index 32. All three are base modules and all three are qualified, so no
@@ -715,6 +718,88 @@ runtimePreamble =
   , "      a `seq` LRef.atomicModifyIORef' llmll_strCache (\\cur -> (take 4 ((sn, a, n) : cur), ()))"
   , "      return (a, n)"
   , "{-# NOINLINE llmll_strIx #-}"
+  , ""
+  , "-- BITWISE-1 (docs/design/byte-io-proposal.md Part 5). Each body checks its pre on"
+  , "-- the unbounded int and raises a named error, as bytes_get does. A shift count is"
+  , "-- compared as an Integer before it narrows to Int (INT-INDEX-WRAP-1)."
+  , "bit_and :: Integer -> Integer -> Integer"
+  , "bit_and a b"
+  , "  | a < 0 || b < 0 = error (\"bit-and: pre-condition failed: operands \" ++ show a ++ \" and \" ++ show b ++ \" must be non-negative\")"
+  , "  | otherwise      = a LBits..&. b"
+  , ""
+  , "bit_or :: Integer -> Integer -> Integer"
+  , "bit_or a b"
+  , "  | a < 0 || b < 0 = error (\"bit-or: pre-condition failed: operands \" ++ show a ++ \" and \" ++ show b ++ \" must be non-negative\")"
+  , "  | otherwise      = a LBits..|. b"
+  , ""
+  , "bit_xor :: Integer -> Integer -> Integer"
+  , "bit_xor a b"
+  , "  | a < 0 || b < 0 = error (\"bit-xor: pre-condition failed: operands \" ++ show a ++ \" and \" ++ show b ++ \" must be non-negative\")"
+  , "  | otherwise      = LBits.xor a b"
+  , ""
+  , "bit_shl :: Integer -> Integer -> Integer"
+  , "bit_shl a k"
+  , "  | a < 0 || k < 0                  = error (\"bit-shl: pre-condition failed: value \" ++ show a ++ \" and shift \" ++ show k ++ \" must be non-negative\")"
+  , "  | k > toInteger (maxBound :: Int) = error (\"bit-shl: shift \" ++ show k ++ \" is too large to represent the result\")"
+  , "  | otherwise                       = LBits.shiftL a (fromInteger k)"
+  , ""
+  , "bit_shr :: Integer -> Integer -> Integer"
+  , "bit_shr a k"
+  , "  | a < 0 || k < 0                  = error (\"bit-shr: pre-condition failed: value \" ++ show a ++ \" and shift \" ++ show k ++ \" must be non-negative\")"
+  , "  | k > toInteger (maxBound :: Int) = 0"
+  , "  | otherwise                       = LBits.shiftR a (fromInteger k)"
+  , ""
+  , "-- CHAR-CODE-1 (Part 3). string_code_at delegates to string_char_at, so it shares"
+  , "-- the Integer index check and the STR-INDEX-LINEAR-1 cache. Past the end it has"
+  , "-- no value to answer: every non-negative int is a possible code."
+  , "string_code_at :: String -> Integer -> Integer"
+  , "string_code_at s i = case string_char_at s i of"
+  , "  (c:_) -> toInteger (LChar.ord c)"
+  , "  []    -> error (\"string-code-at: pre-condition failed: index \" ++ show i ++ \" out of bounds for a string of length \" ++ show (length s))"
+  , ""
+  , "string_from_code :: Integer -> String"
+  , "string_from_code c"
+  , "  | c < 0 || c > 1114111     = error (\"string-from-code: pre-condition failed: code \" ++ show c ++ \" outside 0..1114111\")"
+  , "  | c >= 55296 && c <= 57343 = error (\"string-from-code: pre-condition failed: code \" ++ show c ++ \" is a surrogate\")"
+  , "  | otherwise                = [LChar.chr (fromInteger c)]"
+  , ""
+  -- BITWISE-1 / CHAR-CODE-1: the clause guards (CLAUSE-WELLDEF-1 §7 risk 6), on the
+  -- pattern of the llmll_cl_ helpers above.
+  , "llmll_cl_bit_and :: String -> Integer -> Integer -> Integer"
+  , "llmll_cl_bit_and ctx a b"
+  , "  | a < 0 || b < 0 = error (ctx ++ \" is undefined: bit-and of a negative operand: \" ++ show a ++ \", \" ++ show b)"
+  , "  | otherwise      = bit_and a b"
+  , ""
+  , "llmll_cl_bit_or :: String -> Integer -> Integer -> Integer"
+  , "llmll_cl_bit_or ctx a b"
+  , "  | a < 0 || b < 0 = error (ctx ++ \" is undefined: bit-or of a negative operand: \" ++ show a ++ \", \" ++ show b)"
+  , "  | otherwise      = bit_or a b"
+  , ""
+  , "llmll_cl_bit_xor :: String -> Integer -> Integer -> Integer"
+  , "llmll_cl_bit_xor ctx a b"
+  , "  | a < 0 || b < 0 = error (ctx ++ \" is undefined: bit-xor of a negative operand: \" ++ show a ++ \", \" ++ show b)"
+  , "  | otherwise      = bit_xor a b"
+  , ""
+  , "llmll_cl_bit_shl :: String -> Integer -> Integer -> Integer"
+  , "llmll_cl_bit_shl ctx a k"
+  , "  | a < 0 || k < 0                  = error (ctx ++ \" is undefined: bit-shl of a negative value or shift: \" ++ show a ++ \", \" ++ show k)"
+  , "  | k > toInteger (maxBound :: Int) = error (ctx ++ \" is undefined: bit-shl shift \" ++ show k ++ \" is too large\")"
+  , "  | otherwise                       = bit_shl a k"
+  , ""
+  , "llmll_cl_bit_shr :: String -> Integer -> Integer -> Integer"
+  , "llmll_cl_bit_shr ctx a k"
+  , "  | a < 0 || k < 0 = error (ctx ++ \" is undefined: bit-shr of a negative value or shift: \" ++ show a ++ \", \" ++ show k)"
+  , "  | otherwise      = bit_shr a k"
+  , ""
+  , "llmll_cl_string_code_at :: String -> String -> Integer -> Integer"
+  , "llmll_cl_string_code_at ctx s i"
+  , "  | null (string_char_at s i) = error (ctx ++ \" is undefined: string-code-at index \" ++ show i ++ \" out of bounds for a string of length \" ++ show (length s))"
+  , "  | otherwise                 = string_code_at s i"
+  , ""
+  , "llmll_cl_string_from_code :: String -> Integer -> String"
+  , "llmll_cl_string_from_code ctx c"
+  , "  | c < 0 || c > 1114111 || (c >= 55296 && c <= 57343) = error (ctx ++ \" is undefined: string-from-code of \" ++ show c ++ \", not a text code point\")"
+  , "  | otherwise                                          = string_from_code c"
   , ""
   , "string_split :: String -> String -> [String]"
   , "string_split _   []  = [\"\"]"
@@ -2465,7 +2550,14 @@ clauseGuardHelpers =
   , ("unwrap",    "llmll_cl_unwrap")
   , ("/",         "llmll_cl_div")
   , ("mod",       "llmll_cl_mod")
-  , ("%",         "llmll_cl_mod") ]
+  , ("%",         "llmll_cl_mod")
+  , ("bit-and",   "llmll_cl_bit_and")
+  , ("bit-or",    "llmll_cl_bit_or")
+  , ("bit-xor",   "llmll_cl_bit_xor")
+  , ("bit-shl",   "llmll_cl_bit_shl")
+  , ("bit-shr",   "llmll_cl_bit_shr")
+  , ("string-code-at",   "llmll_cl_string_code_at")
+  , ("string-from-code", "llmll_cl_string_from_code") ]
 
 -- | Wrap an argument expression in parentheses for safe Haskell emission.
 -- LT-INT (v0.11): used by `emitApp` Class A clauses to insert `fromIntegral`
@@ -3548,6 +3640,7 @@ hsPreambleNames =
   [ "Response", "RNone", "RText", "RCode", "RErr", "RList"
   , "Json", "JNull", "JBool", "JNum", "JStr", "JArr", "JObj"
   , "ProcSpec"
+  , "bit_and", "bit_or", "bit_shl", "bit_shr", "bit_xor"
   , "bytes_get", "bytes_length", "bytes_set", "bytes_zero", "err", "hmac_sha1"
   , "int_to_string", "is_ok", "jsonHexVal", "jsonIsDigit", "jsonIsHex"
   , "jsonIsIntLexeme", "jsonLit", "jsonMaxDepth", "jsonNumOk", "jsonPArr"
@@ -3565,7 +3658,8 @@ hsPreambleNames =
   , "proc_stderr_to_stdout", "proc_stdin", "proc_stdout"
   , "range", "regex_find", "regex_find_all", "regex_match"
   , "regex_replace_all", "regex_spans", "seq_commands", "sha1_hash"
-  , "string_char_at", "string_concat", "string_concat_many"
+  , "string_char_at", "string_code_at", "string_concat", "string_concat_many"
+  , "string_from_code"
   , "string_compare", "string_contains", "string_empty'", "string_length", "string_slice"
   , "string_lower", "string_split", "string_to_int", "string_trim"
   , "string_upper", "unwrap", "unwrap_or"
@@ -4019,6 +4113,9 @@ esResultForcers =
   , ("string-concat-many", "llmll_uS")
   , ("string-slice",       "llmll_uS")
   , ("string-char-at",     "llmll_uS")
+  -- CHAR-CODE-1: a string result, and its guarded clause form.
+  , ("string-from-code",   "llmll_uS")
+  , ("clause%string-from-code", "llmll_uS")
   , ("string-trim",        "llmll_uS")
   , ("string-split",       "llmll_uL llmll_uS")
   -- REGEX-CAPTURE-1 / REGEX-CASE-1.

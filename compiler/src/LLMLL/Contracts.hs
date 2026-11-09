@@ -396,9 +396,14 @@ clauseGuardTag = "clause%"
 
 -- | The partial builtins a clause check guards (§4.6 scope): the three the
 -- verifier reflects (@map-get@, @bytes-get@, @bytes-set@), and @unwrap@,
--- @/@, @mod@ and @%@, which no clause obligation covers.
+-- @/@, @mod@ and @%@, which no clause obligation covers. BITWISE-1 / CHAR-CODE-1:
+-- the five bit operations and the two character operations, whatever the
+-- verifier reflects of them (CLAUSE-WELLDEF-1 §7 risk 6).
 clauseGuardedOps :: [Name]
-clauseGuardedOps = ["map-get", "bytes-get", "bytes-set", "unwrap", "/", "mod", "%"]
+clauseGuardedOps =
+  [ "map-get", "bytes-get", "bytes-set", "unwrap", "/", "mod", "%"
+  , "bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"
+  , "string-code-at", "string-from-code" ]
 
 -- ---------------------------------------------------------------------------
 -- Compile-time Contract Evaluation (Symbolic)
@@ -787,6 +792,27 @@ evalBuiltinApp _ _ _ "string-slice" [s, f, t] =
   strE <$> (RP.string_slice <$> strV s <*> intIx f <*> intIx t)
 evalBuiltinApp _ _ _ "string-char-at" [s, i] =
   strE <$> (RP.string_char_at <$> strV s <*> intIx i)
+-- CHAR-CODE-1 / BITWISE-1. The runtime raises on a failed pre, so the sample
+-- discards there (Nothing), as 'bytes-get' does ("Precondition-guarded samples",
+-- LLMLL.md §5.1). A large left shift discards too, as 'range' does past
+-- 'rangeCap': the value would be built in the checker's own memory.
+evalBuiltinApp _ _ _ "string-code-at" [s, ELit (LitInt i)] = do
+  sv <- strV s
+  case RP.string_char_at sv i of
+    "" -> Nothing
+    _  -> Just (ELit (LitInt (RP.string_code_at sv i)))
+evalBuiltinApp _ _ _ "string-from-code" [ELit (LitInt c)]
+  | c >= 0, c <= 1114111, c < 55296 || c > 57343 = Just (strE (RP.string_from_code c))
+evalBuiltinApp _ _ _ "bit-and" [ELit (LitInt a), ELit (LitInt b)]
+  | a >= 0, b >= 0 = Just (ELit (LitInt (RP.bit_and a b)))
+evalBuiltinApp _ _ _ "bit-or" [ELit (LitInt a), ELit (LitInt b)]
+  | a >= 0, b >= 0 = Just (ELit (LitInt (RP.bit_or a b)))
+evalBuiltinApp _ _ _ "bit-xor" [ELit (LitInt a), ELit (LitInt b)]
+  | a >= 0, b >= 0 = Just (ELit (LitInt (RP.bit_xor a b)))
+evalBuiltinApp _ _ _ "bit-shl" [ELit (LitInt a), ELit (LitInt k)]
+  | a >= 0, k >= 0, k <= rangeCap = Just (ELit (LitInt (RP.bit_shl a k)))
+evalBuiltinApp _ _ _ "bit-shr" [ELit (LitInt a), ELit (LitInt k)]
+  | a >= 0, k >= 0 = Just (ELit (LitInt (RP.bit_shr a k)))
 evalBuiltinApp _ _ _ "string-split" [sep, s] =
   strListE <$> (RP.string_split <$> strV sep <*> strV s)
 evalBuiltinApp _ _ _ "string-trim"    [s] = strE . RP.string_trim    <$> strV s
@@ -873,6 +899,8 @@ modeledBuiltins = Set.fromList
   , "string-empty?", "int-to-string", "string-to-int", "abs", "min", "max"
   , "string-compare", "list-sort", "list-sort-by", "list-reverse", "compare"
   , "map-keys", "map-entries", "regex-replace-all"
+  , "string-code-at", "string-from-code"
+  , "bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"
   , "ok", "err", "is-ok", "unwrap", "unwrap-or"
   , "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
   , "map-has", "map-get", "map-put", "map-empty"

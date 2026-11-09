@@ -40,6 +40,7 @@ module LLMLL.PatchApply
 
 import Data.Aeson (Value(..), FromJSON(..), ToJSON(..), withObject, (.:), (.=), object)
 import qualified Data.Aeson as A
+import qualified Data.Set as Set
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.Types as AT
@@ -57,7 +58,7 @@ import LLMLL.LoadClosure (loadImportClosure)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch)
 import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, Type, normalizeDefStmt)
 import LLMLL.ObligationAssembly (exprToSExpr)
-import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause)
+import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause, abstractedBuiltins)
 import LLMLL.FixpointIR (FQFile(..))
 import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoReportCtx)
 import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
@@ -719,9 +720,14 @@ notProvedMessage f
   | pfCause f == Just (renderFallbackCause FallbackAbstraction)
   , (c : _) <- pfConstructs f
   , let g = fromMaybe c (T.stripPrefix "abstraction:app:" c) =
-  "'" <> pfName f <> "' was not proved: the counterexample needs two calls to '"
-    <> g <> "' to return different values, which the verifier does not rule out ("
-    <> c <> "). Its postcondition was assumed."
+  if Set.member g abstractedBuiltins
+    -- CHAR-CODE-1: a clause 1 mark needs no second call.
+    then "'" <> pfName f <> "' was not proved: the verifier knows only part of what '"
+           <> g <> "' returns, so the counterexample may be one no run can produce ("
+           <> c <> "). Its postcondition was assumed."
+    else "'" <> pfName f <> "' was not proved: the counterexample needs two calls to '"
+           <> g <> "' to return different values, which the verifier does not rule out ("
+           <> c <> "). Its postcondition was assumed."
   -- CALLEE-POST-UNASSUMED-1: the solver answered UNSAFE too, and the construct
   -- names a callee whose post was dropped, not a construct to rewrite away.
   | pfCause f == Just (renderFallbackCause FallbackCalleePostUnassumed)
