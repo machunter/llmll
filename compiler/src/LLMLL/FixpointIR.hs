@@ -454,11 +454,14 @@ arithPrec o
   | otherwise               = 6
 
 -- | Wrap compound predicates in parentheses to prevent precedence ambiguity.
--- FQAnd/FQOr/FQNot sub-expressions must be parenthesized when used as operands.
+-- FQAnd/FQOr sub-expressions must be parenthesized when used as operands.
+--
+-- FQ-ARITH-FLAT-1: 'FQNot' is not wrapped again. 'emitPred' already prints it
+-- as @(not p)@, so the wrap gave @((not p))@, one more level that the solver's
+-- parser reads twice (see 'arithChain'). One pair delimits it everywhere.
 emitPredParens :: FQPred -> Text
 emitPredParens p@(FQAnd _) = "(" <> emitPred p <> ")"
 emitPredParens p@(FQOr  _) = "(" <> emitPred p <> ")"
-emitPredParens p@(FQNot _) = "(" <> emitPred p <> ")"
 emitPredParens p            = emitPred p
 
 emitOp :: FQBinOp -> Text

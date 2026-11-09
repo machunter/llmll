@@ -8646,6 +8646,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         property $ forAll (genArith 5) $ \t ->
           fmap reassoc (readArith (emitPred t)) == Just (reassoc t)
 
+    -- FQ-ARITH-FLAT-1: a negation prints one pair, not two.
+    describe "FQ-ARITH-FLAT-1 one pair round a negation" $ do
+      let ge x = FQBinPred FQGe (FQVar x) (FQLit 0)
+      it "FA-8: a negation prints one pair as a chain item, under a negation and as a condition" $ do
+        emitPred (FQOr [FQNot (ge "a"), FQNot (ge "b")]) `shouldBe` "(not (a >= 0)) || (not (b >= 0))"
+        emitPred (FQNot (FQNot (ge "a"))) `shouldBe` "(not (not (a >= 0)))"
+        emitPred (FQIte (FQNot (ge "a")) (FQVar "x") (FQLit 0)) `shouldBe` "(if (not (a >= 0)) then x else 0)"
+        emitPred (FQApp "f" [FQNot (ge "a")]) `shouldBe` "(f (if (not (a >= 0)) then true else false))"
+
     -- NIW (v0.12, Commit A): the .fq IR can represent and render measure-class
     -- uninterpreted-function applications (REF-META-3 §4.2 / REF-META-2 path-a).
     -- These tests cover the inert IR + emission capability; exprToPred does not
@@ -26976,7 +26985,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         `shouldBe` ("(pair2 n " <> ite "(n < 0)" <> ")")
     it "PBC-2 a not argument is emitted as an if term" $
       emitPred (FQApp "ctor_yes" [FQNot (FQVar "b")])
-        `shouldBe` ("(ctor_yes " <> ite "((not b))" <> ")")
+        `shouldBe` ("(ctor_yes " <> ite "(not b)" <> ")")
     it "PBC-3 an and or an or argument is emitted as an if term" $ do
       emitPred (FQApp "ok" [FQAnd [FQVar "a", FQVar "b"]]) `shouldBe` ("(ok " <> ite "(a && b)" <> ")")
       emitPred (FQApp "ok" [FQOr [FQVar "a", FQVar "b"]]) `shouldBe` ("(ok " <> ite "(a || b)" <> ")")
@@ -27204,7 +27213,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erBodyFaithfulFns r `shouldBe` ["gor", "gnot", "gimp"]
       let fq = erFQText r
       callPreLhs fq `shouldBe`
-        [ "  lhs { v : int | (not ((not ((Map_select r_has i) = 1)))) }"
+        [ "  lhs { v : int | (not (not ((Map_select r_has i) = 1))) }"
         , "  lhs { v : int | ((Map_select r_has i) = 1) }" ]
       fq `shouldSatisfy` T.isInfixOf "lhs { v : int | ((bytesLen b) >= 0) && (i >= 0) && (i < 8) && ((bytesLen b) = 8) }"  -- FQ-FLAT-NEST-1: printed flat
       fq `shouldNotSatisfy` T.isInfixOf "lhs { v : int | true }"
