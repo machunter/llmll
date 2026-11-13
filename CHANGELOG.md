@@ -4,9 +4,9 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.38.0)
+## v0.38.1: flat `.fq` printing (2026-11-12)
 
-**Measured, v0.38.0 against this branch, each binary over its own copy of the tree
+**Measured, v0.38.0 against this release, each binary over its own copy of the tree
 (liquid-fixpoint 0.9.6.3.7), all runs serial:**
 
 - `llmll --json verify` on all 751 tracked sources: no file changes exit, verdict,
