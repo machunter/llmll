@@ -196,7 +196,7 @@
         },
         "builtin_axioms": {
           "type": "array",
-          "description": "TRUST-AXIOM: sealed-builtin axioms this function's proof assumes. `predicate` is the merged post; `conjuncts` splits it into `reflection` and `lemma` parts. Present only when non-empty.",
+          "description": "TRUST-AXIOM: sealed-builtin axioms this function's proof assumes. `predicate` is the merged post; `conjuncts` splits it into `reflection` and `lemma` parts. `predicate` is the conjunct predicates joined by ` && `, in order, each keeping its own parentheses; the text does not follow the `.fq` printing (FQ-ARITH-FLAT-1). Present only when non-empty.",
           "items": {
             "type": "object",
             "additionalProperties": false,
