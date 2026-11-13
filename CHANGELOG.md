@@ -4,6 +4,50 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.38.0)
+
+**Measured, v0.38.0 against this branch, each binary over its own copy of the tree
+(liquid-fixpoint 0.9.6.3.7), all runs serial:**
+
+- `llmll --json verify` on all 751 tracked sources: no file changes exit, verdict,
+  `body_faithful` or fallback causes. `scripts/fallback_census.py`, 291 files: no per-file
+  change. `make refute-crux-gate`: 99 passed, 0 failed, on both. `--cdp`: 230 scored entries,
+  no change. `--trust-report`: no text change, in JSON or in the text render.
+- **Solver queries:** of the 661 sources that emit a `.fq`, 655 give the solver identical SMT
+  logs (`fixpoint --save`). The other 5 differ only by regrouping a right-nested `+`
+  (`a + (b + c)` reaches the solver as `(a + b) + c`).
+- **Cost:** verifying all 751 files took 71.1 CPU s, then 47.3. No file rose by more than 20%
+  plus 0.2 s. `.fq` text is 4.7% smaller, and the deepest parenthesis nesting went from 10 to 8.
+
+### `FQ-ARITH-FLAT-1`: `.fq` text prints with fewer parentheses, so a long sum no longer costs a proof
+
+- **The cause was the solver's parser.** liquid-fixpoint parses each parenthesis level twice
+  (`appliableExprP` tries a tuple first), so its cost is 2^depth. A sum printed with one pair
+  per operation stopped `verify` at its time limit at about 20 terms (exit 5); printed flat, a
+  20-term sum checks in under a second. This is the arithmetic counterpart of `FQ-FLAT-NEST-1`.
+- **Three printing changes, in `FixpointIR.hs` only.** An arithmetic chain keeps one outer pair
+  and drops an inner pair only where the solver's fixity table reads the same term back
+  (`(a - b) - c` prints `a - b - c`; `a - (b - c)`, `a * (b / 2)` and every `mod` keep theirs).
+  `not` prints one pair, not two. A comparison prints without its own pair as a direct `&&` or
+  `||` item and as a whole refinement or qualifier body.
+- **The only regrouping is of `+` and `*` on the right, and only over one operator.**
+  `a + (b + c)` prints `a + b + c`, equal over unbounded `int`. A right operand is regrouped
+  only when every operator on its left spine at that precedence is the same one:
+  `2 * ((a / 2) * 3)` keeps its pair, because `2 * a / 2 * 3` reads as `((2 * a) / 2) * 3`. The
+  approved plan regrouped it, and the property test FA-13 found that this proved a false post;
+  the fixture `scripts/tests/fixtures/fq_arith_flat_1/F7_mulregroup.llmll` keeps it refuted.
+- **The trust report keeps its text.** A builtin axiom's `predicate` and `conjuncts` are now
+  printed by `emitDisclosure`, separate from the `.fq` printer: each top-level `&&` item keeps
+  its pair, so `predicate` is still the conjuncts joined by `&&`. It renders the whole assumed
+  post, never the joined conjuncts, so a fact that no conjunct carries is still disclosed.
+- **No version changes.** `checker_soundness_version` stays: the solver receives the same terms,
+  shown by SMT-log parity, which replaces the byte-identical `.fq` sweep for a printing-only
+  change (`scripts/fq_print_parity.py`). Sidecars and proof artifacts stay valid; replay of an
+  old artifact solves its own stored text.
+- Nested `if`, nested applications and nested `min` or `max` keep their cost: `FQ-IF-NEST-1`.
+
+**Tests:** hspec 3151 → 3166, 0 failures; Python 814 → 837 passed, 10 skipped.
+
 ## v0.38.0: bit operations and character codes (2026-11-08)
 
 **Measured, v0.37.1 against this release, each binary over its own copy of the tree
