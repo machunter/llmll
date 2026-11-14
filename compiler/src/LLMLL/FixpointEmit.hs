@@ -158,7 +158,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, isNothing, catMaybes, listToMaybe)
-import Data.List (nub, nubBy, partition, foldl')
+import Data.List (nub, nubBy, partition, foldl', sortOn)
 import Data.Function (on)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put, MonadState)
@@ -180,7 +180,7 @@ import qualified LLMLL.ProductNF as PNF
 import qualified LLMLL.ProductFacts as PF
 import LLMLL.ProductFacts (hasProduct)
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, isWdClause)
-import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkError, mkBodyFallbackWarning, mkDecreasesUndischarged)
+import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkError, mkBodyFallbackWarning, mkDecreasesUndischarged, mkBodyFallbackProduct, ProductWhy(..))
 import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare, reflectMinMaxAbs)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
@@ -365,6 +365,10 @@ data EmitResult = EmitResult
     -- ^ MUL-VAR-1: per rewritten constraint, its @lhs@ predicate without the
     -- product facts (every other ground-fact family kept). The recheck
     -- queries this, because under an interpreted @*@ the facts are theorems.
+  , erProductPairs       :: Map FQConstraintId Int
+    -- ^ MUL-VAR-1: the pair count of each kept constraint over the pair limit
+    -- ('PNF.maxPairs'), whose monotonicity and congruence facts were not
+    -- added. 'W-BODY-FALLBACK' names it.
   , erMeasuredRecursive  :: [(Text, Int)]
     -- ^ ABSTRACTION-VERDICT-1: the self-recursive def-shells that declare a
     -- measure, with their statement index. A function the verdict layer moves
@@ -1203,6 +1207,14 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                      | (c, r) <- ppRefused pp
                      , Just o <- [Map.lookup (conId c) table] ]
       prodRouted = Map.keysSet prodByFn
+      -- MUL-VAR-1 (finding 4): a product in the pre rides in the lhs of a
+      -- post or body constraint, so the refused constraint alone cannot tell a
+      -- pre from a body. The source can: a function whose pre holds a product
+      -- of two non-constant terms and whose body holds none.
+      preProductFns = Set.fromList
+        [ n | st <- stmts, Just (n, _, _, c, b) <- [normalizeDefStmt st]
+            , isJust (contractPre c >>= firstNonConstProduct)
+            , isNothing (firstNonConstProduct b) ]
       routed     = Map.keysSet freeByFn `Set.union` collRouted `Set.union` prodRouted
       -- A flagged constraint with no origin cannot be attributed to a function,
       -- so it is KEPT and the solver still refuses the file. That is exactly the
@@ -1221,7 +1233,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       bfaithful' = [ n | n <- bfaithful, not (n `Set.member` routed) ]
       bfallback' = bfallback
                 ++ [ (n, if n `Set.member` collRouted then FallbackNameCollision
-                         else maybe FallbackUnboundSymbols productRefusalCause (Map.lookup n prodByFn))
+                         else maybe FallbackUnboundSymbols (productRefusalCause (n `Set.member` preProductFns)) (Map.lookup n prodByFn))
                    | n <- Set.toList routed, n `notElem` map fst bfallback ]
       -- MUL-VAR-1: the construct of a product refusal, for a function this
       -- route moved (one already in fallback keeps its own).
@@ -1258,6 +1270,14 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                <> " the constraint to a function. The file cannot be verified.")
                { diagKind = Just "fq-name-collision" }
            | (cid, syms) <- collOrphans ]
+        -- MUL-VAR-1 ("Messages"): a function a limit refused gets the
+        -- W-BODY-FALLBACK product text, pointed at its first refused
+        -- constraint. Before, the route was silent.
+        ++ [ mkBodyFallbackProduct n (PNF.refConstruct r) (Just (coJsonPtr o)) ProductOverLimit
+           | (n, rs) <- Map.toList prodByFn
+           , (_, r, c) : _ <- [sortOn (\(_, _, x) -> conId x) rs]
+           , n `notElem` map fst bfallback, not (n `Set.member` collRouted)
+           , Just o <- [Map.lookup (conId c) table] ]
         ++ [ (mkWarning Nothing $ "W-FQ-PRODUCT-ORPHAN: constraint " <> T.pack (show cid)
                <> " holds a product over a limit (" <> PNF.refWhy r
                <> "), and no origin attributes it to a function. Its goal is set to false.")
@@ -1368,6 +1388,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
         , any (PNF.mulSymPrefix `T.isPrefixOf`) (Set.toList syms) ]
     , erMonoTable          = Map.restrictKeys (ppMonoTable pp) keptIds
     , erProductLhs         = Map.restrictKeys (ppBaseLhs pp) keptIds
+    , erProductPairs       = Map.restrictKeys (ppPairs pp) keptIds
     , erMeasuredRecursive  =
         [ (n, i) | (n, i) <- Map.toList measuredIdx, n `Set.member` recursiveNames ]
     }
@@ -7458,6 +7479,9 @@ data ProductPass = ProductPass
   , ppBaseLhs     :: Map FQConstraintId FQPred
   , ppFactFns     :: [Text]
     -- ^ the function tag of each rewritten constraint that received a fact
+  , ppPairs       :: Map FQConstraintId Int
+    -- ^ the pair count of each rewritten constraint over the pair limit
+    -- ('PNF.maxPairs'), whose F4, F5 and F10 facts were omitted
   }
 
 -- | One constraint, rewritten.
@@ -7468,6 +7492,8 @@ data ProductRewrite = ProductRewrite
   , rwBase  :: FQPred              -- ^ the lhs without them
   , rwRhs   :: FQPred
   , rwFacts :: Int
+  , rwCappedPairs :: Maybe Int
+    -- ^ the pair count, when it is over the pair limit
   }
 
 -- | MUL-VAR-1: rewrite each constraint that holds a product of two
@@ -7491,7 +7517,7 @@ data ProductRewrite = ProductRewrite
 -- * A refusal (a limit of "Limits") leaves the constraint as it came and
 --   reports it, so the caller routes its function to the fallback channel.
 productPass :: Set.Set FQConstraintId -> Map FQBindId FQBind -> FQBindId -> [FQConstraint] -> ProductPass
-productPass withOrigin bmap next0 cs0 = go next0 Map.empty cs0 (ProductPass [] [] [] [] Map.empty Map.empty [])
+productPass withOrigin bmap next0 cs0 = go next0 Map.empty cs0 (ProductPass [] [] [] [] Map.empty Map.empty [] Map.empty)
   where
     go _ _ [] acc = acc
       { ppConstraints = reverse (ppConstraints acc)
@@ -7530,17 +7556,22 @@ productPass withOrigin bmap next0 cs0 = go next0 Map.empty cs0 (ProductPass [] [
              , ppBinds = reverse mulBinds ++ copyBinds ++ ppBinds acc
              , ppMonoTable = Map.insert (conId c) (Map.fromList (rwNames rw)) (ppMonoTable acc)
              , ppBaseLhs = Map.insert (conId c) (rwBase rw) (ppBaseLhs acc)
-             , ppFactFns = [ fnTagOf c | rwFacts rw > 0 ] ++ ppFactFns acc }
+             , ppFactFns = [ fnTagOf c | rwFacts rw > 0 ] ++ ppFactFns acc
+             , ppPairs = maybe id (Map.insert (conId c)) (rwCappedPairs rw) (ppPairs acc) }
 
 -- | MUL-VAR-1: the cause of a function withdrawn because a limit refused one
 -- of its constraints, read as a refusal was read before products translated:
 -- a refused @pre@ constraint is a pre outside the fragment, a refused
--- constraint whose goal holds the product is a post outside the fragment, and
+-- constraint whose goal holds the product is a post outside the fragment, a
+-- refused constraint of a function whose pre holds a product and whose body
+-- holds none is a pre outside the fragment (the pre rides in its @lhs@), and
 -- any other is a body outside the fragment.
-productRefusalCause :: [(Text, PNF.Refusal, FQConstraint)] -> FallbackCause
-productRefusalCause rs
+productRefusalCause :: Bool -> [(Text, PNF.Refusal, FQConstraint)] -> FallbackCause
+productRefusalCause preOnly rs
   | any (\(cl, _, _) -> cl `elem` ["pre", "wd-pre"]) rs = FallbackContractPre
   | any (\(_, _, c) -> hasProduct (reftPred (conRhs c))) rs = FallbackContractPost
+  -- finding 4: the product rides in the lhs from the pre, not the body
+  | preOnly = FallbackContractPre
   | otherwise = FallbackBody
 
 -- | One constraint through the product pass. 'Nothing': it holds no product.
@@ -7568,7 +7599,8 @@ productRewrite bmap c
         , rwLhs   = full
         , rwBase  = base
         , rwRhs   = goal'
-        , rwFacts = length facts }
+        , rwFacts = length facts
+        , rwCappedPairs = if PF.frCapped fr then Just (PF.frPairs fr) else Nothing }
   where
     envBs   = [ b | i <- conEnv c, Just b <- [Map.lookup i bmap] ]
     hypOf b = let r = bindReft b

@@ -87,6 +87,7 @@ module LLMLL.AbstractionVerdict
   , abstractionConstruct
   , nonlinearConstruct
   , abstractionRepair
+  , productRepair
   , postUnassumedConstruct
   , postUnassumedRepair
   , welldefConstruct
@@ -104,7 +105,8 @@ import LLMLL.Syntax (Name)
 import LLMLL.FixpointEmit (EmitResult(..), FallbackCause(..), renderFallbackCause, abstractedBuiltins)
 import LLMLL.FixpointIR (FQConstraintId)
 import LLMLL.DiagnosticFQ (FQVerifyResult(..), ConstraintOrigin(..), isWdClause, WdFailKind(..), WdReportCtx(..))
-import LLMLL.Diagnostic (Diagnostic(..), mkBodyFallbackWarning, mkDecreasesUndischarged, mkWarning)
+import LLMLL.Diagnostic (Diagnostic(..), mkBodyFallbackWarning, mkDecreasesUndischarged, mkWarning, mkBodyFallbackProduct, ProductWhy(..))
+import qualified LLMLL.ProductNF as PNF
 
 -- | The verdict after the rule ran.
 data AbstractionOutcome = AbstractionOutcome
@@ -117,6 +119,12 @@ data AbstractionOutcome = AbstractionOutcome
   , aoReclassified :: [(Text, Name)]
     -- ^ each function reclassified with cause 'FallbackAbstraction', with the
     -- callee that marked it, in the order its first failing id was reported
+    -- (MUL-VAR-1: the callee is empty for a product; read
+    -- 'aoAbstractionConstructs' for the construct)
+  , aoAbstractionConstructs :: [(Text, Text)]
+    -- ^ MUL-VAR-1 (finding F11): the same functions, each with its construct:
+    -- @abstraction:app:<callee>@, or @abstraction:nonlinear:*@ for a product.
+    -- The @abstraction_fallback@ key and the text lines read this.
   , aoUnassumed    :: [(Text, Name)]
     -- ^ CALLEE-POST-UNASSUMED-1: each function reclassified with cause
     -- 'FallbackCalleePostUnassumed', with the callee whose post was not
@@ -189,6 +197,11 @@ abstractionRepair g
   | otherwise =
       " If two calls to '" <> g <> "' take equal arguments, bind one call with let and reuse its result."
 
+-- | MUL-VAR-1 ("Messages", the "two calls" texts): the repair sentence for a
+-- product, which needs no second call.
+productRepair :: Text
+productRepair = " Restate the post, or supply evidence with ?proof-required."
+
 -- | One reclassified function: its cause, the callee its marks name, and for
 -- 'FallbackClauseWelldefUnproved' the inner cause steps 2-3 picked (the cause
 -- itself otherwise), with its failing WD ids.
@@ -201,6 +214,9 @@ data Reclass = Reclass
   , rcProduct :: Bool
     -- ^ MUL-VAR-1: the construct is @abstraction:nonlinear:*@ ('rcCallee' is
     -- then empty)
+  , rcProdIds :: [FQConstraintId]
+    -- ^ MUL-VAR-1: the failing ids that carry the product mark, in report
+    -- order; 'W-BODY-FALLBACK' points at one of them
   }
 
 -- | The failing-id partition of §4.4.
@@ -226,6 +242,7 @@ applyAbstractionVerdict cleared er r = case r of
                          else if null kept then FQSafe else FQUnsafe kept
       , aoEmit         = er'
       , aoReclassified = [ (rcFn c, rcCallee c) | c <- reclassList, rcCause c == FallbackAbstraction ]
+      , aoAbstractionConstructs = [ (rcFn c, constructOf c) | c <- reclassList, rcCause c == FallbackAbstraction ]
       , aoUnassumed    = [ (rcFn c, rcCallee c) | c <- reclassList, rcCause c == FallbackCalleePostUnassumed ]
       , aoWelldefUnproved = [ (rcFn c, constructOf c) | c <- reclassList, rcCause c == FallbackClauseWelldefUnproved ]
       , aoIllDefined   = hardFns PWd
@@ -278,9 +295,10 @@ applyAbstractionVerdict cleared er r = case r of
       decide f is =
         let (inner, g, prod) = shipped is
             wdIds      = [ i | i <- is, partOf i == PWd ]
+            prodIds    = [ i | i <- is, prodMark i ]
         in if length wdIds == length is
-             then Reclass f FallbackClauseWelldefUnproved g inner wdIds prod
-             else Reclass f inner g inner wdIds prod
+             then Reclass f FallbackClauseWelldefUnproved g inner wdIds prod prodIds
+             else Reclass f inner g inner wdIds prod prodIds
       shipped is = case ( [ g | i <- is, Just g <- [absMark (i :: FQConstraintId)] ]
                         , [ g | i <- is, Just g <- [cpuMark i] ] ) of
         (g : gs, _) | length (g : gs) == length is -> (FallbackAbstraction, g, False)
@@ -292,7 +310,7 @@ applyAbstractionVerdict cleared er r = case r of
       -- Rule 3: an id with no origin is kept.
       kept     = [ i | i <- ids, maybe True (not . (`Set.member` reclass)) (fnOf i) ]
       er'      = reclassifyEmit table reclassList er
-  _ -> AbstractionOutcome { aoResult = r, aoEmit = er, aoReclassified = [], aoUnassumed = []
+  _ -> AbstractionOutcome { aoResult = r, aoEmit = er, aoReclassified = [], aoAbstractionConstructs = [], aoUnassumed = []
                           , aoWelldefUnproved = [], aoIllDefined = Set.empty
                           , aoMeasureBad = Set.empty, aoRefuted = Set.empty
                           , aoWdFailing = Map.empty, aoMarkedIds = Set.empty }
@@ -342,17 +360,33 @@ reclassifyEmit table rs er = er
     fresh = [ c | c <- rs, not (rcFn c `Set.member` already) ]
     repairOf FallbackCalleePostUnassumed g = postUnassumedRepair g
     repairOf _                           g = abstractionRepair g
+    -- MUL-VAR-1 (finding F11): a product names no callee, so it gets its own
+    -- repair sentence and never "two calls to ''".
+    repairFor c
+      | rcProduct c && rcInner c /= FallbackCalleePostUnassumed = productRepair
+      | otherwise = repairOf (rcInner c) (rcCallee c)
+    -- MUL-VAR-1 ("Messages"): the product text names the construct and points
+    -- at a product-marked failing constraint: the first one over the pair
+    -- limit, else the first one.
+    productWarning c =
+      let overCap = [ (i, k) | i <- rcProdIds c, Just k <- [Map.lookup i (erProductPairs er)] ]
+          (target, why) = case overCap of
+            (i, k) : _ -> (Just i, ProductPairLimit k PNF.maxPairs)
+            []         -> (case rcProdIds c of { i : _ -> Just i; [] -> Nothing }, ProductNotProved)
+          ptr = coJsonPtr <$> (target >>= (`Map.lookup` table))
+      in mkBodyFallbackProduct (rcFn c) (constructOf c) ptr why
     diagsFor c =
       let f     = rcFn c
           cause = renderFallbackCause (rcCause c)
-          w     = mkBodyFallbackWarning f cause [constructOf c] []
+          w | rcProduct c && rcCause c == FallbackAbstraction = productWarning c
+            | otherwise = let w0 = mkBodyFallbackWarning f cause [constructOf c] []
+                          in w0 { diagMessage = diagMessage w0 <> repairFor c }
           wds   = [ welldefWarning (f `Set.member` already) f o
                   | rcCause c == FallbackClauseWelldefUnproved
                   , i <- rcWdIds c, Just o <- [Map.lookup i table] ]
       in if f `Set.member` already
            then wds
-           else w { diagMessage = diagMessage w <> repairOf (rcInner c) (rcCallee c) }
-                  : wds
+           else w : wds
                   ++ [ mkDecreasesUndischarged f cause i | Just i <- [lookup f (erMeasuredRecursive er)] ]
     welldefWarning notChecked f o =
       let clause = if coClause o == "wd-pre" then "pre" else "post"

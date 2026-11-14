@@ -105,6 +105,7 @@ module LLMLL.Syntax
   , groundInt
   , constArith
   , constArithAdmitted
+  , firstNonConstProduct
 
     -- * Match-arm admissibility (SHELL-FALLBACK-SILENT-1)
   , classifyResultArms
@@ -117,7 +118,7 @@ module LLMLL.Syntax
   ) where
 
 import Data.Map.Strict (Map)
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
@@ -1027,6 +1028,30 @@ constArithAdmitted op args =
 -- | The operators 'constArith' decides.
 constArithOps :: [Name]
 constArithOps = ["*", "/", "mod"]
+
+-- | MUL-VAR-1 (Rev 3a, core admission): the first product of two non-constant
+-- terms in an expression, in pre-order, by the emitter's test: a two-operand
+-- `*` node that is neither ground ('groundInt') nor an admitted
+-- constant-linear form ('constArith'). So @(* 3 x)@ and a constant-folded
+-- factor such as @(* (+ 1 2) x)@ do not match.
+firstNonConstProduct :: Expr -> Maybe Expr
+firstNonConstProduct e = case e of
+  EOp "*" [a, b]  | nonConst a b -> Just e
+  EApp "*" [a, b] | nonConst a b -> Just e
+  _ -> listToMaybe (mapMaybe firstNonConstProduct (children e))
+  where
+    nonConst a b = not (isJust (groundInt (EOp "*" [a, b]))) && not (isJust (constArith "*" [a, b]))
+    children x = case x of
+      EApp _ as      -> as
+      EOp _ as       -> as
+      EIf c t f      -> [c, t, f]
+      ELet bs body   -> [ v | (_, _, v) <- bs ] ++ [body]
+      EMatch s arms  -> s : map snd arms
+      EPair a b      -> [a, b]
+      EAwait y       -> [y]
+      ELambda _ body -> [body]
+      EDo steps      -> map dsExpr steps
+      _              -> []
 
 -- | LT-INV (v0.11): return 'True' if an expression is admissible inside a
 -- strict-core ('SDef') body per the grammar production in the proposal §3.2.

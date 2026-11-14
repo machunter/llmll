@@ -52,6 +52,9 @@ module LLMLL.ProductRecheck
   , recheckProductsWith
   , recheckCandidates
   , Partition(..)
+    -- * The callers' step
+  , recheckVerdict
+  , counterexampleLine
     -- * Reading a model
   , Sexp(..)
   , parseSexps
@@ -84,6 +87,8 @@ import LLMLL.FixpointEmit (EmitResult(..))
 import LLMLL.DiagnosticFQ (FQVerifyResult(..), ConstraintOrigin(..), isWdClause)
 import qualified LLMLL.ProductNF as PNF
 import LLMLL.SolverGuard (runSolverGuardedInput)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict)
+import LLMLL.Diagnostic (Diagnostic(..), mkWarning)
 
 -- ---------------------------------------------------------------------------
 -- Limits
@@ -442,6 +447,46 @@ recheckProductsWith run er r = do
     in loop is
   answers <- reverse <$> readIORef log'
   pure (cleared, answers)
+
+-- | MUL-VAR-1 ("Four callers"): the step each of @verify@, @patch@, @--cdp@
+-- and the diverge classifier runs on a solver answer. It rechecks the
+-- product-marked failing ids ('recheckProducts', under the budget) and then
+-- applies the verdict rule with the ids whose model was validated. z3 is
+-- looked up only when a candidate exists, so an answer with no product mark
+-- costs nothing and gives exactly 'applyAbstractionVerdict' with no cleared
+-- id. With no z3 every mark stays.
+--
+-- A @sat@ whose model failed the exact evaluation keeps its mark, and the
+-- outcome's emit result gets a warning that names z3 (design "Verdict and
+-- recheck").
+recheckVerdict :: EmitResult -> FQVerifyResult
+               -> IO (AbstractionOutcome, [(FQConstraintId, RecheckAnswer)])
+recheckVerdict er r
+  | null (recheckCandidates er r) = pure (applyAbstractionVerdict Set.empty er r, [])
+  | otherwise = do
+      z3 <- findZ3
+      (cleared, answers) <- recheckProducts z3 er r
+      let ao    = applyAbstractionVerdict cleared er r
+          warns = [ (mkWarning Nothing ("W-PRODUCT-RECHECK: z3 returned a model for constraint "
+                       <> tshow i <> " that failed the exact evaluation (" <> why
+                       <> "); the constraint keeps its product mark."))
+                      { diagCode = Just "W-PRODUCT-RECHECK" }
+                  | (i, RSatInvalid why) <- answers ]
+          em    = aoEmit ao
+      pure (ao { aoEmit = em { erDiagnostics = erDiagnostics em ++ warns } }, answers)
+
+-- | MUL-VAR-1 ("Messages", Refuted): the validated model of a rechecked id,
+-- in the one form the design allows. Integer and boolean variables only, in
+-- name order; an array or a @Str@ token is not printed.
+counterexampleLine :: [(Text, Value)] -> Text
+counterexampleLine vals =
+  "VC counterexample: "
+  <> T.unwords [ v <> "=" <> shown | (v, x) <- sortOn fst vals, Just shown <- [scalar x] ]
+  <> ". Callee results in it are assumed, not computed."
+  where
+    scalar (VInt n)  = Just (tshow n)
+    scalar (VBool b) = Just (if b then "true" else "false")
+    scalar _         = Nothing
 
 -- ---------------------------------------------------------------------------
 -- Reading z3's output

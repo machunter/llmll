@@ -58,6 +58,7 @@ module LLMLL.Diagnostic
   -- * LT-INV (v0.11): core/shell grammar violations
   , mkCoreGrammarViolation
   , mkCoreMembershipViolation
+  , mkCoreMembershipNonlinear
   , mkCoreFfiCallee
   , mkCoreMembershipViolationLocal
   , mkCoreBinderCallee
@@ -68,6 +69,9 @@ module LLMLL.Diagnostic
   , mkContractReadOOBWarning
     -- SHELL-FALLBACK-SILENT-1
   , mkBodyFallbackWarning
+    -- MUL-VAR-1
+  , mkBodyFallbackProduct
+  , ProductWhy(..)
   , mkMatchWildcardPayloadWarning
     -- DECREASES-LEN-1
   , mkDecreasesUndischarged
@@ -310,6 +314,46 @@ mkBodyFallbackWarning fnName cause labels wildCtors =
   in (mkWarning Nothing msg)
        { diagCode = Just "W-BODY-FALLBACK"
        , diagKind = Just "body-fallback-cause"
+       }
+
+-- | MUL-VAR-1 ("Messages", mul-var-proposal.md Rev 3b): why a function whose
+-- failing constraint holds a product fell back.
+data ProductWhy
+  = ProductNotProved
+    -- ^ the product facts did not prove it, and the native recheck found no
+    -- validated counterexample
+  | ProductPairLimit Int Int
+    -- ^ the constraint holds this many product pairs, over this limit, so the
+    -- monotonicity and congruence facts were not added
+  | ProductOverLimit
+    -- ^ a limit of "Limits" refused the constraint
+  deriving (Show, Eq)
+
+-- | MUL-VAR-1: the 'W-BODY-FALLBACK' text of a function whose failing
+-- constraint holds a product. The text does not vary by z3 version. Same code
+-- and kind as 'mkBodyFallbackWarning'.
+mkBodyFallbackProduct :: Text        -- ^ function name
+                      -> Text        -- ^ the construct (@abstraction:nonlinear:*@ or @nonlinear:*@)
+                      -> Maybe Text  -- ^ JSON pointer of the constraint's clause
+                      -> ProductWhy
+                      -> Diagnostic
+mkBodyFallbackProduct fnName construct ptr why =
+  let line3 = case why of
+        ProductNotProved -> "Product facts did not prove it. Native z3 found no counterexample."
+        ProductPairLimit k lim ->
+          "This constraint holds " <> tshow k <> " product pairs, including any unrelated product in scope; the limit is "
+          <> tshow lim <> ", so monotonicity and congruence facts were not added."
+        ProductOverLimit -> "This constraint is over the limit for products after its equations are applied."
+      msg = T.intercalate "\n"
+        [ "W-BODY-FALLBACK " <> fnName <> ": the post is not proved. A product is in the failing constraint."
+        , "  Refused by: " <> construct <> maybe "" ("   at " <>) ptr
+        , "  " <> line3
+        , "  The post stays a run-time check. A strict-core def that calls " <> fnName <> " will be refused."
+        ]
+  in (mkWarning Nothing msg)
+       { diagCode    = Just "W-BODY-FALLBACK"
+       , diagKind    = Just "body-fallback-cause"
+       , diagPointer = ptr
        }
 
 -- | CALLEE-POST-UNASSUMED-1: the 'W-BODY-FALLBACK' tail after @(<cause>)@,
@@ -765,6 +809,26 @@ mkCoreMembershipViolation defName callee =
   in (mkError Nothing msg)
        { diagKind       = Just "core-membership-violation"
        , diagSuggestion = Just ("Verify '" <> callee <> "' with (llmll verify) before calling it from a strict-core def")
+       }
+
+-- | MUL-VAR-1 Rev 3a ("Caller, at core admission"): the violation when the
+-- imported callee has a sidecar entry that is not admissible (verify ran and
+-- did not prove it) and its body or contract holds a product of two
+-- non-constant terms. The text does not name the cause: the sidecar does not
+-- hold it, so it says only that verify MAY fall back on such a product. The
+-- third argument places the product: a JSON pointer, or the product's
+-- S-expression when no pointer addresses a statement of another module.
+-- Same 'diagKind' as 'mkCoreMembershipViolation'.
+mkCoreMembershipNonlinear :: Text -> Text -> Text -> Diagnostic
+mkCoreMembershipNonlinear defName callee at =
+  let msg = "def '" <> defName <> "': callee '" <> callee
+            <> "' was verified but is not body-faithful. Its body holds a product of"
+            <> " two non-constant terms at " <> at <> "; verify may fall back on such a product."
+            <> " Only verified functions are admissible in strict-core bodies."
+  in (mkError Nothing msg)
+       { diagKind       = Just "core-membership-violation"
+       , diagSuggestion = Just ("run (llmll verify) on " <> callee <> "'s module and read W-BODY-FALLBACK for the cause;"
+                                <> " restate " <> callee <> "'s contract, or write '" <> defName <> "' as a def-shell.")
        }
 
 -- | FN-SHADOW-1 (fn-param-uf-1-proposal R1, R6): the same violation when the

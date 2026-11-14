@@ -70,7 +70,8 @@ import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache
 import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, resourceStopValue, fqPathFor, runDirFor, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, getSolverLimits, renderLimits, parseLimits, installSolverSignalHandlers)
 -- ABSTRACTION-VERDICT-1: every solver consumer that turns UNSAFE into a claim
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns, aoReportCtx, abstractionConstruct, postUnassumedConstruct)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoFallbackFns, aoReportCtx, postUnassumedConstruct)
+import LLMLL.ProductRecheck (recheckVerdict, counterexampleLine, RecheckAnswer(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
@@ -1670,6 +1671,11 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             Just err -> let msg = "⚠️  .fq not written to " <> T.pack fqPath <> ": " <> err
                         in if json then TIO.hPutStrLn stderr msg
                                    else TIO.putStrLn ("   " <> msg)
+          -- MUL-VAR-1 ("Four callers"): the native recheck of each
+          -- product-marked failing id runs first. An id whose model it
+          -- validated loses the product mark, so the rule below reads it as
+          -- complete (refuted); every other answer keeps the mark.
+          (avOut, recheckAnswers) <- recheckVerdict emitR0 fqResultRaw
           let -- VERDICT-UNSTABLE-1: the exit code is part of the verdict. A
               -- solver that died must not be reported as a refutation.
               -- ABSTRACTION-VERDICT-1 (byte-io-proposal Rev 2, Part 0, clause
@@ -1679,10 +1685,12 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- the verdict ('fqResult'), and every reader below sees the
               -- effective verdict. Only the proof artifact keeps the raw one,
               -- because its replay re-runs the stored .fq.
-              avOut    = applyAbstractionVerdict Set.empty emitR0 fqResultRaw
               fqResult = aoResult avOut
               emitR    = aoEmit avOut
-              abstractionFns = aoReclassified avOut
+              -- MUL-VAR-1 (finding F11): each with its construct, so a product
+              -- prints abstraction:nonlinear:*, never abstraction:app: with no
+              -- callee.
+              abstractionFns = aoAbstractionConstructs avOut
               -- CALLEE-POST-UNASSUMED-1: the functions the same rule moved
               -- because a failing constraint holds a call whose callee post
               -- was not assumed.
@@ -1781,7 +1789,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 <> T.intercalate ", " [ f <> " (" <> c <> ")" | (f, c) <- welldefFns ]
             unless (null abstractionFns) $
               TIO.putStrLn $ "   abstraction fallback: "
-                <> T.intercalate ", " [ f <> " (" <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
+                <> T.intercalate ", " [ f <> " (" <> c <> ")" | (f, c) <- abstractionFns ]
             unless (null unassumedFns) $
               TIO.putStrLn $ "   callee-post fallback: "
                 <> T.intercalate ", " [ f <> " (" <> postUnassumedConstruct g <> ")" | (f, g) <- unassumedFns ]
@@ -1831,7 +1839,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 -- VERIFY-BUDGET-1: present only when the guard stopped the solver.
                 ++ [ "resource_limit" .= resourceStopValue s | FQResourceLimit s <- [fqResult] ]
                 ++ [ "abstraction_fallback" .= object
-                       [ K.fromText f .= abstractionConstruct g | (f, g) <- abstractionFns ]
+                       [ K.fromText f .= c | (f, c) <- abstractionFns ]
                    | not (null abstractionFns) ]
                 -- CALLEE-POST-UNASSUMED-1: the twin key for the second cause,
                 -- present only when non-empty.
@@ -1931,8 +1939,12 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           unless json $ case fqResult of
               FQSafe ->
                 mapM_ TIO.putStrLn (safeHeadlineLines fp headline)
-              FQUnsafe _ -> do
+              FQUnsafe kept -> do
                 mapM_ (TIO.putStrLn . formatDiagnostic) (reportDiagnostics report)
+                -- MUL-VAR-1 ("Messages", Refuted): a refutation the native
+                -- recheck validated prints its model, in this form only.
+                mapM_ (\vals -> TIO.putStrLn ("   " <> counterexampleLine vals))
+                      [ vals | (i, RValidated vals) <- recheckAnswers, i `elem` kept ]
                 -- v0.4: --obligations mode
                 when obligations $ do
                   oblSidecar <- loadVerified fp
@@ -2279,7 +2291,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                   <> " function(s) fell back from body-faithful verification: "
                   <> T.intercalate ", " (
                        [ f <> " (" <> renderFallbackCause FallbackAbstraction <> ", "
-                           <> abstractionConstruct g <> ")" | (f, g) <- abstractionFns ]
+                           <> c <> ")" | (f, c) <- abstractionFns ]
                     ++ [ f <> " (" <> renderFallbackCause FallbackCalleePostUnassumed <> ", "
                            <> postUnassumedConstruct g <> ")" | (f, g) <- unassumedFns ]
                     ++ [ f <> " (" <> renderFallbackCause FallbackClauseWelldefUnproved <> ", "
@@ -2478,7 +2490,9 @@ checkCDPCandidate gm lfBin typeDefs wc = do
       -- FQ-OUT-SPECIAL-1 (closes CDP-FQ-RACE-1): a private temp file, not the
       -- shared /tmp/llmll-cdp-<fn>.fq, and the count check.
       (raw, _) <- solveFQText lfBin (length (fqConstraints (erFQFile emitR))) fqText []   -- VERIFY-BUDGET-1
-      let av = applyAbstractionVerdict Set.empty emitR raw
+      -- MUL-VAR-1: a mutant of a product contract is killed only by a
+      -- validated model; any other recheck answer keeps it unvalidated.
+      (av, _) <- recheckVerdict emitR raw
       -- CALLEE-POST-UNASSUMED-1: nor is a kill through a dropped callee post.
       if syntheticName `elem` aoFallbackFns av
         then pure Nothing
@@ -3053,7 +3067,10 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
             -- returned no verdict was recorded as refuted; it is unavailable.
             -- ABSTRACTION-VERDICT-1: a fill whose only failures need two calls
             -- to one callee to disagree falls back; it is not refuted.
-            let av = applyAbstractionVerdict Set.empty emitR raw
+            -- MUL-VAR-1: so does a fill whose only failures hold a product and
+            -- whose native recheck validated no model. A validated model makes
+            -- the failure complete, and the fill is refuted.
+            (av, _) <- recheckVerdict emitR raw
             case aoResult av of
               -- CALLEE-POST-UNASSUMED-1: either cause, not only abstraction.
               FQSafe | fname `elem` aoFallbackFns av            -> pure FSOutsideFragment

@@ -1,0 +1,9 @@
+;; MUL-VAR-1 witness AF3c: body form of AF3 (design Rev 3b, amendment 2), group AF, truth false.
+;; Hand-written: the product sits in the else branch of a body if, so the FQIte claim runs on the real encoding.
+;; x <= 0 and w > 0 give result x*w < 0 (e.g. x = -1, w = 1). Replaces af3b, whose if sat under * and was unreachable.
+(module mv-af3c
+  (export mv-af3c)
+  (def-shell mv-af3c [x: int w: int] -> int
+    (pre (>= w 0))
+    (post (>= result 0))
+    (if (> x 0) 0 (* x w))))

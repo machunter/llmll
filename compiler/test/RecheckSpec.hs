@@ -1,6 +1,7 @@
--- | MUL-VAR-1 (Rev 3a), Steps 3 to 5: the product pass in the emitter, the
--- product mark, and the native recheck (LLMLL.ProductRecheck). The recheck is
--- not wired into a caller yet (Step 6); these tests drive it directly.
+-- | MUL-VAR-1 (Rev 3a), Steps 3 to 6: the product pass in the emitter, the
+-- product mark, the native recheck (LLMLL.ProductRecheck), and Step 6: the
+-- callers' step ('recheckVerdict'), the messages and the Rev 3a
+-- core-admission text.
 module RecheckSpec (recheckSpec) where
 
 import Test.Hspec
@@ -13,12 +14,16 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory (findExecutable)
 
-import LLMLL.Syntax (GrammarMode(..))
+import LLMLL.Syntax
+import LLMLL.TypeCheck (typeCheckStrictWithCacheAndStatus, emptyEnv)
+import LLMLL.TrustReport (downgradeStaleVerifiedSidecar)
+import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..))
+import LLMLL.PatchApply (PatchedFn(..), notProvedMessage)
 import LLMLL.Parser (parseTopLevel)
 import LLMLL.FixpointIR
 import LLMLL.FixpointEmit (EmitResult(..), EmitOptions(..), FallbackCause(..), emitFixpointWith)
 import LLMLL.DiagnosticFQ (FQVerifyResult(..), ConstraintOrigin(..))
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, productRepair)
 import qualified LLMLL.ProductNF as PNF
 import qualified LLMLL.ProductFacts as PF
 import LLMLL.ProductRecheck
@@ -88,6 +93,59 @@ w3Src = T.unlines
   , "    (pre (and (>= y 0) (and (< y h) (and (>= x 0) (and (< x w) (= r (+ (* y w) x)))))))"
   , "    (post (and (>= r 0) (< r (* w h))))"
   , "    0))" ]
+
+-- | Statements of one module, parsed.
+parseMod :: Text -> [Statement]
+parseMod src = case parseTopLevel GrammarCoreInversion "<mul-var>" src of
+  Left err    -> error ("parse failed: " <> show err)
+  Right stmts -> stmts
+
+-- | The W-BODY-FALLBACK diagnostics of an emit result.
+bodyFallbackMsgs :: EmitResult -> [Text]
+bodyFallbackMsgs er = [ diagMessage d | d <- erDiagnostics er, diagCode d == Just "W-BODY-FALLBACK" ]
+
+-- | MUL-VAR-1 Rev 3a: a caller module @c@ of the imported @m.f@ whose
+-- sidecar entry is the given one (or none), checked under strict core.
+coreAdmission :: Text -> Maybe ContractStatus -> [Diagnostic]
+coreAdmission fSrc mcs =
+  let mStmts = parseMod fSrc
+      menv = ModuleEnv
+        { meExports        = Map.fromList [("f", TFn [TInt, TInt, TInt] TBool)]
+        , meStatements     = mStmts
+        , meInterfaces     = Map.empty
+        , meAliasMap       = Map.empty
+        , mePath           = ["m"]
+        , meContractStatus = maybe Map.empty (\cs -> Map.fromList [("f", cs)]) mcs
+        , meContracts      = Map.empty
+        , meRetTypes       = Map.empty
+        , meBuiltinAxioms  = Nothing, meGenericSites = Map.empty }
+      cStmts = parseMod $ T.unlines
+        [ "(module c (import m)"
+        , "  (def c [a: int] -> bool (pre (> a 0)) (post true) (m.f a a a)))" ]
+  in reportDiagnostics (typeCheckStrictWithCacheAndStatus GrammarCoreInversion
+                          (Map.fromList [(["m"], menv)]) Map.empty emptyEnv cStmts)
+
+-- | A sidecar entry that is not admissible: verify ran and asserted the post.
+assertedCS :: ContractStatus
+assertedCS = ContractStatus Nothing
+  (Just (EvidenceRecord DLAsserted False Nothing [] False Nothing Nothing False Nothing False [])) []
+
+-- | The design's positive witness (mul-var-proposal.md, "Caller, at core
+-- admission"): the facts cannot prove the cubic inequality, so verify falls
+-- back on f.
+cubicSrc :: Text
+cubicSrc = T.unlines
+  [ "(module m (export f)"
+  , "  (def f [x: int y: int z: int] -> bool"
+  , "    (pre (and (> x 0) (and (> y 0) (> z 0))))"
+  , "    (post (= result true))"
+  , "    (!= (+ (* x (* x x)) (* y (* y y))) (* z (* z z)))))" ]
+
+coreKinds :: [Diagnostic] -> [Diagnostic]
+coreKinds ds = [ d | d <- ds, diagKind d == Just "core-membership-violation" ]
+
+nonlinearText :: Text
+nonlinearText = "def 'c': callee 'm.f' was verified but is not body-faithful. Its body holds a product of two non-constant terms at (* x (* x x)); verify may fall back on such a product. Only verified functions are admissible in strict-core bodies."
 
 -- ---------------------------------------------------------------------------
 -- The spec
@@ -400,6 +458,154 @@ recheckSpec = describe "MUL-VAR-1 product pass, mark and native recheck" $ do
               case a' of
                 RValidated vals -> lookup "v" vals `shouldSatisfy` maybe False (\case VInt n -> n < 0 || n > 255; _ -> False)
                 other -> expectationFailure ("expected a validated model, got " <> show other)
+
+  describe "Step 6: the callers' step and the messages" $ do
+    it "recheckVerdict: M1's validated model clears the id, so the function is refuted" $ do
+      mz3 <- findExecutable "z3"
+      case mz3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just _ -> do
+          er <- emitSrc m1Src
+          let c = productGoal er
+          (av, answers) <- recheckVerdict er (FQUnsafe [conId c])
+          map snd answers `shouldSatisfy` all isValidated
+          aoResult av `shouldBe` FQUnsafe [conId c]
+          aoRefuted av `shouldBe` Set.fromList ["mv-m1"]
+          aoAbstractionConstructs av `shouldBe` []
+    it "recheckVerdict: a native unsat keeps the mark, so the function falls back (never verified)" $ do
+      mz3 <- findExecutable "z3"
+      case mz3 of
+        Nothing -> pendingWith "z3 not installed"
+        Just _ -> do
+          er <- emitSrc w3Src
+          let c = productGoal er
+          (av, answers) <- recheckVerdict er (FQUnsafe [conId c])
+          map snd answers `shouldBe` [RUnsat]
+          aoRefuted av `shouldBe` Set.empty
+          "mv-w3" `elem` erBodyFaithfulFns (aoEmit av) `shouldBe` False
+          aoAbstractionConstructs av `shouldBe` [("mv-w3", "abstraction:nonlinear:*")]
+    it "recheckVerdict: an answer with no product-marked failing id runs no recheck" $ do
+      er <- emitSrc w3Src
+      (av, answers) <- recheckVerdict er FQSafe
+      answers `shouldBe` []
+      aoResult av `shouldBe` FQSafe
+      (av2, answers2) <- recheckVerdict er (FQUnsafe [9999])
+      answers2 `shouldBe` []
+      aoResult av2 `shouldBe` FQUnsafe [9999]
+    it "F11: a product prints abstraction:nonlinear:*, never abstraction:app: or ''; W-BODY-FALLBACK has the product text" $ do
+      er <- emitSrc w3Src
+      let c = productGoal er
+          av = applyAbstractionVerdict Set.empty er (FQUnsafe [conId c])
+          msgs = bodyFallbackMsgs (aoEmit av)
+      aoAbstractionConstructs av `shouldBe` [("mv-w3", "abstraction:nonlinear:*")]
+      msgs `shouldBe`
+        [ T.intercalate "\n"
+            [ "W-BODY-FALLBACK mv-w3: the post is not proved. A product is in the failing constraint."
+            , "  Refused by: abstraction:nonlinear:*   at " <> maybe "" coJsonPtr (Map.lookup (conId c) (erConstraintTable er))
+            , "  Product facts did not prove it. Native z3 found no counterexample."
+            , "  The post stays a run-time check. A strict-core def that calls mv-w3 will be refused." ] ]
+      any (\m -> "''" `T.isInfixOf` m || "abstraction:app:" `T.isInfixOf` m) msgs `shouldBe` False
+    it "over the pair limit, the W-BODY-FALLBACK names the pair count and the limit" $ do
+      er0 <- emitSrc w3Src
+      let c = productGoal er0
+          er = er0 { erProductPairs = Map.singleton (conId c) 65 }
+          msgs = bodyFallbackMsgs (aoEmit (applyAbstractionVerdict Set.empty er (FQUnsafe [conId c])))
+      msgs `shouldSatisfy` any (T.isInfixOf "  This constraint holds 65 product pairs, including any unrelated product in scope; the limit is 64, so monotonicity and congruence facts were not added.")
+      msgs `shouldSatisfy` all (not . T.isInfixOf "Product facts did not prove it")
+    it "F11: a definedness-only product fallback gets the product repair, not \"two calls to ''\"" $ do
+      er0 <- emitSrc w3Src
+      let c = productGoal er0
+          er = er0 { erConstraintTable = Map.adjust (\o -> o { coClause = "wd-post" }) (conId c) (erConstraintTable er0) }
+          av = applyAbstractionVerdict Set.empty er (FQUnsafe [conId c])
+          msgs = bodyFallbackMsgs (aoEmit av)
+      aoWelldefUnproved av `shouldBe` [("mv-w3", "welldef:abstraction:nonlinear:*")]
+      msgs `shouldSatisfy` any (productRepair `T.isSuffixOf`)
+      any ("''" `T.isInfixOf`) msgs `shouldBe` False
+    it "a limit refusal prints W-BODY-FALLBACK with the over-the-limit line (it was silent)" $ do
+      er <- emitSrc $ T.unlines
+        [ "(module mv-chain (export mv-chain)"
+        , "  (def-shell mv-chain [x0: int x1: int x2: int] -> int"
+        , "    (pre (and (= x1 (+ (* x0 x0) 1)) (= x2 (+ (* x1 x1) 1))))"
+        , "    (post (>= (* x2 x2) 0))"
+        , "    0))" ]
+      case bodyFallbackMsgs er of
+        [m] -> do
+          T.lines m !! 0 `shouldBe` "W-BODY-FALLBACK mv-chain: the post is not proved. A product is in the failing constraint."
+          T.lines m !! 1 `shouldSatisfy` T.isPrefixOf "  Refused by: nonlinear:*   at /statements/"
+          T.lines m !! 2 `shouldBe` "  This constraint is over the limit for products after its equations are applied."
+        other -> expectationFailure ("expected one W-BODY-FALLBACK, got " <> show other)
+    it "finding 4: a product refused inside a pre (pre-d7) is contract-pre-outside-fragment" $ do
+      er <- emitSrc $ T.unlines
+        [ "(module pre-d7 (export pd7)"
+        , "  (def-shell pd7 [x: int y: int] -> int"
+        , "    (pre (> (* x (* x (* x (* x (* x (* x (* x y))))))) 0))"
+        , "    (post (>= result 0))"
+        , "    (+ y 1)))" ]
+      lookup "pd7" (erBodyFallbackCauses er) `shouldBe` Just FallbackContractPre
+      lookup "pd7" (erFallbackConstructs er) `shouldBe` Just ["nonlinear:*"]
+    it "finding 4 control: the same product in the body stays body-outside-fragment" $ do
+      er <- emitSrc $ T.unlines
+        [ "(module body-d7 (export bd7)"
+        , "  (def-shell bd7 [x: int y: int] -> int"
+        , "    (pre (> y 0))"
+        , "    (post (>= result 0))"
+        , "    (* x (* x (* x (* x (* x (* x (* x y)))))))))" ]
+      lookup "bd7" (erBodyFallbackCauses er) `shouldBe` Just FallbackBody
+    it "the refuted line prints integer and boolean values in name order, in the one allowed form" $ do
+      counterexampleLine [("y", VInt 24), ("h", VInt 25), ("b", VMap (VInt 0) Map.empty), ("w", VInt 21), ("x", VInt (-1)), ("p", VBool True)]
+        `shouldBe` "VC counterexample: h=25 p=true w=21 x=-1 y=24. Callee results in it are assumed, not computed."
+    it "patch: notProvedMessage names the product, not two calls" $ do
+      notProvedMessage (PatchedFn "f" False (Just "abstraction-unsafe") ["abstraction:nonlinear:*"])
+        `shouldBe` "'f' was not proved: a product is in the failing constraint, and native z3 found no counterexample (abstraction:nonlinear:*). Its postcondition was assumed."
+
+  describe "Step 6: core admission (Rev 3a, caller of an imported callee with a product)" $ do
+    it "positive witness: an asserted sidecar entry and the cubic body give the product text" $ do
+      let ds = coreKinds (coreAdmission cubicSrc (Just assertedCS))
+      map diagMessage ds `shouldBe` [nonlinearText]
+      map diagSuggestion ds `shouldBe`
+        [Just "run (llmll verify) on m.f's module and read W-BODY-FALLBACK for the cause; restate m.f's contract, or write 'c' as a def-shell."]
+    it "a callee in the same file keeps the Local text" $ do
+      let stmts = parseMod $ T.unlines
+            [ "(module m"
+            , "  (def f [x: int y: int z: int] -> bool"
+            , "    (pre (and (> x 0) (and (> y 0) (> z 0))))"
+            , "    (post (= result true))"
+            , "    (!= (+ (* x (* x x)) (* y (* y y))) (* z (* z z))))"
+            , "  (def c [a: int] -> bool (pre (> a 0)) (post true) (f a a a)))" ]
+          ds = coreKinds (reportDiagnostics (typeCheckStrictWithCacheAndStatus GrammarCoreInversion
+                 Map.empty (Map.fromList [("f", assertedCS)]) emptyEnv stmts))
+      map diagMessage ds `shouldSatisfy` all (T.isInfixOf "is defined in this file")
+      length ds `shouldBe` 1
+    it "a callee with a product and no sidecar entry keeps today's text" $ do
+      let ds = coreKinds (coreAdmission cubicSrc Nothing)
+      map diagMessage ds `shouldBe`
+        ["def 'c': callee 'm.f' is not body-faithful and not in the trusted prelude; only verified (body-faithful) functions and trusted builtins are admissible in strict-core bodies"]
+    it "a callee whose fallback has another cause but whose body holds a product gets the product text" $ do
+      let src = T.unlines
+            [ "(module m (export f)"
+            , "  (def-shell f [x: int y: int z: int] -> bool"
+            , "    (post (= result true))"
+            , "    (let [(s (string-concat \"a\" \"b\"))]"
+            , "      (> (+ (string-length s) (* x y)) z))))" ]
+          ds = coreKinds (coreAdmission src (Just assertedCS))
+      map diagMessage ds `shouldSatisfy` all (T.isInfixOf "holds a product of two non-constant terms at (* x y);")
+      length ds `shouldBe` 1
+    it "a stale sidecar entry (hash no longer matches) gets the product text" $ do
+      let staleER = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False
+                      (Just "0000000000000000000000000000000000000000000000000000000000000000") False []
+          raw = Map.fromList [("f", ContractStatus Nothing (Just staleER) [])]
+          (validated, _) = downgradeStaleVerifiedSidecar (parseMod cubicSrc) raw
+      fmap erBodyFaithful (csPost (validated Map.! "f")) `shouldBe` Just False
+      map diagMessage (coreKinds (coreAdmission cubicSrc (Map.lookup "f" validated))) `shouldBe` [nonlinearText]
+    it "a constant-folded product does not match: (* 3 x) and (* (+ 1 2) x) keep today's text" $ do
+      let src = T.unlines
+            [ "(module m (export f)"
+            , "  (def f [x: int y: int z: int] -> bool"
+            , "    (post (= result true))"
+            , "    (> (+ (* 3 x) (* (+ 1 2) y)) z)))" ]
+          ds = coreKinds (coreAdmission src (Just assertedCS))
+      map diagMessage ds `shouldSatisfy` all (T.isInfixOf "is not body-faithful and not in the trusted prelude")
+      length ds `shouldBe` 1
   where
     isLeft = either (const True) (const False)
     isLeftWith frag = either (\e -> T.unpack frag `isInfixOf` T.unpack e) (const False)
