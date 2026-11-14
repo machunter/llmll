@@ -41,7 +41,7 @@ import qualified Control.Exception as CE
 import qualified GHC.IO.Encoding as Enc
 import qualified System.Directory as SD
 import LLMLL.CodegenHs (generateHaskell, generateHaskellMulti, cgMainHs, cgHsSource, cgFfiModHs, cgFfiFiles, cgPackageYaml, cgStackYaml, cgWarnings, emitExpr, emitLit, emitApp, emitOp, wrap, toHsType, hsArg, HsArgPos(..), mapLlmllPrimType, runtimePreamble, httpGetPreamble, httpGetDeps, usesHttpGet, posixFsPreamble, usesPosixFs, emitHole, emitEventLogPreamble, classifyImport, ImportKind(..), sanitizePkgName, esResultForcers, emitStmt, staleCabalFiles, staleExecutables, packageNameFor, reservedHsNames, isReservedHsName, buildRenameMap, renameStatements)
-import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear)
+import LLMLL.HoleAnalysis (analyzeHoles, analyzeHolesWithDeps, holeEntries, holeKind, HoleEntry(..), HoleDep(..), isNonLinear, leanWorklistSelects)
 import qualified LLMLL.HoleAnalysis as HA
 import LLMLL.Ffi (forcerFor, ffiImportErrors, camelName, convIn, convOut, lowerFfiType, ffiBoundaryMisuse, lowerBoundaryMisuse)
 import LLMLL.ParserJSON (parseJSONAST, parseJSONASTValue, expectedSchemaVersion, acceptedSchemaVersions)
@@ -1268,21 +1268,28 @@ main = hspec $ do
                            (holeEntries report)
       length prHoles `shouldBe` 1
 
-    it "non-linear contract auto-emits non-linear-contract hole" $ do
-      -- pre: (* n n) > 0 — multiplication of two variables is non-linear
-      let nlExpr = EApp ">" [EApp "*" [EVar "n", EVar "n"], ELit (LitInt 0)]
-      let stmts = [SDefLogic "f" [("n", TInt)] Nothing
+    -- MUL-VAR-1 ("Lean worklist"): a product of two variables no longer gets
+    -- a static hole (the product facts may prove it); a variable divisor does.
+    it "non-linear contract auto-emits non-linear-contract hole (variable divisor; a product does not)" $ do
+      let nlExpr = EApp ">" [EApp "/" [EVar "n", EVar "m"], ELit (LitInt 0)]
+          stmts = [SDefLogic "f" [("n", TInt), ("m", TInt)] Nothing
                      (Contract (Just nlExpr) Nothing Nothing Nothing Nothing [] []) (EVar "n")]
-      let report = analyzeHoles stmts
-      let prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract" Nothing)
-                           (holeEntries report)
+          prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract" Nothing)
+                           (holeEntries (analyzeHoles stmts))
       length prHoles `shouldBe` 1
+      let mulExpr = EApp ">" [EApp "*" [EVar "n", EVar "n"], ELit (LitInt 0)]
+          mulStmts = [SDefLogic "f" [("n", TInt)] Nothing
+                     (Contract (Just mulExpr) Nothing Nothing Nothing Nothing [] []) (EVar "n")]
+          mulHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract" Nothing)
+                           (holeEntries (analyzeHoles mulStmts))
+      length mulHoles `shouldBe` 0
 
     -- Leanstral Gap B: parsers route * / mod ^ to EOp (not EApp), so a
     -- contract like (* n m) arrives as EOp; isNonLinear must flag it too.
     it "non-linear contract in EOp form auto-emits non-linear-contract hole" $ do
-      -- pre: (* n m) > 0 in EOp form — the shape the parser actually produces
-      let nlExpr = EOp ">" [EOp "*" [EVar "n", EVar "m"], ELit (LitInt 0)]
+      -- pre: (/ n m) > 0 in EOp form — the shape the parser actually produces
+      -- (MUL-VAR-1: a variable divisor; a product is no longer flagged)
+      let nlExpr = EOp ">" [EOp "/" [EVar "n", EVar "m"], ELit (LitInt 0)]
       let stmts = [SDefLogic "f" [("n", TInt), ("m", TInt)] Nothing
                      (Contract (Just nlExpr) Nothing Nothing Nothing Nothing [] []) (EVar "n")]
       let report = analyzeHoles stmts
@@ -1292,11 +1299,14 @@ main = hspec $ do
       length prHoles `shouldBe` 1
 
     it "isNonLinear flags EOp form and matches EApp form (Gap B, no EApp regression)" $ do
-      let eopMul  = EOp  "*" [EVar "n", EVar "m"]
-      let eappMul = EApp "*" [EVar "n", EVar "m"]
+      -- MUL-VAR-1: the witness is a variable divisor; a product is not flagged.
+      let eopMul  = EOp  "/" [EVar "n", EVar "m"]
+      let eappMul = EApp "/" [EVar "n", EVar "m"]
       -- EApp form unchanged (still flagged); EOp form now flagged identically.
       isNonLinear eappMul `shouldBe` True
       isNonLinear eopMul  `shouldBe` True
+      isNonLinear (EApp "*" [EVar "n", EVar "m"]) `shouldBe` False
+      isNonLinear (EOp  "*" [EVar "n", EVar "m"]) `shouldBe` False
       -- linear operator in EOp form stays non-flagged
       isNonLinear (EOp "+" [EVar "n", EVar "m"]) `shouldBe` False
 
@@ -1383,16 +1393,19 @@ main = hspec $ do
       errs `shouldBe` []
 
     -- PPR-T4: non-linear predicate emits a QF-LIA warning
+    -- MUL-VAR-1: the witness is a variable divisor; a product keeps a warning
+    -- of the same form whose text does not say QF-LIA cannot discharge it.
     it "PPR-T4 non-linear predicate in PPR clause emits non-linear warning" $ do
-      let nlPred = EApp ">" [EApp "*" [EVar "n", EVar "n"], ELit (LitInt 0)]
-          stmts  = [SDefLogic "f" [("n", TInt)] (Just TInt)
-                      (Contract (Just (EHole (HProofRequired "manual" (Just nlPred)))) Nothing Nothing Nothing Nothing [] [])
-                      (EVar "n")]
-      let report = typeCheck GrammarCoreInversion emptyEnv stmts
-      let warns = filter (\d -> diagSeverity d == SevWarning
-                              && T.isInfixOf "non-linear" (diagMessage d))
-                         (reportDiagnostics report)
-      length warns `shouldSatisfy` (>= 1)
+      let warnsFor p = filter (\d -> diagSeverity d == SevWarning)
+                         (reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv
+                           [SDefLogic "f" [("n", TInt), ("m", TInt)] (Just TInt)
+                              (Contract (Just (EHole (HProofRequired "manual" (Just p)))) Nothing Nothing Nothing Nothing [] [])
+                              (EVar "n")]))
+          divPred = EApp ">" [EApp "/" [EVar "n", EVar "m"], ELit (LitInt 0)]
+          mulPred = EApp ">" [EApp "*" [EVar "n", EVar "n"], ELit (LitInt 0)]
+      length (filter (T.isInfixOf "non-linear" . diagMessage) (warnsFor divPred)) `shouldSatisfy` (>= 1)
+      length (filter (T.isInfixOf "product of two non-constant terms" . diagMessage) (warnsFor mulPred)) `shouldSatisfy` (>= 1)
+      filter (T.isInfixOf "QF-LIA" . diagMessage) (warnsFor mulPred) `shouldBe` []
 
     -- PPR-T5: predicate in post position with result variable passes typecheck
     it "PPR-T5 bool predicate in post-position PPR clause with result passes typecheck" $ do
@@ -6139,13 +6152,29 @@ main = hspec $ do
                      (EOp "+" [EVar "n", ELit (LitInt 1)]) [] []  -- linear
           stmts         = [square, inc]
           fallbackNames = Set.fromList ["square"]  -- erBodyFallback: only the nonlinear body
+          -- MUL-VAR-1: the construct the verdict rule records for a product
+          -- that fell back.
+          constructs    = [("square", ["abstraction:nonlinear:*"])]
           -- Mirrors runLeanstralPipeline's nonlinearFallback comprehension.
           selected = [ n
                      | s <- stmts
                      , Just (n, _, _, _, b) <- [normalizeDefStmt s]
                      , n `Set.member` fallbackNames
-                     , isNonLinear b ]
+                     , leanWorklistSelects (concat [ cs | (m, cs) <- constructs, m == n ]) b ]
       selected `shouldBe` ["square"]
+
+    -- MUL-VAR-1 ("Lean worklist"): the selection reads the outcome, not the
+    -- syntax of a product.
+    it "MUL-VAR-1 Lean worklist: selects by outcome construct, or a remaining nonlinear operator" $ do
+      let prod = EOp "*" [EVar "x", EVar "y"]
+          lin  = EOp "+" [EVar "x", EVar "y"]
+      leanWorklistSelects ["abstraction:nonlinear:*"] prod `shouldBe` True
+      leanWorklistSelects ["nonlinear:*"] prod `shouldBe` True    -- over a product limit
+      leanWorklistSelects [] prod `shouldBe` False                -- a product with no product cause
+      leanWorklistSelects ["abstraction:app:g"] prod `shouldBe` False
+      leanWorklistSelects [] (EOp "/" [EVar "x", EVar "y"]) `shouldBe` True  -- variable divisor
+      leanWorklistSelects ["abstraction:nonlinear:*"] lin `shouldBe` True    -- product in the contract only
+      leanWorklistSelects [] lin `shouldBe` False
 
     -- Layer-3: parse the model response (fence extraction) + anti-laundering
     it "Layer-3: extractLeanFence pulls the ```lean block out of a prose+fence response" $ do
@@ -6652,11 +6681,12 @@ verifyIntegrationTests = describe "Verify Integration (v0.3.1)" $ do
                       (EOp "*" [EVar "n", EVar "n"]) [] []
                   ]
           fallbackNames = Set.fromList ["square"]   -- as reported in erBodyFallback
+          constructs    = [("square", ["abstraction:nonlinear:*"])]  -- MUL-VAR-1
           worklist = [ (n, p, r, c, b)
                      | s <- stmts
                      , Just (n, p, r, c, b) <- [normalizeDefStmt s]
                      , n `Set.member` fallbackNames
-                     , isNonLinear b ]
+                     , leanWorklistSelects (concat [ cs | (m, cs) <- constructs, m == n ]) b ]
       length worklist `shouldBe` 1
       case worklist of
         [(name, params, ret, contract, body)] ->
@@ -18097,6 +18127,43 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           classifyReplay (Just "sha256:H") meta RSafe art `shouldBe`
             ReplayFailClosed "written under a different soundness epoch; re-verify"
 
+    -- MUL-VAR-1 ("Verdict and recheck", Replay): a stored VC with a product
+    -- that reproduced UNSAFE reruns the native recheck, and the product
+    -- functions' recorded verdict must come back from it.
+    it "PA-7 (MUL-VAR-1): replay of a rechecked artifact reproduces refuted and the fallback; fails closed otherwise" $ do
+      let meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
+          rec' fi = either (error . show) id (mkFnRecord fi)
+          refutedM1 = rec' pos { fiName = "m1", fiTier = TAsserted, fiRefuted = True }
+          fellW23   = rec' pos { fiName = "w23", fiTier = TAsserted, fiFallbackReason = Just "abstraction-unsafe" }
+          art vc = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0" (Just checkerSoundnessVersion))
+                     "f.llmll" (Just "sha256:H") meta codegenSemanticsVersion
+                     RUnsafeRefuted vc Nothing [refutedM1, fellW23] Nothing
+          prodArt = art "(constraint ... mul##0 ...)"
+          o0 = ReplayReproduced RUnsafeRefuted
+          failed o = case o of ReplayFailClosed _ -> True; _ -> False
+          both = Set.fromList ["m1", "w23"]
+          rr ref ill fb = RecheckRerun both (Set.fromList ref) (Set.fromList ill) (Set.fromList fb)
+      -- needed only for a product VC that reproduced UNSAFE
+      recheckReplayNeeded prodArt o0 `shouldBe` True
+      recheckReplayNeeded (art "no product here") o0 `shouldBe` False
+      recheckReplayNeeded prodArt (ReplayReproduced RSafe) `shouldBe` False
+      recheckReplayNeeded prodArt (ReplayFailClosed "x") `shouldBe` False
+      -- the rerun gives m1 refuted and w23 fallback back: reproduced
+      classifyRecheckReplay (rr ["m1"] [] ["w23"]) prodArt o0 `shouldBe` o0
+      -- the rerun recheck did not validate m1's model: fails closed
+      classifyRecheckReplay (rr [] [] ["m1", "w23"]) prodArt o0 `shouldSatisfy` failed
+      -- the rerun validated a model for w23, which the artifact records as fallback
+      classifyRecheckReplay (rr ["m1", "w23"] [] []) prodArt o0 `shouldSatisfy` failed
+      -- an ill-defined flag that does not come back
+      classifyRecheckReplay (rr ["m1"] ["m1"] ["w23"]) prodArt o0 `shouldSatisfy` failed
+      -- the recheck could not be rerun (z3 missing is a non-validated answer,
+      -- caught above; a source that no longer emits the stored VC is here)
+      classifyRecheckReplay (RecheckNotRerun "the named source no longer emits the stored VC") prodArt o0 `shouldSatisfy` failed
+      -- an earlier failure is kept
+      classifyRecheckReplay (rr ["m1"] [] ["w23"]) prodArt (ReplayFailClosed "hash") `shouldBe` ReplayFailClosed "hash"
+      -- a function owning no product-marked id is not compared
+      classifyRecheckReplay (RecheckRerun Set.empty Set.empty Set.empty Set.empty) prodArt o0 `shouldBe` o0
+
   -- -----------------------------------------------------------------------
   -- CodegenHs: generated Main.hs must be valid, compilable Haskell
   -- (regression for the v0.14.2 doc-audit hangman findings — the `esc`
@@ -22704,7 +22771,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "SCA-18: isNonLinear fires only on refused forms" $ do
       isNonLinear (op "*" (i 8) (v "r")) `shouldBe` False
       isNonLinear (EApp "mod" [v "x", i 8]) `shouldBe` False
-      isNonLinear (op "*" (v "x") (v "y")) `shouldBe` True
+      -- MUL-VAR-1: a product of two variables is encoded, so not flagged;
+      -- a variable divisor under it still is.
+      isNonLinear (op "*" (v "x") (v "y")) `shouldBe` False
+      isNonLinear (op "*" (v "x") (op "/" (v "a") (v "b"))) `shouldBe` True
+    -- MUL-VAR-1 ("Lean worklist"): the explicit ?proof-required warning keeps
+    -- its form; for a product it no longer says QF-LIA cannot discharge it.
+    it "SCA-18b: the ?proof-required warning on a product does not say QF-LIA cannot discharge it" $ do
+      let msgs src = map diagMessage (checkErrs src)
+          prod = msgs "(def-shell f [x: int y: int] -> int (post (?proof-required :reason \"r\" (>= (* x y) 0))) 0)"
+          divv = msgs "(def-shell g [x: int y: int] -> int (post (?proof-required :reason \"r\" (>= (/ x y) 0))) 0)"
+      any (T.isInfixOf "product of two non-constant terms") prod `shouldBe` True
+      any (T.isInfixOf "QF-LIA") prod `shouldBe` False
+      any (T.isInfixOf "cannot be discharged by QF-LIA") divv `shouldBe` True
       isNonLinear (op "/" (v "x") (op "-" (i 0) (i 8))) `shouldBe` True
       isNonLinear (op "/" (i 7) (i 0)) `shouldBe` True
 
@@ -27897,9 +27976,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       wds `shouldSatisfy` (not . null)
       T.isInfixOf "\"status\":\"ill-defined\"" js `shouldBe` True
 
-    it "H-3 trust_report_version is 1.11.0 and verify_json_version is 1.1.0" $ do
+    -- MUL-VAR-1: verify_json_version 1.2.0 (abstraction:nonlinear:*); the
+    -- trust report version does not move (design decision 4).
+    it "H-3 trust_report_version is 1.11.0 and verify_json_version is 1.2.0" $ do
       trustReportEmitVersion `shouldBe` "1.11.0"
-      verifyJsonVersion `shouldBe` "1.1.0"
+      verifyJsonVersion `shouldBe` "1.2.0"
 
   -- CLAUSE-WELLDEF-1 (commit 3 of 3): the run-time guard (clause-welldef-
   -- proposal.md Rev 3 §4.6). A partial operation inside a clause check stops

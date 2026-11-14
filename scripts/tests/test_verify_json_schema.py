@@ -95,6 +95,25 @@ def test_vs_strict_core_refusal_is_not_run(tmp_path):
     assert (doc["solver_verdict"], doc["exit_code"]) == ("not-run", 1)
 
 
+# MUL-VAR-1 (verify_json_version 1.2.0): a product the facts cannot prove and
+# the native recheck cannot refute (witness W23, x*x != 2*y*y) prints
+# `abstraction:nonlinear:*` under `abstraction_fallback`. The 1.1.0 pattern
+# `^abstraction:app:` rejected it.
+W23_PRODUCT_FALLBACK = (
+    "(def-shell w23 [x: int y: int] -> int (pre (and (> x 0) (> y 0)))"
+    " (post (not (= (* x x) (* 2 (* y y))))) 0)\n"
+)
+
+
+@pytest.mark.parametrize("flags", [[], ["--trust-report"]], ids=["plain", "--trust-report"])
+def test_vs_product_fallback_validates(tmp_path, flags):
+    r, doc = _verify(tmp_path, W23_PRODUCT_FALLBACK, flags)
+    _assert_valid(doc, r.returncode)
+    assert doc["verify_json_version"] == "1.2.0"
+    assert doc["abstraction_fallback"] == {"w23": "abstraction:nonlinear:*"}, doc
+    assert r.returncode == 0
+
+
 def test_vs_solver_absent_is_not_run(tmp_path):
     empty = tmp_path / "empty-path"
     empty.mkdir()

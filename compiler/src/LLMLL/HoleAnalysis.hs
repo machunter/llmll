@@ -35,6 +35,7 @@ module LLMLL.HoleAnalysis
   , enclosingFunc
     -- * v0.11 LT-PPR: non-linear arithmetic predicate (shared with TypeCheck)
   , isNonLinear
+  , leanWorklistSelects  -- MUL-VAR-1: the Lean worklist reads the outcome
     -- * HOLE-STATUS-SIBLING: body-hole traversal (shared with Checkout, which
     -- classifies a sibling function's fill state from its body's holes)
   , collectHolesExprPath
@@ -349,9 +350,17 @@ isSimpleDecreases _         = False
 -- not an admitted constant-linear form ('constArithAdmitted', the predicate the
 -- verifier uses), so `(* 8 r)` no longer gets a `non-linear-contract` hole and
 -- `(/ x 0)` now does. `rem`, `^` and `**` keep the literal-operand rule.
+--
+-- MUL-VAR-1 ("Lean worklist"): a `*` is never flagged by itself, for the same
+-- reason that `(* 8 r)` stopped being flagged: the emitter now encodes a
+-- product of two non-constant terms with the product facts, so a static
+-- `non-linear-contract` hole on it would be noise. Its operands are still
+-- scanned, so `(* x (/ a b))` stays flagged through the variable divisor.
+-- Whether a product fell back is an outcome, not a syntactic fact; the Lean
+-- worklist reads it from 'leanWorklistSelects'.
 isNonLinear :: Expr -> Bool
 isNonLinear (EApp op args)
-  | op `elem` ["*", "/", "mod"]
+  | op `elem` ["/", "mod"]
   , length args == 2
   , not (constArithAdmitted op args) = True  -- e.g. (* n m), (/ x y), (mod x -8)
   | op `elem` ["rem", "^", "**"]
@@ -368,6 +377,19 @@ isNonLinear (ELet _ body)   = isNonLinear body
 isNonLinear (EIf c t f)     = isNonLinear c || isNonLinear t || isNonLinear f
 isNonLinear (EMatch s arms) = isNonLinear s || any (isNonLinear . snd) arms
 isNonLinear _               = False
+
+-- | MUL-VAR-1 ("Lean worklist"): whether a function that fell back goes to
+-- the Lean worklist, from its outcome. The first argument is the function's
+-- fallback constructs ('erFallbackConstructs'). Selected: a product the
+-- verdict rule moved to fallback (@abstraction:nonlinear:*@), a product the
+-- emitter refused over a limit (@nonlinear:*@), or a body that holds a
+-- remaining nonlinear operator ('isNonLinear': a variable divisor, @rem@,
+-- @^@, @**@). A product that the facts proved is not in the fallback set, so
+-- it never reaches this test.
+leanWorklistSelects :: [Text] -> Expr -> Bool
+leanWorklistSelects constructs body =
+  any (`elem` ["abstraction:nonlinear:*", "nonlinear:*"]) constructs
+  || isNonLinear body
 
 -- ---------------------------------------------------------------------------
 -- Hole Classification

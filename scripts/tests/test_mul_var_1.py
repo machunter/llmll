@@ -29,7 +29,10 @@ What a pass here means:
   diverge classifier puts it under `refuted` (before: `outside_fragment`),
   and `--cdp` kills mutants of a product post (before: every candidate was
   excluded).
-* A replay of the proof artifact of a rechecked refutation reproduces.
+* A replay of the proof artifact of a rechecked refutation reproduces, and
+  reruns the recheck: an artifact whose product function's recorded verdict
+  the rerun recheck does not give back fails closed (step 7).
+* The trust report names the ground-fact family `product-facts`.
 
 Every test needs a built llmll (LLMLL_BIN), liquid-fixpoint and z3 on PATH.
 The `--cdp` test is one run; CDP runs must not overlap (CDP-FQ-RACE-1).
@@ -271,6 +274,62 @@ def test_mv_replay_of_a_rechecked_refutation_reproduces(tmp_path: Path) -> None:
     r = _run(tmp_path, "replay-artifact", "m1.pa.json")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "reproduced" in r.stdout, r.stdout
+
+
+def _tamper(path: Path, fid: str, **fields) -> None:
+    art = json.loads(path.read_text())
+    f = next(f for f in art["functions"] if f["name"] == fid)
+    f.update(fields)
+    path.write_text(json.dumps(art))
+
+
+def test_mv_replay_reruns_the_recheck_and_fails_closed_on_a_changed_refutation(tmp_path: Path) -> None:
+    """Step 7: replay reruns the native recheck on the stored VC. The raw
+    answer of M1 is UNSAFE either way, so a replay that compared only the raw
+    answer (step 6) reproduced an artifact whose M1 record says fallback
+    instead of refuted. The recheck validates M1's model again, so that
+    record does not reproduce and the replay fails closed."""
+    shutil.copy(FIXTURES / "m1.llmll", tmp_path / "m1.llmll")
+    p = _run(tmp_path, "verify", "m1.llmll", "--proof-artifact", "m1.pa.json")
+    assert p.returncode == 1, p.stdout + p.stderr
+    _tamper(tmp_path / "m1.pa.json", "mv-m1", refuted=False, fallback_reason="abstraction-unsafe")
+    r = _run(tmp_path, "replay-artifact", "m1.pa.json")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "FAILED CLOSED" in r.stdout and "native recheck" in r.stdout, r.stdout
+
+
+def test_mv_replay_of_a_product_fallback_reproduces_and_a_forged_refutation_fails_closed(tmp_path: Path) -> None:
+    """W23: the raw answer is UNSAFE and the recheck validates no model, so
+    the artifact records a fallback. Its replay reproduces; the same artifact
+    with W23 forged to refuted fails closed, because the rerun recheck gives
+    no model."""
+    shutil.copy(FIXTURES / "w23.llmll", tmp_path / "w23.llmll")
+    p = _run(tmp_path, "verify", "w23.llmll", "--proof-artifact", "w23.pa.json")
+    assert p.returncode == 0, p.stdout + p.stderr
+    art = json.loads((tmp_path / "w23.pa.json").read_text())
+    assert art["solver_result"] == "unsafe-refuted", art
+    f = next(f for f in art["functions"] if f["name"] == "mv-w23")
+    assert f["refuted"] is False and f["fallback_reason"] == "abstraction-unsafe", f
+    r = _run(tmp_path, "replay-artifact", "w23.pa.json")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "reproduced" in r.stdout, r.stdout
+    _tamper(tmp_path / "w23.pa.json", "mv-w23", refuted=True)
+    r = _run(tmp_path, "replay-artifact", "w23.pa.json")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "FAILED CLOSED" in r.stdout and "native recheck" in r.stdout, r.stdout
+
+
+def test_mv_trust_report_discloses_the_product_facts_family(tmp_path: Path) -> None:
+    """Design "Disclosure": one ground-fact family, product-facts, on a
+    function whose proof used the facts. No new assumed_facts kind."""
+    shutil.copy(FIXTURES / "w3.llmll", tmp_path / "w3.llmll")
+    p = _run(tmp_path, "--json", "verify", "--trust-report", "w3.llmll")
+    assert p.returncode == 0, p.stdout + p.stderr
+    doc = _last_json(p.stdout)
+    tr = _nested(doc, "trust_report")
+    entry = next(e for e in tr["entries"] if e["name"] == "mv-w3")
+    assert "product-facts" in entry.get("ground_fact_families", []), entry
+    assert tr["trust_report_version"] == "1.11.0", tr.get("trust_report_version")
 
 
 AREA = """(module area

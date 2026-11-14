@@ -44,6 +44,9 @@ module LLMLL.ProofArtifact
   , ReplayOutcome(..)
   , classifyReplay
   , classifyReplayChecked
+  , RecheckReplay(..)
+  , classifyRecheckReplay
+  , recheckReplayNeeded
     -- * Constants
   , proofArtifactVersion
   , codegenSemanticsVersion
@@ -52,6 +55,8 @@ module LLMLL.ProofArtifact
 
 import           Data.Aeson
 import           Data.Aeson.Types   (Parser)
+import           Data.Set           (Set)
+import qualified Data.Set           as Set
 import           Data.Text          (Text)
 import qualified Data.Text          as T
 
@@ -318,6 +323,50 @@ classifyReplay recomputedHash curMeta rerun art
       ReplayFailClosed "verdict did not reproduce"
   | otherwise =
       ReplayReproduced rerun
+
+-- | MUL-VAR-1 ("Verdict and recheck", Replay): what the replay recomputed
+-- from the stored VC with the native recheck rerun. The artifact keeps its
+-- format: it records the raw answer and each function's verdict, and the
+-- replay re-derives the product functions' verdict from the raw answer.
+data RecheckReplay
+  = RecheckNotRerun Text
+    -- ^ the recheck could not be rerun on the stored VC (why); fails closed
+  | RecheckRerun (Set Text) (Set Text) (Set Text) (Set Text)
+    -- ^ the rerun: functions owning a product-marked failing id; then those
+    -- refuted, ill-defined and moved to fallback after the rerun recheck and
+    -- the verdict rule
+  deriving (Show, Eq)
+
+-- | MUL-VAR-1: a replay reruns the recheck only for a stored VC that holds a
+-- product symbol and whose raw answer reproduced as UNSAFE. Every other
+-- artifact replays exactly as before.
+recheckReplayNeeded :: ProofArtifact -> ReplayOutcome -> Bool
+recheckReplayNeeded art o = case o of
+  ReplayReproduced RUnsafeRefuted -> "mul##" `T.isInfixOf` paVc art
+  _                               -> False
+
+-- | MUL-VAR-1 ("Verdict and recheck", Replay): "A replay of a rechecked
+-- @refuted@ reruns the recheck on the stored VC. If it does not reproduce, it
+-- fails closed." Applied after 'classifyReplayChecked'. Each function owning
+-- a product-marked failing id must get the recorded @refuted@ and
+-- @ill_defined@ flags back from the rerun recheck, and a function the rerun
+-- moves to fallback must carry a recorded fallback reason. A recheck that
+-- could not be rerun fails closed, as does any disagreement.
+classifyRecheckReplay :: RecheckReplay -> ProofArtifact -> ReplayOutcome -> ReplayOutcome
+classifyRecheckReplay _ _ o@(ReplayFailClosed _) = o
+classifyRecheckReplay (RecheckNotRerun why) _ _ =
+  ReplayFailClosed ("the native recheck of a product constraint could not be rerun: " <> why)
+classifyRecheckReplay (RecheckRerun owners refuted illDef fallback) art o
+  | all agrees (Set.toList owners) = o
+  | otherwise = ReplayFailClosed
+      "the native recheck of a product constraint did not reproduce the recorded verdict"
+  where
+    recorded n = [ f | f <- paFunctions art, fnName f == n ]
+    flag sel n = any sel (recorded n)
+    agrees n =
+         flag fnRefuted n == Set.member n refuted
+      && flag fnIllDefined n == Set.member n illDef
+      && (not (Set.member n fallback) || flag (maybe False (const True) . fnFallbackReason) n)
 
 -- ---------------------------------------------------------------------------
 -- JSON — FnRecord deserialization routes through the kernel (laundered → parse failure)

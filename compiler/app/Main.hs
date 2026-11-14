@@ -55,7 +55,7 @@ import LLMLL.HoleAnalysis
   , totalHoles, blockingHoles, holeEntries
   , holeName, holeContext, holeDescription, holeStatus
   , formatHoleReport, formatHoleReportSExp
-  , formatHoleReportJson, holeDensityWarnings, isNonLinear)
+  , formatHoleReportJson, holeDensityWarnings, leanWorklistSelects)
 import LLMLL.Ffi (ffiEntriesOf)
 import LLMLL.PBT (runPropertyTestsWithSeed, assembleTestStatements, pbtTrustWritebackWith, PBTResult(..), PBTRun(..), PBTStatus(..))
 import LLMLL.Module (mergeCS)
@@ -71,7 +71,7 @@ import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, resourceStopValue, fqP
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, getSolverLimits, renderLimits, parseLimits, installSolverSignalHandlers)
 -- ABSTRACTION-VERDICT-1: every solver consumer that turns UNSAFE into a claim
 import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoFallbackFns, aoReportCtx, postUnassumedConstruct)
-import LLMLL.ProductRecheck (recheckVerdict, counterexampleLine, RecheckAnswer(..))
+import LLMLL.ProductRecheck (recheckVerdict, recheckCandidates, counterexampleLine, RecheckAnswer(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
 import LLMLL.InvariantRegistry (defaultPatterns)
@@ -2202,7 +2202,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           case fqResult of
             FQSafe -> do
               when (lsMock lsOpts || isJust (lsCmd lsOpts) || lsLeanstral lsOpts) $
-                runLeanstralPipeline json fp stmts (erBodyFallback emitR) lsOpts
+                runLeanstralPipeline json fp stmts (erBodyFallback emitR) (erFallbackConstructs emitR) lsOpts
               -- Leanstral demo (FIX B, trust surface 1): the '.verified.json'
               -- sidecar was written above, before this run's prover (if any)
               -- added proof-cache entries. Re-stamp it so a kernel-checked
@@ -2544,16 +2544,19 @@ checkWeaknessCandidate gm lfBin _json typeDefs wc = do
 --
 -- Two sources (Professor flag E1: scan [Statement] directly, not HoleReport):
 --
---   * Layer-2 demo route: a function in 'erBodyFallback' whose body is
---     nonlinear arithmetic ('isNonLinear'). Its post escaped QF-LIA → landed at
+--   * Layer-2 demo route: a function in 'erBodyFallback' that fell back on
+--     nonlinear arithmetic. MUL-VAR-1 ("Lean worklist"): selected from the
+--     outcome ('leanWorklistSelects'), its construct @abstraction:nonlinear:*@
+--     or @nonlinear:*@, or a body with a remaining nonlinear operator, since a
+--     product the facts prove no longer falls back. Its post landed at
 --     'asserted'; under @--leanstral@ we hand its REAL body
 --     @(name, params, ret, contract, body)@ to Layer-1 to state a faithful,
 --     @result@-bound theorem for Leanstral to discharge + the kernel to check.
 --   * Legacy proof-required holes (body-position). These have a hole body, so
 --     under the faithful (result-bound) translator they resolve 'Unsupported'
 --     (you cannot bind @result@ to a hole) — reported honestly, never laundered.
-runLeanstralPipeline :: Bool -> FilePath -> [Statement] -> [T.Text] -> LeanstralOpts -> IO ()
-runLeanstralPipeline json fp stmts fallbackNames lsOpts = do
+runLeanstralPipeline :: Bool -> FilePath -> [Statement] -> [T.Text] -> [(T.Text, [T.Text])] -> LeanstralOpts -> IO ()
+runLeanstralPipeline json fp stmts fallbackNames fallbackConstructs lsOpts = do
   let fallbackSet = Set.fromList fallbackNames
       -- Layer-2: nonlinear body-fallback functions, with their real bodies.
       nonlinearFallback =
@@ -2561,7 +2564,7 @@ runLeanstralPipeline json fp stmts fallbackNames lsOpts = do
         | s <- stmts
         , Just (n, p, r, c, b) <- [normalizeDefOrLetrec s]
         , n `Set.member` fallbackSet
-        , isNonLinear b
+        , leanWorklistSelects (concat [ cs | (m, cs) <- fallbackConstructs, m == n ]) b
         ]
       -- Legacy: body-position ?proof-required holes (resolve Unsupported now).
       proofHoles =
@@ -3791,11 +3794,48 @@ doReplayArtifact json gm artFp = do
               -- 'FQResourceLimit') maps to 'RNoVC', which fails closed.
               (rerunFQ, _) <- solveFQText lfBin (countConstraintBlocks (paVc art)) (paVc art) []
               let rerun  = fqToSolverResult rerunFQ
-              case classifyReplayChecked srcChecks recomputed meta rerun art of
+                  outcome0 = classifyReplayChecked srcChecks recomputed meta rerun art
+              -- MUL-VAR-1 ("Verdict and recheck", Replay): a stored VC that
+              -- holds a product and reproduced UNSAFE reruns the native
+              -- recheck, so a recorded 'refuted' (or a fallback the recheck
+              -- did not validate) must come back from it, else fail closed.
+              outcome <- if recheckReplayNeeded art outcome0
+                then do
+                  rr <- rerunRecheckForReplay json gm art rerunFQ
+                  pure (classifyRecheckReplay rr art outcome0)
+                else pure outcome0
+              case outcome of
                 ReplayReproduced r ->
                   TIO.putStrLn ("\x2705 replay reproduced verdict: " <> T.pack (show r)) >> exitSuccess
                 ReplayFailClosed reason ->
                   TIO.putStrLn ("\x26d4 replay FAILED CLOSED: " <> reason) >> exitWith (ExitFailure 1)
+
+-- | MUL-VAR-1 ("Verdict and recheck", Replay): rerun the native recheck on
+-- the stored VC. The recheck reads the emitter's constraint table, marks and
+-- monomial table, which the artifact does not store, so the named source is
+-- emitted again by the verify recipe and must give the stored VC byte for
+-- byte; otherwise the recheck cannot be rerun and the replay fails closed.
+-- The artifact format does not change.
+rerunRecheckForReplay :: Bool -> GrammarMode -> ProofArtifact -> FQVerifyResult -> IO RecheckReplay
+rerunRecheckForReplay json gm art rerunFQ = do
+  let fp = T.unpack (paSourcePath art)
+  mSrc <- loadStatementsMulti json gm fp
+  case mSrc of
+    Left () -> pure (RecheckNotRerun "the named source does not load")
+    Right (srcStmts, cache, _) -> do
+      let (_, rt0, sites) = typeCheckWithCacheRetSites gm cache emptyEnv srcStmts
+          (stmts, _, copyRets) = specializeWithRet rt0 cache sites srcStmts
+          retTypes = Map.union copyRets rt0
+      emitR <- emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } fp cache retTypes stmts
+      if erFQText emitR /= paVc art
+        then pure (RecheckNotRerun "the named source no longer emits the stored VC")
+        else do
+          (ao, _) <- recheckVerdict emitR rerunFQ
+          pure (RecheckRerun
+                  (Set.fromList [ f | ((f, _), _) <- recheckCandidates emitR rerunFQ ])
+                  (aoRefuted ao)
+                  (aoIllDefined ao)
+                  (Set.fromList (aoFallbackFns ao)))
 
 -- | BUILD-DIR-REUSE. Remove what a previous build of a DIFFERENT program left
 -- in outDir: its .cabal file, which makes Stack refuse the directory (S-368),

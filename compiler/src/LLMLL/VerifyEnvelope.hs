@@ -58,8 +58,10 @@ data VerifyEnvelope = VerifyEnvelope
 -- | The version of the envelope's own shape.
 -- CLAUSE-WELLDEF-1 (1.1.0): the verdict keys 'ill_defined' and
 -- 'welldef_unproved'.
+-- MUL-VAR-1 (1.2.0): 'abstraction_fallback' admits the value
+-- @abstraction:nonlinear:*@ (design "The verify schema"); no key is added.
 verifyJsonVersion :: Text
-verifyJsonVersion = "1.1.0"
+verifyJsonVersion = "1.2.0"
 
 -- | The fixed key of each nested report, in emit order (design §3.3).
 nestedReportKeys :: [Text]

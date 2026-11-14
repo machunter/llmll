@@ -3499,8 +3499,14 @@ inferHole (HProofRequired reason mPred) = do
       predOk <- compatibleExpanded predType TBool
       unless predOk $
         tcError $ "?proof-required predicate must be bool, got " <> typeLabel predType
-      when (isNonLinear pred) $
-        tcWarn "?proof-required predicate contains non-linear arithmetic: cannot be discharged by QF-LIA; Leanstral obligation required"
+      -- MUL-VAR-1 ("Lean worklist"): the warning keeps its form. A product
+      -- of two non-constant terms is no longer 'isNonLinear', and the
+      -- solver may prove it with the product facts, so its text does not say
+      -- that QF-LIA cannot discharge it.
+      if isNonLinear pred
+        then tcWarn "?proof-required predicate contains non-linear arithmetic: cannot be discharged by QF-LIA; Leanstral obligation required"
+        else when (isJust (firstNonConstProduct pred)) $
+          tcWarn "?proof-required predicate contains a product of two non-constant terms: verify may prove it with the product facts; where they do not, Leanstral obligation required"
   pure (TVar "?")
 
 -- | Infer type from do-steps with pair-thread enforcement (PR 2).
