@@ -1,7 +1,7 @@
 ---
 name: mul-var-proposal
 title: "MUL-VAR-1: state and prove a product of two variables, so that an image layout can have a contract"
-status: "Rev 3, SETTLED 2026-11-07. The user took all six decisions as recommended and accepted the free-symbol change. Folds amendments A1 to A5 of mul-var-rev2-professor-review.md. z3 4.8.12 run recorded. Nothing with a product has gone through llmll verify."
+status: "Rev 3a, SETTLED 2026-11-07; amended 2026-11-14 (the caller-side core-admission message, see Messages). The user took all six decisions as recommended and accepted the free-symbol change. Folds amendments A1 to A5 of mul-var-rev2-professor-review.md. z3 4.8.12 run recorded. Nothing with a product has gone through llmll verify."
 date: 2026-11-07
 author: language-team
 rows: "MUL-VAR-1 (G7, PLAN). Depends on FQ-ARITH-FLAT-1 and FQ-NAME-COLLIDE-1 (both PLAN, unshipped). Related: CLAUSE-WELLDEF-1 (shipped v0.37.0), ABSTRACTION-VERDICT-1 (shipped v0.34.0), CDP-FQ-RACE-1 (G1, PLAN), BITWISE-WIDTH-1 (G7, PLAN), FFI-KERNEL-1 (G7, PLAN), CORE-SYNTAX-MSG-1 (G3, PLAN), LEAN-GA (parking lot). Filed at settlement: DIV-VAR-1 (G7, DECIDE), MUL-SLACK-1 (G7, MEASURE)."
@@ -10,7 +10,7 @@ consumers: [user, professor, compiler-engineer, documentation-lead]
 
 # MUL-VAR-1: a product of two variables in a contract
 
-**Status: Rev 3, SETTLED 2026-11-07.** The compiler was not changed. The roadmap row `MUL-VAR-1` moved from DECIDE to PLAN, and two rows were filed. See "Settlement".
+**Status: Rev 3a, SETTLED 2026-11-07, amended 2026-11-14.** Rev 3a changes only the caller-side `core-membership-violation` text in "Messages", which names the product but not the cause. The user accepted the amendment on 2026-11-14. The compiler was not changed. The roadmap row `MUL-VAR-1` moved from DECIDE to PLAN, and two rows were filed. See "Settlement".
 
 ## Settlement
 
@@ -18,7 +18,7 @@ consumers: [user, professor, compiler-engineer, documentation-lead]
 
 1. **Encoding.** B is the proof engine. Native z3 is used only for a validated `sat`. A native `unsat` never gives `verified`.
 2. **Refutation.** `refuted` is restored in the same release as the encoding, through the native recheck.
-3. **`def` bodies.** A `def` body may hold a product, so a `def` that holds one stays core. When `verify` falls back on that product, a strict-core caller gets the `core-membership-violation` text in "Messages", which names the callee, the product and its JSON pointer.
+3. **`def` bodies.** A `def` body may hold a product, so a `def` that holds one stays core. When `verify` falls back on that product, a strict-core caller gets the `core-membership-violation` text in "Messages", which names the callee, the product and its JSON pointer. *Rev 3a (2026-11-14):* the text names the product but not the cause, because the sidecar does not hold the cause. See "Caller, at core admission".
 4. **Disclosure.** One ground-fact family, `product-facts`. No new `assumed_facts` kind and no increase of `trust_report_version`. The verify schema does change, as "The verify schema" states: the `abstraction_fallback` pattern widens and `verify_json_version` goes from 1.1.0 to 1.2.0.
 5. **Variable divisors.** A separate row, `DIV-VAR-1`, filed at this settlement.
 6. **z3 4.8.12.** The gate passed at the design limit of 2000000 (CI run 42410952361), on script-built VCs only. A real rlimit of 200000 on Rev 3 and z3 4.8.12 is not run.
@@ -742,15 +742,34 @@ No JSON key is added. The engineer can take this or leave it.
 
 `LLMLL.md` §5.3.4 ("Abstraction verdict") and the `abstraction_fallback` description describe the same cause, and they move with it.
 
-**Caller, at core admission.** Today, `check` refuses a product in a `def` at once. After decision 3, a `def` with an unprovable product passes `check`, falls back at `verify`, and then causes `core-membership-violation` at its callers. `mkCoreMembershipViolation` keeps its kind and gains a variant with the cause:
+**Caller, at core admission.** Today, `check` refuses a product in a `def` at once. After decision 3, a `def` with an unprovable product passes `check`, falls back at `verify`, and then causes `core-membership-violation` at its callers. **Rev 3a (2026-11-14).** Rev 3 asked for a variant that names the cause, `abstraction:nonlinear:*`. Core admission reads persisted evidence, and the sidecar does not hold the cause. `EvidenceRecord` and `ContractStatus` in `compiler/src/LLMLL/Syntax.hs` have no field for it, and `csToJSON` in `compiler/src/LLMLL/VerifiedCache.hs` writes only `pre`, `post` and `assumptions`. The `fallback_reason` of the proof artifact is written only to a path that the user gives with `--proof-artifact`, so `check` cannot find it. The text below therefore states only what `check` can know, and it needs no change to the sidecar format.
+
+`check` knows two facts. A sidecar entry for `f` that is not admissible shows that `verify` ran and did not prove `f`; a function that falls back gets an `asserted` entry (`scripts/doc-claims/nonlinear-body-fallback.llmll.verified.json`). The module cache holds the statements of the imported module of `f`, so `check` can find a product of two non-constant terms in the body or contract of `f`.
+
+When both facts hold, `mkCoreMembershipViolation` gives a variant, `mkCoreMembershipNonlinear`, with the same kind:
 
 ```
-def 'c': callee 'f' is not body-faithful, because verify fell back on a product at <JSON pointer>
-  (abstraction:nonlinear:*). Only verified functions are admissible in strict-core bodies.
-Suggestion: restate f's post, supply evidence with ?proof-required, or write 'c' as a def-shell.
+def 'c': callee 'f' was verified but is not body-faithful. Its body holds a product of
+  two non-constant terms at <JSON pointer>; verify may fall back on such a product.
+  Only verified functions are admissible in strict-core bodies.
+Suggestion: run (llmll verify) on f's module and read W-BODY-FALLBACK for the cause;
+  restate f's contract, or write 'c' as a def-shell.
 ```
 
-Core admission reads persisted evidence. If the sidecar does not hold the fallback construct, it must carry it for this text. The engineer confirms this.
+The text does not name the construct, because `check` cannot know that the product caused the fallback. If `JsonPointer` cannot address a statement in another module, the text prints the S-expression of the product in place of the pointer.
+
+The order of the arms in `checkCalleeAdmissibility` (`compiler/src/LLMLL/TypeCheck.hs`) stays as it is. The new arm comes immediately before the generic `mkCoreMembershipViolation`. So:
+
+1. A callee in the same file gets `mkCoreMembershipViolationLocal`, with no change.
+2. A callee with a product and no sidecar entry gets today's text. "Verify it first" is correct for it.
+3. A callee whose fallback has another cause, but whose body holds a product, gets the new text. The text stays true because it says "may".
+4. A product that is constant-folded (`(* 3 x)`, or `constArith`) does not match, because the test is the same as the emitter's test.
+
+**Why not keep today's text.** Today's suggestion is "Verify 'f' with (llmll verify) before calling it". In this case `f` was already verified and fell back, and a second run gives the same fallback. An agent that follows the suggestion loops. In a swarm, the caller often does not see the `W-BODY-FALLBACK` warning for `f`, because another run verified `f`.
+
+**Positive witness.** In module `m`, `(def f [x: int y: int z: int] -> bool (pre (and (> x 0) (> y 0) (> z 0))) (post (= result true)) (!= (+ (* x (* x x)) (* y (* y y))) (* z (* z z))))`. In a second module, `(def c [a: int] -> bool (pre (> a 0)) (post true) (m.f a a a))`. The facts F1 to F11 cannot prove the cubic inequality, so the expected result is fallback. This is a prediction and not a measurement: the implementation runs it through `llmll verify` before it adds the arm.
+
+The text that names the cause is a follow-up row. It needs a field for the cause in the sidecar, so it comes with any later change to the sidecar format.
 
 ### Disclosure
 
