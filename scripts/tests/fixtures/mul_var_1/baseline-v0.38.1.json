@@ -1,0 +1,1856 @@
+{
+  "command": "llmll --json verify <file>",
+  "llmll_version": "llmll 0.38.1",
+  "summary": {
+    "fallback / contract-post-outside-fragment / if": 1,
+    "fallback / contract-post-outside-fragment / nonlinear:*": 109,
+    "fallback / contract-pre-outside-fragment / nonlinear:*": 21,
+    "verified / None / ": 1
+  },
+  "witnesses": {
+    "A1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "A2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "A3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "A4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "A5": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "A6": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "A7": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "AF1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "AF2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "AF3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "if"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "B1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "B2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "B3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "B4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "BF1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "BF2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "BF3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "BF4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "BF5": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "BF6": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "BF7": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "BF8": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "BF9": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K10": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K11": {
+      "diagnostic_kinds": [],
+      "exit_code": 0,
+      "fallback_cause": null,
+      "fallback_constructs": null,
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "verified"
+    },
+    "K12": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K13": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K5": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K6": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K7": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K8": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "K9": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "KF1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "KF2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "KF3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "KF4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "M1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "M2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "M3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "M4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "M5": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "M6": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "M7": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "M8": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "M9": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N10": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N5": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N6": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N7": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N8": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "N9": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "O1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "O2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "O3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "P1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "P2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "P3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "P4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "P5": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "P6": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "P7": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "PF": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "PF2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q10": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q11": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q12": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q13": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q14": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q15": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q5": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q6": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q7": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q8": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Q9": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "R1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "R2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "R3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "R4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W10": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W11": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W12": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W13": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W14": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W15": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W16": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W17": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W18": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W19": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W20": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W21": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W22": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W23": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W24": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W25": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W26": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W5": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W5b": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W6": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W7": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W8": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "W9": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y1": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y10": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y11": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y12": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y5": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y6": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y7": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y8": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "Y9": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "YF2": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "YF3": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-pre-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    },
+    "YF4": {
+      "diagnostic_kinds": [
+        "body-fallback-cause"
+      ],
+      "exit_code": 0,
+      "fallback_cause": "contract-post-outside-fragment",
+      "fallback_constructs": [
+        "nonlinear:*"
+      ],
+      "phase": "lh-fixpoint",
+      "solver_verdict": "safe",
+      "success": true,
+      "verdict": "fallback"
+    }
+  }
+}

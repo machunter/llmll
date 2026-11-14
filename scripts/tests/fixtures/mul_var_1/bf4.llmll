@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness BF4: hand-written restatement of rev3.py row "BF4 strLen, off by one", group BF, truth false.
+;; strLen s is (string-length s).
+(module mv-bf4
+  (export mv-bf4)
+  (def-shell mv-bf4 [w: int h: int y: int x: int s: string] -> int
+    (pre (and (>= y 0) (and (< y h) (and (>= x 0) (and (<= x w) (= (string-length s) (* w h)))))))
+    (post (< (+ (* y w) x) (string-length s)))
+    0))

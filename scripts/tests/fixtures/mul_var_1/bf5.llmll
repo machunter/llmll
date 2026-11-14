@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness BF5: hand-written restatement of rev3.py row "BF5 two-array map, unwritten key", group BF, truth false.
+;; as B4: one map[int,int] m, map-put inlined, presence via map-has.
+(module mv-bf5
+  (export mv-bf5)
+  (def-shell mv-bf5 [w: int y: int k: int v: int m: map[int,int]] -> int
+    (pre (>= k 0))
+    (post (map-has (map-put m (* y w) v) k))
+    0))

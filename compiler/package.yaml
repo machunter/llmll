@@ -104,6 +104,9 @@ library:
     # ABSTRACTION-VERDICT-1: an UNSAFE answer that rests on two unrelated calls
     # to one callee is a fallback, not a refutation. Read after the solver.
     - LLMLL.AbstractionVerdict
+    # MUL-VAR-1: the normal form of a product and its fixed fact set (pure)
+    - LLMLL.ProductNF
+    - LLMLL.ProductFacts
     # D5: HTTP serve endpoint
     - LLMLL.Serve
     # D5: Sketch output contract

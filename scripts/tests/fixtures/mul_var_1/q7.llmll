@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness Q7: hand-written restatement of rev3.py row "Q7 product as a bytes index", group Q, truth true.
+;; select b i is (bytes-get b i); b is bytes[64]; the read follows the length equation so it is defined.
+(module mv-q7
+  (export mv-q7)
+  (def-shell mv-q7 [w: int h: int y: int x: int b: bytes[64] v: int] -> int
+    (pre (and (>= y 0) (and (< y h) (and (>= x 0) (and (< x w) (and (= (bytes-length b) (* w h)) (= v (bytes-get b (+ (* y w) x)))))))))
+    (post (< (+ (* y w) x) (bytes-length b)))
+    0))

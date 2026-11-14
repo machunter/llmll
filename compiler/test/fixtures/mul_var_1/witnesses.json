@@ -1,0 +1,5432 @@
+{
+ "source": "scripts/mulvar/rev3.py sha256 14e9441d20f55f4025ae33eb5029114e0ef1fb5ac59a90efa33b884c6b4cda12",
+ "witnesses": [
+  {
+   "name": "W1",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "r",
+    "w"
+   ],
+   "hyps": [
+    "(= r (* h w))"
+   ],
+   "goal": "(= r (* w h))",
+   "facts": 9,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "W2",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "r",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 0)",
+    "(>= h 0)",
+    "(= r (* (* w h) 3))"
+   ],
+   "goal": "(and (>= r 0) (= r (* 3 (* h w))))",
+   "facts": 11,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "W3",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* y w) x))"
+   ],
+   "goal": "(and (>= r 0) (< r (* w h)))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "W4",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "c",
+    "h",
+    "r",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= st (* 3 w))",
+    "(>= c 0)",
+    "(< c 3)",
+    "(= r (+ (+ (* y st) (* 3 x)) c))"
+   ],
+   "goal": "(and (>= r 0) (< r (* h st)))",
+   "facts": 38,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "W5",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "c",
+    "ch",
+    "h",
+    "p",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(< c ch)",
+    "(= p (+ (* y w) x))",
+    "(= r (+ (* p ch) c))"
+   ],
+   "goal": "(and (>= r 0) (< r (* (* w h) ch)))",
+   "facts": 1384,
+   "T": 13,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 142,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548,
+    "F9": 1
+   }
+  },
+  {
+   "name": "W5b",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "c",
+    "ch",
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(< c ch)",
+    "(= r (+ (* (+ (* y w) x) ch) c))"
+   ],
+   "goal": "(and (>= r 0) (< r (* (* w h) ch)))",
+   "facts": 1383,
+   "T": 13,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 142,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548
+   }
+  },
+  {
+   "name": "W6",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "ox",
+    "oy",
+    "w"
+   ],
+   "hyps": [
+    "(>= ox 0)",
+    "(>= oy 0)",
+    "(>= cw 0)",
+    "(>= ch 0)",
+    "(<= (+ ox cw) w)",
+    "(<= (+ oy ch) h)"
+   ],
+   "goal": "(<= (* cw ch) (* w h))",
+   "facts": 36,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "W7",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "ox",
+    "oy",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= ox 0)",
+    "(>= oy 0)",
+    "(>= y 0)",
+    "(< y ch)",
+    "(>= x 0)",
+    "(< x cw)",
+    "(<= (+ ox cw) w)",
+    "(<= (+ oy ch) h)",
+    "(= r (+ (* (+ y oy) w) (+ x ox)))"
+   ],
+   "goal": "(and (>= r 0) (< r (* w h)))",
+   "facts": 130,
+   "T": 4,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 12,
+    "F10": 10,
+    "F2": 16,
+    "F3": 8,
+    "F4": 48,
+    "F5": 36
+   }
+  },
+  {
+   "name": "W8",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "cx",
+    "cy",
+    "h",
+    "r",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= cy 0)",
+    "(< cy (/ (+ h 1) 2))",
+    "(>= cx 0)",
+    "(< cx (/ (+ w 1) 2))",
+    "(= r (+ (* cy (/ (+ w 1) 2)) cx))"
+   ],
+   "goal": "(and (>= r 0) (< r (* (/ (+ w 1) 2) (/ (+ h 1) 2))))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "W9",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "cx",
+    "cy",
+    "f",
+    "h",
+    "r",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(>= cy 0)",
+    "(< cy ch)",
+    "(>= cx 0)",
+    "(< cx cw)",
+    "(= f (+ (* w h) (* 2 (* cw ch))))",
+    "(= r (+ (+ (* w h) (* cw ch)) (+ (* cy cw) cx)))"
+   ],
+   "goal": "(and (>= r 0) (< r f))",
+   "facts": 90,
+   "T": 3,
+   "capped": false,
+   "closure": 9,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F11": 6,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 22,
+    "F9": 5
+   }
+  },
+  {
+   "name": "W10",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "f",
+    "i",
+    "k",
+    "r"
+   ],
+   "hyps": [
+    "(>= f 0)",
+    "(>= i 0)",
+    "(< i k)",
+    "(= r (* i f))"
+   ],
+   "goal": "(and (>= r 0) (<= (+ r f) (* k f)))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "W11",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "oy",
+    "r",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(= r (+ (* y w) (* oy w)))"
+   ],
+   "goal": "(= r (* (+ y oy) w))",
+   "facts": 73,
+   "T": 3,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 4,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 18
+   }
+  },
+  {
+   "name": "W12",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "off",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(= off (+ (* y w) x))",
+    "(= x (- w 1))",
+    "(= r (+ off 1))"
+   ],
+   "goal": "(= r (* (+ y 1) w))",
+   "facts": 28,
+   "T": 2,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 5,
+    "F10": 1,
+    "F11": 2,
+    "F2": 7,
+    "F3": 4,
+    "F4": 6,
+    "F5": 3
+   }
+  },
+  {
+   "name": "W13",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "n",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= n (* (* w h) 3))"
+   ],
+   "goal": "(and (>= (+ (* 3 (+ (* y w) x)) 2) 0) (< (+ (* 3 (+ (* y w) x)) 2) n))",
+   "facts": 42,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 8,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "W14",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)"
+   ],
+   "goal": "(>= (* 4 (* (/ (+ w 1) 2) (/ (+ h 1) 2))) (* w h))",
+   "facts": 40,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "W15",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 0)",
+    "(>= h 0)"
+   ],
+   "goal": "(<= (* (/ w 2) (/ h 2)) (* w h))",
+   "facts": 36,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "W16",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* y w) (- (- w 1) x)))"
+   ],
+   "goal": "(and (>= r 0) (< r (* w h)))",
+   "facts": 38,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "W17",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* x h) y))"
+   ],
+   "goal": "(and (>= r 0) (< r (* w h)))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "W18",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "r",
+    "s",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= s w)",
+    "(= r (+ (* y s) x))"
+   ],
+   "goal": "(and (>= r 0) (< r (* w h)))",
+   "facts": 136,
+   "T": 4,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 12,
+    "F10": 10,
+    "F2": 16,
+    "F3": 8,
+    "F4": 48,
+    "F5": 40,
+    "F9": 2
+   }
+  },
+  {
+   "name": "W19",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "a",
+    "d",
+    "h",
+    "n",
+    "r",
+    "w",
+    "x",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= z 0)",
+    "(< z d)",
+    "(= a (* h w))",
+    "(= n (* d a))",
+    "(= r (+ (+ (* z a) (* y w)) x))"
+   ],
+   "goal": "(and (>= r 0) (< r n))",
+   "facts": 1174,
+   "T": 12,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 3,
+   "families": {
+    "F1": 36,
+    "F10": 120,
+    "F2": 48,
+    "F3": 24,
+    "F4": 480,
+    "F5": 464,
+    "F9": 2
+   }
+  },
+  {
+   "name": "W20",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "h",
+    "n",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 0)",
+    "(<= w 65535)",
+    "(>= h 0)",
+    "(<= h 65535)",
+    "(= n (* (* w h) 3))"
+   ],
+   "goal": "(and (>= n 0) (<= n 9223372036854775807))",
+   "facts": 18,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 6,
+    "F2": 4,
+    "F3": 2,
+    "F7": 1,
+    "F7b": 2
+   }
+  },
+  {
+   "name": "W21",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "f",
+    "h",
+    "hdr",
+    "i",
+    "k",
+    "len",
+    "off",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= hdr 0)",
+    "(>= i 0)",
+    "(< i k)",
+    "(= f (* (* w h) 3))",
+    "(= off (+ hdr (* i f)))",
+    "(<= (+ hdr (* k f)) len)"
+   ],
+   "goal": "(and (>= off 0) (<= (+ off f) len))",
+   "facts": 1413,
+   "T": 13,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 144,
+    "F11": 18,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 556,
+    "F9": 2
+   }
+  },
+  {
+   "name": "W22",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "p",
+    "q",
+    "s",
+    "t"
+   ],
+   "hyps": [
+    "(>= a 0)",
+    "(>= b 0)",
+    "(>= c 0)",
+    "(>= d 0)",
+    "(<= a p)",
+    "(<= b q)",
+    "(<= c s)",
+    "(<= d t)"
+   ],
+   "goal": "(<= (* (* a b) (* c d)) (* (* p q) (* s t)))",
+   "facts": 21432,
+   "T": 50,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 4,
+   "families": {
+    "F1": 150,
+    "F10": 2318,
+    "F2": 200,
+    "F3": 100,
+    "F4": 9272,
+    "F5": 9392
+   }
+  },
+  {
+   "name": "W23",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(> x 0)",
+    "(> y 0)"
+   ],
+   "goal": "(not (= (* x x) (* 2 (* y y))))",
+   "facts": 19,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 4,
+    "F10": 1,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F4": 2,
+    "F5": 2,
+    "F8": 2
+   }
+  },
+  {
+   "name": "W24",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "x",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= (+ (* x x) (* y y)) (* z z))",
+    "(> x 0)",
+    "(> y 0)",
+    "(> z 0)"
+   ],
+   "goal": "(not (= (+ (* 4 (* x y)) 2) (* 4 (* z z))))",
+   "facts": 75,
+   "T": 4,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F11": 10,
+    "F2": 10,
+    "F3": 5,
+    "F4": 18,
+    "F5": 14,
+    "F8": 3
+   }
+  },
+  {
+   "name": "W25",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "a",
+    "b"
+   ],
+   "hyps": [],
+   "goal": "(>= (* (+ a b) (+ a b)) (* 4 (* a b)))",
+   "facts": 72,
+   "T": 4,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F11": 8,
+    "F2": 10,
+    "F3": 5,
+    "F4": 17,
+    "F5": 14,
+    "F8": 3
+   }
+  },
+  {
+   "name": "W26",
+   "group": "W",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "dh",
+    "dw",
+    "dx",
+    "dy",
+    "r1",
+    "r2",
+    "sh",
+    "sw",
+    "sx",
+    "sy",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= sx 0)",
+    "(>= sy 0)",
+    "(>= dx 0)",
+    "(>= dy 0)",
+    "(>= y 0)",
+    "(< y ch)",
+    "(>= x 0)",
+    "(< x cw)",
+    "(<= (+ sx cw) sw)",
+    "(<= (+ sy ch) sh)",
+    "(<= (+ dx cw) dw)",
+    "(<= (+ dy ch) dh)",
+    "(= r1 (+ (* (+ y sy) sw) (+ x sx)))",
+    "(= r2 (+ (* (+ y dy) dw) (+ x dx)))"
+   ],
+   "goal": "(and (and (>= r1 0) (< r1 (* sw sh))) (and (>= r2 0) (< r2 (* dw dh))))",
+   "facts": 546,
+   "T": 8,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 2,
+   "families": {
+    "F1": 24,
+    "F10": 52,
+    "F2": 32,
+    "F3": 16,
+    "F4": 224,
+    "F5": 198
+   }
+  },
+  {
+   "name": "P1",
+   "group": "P",
+   "truth": true,
+   "vars": [
+    "c",
+    "h",
+    "w"
+   ],
+   "hyps": [],
+   "goal": "(= (* w (* h c)) (* (* w h) c))",
+   "facts": 276,
+   "T": 6,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102
+   }
+  },
+  {
+   "name": "P2",
+   "group": "P",
+   "truth": true,
+   "vars": [
+    "c",
+    "r",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(= r (* (* y w) c))"
+   ],
+   "goal": "(= r (* y (* w c)))",
+   "facts": 276,
+   "T": 6,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102
+   }
+  },
+  {
+   "name": "P3",
+   "group": "P",
+   "truth": true,
+   "vars": [
+    "c",
+    "ch",
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(< c ch)",
+    "(= r (+ (* (+ (* y w) x) ch) c))"
+   ],
+   "goal": "(< r (* h (* w ch)))",
+   "facts": 1383,
+   "T": 13,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 142,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548
+   }
+  },
+  {
+   "name": "P4",
+   "group": "P",
+   "truth": true,
+   "vars": [
+    "c",
+    "ch",
+    "h",
+    "r",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(< c ch)",
+    "(= st (* w ch))",
+    "(= r (+ (+ (* y st) (* x ch)) c))"
+   ],
+   "goal": "(< r (* (* w h) ch))",
+   "facts": 1173,
+   "T": 12,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 3,
+   "families": {
+    "F1": 36,
+    "F10": 120,
+    "F2": 48,
+    "F3": 24,
+    "F4": 480,
+    "F5": 464,
+    "F9": 1
+   }
+  },
+  {
+   "name": "P5",
+   "group": "P",
+   "truth": true,
+   "vars": [
+    "ch",
+    "h",
+    "n",
+    "w"
+   ],
+   "hyps": [
+    "(= ch 3)",
+    "(= n (* (* w h) ch))"
+   ],
+   "goal": "(= n (* 3 (* w h)))",
+   "facts": 12,
+   "T": 1,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F9": 1
+   }
+  },
+  {
+   "name": "P6",
+   "group": "P",
+   "truth": true,
+   "vars": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "r"
+   ],
+   "hyps": [
+    "(= a d)",
+    "(= b c)",
+    "(= r (* a b))"
+   ],
+   "goal": "(= r (* c d))",
+   "facts": 136,
+   "T": 4,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 12,
+    "F10": 8,
+    "F2": 16,
+    "F3": 8,
+    "F4": 48,
+    "F5": 40,
+    "F9": 4
+   }
+  },
+  {
+   "name": "P7",
+   "group": "P",
+   "truth": true,
+   "vars": [
+    "a",
+    "b",
+    "h",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(= a (* w h))",
+    "(= b (* h w))"
+   ],
+   "goal": "(= (- a b) 0)",
+   "facts": 11,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "R1",
+   "group": "R",
+   "truth": true,
+   "vars": [
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* x h) (- (- h 1) y)))"
+   ],
+   "goal": "(and (>= r 0) (< r (* w h)))",
+   "facts": 38,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "R2",
+   "group": "R",
+   "truth": true,
+   "vars": [
+    "bpp",
+    "st",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= bpp 1)",
+    "(= st (* 4 (/ (+ (* w bpp) 31) 32)))"
+   ],
+   "goal": "(>= (* 8 st) (* w bpp))",
+   "facts": 15,
+   "T": 1,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 6,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "R3",
+   "group": "R",
+   "truth": true,
+   "vars": [
+    "a",
+    "h",
+    "n",
+    "p",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= p 0)",
+    "(< p 4)",
+    "(= a (* w h))",
+    "(= n (* 4 a))",
+    "(= r (+ (* p a) (+ (* y w) x)))"
+   ],
+   "goal": "(and (>= r 0) (< r n))",
+   "facts": 402,
+   "T": 7,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 3,
+   "families": {
+    "F1": 21,
+    "F10": 36,
+    "F11": 11,
+    "F2": 28,
+    "F3": 14,
+    "F4": 144,
+    "F5": 144,
+    "F7b": 3,
+    "F9": 1
+   }
+  },
+  {
+   "name": "R4",
+   "group": "R",
+   "truth": true,
+   "vars": [
+    "h",
+    "n",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 0)",
+    "(>= h 0)",
+    "(<= (* w h) 268435456)",
+    "(= n (* 3 (* w h)))"
+   ],
+   "goal": "(<= n 9223372036854775807)",
+   "facts": 15,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 6,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "Q1",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "c",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(>= w 0)",
+    "(>= c 0)"
+   ],
+   "goal": "(= (* (+ y 1) (* w c)) (+ (* y (* c w)) (* c w)))",
+   "facts": 373,
+   "T": 7,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 20,
+    "F10": 33,
+    "F2": 27,
+    "F3": 14,
+    "F4": 138,
+    "F5": 141
+   }
+  },
+  {
+   "name": "Q2",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "h",
+    "s",
+    "t",
+    "w"
+   ],
+   "hyps": [
+    "(= s h)",
+    "(= t w)"
+   ],
+   "goal": "(= (* s t) (* w h))",
+   "facts": 136,
+   "T": 4,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 12,
+    "F10": 8,
+    "F2": 16,
+    "F3": 8,
+    "F4": 48,
+    "F5": 40,
+    "F9": 4
+   }
+  },
+  {
+   "name": "Q3",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "c",
+    "ch",
+    "h",
+    "r",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(< c ch)",
+    "(= (* w ch) st)",
+    "(= r (+ (+ (* y st) (* x ch)) c))"
+   ],
+   "goal": "(< r (* h st))",
+   "facts": 1174,
+   "T": 12,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 3,
+   "families": {
+    "F1": 36,
+    "F10": 120,
+    "F2": 48,
+    "F3": 24,
+    "F4": 480,
+    "F5": 464,
+    "F9": 2
+   }
+  },
+  {
+   "name": "Q4",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "b",
+    "h",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= (bytesLen b) (* w h))",
+    "(>= (bytesLen b) 0)"
+   ],
+   "goal": "(and (>= (+ (* y w) x) 0) (< (+ (* y w) x) (bytesLen b)))",
+   "facts": 35,
+   "T": 2,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 1
+   }
+  },
+  {
+   "name": "Q5",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "ch",
+    "h",
+    "k",
+    "n",
+    "w"
+   ],
+   "hyps": [
+    "(= k 3)",
+    "(= ch k)",
+    "(= n (* w (* h ch)))"
+   ],
+   "goal": "(= n (* k (* h w)))",
+   "facts": 39,
+   "T": 2,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 3,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 2
+   }
+  },
+  {
+   "name": "Q6",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "c",
+    "h",
+    "r",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(< c 3)",
+    "(= st (* 3 w))",
+    "(= r (+ (+ (* y st) (* 3 x)) c))"
+   ],
+   "goal": "(< r (* h st))",
+   "facts": 144,
+   "T": 4,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 12,
+    "F10": 12,
+    "F11": 6,
+    "F2": 16,
+    "F3": 8,
+    "F4": 48,
+    "F5": 40,
+    "F9": 2
+   }
+  },
+  {
+   "name": "Q7",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "b",
+    "h",
+    "v",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= (bytesLen b) (* w h))",
+    "(= v (select b (+ (* y w) x)))",
+    "(>= (select b (+ (* y w) x)) 0)",
+    "(<= (select b (+ (* y w) x)) 255)",
+    "(>= (bytesLen b) 0)"
+   ],
+   "goal": "(< (+ (* y w) x) (bytesLen b))",
+   "facts": 40,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 2
+   }
+  },
+  {
+   "name": "Q8",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "hyps": [
+    "(<= a d)",
+    "(<= d a)",
+    "(<= b c)",
+    "(<= c b)"
+   ],
+   "goal": "(= (* a b) (* c d))",
+   "facts": 36,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "Q9",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "a",
+    "b",
+    "d"
+   ],
+   "hyps": [
+    "(or (= a d) (= a (+ d 0)))"
+   ],
+   "goal": "(= (* a b) (* d b))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "Q10",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "h",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= st w)"
+   ],
+   "goal": "(< (+ (* y w) x) (* h st))",
+   "facts": 36,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "Q11",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "c",
+    "ch",
+    "h",
+    "r",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(< c ch)",
+    "(>= st (* w ch))",
+    "(= r (+ (* (+ (* y w) x) ch) c))"
+   ],
+   "goal": "(< r (* h st))",
+   "facts": 665,
+   "T": 9,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 3,
+   "families": {
+    "F1": 27,
+    "F10": 64,
+    "F2": 36,
+    "F3": 18,
+    "F4": 264,
+    "F5": 256
+   }
+  },
+  {
+   "name": "Q12",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "c",
+    "ch",
+    "h",
+    "r",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(< c ch)",
+    "(>= st (* w ch))",
+    "(= r (+ (+ (* y st) (* x ch)) c))"
+   ],
+   "goal": "(< r (* h st))",
+   "facts": 140,
+   "T": 4,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 12,
+    "F10": 12,
+    "F2": 16,
+    "F3": 8,
+    "F4": 48,
+    "F5": 44
+   }
+  },
+  {
+   "name": "Q13",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "c",
+    "ch",
+    "h",
+    "pad",
+    "r",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(< c ch)",
+    "(>= pad 0)",
+    "(= st (+ (* w ch) pad))",
+    "(= r (+ (+ (* y st) (* x ch)) c))"
+   ],
+   "goal": "(< r (* h st))",
+   "facts": 2146,
+   "T": 16,
+   "capped": false,
+   "closure": 8,
+   "maxdeg": 3,
+   "families": {
+    "F1": 48,
+    "F10": 224,
+    "F2": 64,
+    "F3": 32,
+    "F4": 912,
+    "F5": 864,
+    "F9": 2
+   }
+  },
+  {
+   "name": "Q14",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "h",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= st w)",
+    "(>= h 0)"
+   ],
+   "goal": "(<= (+ (* y st) x) (* h st))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "Q15",
+   "group": "Q",
+   "truth": true,
+   "vars": [
+    "ch",
+    "h",
+    "lim",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 0)",
+    "(>= h 0)",
+    "(>= ch 0)",
+    "(<= (* w h) lim)",
+    "(<= ch 4)"
+   ],
+   "goal": "(<= (* (* w h) ch) (* 4 lim))",
+   "facts": 288,
+   "T": 6,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F11": 9,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102,
+    "F7b": 3
+   }
+  },
+  {
+   "name": "M1",
+   "group": "M",
+   "truth": false,
+   "vars": [
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(<= x w)",
+    "(= r (+ (* y w) x))"
+   ],
+   "goal": "(< r (* w h))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "M2",
+   "group": "M",
+   "truth": false,
+   "vars": [
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(<= y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* y w) x))"
+   ],
+   "goal": "(< r (* w h))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "M3",
+   "group": "M",
+   "truth": false,
+   "vars": [
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* y h) x))"
+   ],
+   "goal": "(< r (* w h))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "M4",
+   "group": "M",
+   "truth": false,
+   "vars": [
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* y w) x))"
+   ],
+   "goal": "(>= r 0)",
+   "facts": 9,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "M5",
+   "group": "M",
+   "truth": false,
+   "vars": [
+    "h",
+    "w"
+   ],
+   "hyps": [],
+   "goal": "(>= (* w h) 0)",
+   "facts": 9,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "M6",
+   "group": "M",
+   "truth": false,
+   "vars": [
+    "h",
+    "r",
+    "w"
+   ],
+   "hyps": [
+    "(= r (* w w))"
+   ],
+   "goal": "(= r (* w h))",
+   "facts": 22,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 5,
+    "F10": 1,
+    "F2": 6,
+    "F3": 3,
+    "F4": 4,
+    "F5": 2,
+    "F8": 1
+   }
+  },
+  {
+   "name": "M7",
+   "group": "M",
+   "truth": false,
+   "vars": [
+    "cx",
+    "cy",
+    "h",
+    "r",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= cy 0)",
+    "(< cy (/ (+ h 1) 2))",
+    "(>= cx 0)",
+    "(< cx (/ (+ w 1) 2))",
+    "(= r (+ (* cy (/ w 2)) cx))"
+   ],
+   "goal": "(< r (* (/ w 2) (/ h 2)))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "M8",
+   "group": "M",
+   "truth": false,
+   "vars": [
+    "ch",
+    "cw",
+    "dh",
+    "dw",
+    "dx",
+    "dy",
+    "r2",
+    "sh",
+    "sw",
+    "sx",
+    "sy",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= sx 0)",
+    "(>= sy 0)",
+    "(>= dx 0)",
+    "(>= dy 0)",
+    "(>= y 0)",
+    "(< y ch)",
+    "(>= x 0)",
+    "(< x cw)",
+    "(<= (+ sx cw) sw)",
+    "(<= (+ sy ch) sh)",
+    "(<= (+ dx cw) dw)",
+    "(<= (+ dy ch) dh)",
+    "(= r2 (+ (* (+ y dy) sw) (+ x dx)))"
+   ],
+   "goal": "(< r2 (* dw dh))",
+   "facts": 136,
+   "T": 4,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 12,
+    "F10": 10,
+    "F2": 16,
+    "F3": 8,
+    "F4": 48,
+    "F5": 42
+   }
+  },
+  {
+   "name": "M9",
+   "group": "M",
+   "truth": false,
+   "vars": [
+    "a",
+    "d",
+    "h",
+    "n",
+    "r",
+    "w",
+    "x",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= z 0)",
+    "(< z d)",
+    "(= a (* h w))",
+    "(= n (* d a))",
+    "(= r (+ (+ (* z w) (* y a)) x))"
+   ],
+   "goal": "(< r n)",
+   "facts": 1174,
+   "T": 12,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 3,
+   "families": {
+    "F1": 36,
+    "F10": 120,
+    "F2": 48,
+    "F3": 24,
+    "F4": 480,
+    "F5": 464,
+    "F9": 2
+   }
+  },
+  {
+   "name": "N1",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "c",
+    "r",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(= r (* (* y w) c))"
+   ],
+   "goal": "(= r (* y (* w y)))",
+   "facts": 574,
+   "T": 9,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 26,
+    "F10": 56,
+    "F2": 34,
+    "F3": 17,
+    "F4": 224,
+    "F5": 216,
+    "F8": 1
+   }
+  },
+  {
+   "name": "N2",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "c",
+    "ch",
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= c 0)",
+    "(<= c ch)",
+    "(= r (+ (* (+ (* y w) x) ch) c))"
+   ],
+   "goal": "(< r (* h (* w ch)))",
+   "facts": 1383,
+   "T": 13,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 142,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548
+   }
+  },
+  {
+   "name": "N3",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* x w) (- (- h 1) y)))"
+   ],
+   "goal": "(< r (* w h))",
+   "facts": 38,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "N4",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "b",
+    "h",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(<= x w)",
+    "(= (bytesLen b) (* w h))",
+    "(>= (bytesLen b) 0)"
+   ],
+   "goal": "(< (+ (* y w) x) (bytesLen b))",
+   "facts": 35,
+   "T": 2,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 1
+   }
+  },
+  {
+   "name": "N5",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "b",
+    "h",
+    "v",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(<= x w)",
+    "(= (bytesLen b) (* w h))",
+    "(= v (select b (+ (* y w) x)))",
+    "(>= (select b (+ (* y w) x)) 0)",
+    "(<= (select b (+ (* y w) x)) 255)",
+    "(>= (bytesLen b) 0)"
+   ],
+   "goal": "(< (+ (* y w) x) (bytesLen b))",
+   "facts": 40,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 2
+   }
+  },
+  {
+   "name": "N6",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "h",
+    "p",
+    "w",
+    "x"
+   ],
+   "hyps": [
+    "(= p (* w h))",
+    "(>= x 0)"
+   ],
+   "goal": "(>= x 1)",
+   "facts": 9,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "N7",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "q",
+    "u",
+    "v",
+    "x"
+   ],
+   "hyps": [
+    "(> u 0)",
+    "(> v 0)",
+    "(= q (* u u))",
+    "(>= x 0)"
+   ],
+   "goal": "(>= x 1)",
+   "facts": 6,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 2,
+    "F2": 2,
+    "F3": 1,
+    "F8": 1
+   }
+  },
+  {
+   "name": "N8",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "ch",
+    "h",
+    "st",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(= st (* w ch))",
+    "(>= y 0)",
+    "(< y h)"
+   ],
+   "goal": "(< (* y st) (* (* w h) y))",
+   "facts": 976,
+   "T": 11,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 3,
+   "families": {
+    "F1": 33,
+    "F10": 98,
+    "F2": 44,
+    "F3": 22,
+    "F4": 392,
+    "F5": 386,
+    "F9": 1
+   }
+  },
+  {
+   "name": "N9",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "h",
+    "w"
+   ],
+   "hyps": [],
+   "goal": "(< (* w h) (* h w))",
+   "facts": 9,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "N10",
+   "group": "N",
+   "truth": false,
+   "vars": [
+    "h",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= st 0)"
+   ],
+   "goal": "(< (+ (* y w) x) (* h st))",
+   "facts": 36,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "Y1",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))"
+   ],
+   "goal": "(<= (* cw ch) (* w h))",
+   "facts": 40,
+   "T": 2,
+   "capped": false,
+   "closure": 7,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8,
+    "F9": 4
+   }
+  },
+  {
+   "name": "Y2",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "n",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= n (+ (* w h) (* 2 (* cw ch))))",
+    "(>= y 0)",
+    "(>= x 0)",
+    "(< y ch)",
+    "(< x cw)",
+    "(= r (+ (* w h) (+ (* y cw) x)))"
+   ],
+   "goal": "(and (>= r 0) (< r n))",
+   "facts": 90,
+   "T": 3,
+   "capped": false,
+   "closure": 9,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F11": 6,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 22,
+    "F9": 5
+   }
+  },
+  {
+   "name": "Y3",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "n",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= n (+ (* w h) (* 2 (* cw ch))))",
+    "(>= y 0)",
+    "(>= x 0)",
+    "(< y ch)",
+    "(< x cw)",
+    "(= r (+ (* w h) (+ (* cw ch) (+ (* y cw) x))))"
+   ],
+   "goal": "(and (>= r 0) (< r n))",
+   "facts": 90,
+   "T": 3,
+   "capped": false,
+   "closure": 9,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F11": 6,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 22,
+    "F9": 5
+   }
+  },
+  {
+   "name": "Y4",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "n",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= n (+ (* w h) (* 2 (* cw ch))))"
+   ],
+   "goal": "(>= n (+ (* w h) 2))",
+   "facts": 44,
+   "T": 2,
+   "capped": false,
+   "closure": 7,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8,
+    "F9": 4
+   }
+  },
+  {
+   "name": "Y5",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "n",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= n (+ (* w h) (* 2 (* cw ch))))"
+   ],
+   "goal": "(>= (* 2 n) (* 3 (* w h)))",
+   "facts": 48,
+   "T": 2,
+   "capped": false,
+   "closure": 7,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 8,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8,
+    "F9": 4
+   }
+  },
+  {
+   "name": "Y6",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "n",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= n (+ (* w h) (* 2 (* cw ch))))"
+   ],
+   "goal": "(<= n (* 3 (* w h)))",
+   "facts": 48,
+   "T": 2,
+   "capped": false,
+   "closure": 7,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 8,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8,
+    "F9": 4
+   }
+  },
+  {
+   "name": "Y7",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "h",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)"
+   ],
+   "goal": "(<= (* (/ (+ w 1) 2) (/ (+ h 1) 2)) (* w h))",
+   "facts": 36,
+   "T": 2,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "Y8",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "h",
+    "p",
+    "ph",
+    "pw",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= p 0)",
+    "(<= p 2)",
+    "(>= pw 1)",
+    "(>= ph 1)",
+    "(=> (= p 0) (= pw w))",
+    "(=> (> p 0) (= pw (/ (+ w 1) 2)))",
+    "(=> (= p 0) (= ph h))",
+    "(=> (> p 0) (= ph (/ (+ h 1) 2)))",
+    "(>= y 0)",
+    "(>= x 0)",
+    "(< y ph)",
+    "(< x pw)"
+   ],
+   "goal": "(< (+ (* y pw) x) (* pw ph))",
+   "facts": 38,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "Y9",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "h",
+    "p",
+    "ph",
+    "pw",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= p 0)",
+    "(<= p 2)",
+    "(>= pw 1)",
+    "(>= ph 1)",
+    "(=> (= p 0) (= pw w))",
+    "(=> (> p 0) (= pw (/ (+ w 1) 2)))",
+    "(=> (= p 0) (= ph h))",
+    "(=> (> p 0) (= ph (/ (+ h 1) 2)))"
+   ],
+   "goal": "(<= (* pw ph) (* w h))",
+   "facts": 40,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "Y10",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "h",
+    "p",
+    "ph",
+    "pw",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= p 0)",
+    "(<= p 2)",
+    "(>= pw 1)",
+    "(>= ph 1)",
+    "(=> (= p 0) (= pw w))",
+    "(=> (> p 0) (= pw (/ (+ w 1) 2)))",
+    "(=> (= p 0) (= ph h))",
+    "(=> (> p 0) (= ph (/ (+ h 1) 2)))",
+    "(= p 0)"
+   ],
+   "goal": "(= (* pw ph) (* w h))",
+   "facts": 40,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "Y11",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "h",
+    "p",
+    "ph",
+    "pw",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= p 0)",
+    "(<= p 2)",
+    "(>= pw 1)",
+    "(>= ph 1)",
+    "(=> (= p 0) (= pw w))",
+    "(=> (> p 0) (= pw (/ (+ w 1) 2)))",
+    "(=> (= p 0) (= ph h))",
+    "(=> (> p 0) (= ph (/ (+ h 1) 2)))",
+    "(> p 0)"
+   ],
+   "goal": "(= (* pw ph) (* (/ (+ w 1) 2) (/ (+ h 1) 2)))",
+   "facts": 40,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8
+   }
+  },
+  {
+   "name": "Y12",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "n",
+    "p",
+    "ph",
+    "pw",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= p 0)",
+    "(<= p 2)",
+    "(>= pw 1)",
+    "(>= ph 1)",
+    "(=> (= p 0) (= pw w))",
+    "(=> (> p 0) (= pw (/ (+ w 1) 2)))",
+    "(=> (= p 0) (= ph h))",
+    "(=> (> p 0) (= ph (/ (+ h 1) 2)))",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= n (+ (* w h) (* 2 (* cw ch))))"
+   ],
+   "goal": "(<= (* pw ph) n)",
+   "facts": 91,
+   "T": 3,
+   "capped": false,
+   "closure": 8,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F11": 6,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 24,
+    "F9": 4
+   }
+  },
+  {
+   "name": "YF2",
+   "group": "Y",
+   "truth": true,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "n",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= n (+ (* w h) (* 2 (* cw ch))))",
+    "(>= y 0)",
+    "(>= x 0)",
+    "(< y ch)",
+    "(<= x cw)",
+    "(= r (+ (* w h) (+ (* y cw) x)))"
+   ],
+   "goal": "(< r n)",
+   "facts": 90,
+   "T": 3,
+   "capped": false,
+   "closure": 9,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F11": 6,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 22,
+    "F9": 5
+   }
+  },
+  {
+   "name": "K1",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "c",
+    "i",
+    "w"
+   ],
+   "hyps": [
+    "(or (= c 1) (= c 3))",
+    "(>= w 1)",
+    "(>= i 0)",
+    "(=> (= c 1) (< i w))",
+    "(=> (= c 3) (< i (* 3 w)))"
+   ],
+   "goal": "(< i (* c w))",
+   "facts": 11,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "K2",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "c",
+    "i",
+    "w"
+   ],
+   "hyps": [
+    "(= c 3)",
+    "(>= w 1)",
+    "(>= i 0)",
+    "(< i (* 3 w))"
+   ],
+   "goal": "(< i (* c w))",
+   "facts": 1,
+   "T": 0,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F9": 1
+   }
+  },
+  {
+   "name": "K3",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "c",
+    "h",
+    "k",
+    "r",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(>= c 1)",
+    "(>= w 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= k 0)",
+    "(< k (* c w))",
+    "(= r (+ (* y (* c w)) k))"
+   ],
+   "goal": "(and (>= r 0) (< r (* h (* c w))))",
+   "facts": 975,
+   "T": 11,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 33,
+    "F10": 98,
+    "F2": 44,
+    "F3": 22,
+    "F4": 392,
+    "F5": 386
+   }
+  },
+  {
+   "name": "K4",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "c",
+    "h",
+    "lim",
+    "w"
+   ],
+   "hyps": [
+    "(>= c 1)",
+    "(>= w 1)",
+    "(>= h 1)",
+    "(<= (* (* w h) c) lim)"
+   ],
+   "goal": "(<= (* w h) lim)",
+   "facts": 276,
+   "T": 6,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102
+   }
+  },
+  {
+   "name": "K5",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "st",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 1)",
+    "(>= st 0)",
+    "(>= x 0)",
+    "(< x st)"
+   ],
+   "goal": "(>= (+ (* (- y 1) st) x) 0)",
+   "facts": 29,
+   "T": 2,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 1,
+    "F11": 3,
+    "F2": 7,
+    "F3": 3,
+    "F4": 6,
+    "F5": 3
+   }
+  },
+  {
+   "name": "K6",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "c",
+    "h0",
+    "k",
+    "ox",
+    "oy",
+    "st",
+    "w0",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(>= oy 0)",
+    "(< (+ y oy) h0)",
+    "(>= x 0)",
+    "(>= ox 0)",
+    "(< (+ x ox) w0)",
+    "(>= c 1)",
+    "(>= k 0)",
+    "(< k c)",
+    "(>= st (* w0 c))"
+   ],
+   "goal": "(< (+ (* (+ y oy) st) (+ (* (+ x ox) c) k)) (* h0 st))",
+   "facts": 548,
+   "T": 8,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 2,
+   "families": {
+    "F1": 24,
+    "F10": 52,
+    "F2": 32,
+    "F3": 16,
+    "F4": 224,
+    "F5": 200
+   }
+  },
+  {
+   "name": "K7",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "sw",
+    "w",
+    "x"
+   ],
+   "hyps": [
+    "(>= x 0)",
+    "(< x w)",
+    "(>= sw 0)"
+   ],
+   "goal": "(<= (/ (* x sw) 2) (/ (* w sw) 2))",
+   "facts": 34,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "K8",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "b",
+    "ch",
+    "h",
+    "k",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= ch 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k ch)",
+    "(= (bytesLen b) (* (* w h) ch))",
+    "(>= (bytesLen b) 0)"
+   ],
+   "goal": "(< (+ (* (+ (* y w) x) ch) k) (bytesLen b))",
+   "facts": 1384,
+   "T": 13,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 142,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548,
+    "F9": 1
+   }
+  },
+  {
+   "name": "K9",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "i",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 0)"
+   ],
+   "goal": "(>= (* (- i (* 3 (/ i 3))) w) 0)",
+   "facts": 80,
+   "T": 3,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F11": 5,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 18
+   }
+  },
+  {
+   "name": "K10",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "i",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(>= i 0)",
+    "(< i (* 3 w))",
+    "(>= y 0)"
+   ],
+   "goal": "(>= (* (/ i 3) y) 0)",
+   "facts": 11,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "K11",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "i",
+    "w"
+   ],
+   "hyps": [
+    "(>= i 0)",
+    "(>= w 1)",
+    "(< i (* 3 w))"
+   ],
+   "goal": "(< (/ i 3) w)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 1,
+   "families": {}
+  },
+  {
+   "name": "K12",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "c",
+    "pad",
+    "st",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= pad 0)",
+    "(= st (+ (* w c) pad))",
+    "(>= y 0)",
+    "(>= x 0)",
+    "(< x w)"
+   ],
+   "goal": "(<= (+ (* y st) (* x c)) (* (+ y 1) st))",
+   "facts": 801,
+   "T": 10,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 3,
+   "families": {
+    "F1": 29,
+    "F10": 77,
+    "F2": 39,
+    "F3": 20,
+    "F4": 326,
+    "F5": 309,
+    "F9": 1
+   }
+  },
+  {
+   "name": "K13",
+   "group": "K",
+   "truth": true,
+   "vars": [
+    "a0",
+    "a1",
+    "a2",
+    "a3",
+    "a4",
+    "a5",
+    "a6",
+    "a7",
+    "a8",
+    "p0",
+    "p1",
+    "p2",
+    "p3",
+    "p4",
+    "p5",
+    "p6",
+    "p7",
+    "p8",
+    "r"
+   ],
+   "hyps": [
+    "(>= a0 0)",
+    "(>= a1 0)",
+    "(>= a2 0)",
+    "(>= a3 0)",
+    "(>= a4 0)",
+    "(>= a5 0)",
+    "(>= a6 0)",
+    "(>= a7 0)",
+    "(>= a8 0)",
+    "(>= p0 0)",
+    "(>= p1 0)",
+    "(>= p2 0)",
+    "(>= p3 0)",
+    "(>= p4 0)",
+    "(>= p5 0)",
+    "(>= p6 0)",
+    "(>= p7 0)",
+    "(>= p8 0)",
+    "(= r (+ (* a0 p0) (+ (* a1 p1) (+ (* a2 p2) (+ (* a3 p3) (+ (* a4 p4) (+ (* a5 p5) (+ (* a6 p6) (+ (* a7 p7) (* a8 p8))))))))))"
+   ],
+   "goal": "(>= r 0)",
+   "facts": 729,
+   "T": 9,
+   "capped": false,
+   "closure": 9,
+   "maxdeg": 2,
+   "families": {
+    "F1": 27,
+    "F10": 72,
+    "F2": 36,
+    "F3": 18,
+    "F4": 288,
+    "F5": 288
+   }
+  },
+  {
+   "name": "YF3",
+   "group": "YF",
+   "truth": false,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "n",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= n (+ (* w h) (* cw ch)))",
+    "(>= y 0)",
+    "(>= x 0)",
+    "(< y ch)",
+    "(< x cw)",
+    "(= r (+ (* w h) (+ (* cw ch) (+ (* y cw) x))))"
+   ],
+   "goal": "(< r n)",
+   "facts": 84,
+   "T": 3,
+   "capped": false,
+   "closure": 9,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 22,
+    "F9": 5
+   }
+  },
+  {
+   "name": "YF4",
+   "group": "YF",
+   "truth": false,
+   "vars": [
+    "ch",
+    "cw",
+    "h",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(= cw (/ w 2))",
+    "(= ch (/ h 2))",
+    "(>= y 0)",
+    "(< y h)"
+   ],
+   "goal": "(>= (* cw ch) 1)",
+   "facts": 13,
+   "T": 1,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2,
+    "F9": 4
+   }
+  },
+  {
+   "name": "KF1",
+   "group": "KF",
+   "truth": false,
+   "vars": [
+    "c",
+    "i",
+    "w"
+   ],
+   "hyps": [
+    "(or (= c 1) (= c 3))",
+    "(>= w 1)",
+    "(>= i 0)",
+    "(=> (= c 3) (<= i (* 3 w)))",
+    "(=> (= c 1) (< i w))"
+   ],
+   "goal": "(< i (* c w))",
+   "facts": 11,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "KF2",
+   "group": "KF",
+   "truth": false,
+   "vars": [
+    "c",
+    "h0",
+    "st",
+    "w0",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h0)",
+    "(>= x 0)",
+    "(< x w0)",
+    "(>= c 1)",
+    "(>= st c)"
+   ],
+   "goal": "(< (+ (* y st) (* x c)) (* h0 st))",
+   "facts": 79,
+   "T": 3,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 9,
+    "F10": 6,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 22
+   }
+  },
+  {
+   "name": "KF3",
+   "group": "KF",
+   "truth": false,
+   "vars": [
+    "st",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(>= st 1)",
+    "(>= x 0)",
+    "(< x st)"
+   ],
+   "goal": "(>= (+ (* (- y 1) st) x) 0)",
+   "facts": 29,
+   "T": 2,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 1,
+    "F11": 3,
+    "F2": 7,
+    "F3": 3,
+    "F4": 6,
+    "F5": 3
+   }
+  },
+  {
+   "name": "KF4",
+   "group": "KF",
+   "truth": false,
+   "vars": [
+    "b",
+    "ch",
+    "h",
+    "k",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= ch 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(<= k ch)",
+    "(= (bytesLen b) (* (* w h) ch))",
+    "(>= (bytesLen b) 0)"
+   ],
+   "goal": "(< (+ (* (+ (* y w) x) ch) k) (bytesLen b))",
+   "facts": 1384,
+   "T": 13,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 142,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548,
+    "F9": 1
+   }
+  },
+  {
+   "name": "PF",
+   "group": "PF",
+   "truth": false,
+   "vars": [
+    "c",
+    "ch",
+    "chroma",
+    "cw",
+    "dst",
+    "frame",
+    "h",
+    "luma",
+    "pad",
+    "rowb",
+    "src",
+    "st",
+    "total",
+    "v",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= pad 0)",
+    "(>= y 0)",
+    "(<= y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= rowb (* w c))",
+    "(= st (+ rowb pad))",
+    "(= luma (* w h))",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= chroma (* cw ch))",
+    "(= frame (+ luma (* 2 chroma)))",
+    "(= src (+ (* y st) (* x c)))",
+    "(= dst (+ (* y w) x))",
+    "(= v (+ luma (+ chroma (+ (* (/ y 2) cw) (/ x 2)))))",
+    "(= total (* h st))"
+   ],
+   "goal": "(< src total)",
+   "facts": 2791,
+   "T": 18,
+   "capped": false,
+   "closure": 21,
+   "maxdeg": 3,
+   "families": {
+    "F1": 54,
+    "F10": 290,
+    "F11": 28,
+    "F2": 72,
+    "F3": 36,
+    "F4": 1176,
+    "F5": 1126,
+    "F9": 9
+   }
+  },
+  {
+   "name": "PF2",
+   "group": "PF",
+   "truth": false,
+   "vars": [
+    "c",
+    "ch",
+    "chroma",
+    "cw",
+    "dst",
+    "frame",
+    "h",
+    "luma",
+    "pad",
+    "rowb",
+    "src",
+    "st",
+    "total",
+    "v",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= pad 0)",
+    "(>= y 0)",
+    "(<= y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= rowb (* w c))",
+    "(= st (+ rowb pad))",
+    "(= luma (* w h))",
+    "(= cw (/ (+ w 1) 2))",
+    "(= ch (/ (+ h 1) 2))",
+    "(= chroma (* cw ch))",
+    "(= frame (+ luma (* 2 chroma)))",
+    "(= src (+ (* y st) (* x c)))",
+    "(= dst (+ (* y w) x))",
+    "(= v (+ luma (+ chroma (+ (* (/ y 2) cw) (/ x 2)))))",
+    "(= total (* h st))"
+   ],
+   "goal": "(< v (+ luma chroma))",
+   "facts": 2791,
+   "T": 18,
+   "capped": false,
+   "closure": 21,
+   "maxdeg": 3,
+   "families": {
+    "F1": 54,
+    "F10": 290,
+    "F11": 28,
+    "F2": 72,
+    "F3": 36,
+    "F4": 1176,
+    "F5": 1126,
+    "F9": 9
+   }
+  },
+  {
+   "name": "O1",
+   "group": "O",
+   "truth": true,
+   "vars": [
+    "w",
+    "x",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= x (+ y 1))",
+    "(= x (* 2 z))"
+   ],
+   "goal": "(= (* x w) (* 2 (* z w)))",
+   "facts": 130,
+   "T": 4,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 11,
+    "F10": 10,
+    "F11": 6,
+    "F2": 15,
+    "F3": 8,
+    "F4": 45,
+    "F5": 33,
+    "F9": 2
+   }
+  },
+  {
+   "name": "O2",
+   "group": "O",
+   "truth": true,
+   "vars": [
+    "cw",
+    "pad",
+    "st",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(= st (+ w pad))",
+    "(= st (* 2 cw))"
+   ],
+   "goal": "(= (* y st) (* 2 (* y cw)))",
+   "facts": 211,
+   "T": 5,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 15,
+    "F10": 17,
+    "F11": 8,
+    "F2": 20,
+    "F3": 10,
+    "F4": 79,
+    "F5": 60,
+    "F9": 2
+   }
+  },
+  {
+   "name": "O3",
+   "group": "O",
+   "truth": true,
+   "vars": [
+    "c",
+    "h",
+    "n",
+    "w"
+   ],
+   "hyps": [
+    "(= n (* w h))",
+    "(= n (* h c))"
+   ],
+   "goal": "(= (* n w) (* w (* h c)))",
+   "facts": 576,
+   "T": 9,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 3,
+   "families": {
+    "F1": 26,
+    "F10": 56,
+    "F2": 34,
+    "F3": 17,
+    "F4": 224,
+    "F5": 216,
+    "F8": 1,
+    "F9": 2
+   }
+  },
+  {
+   "name": "A1",
+   "group": "A",
+   "truth": true,
+   "vars": [
+    "dx",
+    "st"
+   ],
+   "hyps": [
+    "(>= st 0)"
+   ],
+   "goal": "(>= (* (abs dx) st) 0)",
+   "facts": 11,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "A2",
+   "group": "A",
+   "truth": true,
+   "vars": [
+    "i",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 0)"
+   ],
+   "goal": "(>= (* (mod i 3) w) 0)",
+   "facts": 10,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2,
+    "F7b": 1
+   }
+  },
+  {
+   "name": "A3",
+   "group": "A",
+   "truth": true,
+   "vars": [
+    "i",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)"
+   ],
+   "goal": "(< (* (mod i 3) w) (* 3 w))",
+   "facts": 12,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F7b": 1
+   }
+  },
+  {
+   "name": "A4",
+   "group": "A",
+   "truth": true,
+   "vars": [
+    "w",
+    "x"
+   ],
+   "hyps": [
+    "(>= w 0)"
+   ],
+   "goal": "(>= (* (max x 0) w) 0)",
+   "facts": 9,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "A5",
+   "group": "A",
+   "truth": true,
+   "vars": [
+    "w",
+    "x"
+   ],
+   "hyps": [
+    "(>= w 0)"
+   ],
+   "goal": "(>= (if (> x 0) (* x w) 0) 0)",
+   "facts": 9,
+   "T": 1,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "A6",
+   "group": "A",
+   "truth": true,
+   "vars": [
+    "dx",
+    "dy",
+    "h",
+    "w"
+   ],
+   "hyps": [
+    "(< (abs dy) h)",
+    "(< (abs dx) w)",
+    "(>= w 1)"
+   ],
+   "goal": "(< (+ (* (abs dy) w) (abs dx)) (* h w))",
+   "facts": 38,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6
+   }
+  },
+  {
+   "name": "A7",
+   "group": "A",
+   "truth": true,
+   "vars": [
+    "h",
+    "i",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= w 1)"
+   ],
+   "goal": "(< (+ (* y (* 3 w)) (mod i 3)) (* h (* 3 w)))",
+   "facts": 142,
+   "T": 4,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 12,
+    "F10": 12,
+    "F11": 6,
+    "F2": 16,
+    "F3": 8,
+    "F4": 48,
+    "F5": 40
+   }
+  },
+  {
+   "name": "AF1",
+   "group": "AF",
+   "truth": false,
+   "vars": [
+    "dx",
+    "st"
+   ],
+   "hyps": [
+    "(>= st 0)"
+   ],
+   "goal": "(> (* (abs dx) st) 0)",
+   "facts": 11,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "AF2",
+   "group": "AF",
+   "truth": false,
+   "vars": [
+    "i",
+    "w"
+   ],
+   "hyps": [
+    "(>= w 1)"
+   ],
+   "goal": "(< (* (mod i 3) w) (* 2 w))",
+   "facts": 12,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F7b": 1
+   }
+  },
+  {
+   "name": "AF3",
+   "group": "AF",
+   "truth": false,
+   "vars": [
+    "w",
+    "x"
+   ],
+   "hyps": [
+    "(>= w 0)"
+   ],
+   "goal": "(>= (* (if (> x 0) x (- 0 1)) w) 0)",
+   "facts": 11,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2
+   }
+  },
+  {
+   "name": "B1",
+   "group": "B",
+   "truth": true,
+   "vars": [
+    "b",
+    "i",
+    "v"
+   ],
+   "hyps": [
+    "(= v (select b i))",
+    "(>= (select b i) 0)",
+    "(<= (select b i) 255)",
+    "(>= (bytesLen b) 0)"
+   ],
+   "goal": "(<= (* v v) 65025)",
+   "facts": 55,
+   "T": 3,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "F1": 7,
+    "F10": 2,
+    "F11": 8,
+    "F2": 8,
+    "F3": 4,
+    "F4": 10,
+    "F5": 6,
+    "F7": 2,
+    "F7b": 4,
+    "F8": 2,
+    "F9": 2
+   }
+  },
+  {
+   "name": "B2",
+   "group": "B",
+   "truth": true,
+   "vars": [
+    "b",
+    "c",
+    "h",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= c (store b 0 7))",
+    "(= (bytesLen c) (bytesLen b))",
+    "(= (bytesLen b) (* w h))",
+    "(>= (bytesLen b) 0)",
+    "(>= (bytesLen c) 0)"
+   ],
+   "goal": "(< (+ (* y w) x) (bytesLen c))",
+   "facts": 42,
+   "T": 2,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 4
+   }
+  },
+  {
+   "name": "B3",
+   "group": "B",
+   "truth": true,
+   "vars": [
+    "h",
+    "s",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= (strLen s) (* w h))",
+    "(>= (strLen s) 0)"
+   ],
+   "goal": "(< (+ (* y w) x) (strLen s))",
+   "facts": 35,
+   "T": 2,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 1
+   }
+  },
+  {
+   "name": "B4",
+   "group": "B",
+   "truth": true,
+   "vars": [
+    "hs",
+    "hs2",
+    "v",
+    "vl",
+    "vl2",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(= hs2 (store hs (* y w) 1))",
+    "(= vl2 (store vl (* y w) v))"
+   ],
+   "goal": "(= (select hs2 (* w y)) 1)",
+   "facts": 12,
+   "T": 1,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2,
+    "F9": 3
+   }
+  },
+  {
+   "name": "BF1",
+   "group": "BF",
+   "truth": false,
+   "vars": [
+    "b",
+    "c",
+    "h",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(<= x w)",
+    "(= c (store b 0 7))",
+    "(= (bytesLen c) (bytesLen b))",
+    "(= (bytesLen b) (* w h))",
+    "(>= (bytesLen b) 0)",
+    "(>= (bytesLen c) 0)"
+   ],
+   "goal": "(< (+ (* y w) x) (bytesLen c))",
+   "facts": 42,
+   "T": 2,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 4
+   }
+  },
+  {
+   "name": "BF2",
+   "group": "BF",
+   "truth": false,
+   "vars": [
+    "b",
+    "c",
+    "h",
+    "v",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= c (store b 0 7))",
+    "(= v (select c (+ (* y w) x)))",
+    "(>= (select c (+ (* y w) x)) 0)",
+    "(<= (select c (+ (* y w) x)) 255)",
+    "(>= (bytesLen b) 0)",
+    "(>= (bytesLen c) 0)"
+   ],
+   "goal": "(< (* 2 v) 510)",
+   "facts": 21,
+   "T": 1,
+   "capped": false,
+   "closure": 7,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F11": 8,
+    "F2": 4,
+    "F3": 2,
+    "F9": 4
+   }
+  },
+  {
+   "name": "BF3",
+   "group": "BF",
+   "truth": false,
+   "vars": [
+    "b",
+    "c",
+    "v",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(= y 0)",
+    "(= x 0)",
+    "(>= w 1)",
+    "(= c (store b (+ (* y w) x) 7))",
+    "(= v (select c (+ (* y w) x)))",
+    "(>= (select c (+ (* y w) x)) 0)",
+    "(<= (select c (+ (* y w) x)) 255)",
+    "(>= (bytesLen b) 0)",
+    "(>= (bytesLen c) 0)"
+   ],
+   "goal": "(!= v 7)",
+   "facts": 32,
+   "T": 0,
+   "capped": false,
+   "closure": 24,
+   "maxdeg": 2,
+   "families": {
+    "F9": 32
+   }
+  },
+  {
+   "name": "BF4",
+   "group": "BF",
+   "truth": false,
+   "vars": [
+    "h",
+    "s",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(<= x w)",
+    "(= (strLen s) (* w h))",
+    "(>= (strLen s) 0)"
+   ],
+   "goal": "(< (+ (* y w) x) (strLen s))",
+   "facts": 35,
+   "T": 2,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 6,
+    "F10": 2,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 1
+   }
+  },
+  {
+   "name": "BF5",
+   "group": "BF",
+   "truth": false,
+   "vars": [
+    "hs",
+    "hs2",
+    "k",
+    "v",
+    "vl",
+    "vl2",
+    "w",
+    "y"
+   ],
+   "hyps": [
+    "(= hs2 (store hs (* y w) 1))",
+    "(= vl2 (store vl (* y w) v))",
+    "(>= k 0)"
+   ],
+   "goal": "(= (select hs2 k) 1)",
+   "facts": 12,
+   "T": 1,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2,
+    "F9": 3
+   }
+  },
+  {
+   "name": "BF6",
+   "group": "BF",
+   "truth": false,
+   "vars": [
+    "h",
+    "s",
+    "t",
+    "w"
+   ],
+   "hyps": [
+    "(= s t)",
+    "(>= (strLen s) (* w h))",
+    "(>= (strLen s) 0)",
+    "(>= (strLen t) 0)"
+   ],
+   "goal": "(>= (strLen t) (+ (* w h) 1))",
+   "facts": 10,
+   "T": 1,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2,
+    "F9": 1
+   }
+  },
+  {
+   "name": "BF7",
+   "group": "BF",
+   "truth": false,
+   "vars": [
+    "h",
+    "s",
+    "t",
+    "w"
+   ],
+   "hyps": [
+    "(!= s t)",
+    "(= (strLen s) (* w h))",
+    "(>= (strLen s) 0)",
+    "(>= (strLen t) 0)"
+   ],
+   "goal": "(= (strLen t) (* w h))",
+   "facts": 10,
+   "T": 1,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2,
+    "F9": 1
+   }
+  },
+  {
+   "name": "BF8",
+   "group": "BF",
+   "truth": false,
+   "vars": [
+    "j",
+    "k",
+    "mv",
+    "s",
+    "t"
+   ],
+   "hyps": [
+    "(= (select mv k) s)",
+    "(= (select mv j) t)",
+    "(!= s t)",
+    "(>= (strLen s) 0)",
+    "(>= (strLen t) 0)"
+   ],
+   "goal": "(!= (* k k) (* j j))",
+   "facts": 21,
+   "T": 2,
+   "capped": false,
+   "closure": 8,
+   "maxdeg": 2,
+   "families": {
+    "F1": 4,
+    "F10": 1,
+    "F2": 4,
+    "F3": 2,
+    "F4": 2,
+    "F5": 2,
+    "F8": 2,
+    "F9": 4
+   }
+  },
+  {
+   "name": "BF9",
+   "group": "BF",
+   "truth": false,
+   "vars": [
+    "b",
+    "c",
+    "h",
+    "pad",
+    "src",
+    "st",
+    "v",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= pad 0)",
+    "(>= y 0)",
+    "(<= y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= st (+ (* w c) pad))",
+    "(= src (+ (* y st) (* x c)))",
+    "(= (bytesLen b) (* h st))",
+    "(= v (select b src))",
+    "(>= (select b src) 0)",
+    "(<= (select b src) 255)",
+    "(>= (bytesLen b) 0)"
+   ],
+   "goal": "(< src (bytesLen b))",
+   "facts": 2174,
+   "T": 16,
+   "capped": false,
+   "closure": 12,
+   "maxdeg": 3,
+   "families": {
+    "F1": 48,
+    "F10": 224,
+    "F11": 24,
+    "F2": 64,
+    "F3": 32,
+    "F4": 912,
+    "F5": 864,
+    "F9": 6
+   }
+  }
+ ],
+ "extra": [
+  {
+   "name": "C1",
+   "kind": "refusal",
+   "vars": [
+    "x",
+    "y"
+   ],
+   "hyps": [],
+   "goal": "(= (* 0 (/ x y)) 0)",
+   "refused": "nonlinear:/",
+   "why": "divisor y is not a positive ground constant"
+  },
+  {
+   "name": "C2",
+   "kind": "refusal",
+   "vars": [
+    "x",
+    "y"
+   ],
+   "hyps": [],
+   "goal": "(= (- (/ x y) (/ x y)) 0)",
+   "refused": "nonlinear:/",
+   "why": "divisor y is not a positive ground constant"
+  },
+  {
+   "name": "C3",
+   "kind": "refusal",
+   "vars": [
+    "x",
+    "y"
+   ],
+   "hyps": [],
+   "goal": "(= (* 0 (mod x y)) 0)",
+   "refused": "nonlinear:mod",
+   "why": "divisor y is not a positive ground constant"
+  },
+  {
+   "name": "C4",
+   "kind": "refusal",
+   "vars": [
+    "x"
+   ],
+   "hyps": [],
+   "goal": "(= (* 0 (/ x 0)) 0)",
+   "refused": "nonlinear:/",
+   "why": "divisor 0 is not a positive ground constant"
+  },
+  {
+   "name": "C5",
+   "kind": "refusal",
+   "vars": [
+    "x"
+   ],
+   "hyps": [],
+   "goal": "(>= (* x (/ x (- 0 2))) 0)",
+   "refused": "nonlinear:/",
+   "why": "divisor ['-', '0', '2'] is not a positive ground constant"
+  },
+  {
+   "name": "C6",
+   "kind": "refusal",
+   "vars": [
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(= w (* 0 (/ x y)))"
+   ],
+   "goal": "(= w 0)",
+   "refused": "nonlinear:/",
+   "why": "divisor y is not a positive ground constant"
+  },
+  {
+   "name": "C7",
+   "kind": "refusal",
+   "vars": [
+    "x"
+   ],
+   "hyps": [],
+   "goal": "(= (* 0 (/ x 2)) 0)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {}
+  },
+  {
+   "name": "C8",
+   "kind": "refusal",
+   "vars": [
+    "w",
+    "x"
+   ],
+   "hyps": [
+    "(>= w 0)"
+   ],
+   "goal": "(>= (* (mod x (+ 1 2)) w) 0)",
+   "facts": 10,
+   "T": 1,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 2,
+   "families": {
+    "F1": 3,
+    "F2": 4,
+    "F3": 2,
+    "F7b": 1
+   }
+  },
+  {
+   "name": "sq1-1",
+   "kind": "chain",
+   "vars": [
+    "x0",
+    "x1",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= x1 (+ (* x0 x0) 1))"
+   ],
+   "goal": "(>= (* x1 x1) 0)",
+   "facts": 103,
+   "T": 5,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 4,
+   "families": {
+    "F1": 12,
+    "F10": 8,
+    "F2": 14,
+    "F3": 7,
+    "F4": 31,
+    "F5": 27,
+    "F8": 3,
+    "F9": 1
+   }
+  },
+  {
+   "name": "sq1-2",
+   "kind": "chain",
+   "vars": [
+    "x0",
+    "x1",
+    "x2",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= x1 (+ (* x0 x0) 1))",
+    "(= x2 (+ (* x1 x1) 1))"
+   ],
+   "goal": "(>= (* x2 x2) 0)",
+   "refused": "nonlinear:*",
+   "why": "degree over 6 after resolution"
+  },
+  {
+   "name": "sq1-3",
+   "kind": "chain",
+   "vars": [
+    "x0",
+    "x1",
+    "x2",
+    "x3",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= x1 (+ (* x0 x0) 1))",
+    "(= x2 (+ (* x1 x1) 1))",
+    "(= x3 (+ (* x2 x2) 1))"
+   ],
+   "goal": "(>= (* x3 x3) 0)",
+   "refused": "nonlinear:*",
+   "why": "degree over 6 after resolution"
+  },
+  {
+   "name": "sq1-6",
+   "kind": "chain",
+   "vars": [
+    "x0",
+    "x1",
+    "x2",
+    "x3",
+    "x4",
+    "x5",
+    "x6",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= x1 (+ (* x0 x0) 1))",
+    "(= x2 (+ (* x1 x1) 1))",
+    "(= x3 (+ (* x2 x2) 1))",
+    "(= x4 (+ (* x3 x3) 1))",
+    "(= x5 (+ (* x4 x4) 1))",
+    "(= x6 (+ (* x5 x5) 1))"
+   ],
+   "goal": "(>= (* x6 x6) 0)",
+   "refused": "nonlinear:*",
+   "why": "degree over 6 after resolution"
+  },
+  {
+   "name": "mix-1",
+   "kind": "chain",
+   "vars": [
+    "x0",
+    "x1",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= x1 (+ (* x0 y) z))"
+   ],
+   "goal": "(>= (* x1 x1) 0)",
+   "facts": 1979,
+   "T": 18,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 4,
+   "families": {
+    "F1": 49,
+    "F10": 212,
+    "F2": 62,
+    "F3": 31,
+    "F4": 827,
+    "F5": 792,
+    "F8": 5,
+    "F9": 1
+   }
+  },
+  {
+   "name": "mix-2",
+   "kind": "chain",
+   "vars": [
+    "x0",
+    "x1",
+    "x2",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= x1 (+ (* x0 y) z))",
+    "(= x2 (+ (* x1 y) z))"
+   ],
+   "goal": "(>= (* x2 x2) 0)",
+   "facts": 30517,
+   "T": 64,
+   "capped": false,
+   "closure": 13,
+   "maxdeg": 6,
+   "families": {
+    "F1": 184,
+    "F10": 3379,
+    "F2": 240,
+    "F3": 120,
+    "F4": 13468,
+    "F5": 13114,
+    "F8": 8,
+    "F9": 4
+   }
+  },
+  {
+   "name": "mix-3",
+   "kind": "chain",
+   "vars": [
+    "x0",
+    "x1",
+    "x2",
+    "x3",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= x1 (+ (* x0 y) z))",
+    "(= x2 (+ (* x1 y) z))",
+    "(= x3 (+ (* x2 y) z))"
+   ],
+   "goal": "(>= (* x3 x3) 0)",
+   "refused": "nonlinear:*",
+   "why": "degree over 6 after resolution"
+  },
+  {
+   "name": "mix-6",
+   "kind": "chain",
+   "vars": [
+    "x0",
+    "x1",
+    "x2",
+    "x3",
+    "x4",
+    "x5",
+    "x6",
+    "y",
+    "z"
+   ],
+   "hyps": [
+    "(= x1 (+ (* x0 y) z))",
+    "(= x2 (+ (* x1 y) z))",
+    "(= x3 (+ (* x2 y) z))",
+    "(= x4 (+ (* x3 y) z))",
+    "(= x5 (+ (* x4 y) z))",
+    "(= x6 (+ (* x5 y) z))"
+   ],
+   "goal": "(>= (* x6 x6) 0)",
+   "refused": "nonlinear:*",
+   "why": "degree over 6 after resolution"
+  },
+  {
+   "name": "monotone-3",
+   "kind": "limit",
+   "vars": [
+    "a0",
+    "a1",
+    "a2",
+    "p0",
+    "p1",
+    "p2"
+   ],
+   "hyps": [
+    "(>= a0 0)",
+    "(>= a1 0)",
+    "(>= a2 0)",
+    "(<= a0 p0)",
+    "(<= a1 p1)",
+    "(<= a2 p2)"
+   ],
+   "goal": "(<= (* (* a0 a1) a2) (* (* p0 p1) p2))",
+   "facts": 1200,
+   "T": 12,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 36,
+    "F10": 120,
+    "F2": 48,
+    "F3": 24,
+    "F4": 480,
+    "F5": 492
+   }
+  },
+  {
+   "name": "monotone-7",
+   "kind": "limit",
+   "vars": [
+    "a0",
+    "a1",
+    "a2",
+    "a3",
+    "a4",
+    "a5",
+    "a6",
+    "p0",
+    "p1",
+    "p2",
+    "p3",
+    "p4",
+    "p5",
+    "p6"
+   ],
+   "hyps": [
+    "(>= a0 0)",
+    "(>= a1 0)",
+    "(>= a2 0)",
+    "(>= a3 0)",
+    "(>= a4 0)",
+    "(>= a5 0)",
+    "(>= a6 0)",
+    "(<= a0 p0)",
+    "(<= a1 p1)",
+    "(<= a2 p2)",
+    "(<= a3 p3)",
+    "(<= a4 p4)",
+    "(<= a5 p5)",
+    "(<= a6 p6)"
+   ],
+   "goal": "(<= (* (* (* (* (* (* a0 a1) a2) a3) a4) a5) a6) (* (* (* (* (* (* p0 p1) p2) p3) p4) p5) p6))",
+   "refused": "nonlinear:*",
+   "why": "degree 7 over 6 after resolution"
+  },
+  {
+   "name": "monotone-8",
+   "kind": "limit",
+   "vars": [
+    "a0",
+    "a1",
+    "a2",
+    "a3",
+    "a4",
+    "a5",
+    "a6",
+    "a7",
+    "p0",
+    "p1",
+    "p2",
+    "p3",
+    "p4",
+    "p5",
+    "p6",
+    "p7"
+   ],
+   "hyps": [
+    "(>= a0 0)",
+    "(>= a1 0)",
+    "(>= a2 0)",
+    "(>= a3 0)",
+    "(>= a4 0)",
+    "(>= a5 0)",
+    "(>= a6 0)",
+    "(>= a7 0)",
+    "(<= a0 p0)",
+    "(<= a1 p1)",
+    "(<= a2 p2)",
+    "(<= a3 p3)",
+    "(<= a4 p4)",
+    "(<= a5 p5)",
+    "(<= a6 p6)",
+    "(<= a7 p7)"
+   ],
+   "goal": "(<= (* (* (* (* (* (* (* a0 a1) a2) a3) a4) a5) a6) a7) (* (* (* (* (* (* (* p0 p1) p2) p3) p4) p5) p6) p7))",
+   "refused": "nonlinear:*",
+   "why": "degree 8 over 6 after resolution"
+  },
+  {
+   "name": "expand-7x7x7",
+   "kind": "limit",
+   "vars": [
+    "r",
+    "x00",
+    "x01",
+    "x02",
+    "x03",
+    "x04",
+    "x05",
+    "x06",
+    "x10",
+    "x11",
+    "x12",
+    "x13",
+    "x14",
+    "x15",
+    "x16",
+    "x20",
+    "x21",
+    "x22",
+    "x23",
+    "x24",
+    "x25",
+    "x26"
+   ],
+   "hyps": [
+    "(>= x00 0)",
+    "(>= x01 0)",
+    "(>= x02 0)",
+    "(>= x03 0)",
+    "(>= x04 0)",
+    "(>= x05 0)",
+    "(>= x06 0)",
+    "(>= x10 0)",
+    "(>= x11 0)",
+    "(>= x12 0)",
+    "(>= x13 0)",
+    "(>= x14 0)",
+    "(>= x15 0)",
+    "(>= x16 0)",
+    "(>= x20 0)",
+    "(>= x21 0)",
+    "(>= x22 0)",
+    "(>= x23 0)",
+    "(>= x24 0)",
+    "(>= x25 0)",
+    "(>= x26 0)",
+    "(= r (* (* (+ x00 (+ x01 (+ x02 (+ x03 (+ x04 (+ x05 x06)))))) (+ x10 (+ x11 (+ x12 (+ x13 (+ x14 (+ x15 x16))))))) (+ x20 (+ x21 (+ x22 (+ x23 (+ x24 (+ x25 x26))))))))"
+   ],
+   "goal": "(>= r 0)",
+   "refused": "nonlinear:*",
+   "why": "expansion over 256 monomials"
+  },
+  {
+   "name": "crux-62",
+   "kind": "limit",
+   "vars": [
+    "a0",
+    "a1",
+    "a10",
+    "a11",
+    "a12",
+    "a13",
+    "a14",
+    "a15",
+    "a16",
+    "a17",
+    "a18",
+    "a19",
+    "a2",
+    "a20",
+    "a21",
+    "a22",
+    "a23",
+    "a24",
+    "a25",
+    "a26",
+    "a27",
+    "a28",
+    "a29",
+    "a3",
+    "a30",
+    "a31",
+    "a32",
+    "a33",
+    "a34",
+    "a35",
+    "a36",
+    "a37",
+    "a38",
+    "a39",
+    "a4",
+    "a40",
+    "a41",
+    "a42",
+    "a43",
+    "a44",
+    "a45",
+    "a46",
+    "a47",
+    "a48",
+    "a49",
+    "a5",
+    "a50",
+    "a51",
+    "a52",
+    "a53",
+    "a54",
+    "a55",
+    "a56",
+    "a57",
+    "a58",
+    "a59",
+    "a6",
+    "a60",
+    "a61",
+    "a7",
+    "a8",
+    "a9",
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* y w) x))",
+    "(>= a0 0)",
+    "(< a0 h)",
+    "(>= a1 0)",
+    "(< a1 h)",
+    "(>= a2 0)",
+    "(< a2 h)",
+    "(>= a3 0)",
+    "(< a3 h)",
+    "(>= a4 0)",
+    "(< a4 h)",
+    "(>= a5 0)",
+    "(< a5 h)",
+    "(>= a6 0)",
+    "(< a6 h)",
+    "(>= a7 0)",
+    "(< a7 h)",
+    "(>= a8 0)",
+    "(< a8 h)",
+    "(>= a9 0)",
+    "(< a9 h)",
+    "(>= a10 0)",
+    "(< a10 h)",
+    "(>= a11 0)",
+    "(< a11 h)",
+    "(>= a12 0)",
+    "(< a12 h)",
+    "(>= a13 0)",
+    "(< a13 h)",
+    "(>= a14 0)",
+    "(< a14 h)",
+    "(>= a15 0)",
+    "(< a15 h)",
+    "(>= a16 0)",
+    "(< a16 h)",
+    "(>= a17 0)",
+    "(< a17 h)",
+    "(>= a18 0)",
+    "(< a18 h)",
+    "(>= a19 0)",
+    "(< a19 h)",
+    "(>= a20 0)",
+    "(< a20 h)",
+    "(>= a21 0)",
+    "(< a21 h)",
+    "(>= a22 0)",
+    "(< a22 h)",
+    "(>= a23 0)",
+    "(< a23 h)",
+    "(>= a24 0)",
+    "(< a24 h)",
+    "(>= a25 0)",
+    "(< a25 h)",
+    "(>= a26 0)",
+    "(< a26 h)",
+    "(>= a27 0)",
+    "(< a27 h)",
+    "(>= a28 0)",
+    "(< a28 h)",
+    "(>= a29 0)",
+    "(< a29 h)",
+    "(>= a30 0)",
+    "(< a30 h)",
+    "(>= a31 0)",
+    "(< a31 h)",
+    "(>= a32 0)",
+    "(< a32 h)",
+    "(>= a33 0)",
+    "(< a33 h)",
+    "(>= a34 0)",
+    "(< a34 h)",
+    "(>= a35 0)",
+    "(< a35 h)",
+    "(>= a36 0)",
+    "(< a36 h)",
+    "(>= a37 0)",
+    "(< a37 h)",
+    "(>= a38 0)",
+    "(< a38 h)",
+    "(>= a39 0)",
+    "(< a39 h)",
+    "(>= a40 0)",
+    "(< a40 h)",
+    "(>= a41 0)",
+    "(< a41 h)",
+    "(>= a42 0)",
+    "(< a42 h)",
+    "(>= a43 0)",
+    "(< a43 h)",
+    "(>= a44 0)",
+    "(< a44 h)",
+    "(>= a45 0)",
+    "(< a45 h)",
+    "(>= a46 0)",
+    "(< a46 h)",
+    "(>= a47 0)",
+    "(< a47 h)",
+    "(>= a48 0)",
+    "(< a48 h)",
+    "(>= a49 0)",
+    "(< a49 h)",
+    "(>= a50 0)",
+    "(< a50 h)",
+    "(>= a51 0)",
+    "(< a51 h)",
+    "(>= a52 0)",
+    "(< a52 h)",
+    "(>= a53 0)",
+    "(< a53 h)",
+    "(>= a54 0)",
+    "(< a54 h)",
+    "(>= a55 0)",
+    "(< a55 h)",
+    "(>= a56 0)",
+    "(< a56 h)",
+    "(>= a57 0)",
+    "(< a57 h)",
+    "(>= a58 0)",
+    "(< a58 h)",
+    "(>= a59 0)",
+    "(< a59 h)",
+    "(>= a60 0)",
+    "(< a60 h)",
+    "(>= a61 0)",
+    "(< a61 h)"
+   ],
+   "goal": "(and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (>= r 0) (< r (* w h))) (< (+ (* a0 w) x) (* w h))) (< (+ (* a1 w) x) (* w h))) (< (+ (* a2 w) x) (* w h))) (< (+ (* a3 w) x) (* w h))) (< (+ (* a4 w) x) (* w h))) (< (+ (* a5 w) x) (* w h))) (< (+ (* a6 w) x) (* w h))) (< (+ (* a7 w) x) (* w h))) (< (+ (* a8 w) x) (* w h))) (< (+ (* a9 w) x) (* w h))) (< (+ (* a10 w) x) (* w h))) (< (+ (* a11 w) x) (* w h))) (< (+ (* a12 w) x) (* w h))) (< (+ (* a13 w) x) (* w h))) (< (+ (* a14 w) x) (* w h))) (< (+ (* a15 w) x) (* w h))) (< (+ (* a16 w) x) (* w h))) (< (+ (* a17 w) x) (* w h))) (< (+ (* a18 w) x) (* w h))) (< (+ (* a19 w) x) (* w h))) (< (+ (* a20 w) x) (* w h))) (< (+ (* a21 w) x) (* w h))) (< (+ (* a22 w) x) (* w h))) (< (+ (* a23 w) x) (* w h))) (< (+ (* a24 w) x) (* w h))) (< (+ (* a25 w) x) (* w h))) (< (+ (* a26 w) x) (* w h))) (< (+ (* a27 w) x) (* w h))) (< (+ (* a28 w) x) (* w h))) (< (+ (* a29 w) x) (* w h))) (< (+ (* a30 w) x) (* w h))) (< (+ (* a31 w) x) (* w h))) (< (+ (* a32 w) x) (* w h))) (< (+ (* a33 w) x) (* w h))) (< (+ (* a34 w) x) (* w h))) (< (+ (* a35 w) x) (* w h))) (< (+ (* a36 w) x) (* w h))) (< (+ (* a37 w) x) (* w h))) (< (+ (* a38 w) x) (* w h))) (< (+ (* a39 w) x) (* w h))) (< (+ (* a40 w) x) (* w h))) (< (+ (* a41 w) x) (* w h))) (< (+ (* a42 w) x) (* w h))) (< (+ (* a43 w) x) (* w h))) (< (+ (* a44 w) x) (* w h))) (< (+ (* a45 w) x) (* w h))) (< (+ (* a46 w) x) (* w h))) (< (+ (* a47 w) x) (* w h))) (< (+ (* a48 w) x) (* w h))) (< (+ (* a49 w) x) (* w h))) (< (+ (* a50 w) x) (* w h))) (< (+ (* a51 w) x) (* w h))) (< (+ (* a52 w) x) (* w h))) (< (+ (* a53 w) x) (* w h))) (< (+ (* a54 w) x) (* w h))) (< (+ (* a55 w) x) (* w h))) (< (+ (* a56 w) x) (* w h))) (< (+ (* a57 w) x) (* w h))) (< (+ (* a58 w) x) (* w h))) (< (+ (* a59 w) x) (* w h))) (< (+ (* a60 w) x) (* w h))) (< (+ (* a61 w) x) (* w h)))",
+   "facts": 32832,
+   "T": 64,
+   "capped": false,
+   "closure": 64,
+   "maxdeg": 2,
+   "families": {
+    "F1": 192,
+    "F10": 4032,
+    "F2": 256,
+    "F3": 128,
+    "F4": 16128,
+    "F5": 12096
+   }
+  },
+  {
+   "name": "crux-63",
+   "kind": "limit",
+   "vars": [
+    "a0",
+    "a1",
+    "a10",
+    "a11",
+    "a12",
+    "a13",
+    "a14",
+    "a15",
+    "a16",
+    "a17",
+    "a18",
+    "a19",
+    "a2",
+    "a20",
+    "a21",
+    "a22",
+    "a23",
+    "a24",
+    "a25",
+    "a26",
+    "a27",
+    "a28",
+    "a29",
+    "a3",
+    "a30",
+    "a31",
+    "a32",
+    "a33",
+    "a34",
+    "a35",
+    "a36",
+    "a37",
+    "a38",
+    "a39",
+    "a4",
+    "a40",
+    "a41",
+    "a42",
+    "a43",
+    "a44",
+    "a45",
+    "a46",
+    "a47",
+    "a48",
+    "a49",
+    "a5",
+    "a50",
+    "a51",
+    "a52",
+    "a53",
+    "a54",
+    "a55",
+    "a56",
+    "a57",
+    "a58",
+    "a59",
+    "a6",
+    "a60",
+    "a61",
+    "a62",
+    "a7",
+    "a8",
+    "a9",
+    "h",
+    "r",
+    "w",
+    "x",
+    "y"
+   ],
+   "hyps": [
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(= r (+ (* y w) x))",
+    "(>= a0 0)",
+    "(< a0 h)",
+    "(>= a1 0)",
+    "(< a1 h)",
+    "(>= a2 0)",
+    "(< a2 h)",
+    "(>= a3 0)",
+    "(< a3 h)",
+    "(>= a4 0)",
+    "(< a4 h)",
+    "(>= a5 0)",
+    "(< a5 h)",
+    "(>= a6 0)",
+    "(< a6 h)",
+    "(>= a7 0)",
+    "(< a7 h)",
+    "(>= a8 0)",
+    "(< a8 h)",
+    "(>= a9 0)",
+    "(< a9 h)",
+    "(>= a10 0)",
+    "(< a10 h)",
+    "(>= a11 0)",
+    "(< a11 h)",
+    "(>= a12 0)",
+    "(< a12 h)",
+    "(>= a13 0)",
+    "(< a13 h)",
+    "(>= a14 0)",
+    "(< a14 h)",
+    "(>= a15 0)",
+    "(< a15 h)",
+    "(>= a16 0)",
+    "(< a16 h)",
+    "(>= a17 0)",
+    "(< a17 h)",
+    "(>= a18 0)",
+    "(< a18 h)",
+    "(>= a19 0)",
+    "(< a19 h)",
+    "(>= a20 0)",
+    "(< a20 h)",
+    "(>= a21 0)",
+    "(< a21 h)",
+    "(>= a22 0)",
+    "(< a22 h)",
+    "(>= a23 0)",
+    "(< a23 h)",
+    "(>= a24 0)",
+    "(< a24 h)",
+    "(>= a25 0)",
+    "(< a25 h)",
+    "(>= a26 0)",
+    "(< a26 h)",
+    "(>= a27 0)",
+    "(< a27 h)",
+    "(>= a28 0)",
+    "(< a28 h)",
+    "(>= a29 0)",
+    "(< a29 h)",
+    "(>= a30 0)",
+    "(< a30 h)",
+    "(>= a31 0)",
+    "(< a31 h)",
+    "(>= a32 0)",
+    "(< a32 h)",
+    "(>= a33 0)",
+    "(< a33 h)",
+    "(>= a34 0)",
+    "(< a34 h)",
+    "(>= a35 0)",
+    "(< a35 h)",
+    "(>= a36 0)",
+    "(< a36 h)",
+    "(>= a37 0)",
+    "(< a37 h)",
+    "(>= a38 0)",
+    "(< a38 h)",
+    "(>= a39 0)",
+    "(< a39 h)",
+    "(>= a40 0)",
+    "(< a40 h)",
+    "(>= a41 0)",
+    "(< a41 h)",
+    "(>= a42 0)",
+    "(< a42 h)",
+    "(>= a43 0)",
+    "(< a43 h)",
+    "(>= a44 0)",
+    "(< a44 h)",
+    "(>= a45 0)",
+    "(< a45 h)",
+    "(>= a46 0)",
+    "(< a46 h)",
+    "(>= a47 0)",
+    "(< a47 h)",
+    "(>= a48 0)",
+    "(< a48 h)",
+    "(>= a49 0)",
+    "(< a49 h)",
+    "(>= a50 0)",
+    "(< a50 h)",
+    "(>= a51 0)",
+    "(< a51 h)",
+    "(>= a52 0)",
+    "(< a52 h)",
+    "(>= a53 0)",
+    "(< a53 h)",
+    "(>= a54 0)",
+    "(< a54 h)",
+    "(>= a55 0)",
+    "(< a55 h)",
+    "(>= a56 0)",
+    "(< a56 h)",
+    "(>= a57 0)",
+    "(< a57 h)",
+    "(>= a58 0)",
+    "(< a58 h)",
+    "(>= a59 0)",
+    "(< a59 h)",
+    "(>= a60 0)",
+    "(< a60 h)",
+    "(>= a61 0)",
+    "(< a61 h)",
+    "(>= a62 0)",
+    "(< a62 h)"
+   ],
+   "goal": "(and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (and (>= r 0) (< r (* w h))) (< (+ (* a0 w) x) (* w h))) (< (+ (* a1 w) x) (* w h))) (< (+ (* a2 w) x) (* w h))) (< (+ (* a3 w) x) (* w h))) (< (+ (* a4 w) x) (* w h))) (< (+ (* a5 w) x) (* w h))) (< (+ (* a6 w) x) (* w h))) (< (+ (* a7 w) x) (* w h))) (< (+ (* a8 w) x) (* w h))) (< (+ (* a9 w) x) (* w h))) (< (+ (* a10 w) x) (* w h))) (< (+ (* a11 w) x) (* w h))) (< (+ (* a12 w) x) (* w h))) (< (+ (* a13 w) x) (* w h))) (< (+ (* a14 w) x) (* w h))) (< (+ (* a15 w) x) (* w h))) (< (+ (* a16 w) x) (* w h))) (< (+ (* a17 w) x) (* w h))) (< (+ (* a18 w) x) (* w h))) (< (+ (* a19 w) x) (* w h))) (< (+ (* a20 w) x) (* w h))) (< (+ (* a21 w) x) (* w h))) (< (+ (* a22 w) x) (* w h))) (< (+ (* a23 w) x) (* w h))) (< (+ (* a24 w) x) (* w h))) (< (+ (* a25 w) x) (* w h))) (< (+ (* a26 w) x) (* w h))) (< (+ (* a27 w) x) (* w h))) (< (+ (* a28 w) x) (* w h))) (< (+ (* a29 w) x) (* w h))) (< (+ (* a30 w) x) (* w h))) (< (+ (* a31 w) x) (* w h))) (< (+ (* a32 w) x) (* w h))) (< (+ (* a33 w) x) (* w h))) (< (+ (* a34 w) x) (* w h))) (< (+ (* a35 w) x) (* w h))) (< (+ (* a36 w) x) (* w h))) (< (+ (* a37 w) x) (* w h))) (< (+ (* a38 w) x) (* w h))) (< (+ (* a39 w) x) (* w h))) (< (+ (* a40 w) x) (* w h))) (< (+ (* a41 w) x) (* w h))) (< (+ (* a42 w) x) (* w h))) (< (+ (* a43 w) x) (* w h))) (< (+ (* a44 w) x) (* w h))) (< (+ (* a45 w) x) (* w h))) (< (+ (* a46 w) x) (* w h))) (< (+ (* a47 w) x) (* w h))) (< (+ (* a48 w) x) (* w h))) (< (+ (* a49 w) x) (* w h))) (< (+ (* a50 w) x) (* w h))) (< (+ (* a51 w) x) (* w h))) (< (+ (* a52 w) x) (* w h))) (< (+ (* a53 w) x) (* w h))) (< (+ (* a54 w) x) (* w h))) (< (+ (* a55 w) x) (* w h))) (< (+ (* a56 w) x) (* w h))) (< (+ (* a57 w) x) (* w h))) (< (+ (* a58 w) x) (* w h))) (< (+ (* a59 w) x) (* w h))) (< (+ (* a60 w) x) (* w h))) (< (+ (* a61 w) x) (* w h))) (< (+ (* a62 w) x) (* w h)))",
+   "facts": 585,
+   "T": 65,
+   "capped": true,
+   "closure": 65,
+   "maxdeg": 2,
+   "families": {
+    "F1": 195,
+    "F2": 260,
+    "F3": 130
+   }
+  }
+ ]
+}

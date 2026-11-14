@@ -43,6 +43,8 @@ library
       LLMLL.DiagnosticFQ
       LLMLL.SolverGuard
       LLMLL.AbstractionVerdict
+      LLMLL.ProductNF
+      LLMLL.ProductFacts
       LLMLL.Serve
       LLMLL.Sketch
       LLMLL.JsonPointer
@@ -166,6 +168,7 @@ test-suite llmll-test
   main-is: Spec.hs
   other-modules:
       ModuleSpec
+      ProductSpec
       Paths_llmll
   hs-source-dirs:
       test

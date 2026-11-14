@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness BF8: hand-written restatement of rev3.py row "BF8 string-valued map, product key", group BF, truth false.
+;; mv is a map[int,string]; map-get needs presence, so (map-has mv k) and (map-has mv j) precede the reads.
+(module mv-bf8
+  (export mv-bf8)
+  (def-shell mv-bf8 [k: int j: int s: string t: string mv: map[int,string]] -> int
+    (pre (and (map-has mv k) (and (map-has mv j) (and (= (map-get mv k) s) (and (= (map-get mv j) t) (!= s t))))))
+    (post (!= (* k k) (* j j)))
+    0))

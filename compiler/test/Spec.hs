@@ -108,6 +108,7 @@ import Test.QuickCheck (Gen, forAll, elements, oneof, listOf1, vectorOf)
 import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime, getCurrentTime, diffUTCTime)
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
+import ProductSpec (productSpec)
 import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
 import LLMLL.Specialize (specialize, specializeWithRet, GenericStats(..), emptyGenericStats, gsDefinitions, gsInstances, copyTypeArgsSuffix)  -- GENERICS-1 S5
 import LLMLL.CodegenHs (typeParamContext, constraintHsClasses)  -- GENERICS-1 S6
@@ -28402,6 +28403,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   -- Module System (M-01 through M-07)
   -- -----------------------------------------------------------------------
   moduleSpec
+
+  -- MUL-VAR-1 (Rev 3a), Steps 1 and 2: ProductNF and ProductFacts
+  productSpec
 
 -- | GENERIC-COMPARE-PAIR-1 (GP-2..GP-4): a value of the test-only evaluator
 -- over the compare unfolding.
