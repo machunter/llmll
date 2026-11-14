@@ -698,7 +698,7 @@ reVerify fp cache retTypes stmts bodyTargets
               -- reads it. A patched function whose only failures need two
               -- calls to one callee to disagree is written, and reported
               -- through 'notProved' as a fallback, not rejected as refuted.
-              av       = applyAbstractionVerdict emitR rawResult
+              av       = applyAbstractionVerdict Set.empty emitR rawResult
               fqResult = aoResult av
               fqReport = fqResultToReportWD fp table (aoReportCtx av) fqResult
           case fqResult of

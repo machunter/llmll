@@ -61,6 +61,23 @@
 -- failing id is WD gives 'FallbackClauseWelldefUnproved', whose construct is
 -- @welldef:@ plus the construct steps 2-3 pick over the same ids. Steps 2-4
 -- are the shipped 'decide'.
+--
+-- MUL-VAR-1 (mul-var-proposal.md Rev 3a, "The mark", "Verdict and recheck")
+-- adds a third mark. The emitter marks each constraint that names a monomial
+-- symbol @mul##k@ ('erProductMarked'): an UNSAFE answer on it may rest on the
+-- product abstraction. The first argument holds the ids the native recheck
+-- ('LLMLL.ProductRecheck') cleared with a validated model; a cleared id loses
+-- the product mark, and it keeps any other mark. Three branches:
+--
+-- 1. A product-marked id is a candidate whether or not its function is
+--    body-faithful. The other marks keep their rule.
+-- 2. A function already in fallback keeps its first cause: 'reclassifyEmit'
+--    gives it no second entry in 'erBodyFallback' or 'erBodyFallbackCauses'.
+-- 3. The welldef warning of such a function says that the clause's truth was
+--    not checked, because its body is outside the fragment.
+--
+-- A function whose failing ids are all marked, and some only by the product
+-- mark, falls back with the construct @abstraction:nonlinear:*@.
 
 module LLMLL.AbstractionVerdict
   ( AbstractionOutcome(..)
@@ -68,6 +85,7 @@ module LLMLL.AbstractionVerdict
   , aoFallbackFns
   , aoReportCtx
   , abstractionConstruct
+  , nonlinearConstruct
   , abstractionRepair
   , postUnassumedConstruct
   , postUnassumedRepair
@@ -149,6 +167,11 @@ postUnassumedRepair g =
 abstractionConstruct :: Name -> Text
 abstractionConstruct g = "abstraction:app:" <> g
 
+-- | MUL-VAR-1: the construct of a function whose failing ids rest on the
+-- product abstraction.
+nonlinearConstruct :: Text
+nonlinearConstruct = "abstraction:nonlinear:*"
+
 -- | CLAUSE-WELLDEF-1: the construct of a 'FallbackClauseWelldefUnproved'
 -- function, @welldef:@ plus the construct of the inner cause.
 welldefConstruct :: Text -> Text
@@ -175,6 +198,9 @@ data Reclass = Reclass
   , rcCallee :: Name
   , rcInner  :: FallbackCause
   , rcWdIds  :: [FQConstraintId]
+  , rcProduct :: Bool
+    -- ^ MUL-VAR-1: the construct is @abstraction:nonlinear:*@ ('rcCallee' is
+    -- then empty)
   }
 
 -- | The failing-id partition of §4.4.
@@ -189,8 +215,11 @@ partitionOf c
 
 -- | Apply the rule to one solver answer. 'FQSafe', 'FQError' and
 -- 'FQResourceLimit' pass through unchanged, with empty sets.
-applyAbstractionVerdict :: EmitResult -> FQVerifyResult -> AbstractionOutcome
-applyAbstractionVerdict er r = case r of
+--
+-- MUL-VAR-1: the first argument is the set of ids the native recheck cleared
+-- (a validated counterexample). A caller with no recheck passes 'Set.empty'.
+applyAbstractionVerdict :: Set FQConstraintId -> EmitResult -> FQVerifyResult -> AbstractionOutcome
+applyAbstractionVerdict cleared er r = case r of
   FQUnsafe ids ->
     AbstractionOutcome
       { aoResult       = if null reclassList then r
@@ -214,13 +243,17 @@ applyAbstractionVerdict er r = case r of
       partOf i = maybe PTruth (partitionOf . coClause) (Map.lookup i table)
       absMark i = Map.lookup i (erAbstracted er)
       cpuMark i = Map.lookup i (erPostUnassumed er)
+      -- MUL-VAR-1: the product mark, unless the recheck cleared the id.
+      prodMark i = i `Set.member` erProductMarked er && not (i `Set.member` cleared)
       -- Rule 1: a candidate carries at least one mark, has an origin, and
       -- belongs to a body-faithful function. The clause does not matter: a
       -- marked descent or decreases id is a candidate too (the user-approved
       -- extension), and so is a marked WD id (CLAUSE-WELLDEF-1).
+      -- MUL-VAR-1: a product-marked id needs no body-faithful function.
       candidate i = case Map.lookup i table of
         Just o | coFunction o `Set.member` faithful
                , isJust (absMark i) || isJust (cpuMark i) -> Just (coFunction o)
+               | prodMark i                               -> Just (coFunction o)
         _                                                 -> Nothing
       -- Rule 2: one non-candidate id keeps the whole function.
       blocked  = Set.fromList [ f | i <- ids, isNothing (candidate i), Just f <- [fnOf i] ]
@@ -239,19 +272,22 @@ applyAbstractionVerdict er r = case r of
       -- callee (the ABSTRACTION-VERDICT-1 output). Step 3: some id carries
       -- only the new mark → 'FallbackCalleePostUnassumed', named by the
       -- new-mark callee of the first failing id that carries it.
+      -- MUL-VAR-1: when not every id carries the abstraction mark and none
+      -- carries the callee-post mark, some id carries only the product mark,
+      -- and the construct is @abstraction:nonlinear:*@.
       decide f is =
-        let (inner, g) = shipped is
+        let (inner, g, prod) = shipped is
             wdIds      = [ i | i <- is, partOf i == PWd ]
         in if length wdIds == length is
-             then Reclass f FallbackClauseWelldefUnproved g inner wdIds
-             else Reclass f inner g inner wdIds
-      shipped is = case ( [ g | i <- is, Just g <- [absMark i] ]
+             then Reclass f FallbackClauseWelldefUnproved g inner wdIds prod
+             else Reclass f inner g inner wdIds prod
+      shipped is = case ( [ g | i <- is, Just g <- [absMark (i :: FQConstraintId)] ]
                         , [ g | i <- is, Just g <- [cpuMark i] ] ) of
-        (g : gs, _) | length (g : gs) == length is -> (FallbackAbstraction, g)
-        (_, g : _)                                 -> (FallbackCalleePostUnassumed, g)
-        -- unreachable: a candidate carries one of the two marks
-        (g : _, [])                                -> (FallbackAbstraction, g)
-        ([], [])                                   -> (FallbackAbstraction, "")
+        (g : gs, _) | length (g : gs) == length is -> (FallbackAbstraction, g, False)
+        (_, g : _)                                 -> (FallbackCalleePostUnassumed, g, False)
+        -- a candidate with neither mark, or with the abstraction mark on
+        -- some ids only, carries the product mark on the rest
+        _                                          -> (FallbackAbstraction, "", True)
       reclass  = Set.fromList (map rcFn reclassList)
       -- Rule 3: an id with no origin is kept.
       kept     = [ i | i <- ids, maybe True (not . (`Set.member` reclass)) (fnOf i) ]
@@ -268,7 +304,9 @@ constructOf c = case rcCause c of
   cause                         -> innerConstruct cause (rcCallee c)
   where
     innerConstruct FallbackCalleePostUnassumed g = postUnassumedConstruct g
-    innerConstruct _                           g = abstractionConstruct g
+    innerConstruct _                           g
+      | rcProduct c = nonlinearConstruct
+      | otherwise   = abstractionConstruct g
 
 -- | First-occurrence order, without duplicates.
 nubOrd :: [Text] -> [Text]
@@ -283,33 +321,47 @@ nubOrd = go Set.empty
 -- emitter does for every other fallback cause, with its own cause.
 -- CLAUSE-WELLDEF-1: a 'FallbackClauseWelldefUnproved' function also gets one
 -- @W-CLAUSE-WELLDEF-UNPROVED@ warning per failing WD id, pointed at the clause.
+--
+-- MUL-VAR-1: a function that is already in fallback (a product-marked id
+-- needs no body-faithful function) keeps its first cause. It gets no second
+-- entry in 'erBodyFallback', 'erBodyFallbackCauses' or 'erFallbackConstructs',
+-- and no second @W-BODY-FALLBACK@; its welldef warnings say that the clause's
+-- truth was not checked.
 reclassifyEmit :: Map FQConstraintId ConstraintOrigin -> [Reclass] -> EmitResult -> EmitResult
 reclassifyEmit _ [] er = er
 reclassifyEmit table rs er = er
   { erBodyFaithfulFns    = [ n | n <- erBodyFaithfulFns er, not (n `Set.member` moved) ]
-  , erBodyFallback       = erBodyFallback er ++ map rcFn rs
-  , erBodyFallbackCauses = erBodyFallbackCauses er ++ [ (rcFn c, rcCause c) | c <- rs ]
-  , erFallbackConstructs = erFallbackConstructs er ++ [ (rcFn c, [constructOf c]) | c <- rs ]
+  , erBodyFallback       = erBodyFallback er ++ map rcFn fresh
+  , erBodyFallbackCauses = erBodyFallbackCauses er ++ [ (rcFn c, rcCause c) | c <- fresh ]
+  , erFallbackConstructs = erFallbackConstructs er ++ [ (rcFn c, [constructOf c]) | c <- fresh ]
   , erDiagnostics        = erDiagnostics er ++ concatMap diagsFor rs
   }
   where
     moved = Set.fromList (map rcFn rs)
+    already = Set.fromList (erBodyFallback er)
+    fresh = [ c | c <- rs, not (rcFn c `Set.member` already) ]
     repairOf FallbackCalleePostUnassumed g = postUnassumedRepair g
     repairOf _                           g = abstractionRepair g
     diagsFor c =
       let f     = rcFn c
           cause = renderFallbackCause (rcCause c)
           w     = mkBodyFallbackWarning f cause [constructOf c] []
-      in  w { diagMessage = diagMessage w <> repairOf (rcInner c) (rcCallee c) }
-        : [ welldefWarning f o | rcCause c == FallbackClauseWelldefUnproved
-                               , i <- rcWdIds c, Just o <- [Map.lookup i table] ]
-        ++ [ mkDecreasesUndischarged f cause i | Just i <- [lookup f (erMeasuredRecursive er)] ]
-    welldefWarning f o =
+          wds   = [ welldefWarning (f `Set.member` already) f o
+                  | rcCause c == FallbackClauseWelldefUnproved
+                  , i <- rcWdIds c, Just o <- [Map.lookup i table] ]
+      in if f `Set.member` already
+           then wds
+           else w { diagMessage = diagMessage w <> repairOf (rcInner c) (rcCallee c) }
+                  : wds
+                  ++ [ mkDecreasesUndischarged f cause i | Just i <- [lookup f (erMeasuredRecursive er)] ]
+    welldefWarning notChecked f o =
       let clause = if coClause o == "wd-pre" then "pre" else "post"
+          why | notChecked = ". Its truth was not checked, because the body is outside the fragment. The clause is kept and checked at run time."
+              | otherwise  = ". Its truth was proved, but on the path that reaches it the verifier did not assume every fact of a call it makes, so the clause is kept and checked at run time."
           msg = "W-CLAUSE-WELLDEF-UNPROVED: the " <> clause <> " of '" <> f
                 <> "' is not proved defined where it is evaluated"
                 <> maybe "" (": " <>) (coSite o)
-                <> ". Its truth was proved, but on the path that reaches it the verifier did not assume every fact of a call it makes, so the clause is kept and checked at run time."
+                <> why
       in (mkWarning Nothing msg)
            { diagCode    = Just "W-CLAUSE-WELLDEF-UNPROVED"
            , diagPointer = Just (coJsonPtr o) }

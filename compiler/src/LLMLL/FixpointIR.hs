@@ -49,6 +49,8 @@ module LLMLL.FixpointIR
     -- * Emission-boundary scope check (FQ-FREEVAR-GUARD-1)
   , predSymbols
   , fqFreeSymbols
+    -- * MUL-VAR-1
+  , mulSymbolPrefix
     -- * Emission-boundary name check (FQ-NAME-COLLIDE-1)
   , predRawSymbols
   , fqNameCollisions
@@ -137,11 +139,14 @@ data FQBinOp
   | FQNeq  -- ^ /=
   | FQAdd  -- ^ +
   | FQSub  -- ^ -
-  -- SIGMA-CONST-ARITH-1: only ever built with a constant operand (a numeral
-  -- coefficient, or a numeral divisor > 0), so every term stays linear. On the
-  -- `int` sort fixpoint's `/` and `mod` are SMT-LIB `div` and `mod`, which equal
-  -- Haskell `div` and `mod` for a positive divisor.
-  | FQMul  -- ^ * (one operand a numeral)
+  -- SIGMA-CONST-ARITH-1: `/` and `mod` are only ever built with a numeral
+  -- divisor > 0. On the `int` sort fixpoint's `/` and `mod` are SMT-LIB `div`
+  -- and `mod`, which equal Haskell `div` and `mod` for a positive divisor.
+  -- MUL-VAR-1: `*` of two non-constant terms is built by the translators, and
+  -- never reaches the solver: the product pass ('LLMLL.FixpointEmit') rewrites
+  -- each constraint that holds one into its normal form, with each monomial
+  -- printed as one free symbol @mul##k@.
+  | FQMul  -- ^ *
   | FQDiv  -- ^ / (integer division by a numeral > 0)
   | FQMod  -- ^ mod (by a numeral > 0)
   deriving (Show, Eq)
@@ -159,6 +164,7 @@ data FQPred
   | FQKVar Text [FQPred]              -- ^ $k0(v) — wf constraint variable
   | FQApp Text [FQPred]               -- ^ NIW: uninterpreted function application, e.g. (strLen s)
   | FQIte FQPred FQPred FQPred        -- ^ MINMAX-FRAG-1: int-valued (if c then a else b)
+  | FQImplies FQPred FQPred           -- ^ MUL-VAR-1: p => q. Built only for a product fact
   deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -299,8 +305,19 @@ emitConstant c =
 -- encoding is kept, so a file with no clash prints unchanged; 'fqNameCollisions'
 -- finds each constraint where two names meet in one symbol, and the emitter
 -- withdraws the owning function's VC.
+--
+-- MUL-VAR-1: a name with the reserved prefix @mul##@ passes unchanged. It is
+-- the emitter's monomial symbol, and mapping it would give @mul__k@, a name
+-- that a source program can spell. A source name cannot hold @#@ (Lexer
+-- 'pWord'), so no program name reaches this branch.
 sanitizeFQId :: Text -> Text
-sanitizeFQId = T.map (\c -> if isAlphaNum c || c == '_' then c else '_')
+sanitizeFQId t
+  | mulSymbolPrefix `T.isPrefixOf` t = t
+  | otherwise = T.map (\c -> if isAlphaNum c || c == '_' then c else '_') t
+
+-- | MUL-VAR-1: the prefix of a monomial symbol, @mul##k@.
+mulSymbolPrefix :: Text
+mulSymbolPrefix = "mul##"
 
 -- | The emitted @.fq@ symbol for a datatype constructor (FQ-CTOR-COLLIDE-1).
 --
@@ -373,6 +390,11 @@ emitPred (FQApp f args)       = "(" <> sanitizeFQId f <> " " <> T.unwords (map e
     propShaped (FQOr  (_:_))  = True
     propShaped _              = False
 emitPred (FQIte c a b)        = "(if " <> emitPredParens c <> " then " <> emitPredParens a <> " else " <> emitPredParens b <> ")"
+-- MUL-VAR-1: a product fact, @((a >= 0 && b >= 0) => m >= 0)@. Each side is
+-- printed as a chain item: a comparison bare, a conjunction in one pair. The
+-- implication binds looser than every other connective, so the whole fact
+-- keeps one outer pair.
+emitPred (FQImplies p q)      = "(" <> emitItem p <> " => " <> emitItem q <> ")"
 
 -- | A comparison with no outer parentheses, after the BOOL-FRAG flips.
 --
@@ -623,6 +645,7 @@ predSymbols p = case p of
   FQKVar _ args    -> Set.unions (map predSymbols args)
   FQApp f args     -> Set.insert (sanitizeFQId f) (Set.unions (map predSymbols args))
   FQIte c a b      -> Set.unions (map predSymbols [c, a, b])
+  FQImplies a b    -> predSymbols a `Set.union` predSymbols b
 
 -- | FQ-FREEVAR-GUARD-1. Report, for each constraint, every symbol the constraint
 -- names that its own environment does not declare.
@@ -701,6 +724,7 @@ predRawSymbols p = case p of
   FQKVar _ args    -> Set.unions (map predRawSymbols args)
   FQApp f args     -> Set.insert f (Set.unions (map predRawSymbols args))
   FQIte c a b      -> Set.unions (map predRawSymbols [c, a, b])
+  FQImplies a b    -> predRawSymbols a `Set.union` predRawSymbols b
 
 -- | FQ-NAME-COLLIDE-1. Report, for each constraint, the names that reach the
 -- solver as one symbol although the program means two values. 'sanitizeFQId'

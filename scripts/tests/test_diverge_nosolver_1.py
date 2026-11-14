@@ -16,7 +16,7 @@ stderr outside `--json`. The fragment check runs before the solver lookup,
 because it never needed the solver.
 
 DIVERGE-FRAGMENT-LABEL-1 (DN-6 to DN-10). A fill whose body-faithful emission
-falls back from the decidable fragment (`(* n n)` here) was listed under
+falls back from the decidable fragment (`n` to the 7th here; `(* n n)` before MUL-VAR-1) was listed under
 `refuted`, with or without a solver. The solver never disproved it; it could
 not check it. It is now `outside_fragment` (a new `status_partition` key), and
 `refuted` keeps one meaning: the solver returned UNSAFE. An outside-fragment
@@ -71,6 +71,15 @@ def _n() -> dict:
     return {"kind": "var", "name": "n"}
 
 
+def _pow7() -> dict:
+    """n to the 7th. MUL-VAR-1 admits (* n n); a product of degree 7 is over the
+    design "Limits" degree 6, so it still falls back before the solver."""
+    t = _n()
+    for _ in range(6):
+        t = {"kind": "op", "op": "*", "args": [_n(), t]}
+    return t
+
+
 # `dbl` from experiments/minimal-agent/r5-campaign/corpus/double_tight.llmll:
 # post (= result (+ n n)), a def-shell with one hole.
 MODULE = {
@@ -91,7 +100,7 @@ FILLS = {
     "good": {"kind": "op", "op": "+", "args": [_n(), _n()]},                    # verifies
     "bad": {"kind": "op", "op": "+", "args": [_n(), {"kind": "lit-int", "value": 1}]},  # UNSAFE
     "ill": {"kind": "lit-string", "value": "x"},                                # type error
-    "nonlin": {"kind": "op", "op": "*", "args": [_n(), _n()]},                  # outside QF-LIA
+    "nonlin": _pow7(),                                                          # outside the fragment
 }
 
 
@@ -239,7 +248,7 @@ def test_dn6_fragment_check_needs_no_solver(work: Path) -> None:
 
 
 def test_dn7_outside_fragment_with_solver_is_not_refuted(work: Path) -> None:
-    """The solver is present and still cannot check `(* n n)`. Pre-fix: `refuted`."""
+    """The solver is present and still cannot check `n` to the 7th. Pre-fix: `refuted`."""
     solver_path = _solver_path()
     session, ids = _session(work, ["nonlin", "good"])
     p = _run(work, solver_path, "diverge-report", "dbl.ast.json", session)

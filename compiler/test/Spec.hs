@@ -28,7 +28,7 @@ import LLMLL.ObligationAssembly
   , computeEffectSummary, primEffect, encodeEff, effectLabelText, EffectSummary(..), EffectLabel(..)
   , assembleConsumedGuarantees, assembleFunctionLists
   , assembleSafePreObligations, assembleConstraintObligations, ObligationObj(..), assembleReport )
-import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, clauseStrength, generateCandidates, CandidateExpr(..))
+import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, isSigmaAuto, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, fqResultToReportWD, WdReportCtx(..), WdFailKind(..), emptyWdReportCtx, isWdClause, runFQSolver, resourceStopText, resourceStopValue, parseFQNumCstr, decideSolved, solveFQText)
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
 import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..), selfEqReft, arrayTheorySyms)
@@ -109,6 +109,7 @@ import Data.Time.Clock (UTCTime(..), secondsToDiffTime, addUTCTime, getCurrentTi
 import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
 import ProductSpec (productSpec)
+import RecheckSpec (recheckSpec)
 import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
 import LLMLL.Specialize (specialize, specializeWithRet, GenericStats(..), emptyGenericStats, gsDefinitions, gsInstances, copyTypeArgsSuffix)  -- GENERICS-1 S5
 import LLMLL.CodegenHs (typeParamContext, constraintHsClasses)  -- GENERICS-1 S6
@@ -126,7 +127,7 @@ import qualified LLMLL.ProgramGraph as PG
 import qualified LLMLL.CallGraph as FSCG
 import LLMLL.HoleAnalysis (extractCallsScoped)
 import LLMLL.TrustReport (uncheckedCallPres)
-import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames)
+import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames, sigmaAutoPred)
 import LLMLL.FixpointEmit (addCongruence, congruenceFact, conjoinAll)
 import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText)
 import LLMLL.Checkout (bitCharFuncEntries)
@@ -1626,8 +1627,9 @@ main = hspec $ do
         [ (PConstructor "Continue" [], ELit (LitInt 0))
         , (PConstructor "Abort" [PVar "n"], EVar "n") ]) `shouldBe` True
     it "CNARY-4 the widening lifts the arity cap only — a non-core ARM BODY is still rejected" $
-      -- arm body (* m m) is non-linear → not core; isCoreBodySyntactic recurses into arm bodies
-      isCoreBodySyntactic (match3mixed (EOp "*" [EVar "m", EVar "m"])) `shouldBe` False
+      -- arm body (/ m m) has a variable divisor → not core; isCoreBodySyntactic
+      -- recurses into arm bodies. (MUL-VAR-1: a product (* m m) is core now.)
+      isCoreBodySyntactic (match3mixed (EOp "/" [EVar "m", EVar "m"])) `shouldBe` False
     it "CNARY-5 an arm with a MULTI-payload constructor pattern is still rejected" $
       isCoreBodySyntactic (EMatch (EVar "s")
         [ (PConstructor "A" [], ELit (LitInt 0))
@@ -7928,6 +7930,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       length results `shouldBe` 1
       osStrength (head results) `shouldBe` Advisory
 
+    it "a two-variable product post gets Advisory strength (MUL-VAR-1 Rev 3b: Σ_auto does not widen)" $ do
+      let stmts = [SDefLogic "g" [("x", TInt), ("y", TInt)] (Just TInt)
+                    (Contract Nothing Nothing
+                              (Just (EApp ">=" [EApp "*" [EVar "x", EVar "y"], ELit (LitInt 0)])) Nothing Nothing [] [])
+                    (EVar "x")]
+          table = Map.fromList
+            [(0, ConstraintOrigin "g" "post" "/statements/0/post" "test.llmll" Nothing)]
+          report = TrustReport [] (TrustSummary 0 0 0 0 0 0) [] [] (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) (TierProfile 0 0 0 0 0 0) [] [] Map.empty Set.empty Set.empty Map.empty Map.empty Set.empty Set.empty (OverAnnotationInfo 0.0 overAnnotationThreshold False) Map.empty [] False
+          results = mineObligations table (FQUnsafe [0]) report stmts
+      map osStrength results `shouldBe` [Advisory]
+
     it "JSON output includes strength field" $ do
       let stmts = [SDefLogic "h" [("x", TInt)] (Just TInt)
                     (Contract Nothing Nothing
@@ -8406,11 +8419,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
         result `shouldBe` Nothing
 
-      it "F03: non-linear operator * returns Nothing" $ do
-        let body = EApp "*" [EVar "x", EVar "y"]
-            se = intSortEnv ["x", "y"]
-            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty body
-        result `shouldBe` Nothing
+      it "F03: a product of two variables reflects as written (MUL-VAR-1); a variable divisor returns Nothing" $ do
+        let se = intSortEnv ["x", "y"]
+            (_, result) = bodyToPredFrom 0 se Map.empty Set.empty (EApp "*" [EVar "x", EVar "y"])
+            (_, refused) = bodyToPredFrom 0 se Map.empty Set.empty (EApp "/" [EVar "x", EVar "y"])
+        result `shouldBe` Just (SimpleVC [] (FQBinArith FQMul (FQVar "x") (FQVar "y")))
+        refused `shouldBe` Nothing
 
     describe "Flattening" $ do
       it "SimpleVC flattens to 1 path" $ do
@@ -10910,6 +10924,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                  (label, classifyFirst (parseCM src)) `shouldBe` (label, expected))
               battery
 
+      it "CM-MV (MUL-VAR-1 Rev 3b) a two-variable product contract stays non_qf_lia; a constant-linear one stays qf_lia" $ do
+        classifyFirst (parseCM [ "(def area [w: int h: int] -> int"
+                               , "  (pre (and (>= w 0) (>= h 0)))"
+                               , "  (post (= result (* w h)))"
+                               , "  (* w h))" ]) `shouldBe` "non_qf_lia"
+        classifyFirst (parseCM [ "(def m8 [w: int] -> int"
+                               , "  (post (= result (* 8 w)))"
+                               , "  (* 8 w))" ]) `shouldBe` "qf_lia"
+
       it "CM-2 recorded instance: measure-class contract clauses grade Verified (was Advisory)" $ do
         let stmts = parseCM
               [ "(def slen [s: string] -> int"
@@ -10932,13 +10955,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- from its exported pieces (exprToPred + contractSigGuardsBlock +
         -- gated contractArrGuardsBlock) and require classification to agree.
         -- If someone reintroduces a parallel classifier, this breaks.
+        -- MUL-VAR-1 Rev 3b (amendment 1): the classifier answers for Σ_auto,
+        -- which keeps products out, so the emitter's piece is 'sigmaAutoPred'
+        -- ('exprToPred' minus a product of two non-constant terms).
         let emitterReflects stmts =
               case [ (ps, r, c, b) | s <- stmts, Just (_, ps, r, c, b) <- [normalizeDefStmt s] ] of
                 []                -> error "no def"
                 ((ps, r, c, b):_) ->
                   let am = buildAliasMap stmts
-                      translates = maybe True (isJust . exprToPred) (contractPre c)
-                                   && maybe True (isJust . exprToPred) (contractPost c)
+                      translates = maybe True (isJust . sigmaAutoPred) (contractPre c)
+                                   && maybe True (isJust . sigmaAutoPred) (contractPost c)
                       hasClause  = contractPre c /= Nothing || contractPost c /= Nothing
                       arrRel     = contractMentionsArrOp c || exprMentionsArrOp b
                   in hasClause && translates
@@ -11794,10 +11820,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             erBodyFaithfulFns emitR `shouldBe` ["add1"]
 
       it "P04: skipped clause NOT marked as emitted" $ do
-        -- Use a non-linear post that exprToPred can't handle
+        -- Use a post that exprToPred can't handle (a variable divisor; a
+        -- product of two variables translates since MUL-VAR-1)
         let stmts = [ SDefLogic "mul" [("x", TInt), ("y", TInt)] (Just TInt)
                         (Contract Nothing Nothing
-                          (Just (EApp "*" [EVar "result", EVar "y"])) Nothing Nothing [] [])
+                          (Just (EApp "/" [EVar "result", EVar "y"])) Nothing Nothing [] [])
                         (EVar "x")
                     ]
         emitR <- emitFixpoint "test.llmll" stmts
@@ -11869,7 +11896,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
       it "F02: Issue 1 - untranslatable pre causes fallback" $ do
         let gContract = mkContract
-              (Just (EApp "*" [EVar "x", EVar "x"]))
+              (Just (EApp "/" [EVar "x", EVar "y"]))
               (Just (EApp "=" [EVar "result", EVar "x"]))
             cenv = Map.fromList [("g", ([("x", TInt)], gContract, Just TInt))]
             body = EApp "g" [ELit (LitInt 5)]
@@ -12359,11 +12386,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         erBodyFaithfulFns er `shouldSatisfy` elem "single"
 
       it "MW2B-4: a sequential whose continuation is untranslatable (nonlinear) falls back through the thread (no crash)" $ do
+        -- a variable divisor: a product (* x x) translates since MUL-VAR-1
         er <- emitSrc (T.unlines
           [ "(type R (| Ok int) (| Err int))"
           , "(def-shell g [a: R] -> int (post (>= result 0))"
           , "  (let [(x (match a ((Ok p) (if (>= p 0) p 0)) ((Err q) 0)))]"
-          , "    (* x x)))" ])
+          , "    (/ 100 x)))" ])
         erBodyFallback er `shouldSatisfy` elem "g"
 
       -- MW2B-5: refutation preservation (emit-level half). A sequential body whose
@@ -12955,9 +12983,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let result = evalState (classifyGuardM emptyRename intEnv (EApp "+" [EVar "x", EVar "y"])) 0
       result `shouldBe` Just (FQBinArith FQAdd (FQVar "x") (FQVar "y"))
 
-    it "GC-8: rejects non-linear (*)" $ do
+    it "GC-8: a product (* x y) emits as written (MUL-VAR-1 Rev 3b); a variable divisor is rejected" $ do
       let result = evalState (classifyGuardM emptyRename intEnv (EApp "*" [EVar "x", EVar "y"])) 0
-      result `shouldBe` Nothing
+          refused = evalState (classifyGuardM emptyRename intEnv (EApp "/" [EVar "x", EVar "y"])) 0
+      result `shouldBe` Just (FQBinArith FQMul (FQVar "x") (FQVar "y"))
+      refused `shouldBe` Nothing
 
     it "GC-9: classifies not" $ do
       let result = evalState (classifyGuardM emptyRename intEnv (EApp "not" [ELit (LitBool True)])) 0
@@ -13238,6 +13268,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 , "    ?body))" ]
       -- y = (g x) is an opaque call, not QF-LIA → skipped (no assumption).
       assumptionsFor src `shouldBe` []
+
+    it "OA-MV (MUL-VAR-1 Rev 3b): a let-binding whose RHS is a product surfaces, because the body VC assumes it" $ do
+      let src = [ "(def f [w: int h: int]"
+                , "  (post (>= result 0))"
+                , "  (let [(y (* w h))]"
+                , "    ?body))" ]
+      assumptionsFor src `shouldBe` ["(= y (* w h))"]
 
     it "OA-8: v1 param refinement and v2a let-def compose in one brief" $ do
       let src = [ "(def f [x: (where [v: int] (> v 0))]"
@@ -14328,6 +14365,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                         , EOp "<"  [EVar "x", ELit (LitInt 5)] ]) `shouldBe` True
     it "IQ-6: EOp with a non-linear operator is still rejected" $
       isQfLia (EOp "*" [EVar "x", EVar "y"]) `shouldBe` False
+    it "IQ-7 (MUL-VAR-1 Rev 3b): isSigmaAuto refuses a product the channel translates; a constant-linear product stays in" $ do
+      let prod = EApp ">=" [EApp "*" [EVar "w", EVar "h"], ELit (LitInt 0)]
+      isJust (exprToPred prod) `shouldBe` True
+      isSigmaAuto prod `shouldBe` False
+      isSigmaAuto (EApp ">=" [EApp "*" [ELit (LitInt 8), EVar "w"], ELit (LitInt 0)]) `shouldBe` True
+      isSigmaAuto (EApp ">=" [EApp "*" [ELit (LitInt 2), ELit (LitInt 3)], EVar "w"]) `shouldBe` True
+      isQfLia prod `shouldBe` isSigmaAuto prod
 
   -- -----------------------------------------------------------------------
   -- Phase 4: Golden Benchmark Tests (B1, B3, B5)
@@ -17296,11 +17340,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-grammar-violation"]
 
-      it "INV-A2 SDef with non-linear '*' emits core-grammar-violation" $ do
+      it "INV-A2 SDef with a variable divisor '/' emits core-grammar-violation" $ do
+        -- MUL-VAR-1: a product (* n n) is core now; a variable divisor is not
         let stmts = [ SDef { defName = "sq", defParams = [("n", TInt)]
                            , defReturn = Nothing
                            , defContract = Contract Nothing Nothing Nothing Nothing Nothing [] []
-                           , defBody = EOp "*" [EVar "n", EVar "n"] } ]
+                           , defBody = EOp "/" [EVar "n", EVar "n"] } ]
             report = typeCheck GrammarCoreInversion emptyEnv stmts
             kinds  = mapMaybe diagKind (reportDiagnostics report)
         kinds `shouldContain` ["core-grammar-violation"]
@@ -17690,8 +17735,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "INV-G2 ELambda is not core-syntactic" $
         isCoreBodySyntactic (ELambda [("x", TInt)] (EVar "x")) `shouldBe` False
 
-      it "INV-G3 EOp with '*' (non-linear) is not core-syntactic" $
-        isCoreBodySyntactic (EOp "*" [EVar "a", EVar "b"]) `shouldBe` False
+      it "INV-G3 EOp with '*' of two variables is core-syntactic (MUL-VAR-1); '/' with a variable divisor is not" $ do
+        isCoreBodySyntactic (EOp "*" [EVar "a", EVar "b"]) `shouldBe` True
+        isCoreBodySyntactic (EOp "/" [EVar "a", EVar "b"]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- Grammar default flip (INV-DEFAULT / INV-MODULE-THREAD)
@@ -21386,6 +21432,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                 mkC Nothing (Just (EOp "=" [EVar "result", EOp "*" [EVar "x", EVar "x"]])))
       buildSubsumptionFQ aliases (defParts csDef) (defParts nl) `shouldBe` Nothing
 
+    it "RR-MV (MUL-VAR-1 Rev 3b): a two-variable product never reaches the subsumption .fq; a constant-linear product does" $ do
+      let two = ("two", [("x", TInt)], Just TInt,
+                 mkC (Just (ge "x" 0)) (Just (EOp ">" [EOp "*" [EVar "x", EVar "result"], ELit (LitInt 0)])))
+          lin = ("lin", [("x", TInt)], Just TInt,
+                 mkC (Just (ge "x" 0)) (Just (EOp ">" [EOp "*" [ELit (LitInt 8), EVar "result"], ELit (LitInt 0)])))
+      buildSubsumptionFQ aliases (defParts csDef) (defParts two) `shouldBe` Nothing
+      case buildSubsumptionFQ aliases (defParts csDef) (defParts lin) of
+        Nothing -> expectationFailure "expected a constraint file for a constant-linear product"
+        Just fq -> length (fqConstraints fq) `shouldBe` 2
+
   -- -----------------------------------------------------------------------
   -- MATCH-NULLARY-1: a bare nullary constructor in a match arm is a binder,
   -- not a constructor pattern (docs/design/finding-match-nullary-ctor-unsound.md).
@@ -22453,13 +22509,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let cs = [minBound .. maxBound] :: [FallbackCause]
       Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` length cs
 
+    -- MUL-VAR-1: (* n n) proves now; a degree-7 product still refuses
+    -- (design "Limits", maxDegree 6), so it keeps the body-fallback path.
     it "erBodyFallback is the name projection of erBodyFallbackCauses, in order" $ do
-      er <- emitFR "(def-shell square [n: int] -> int (post (>= result 0)) (* n n))"
+      er <- emitFR "(def-shell square [n: int] -> int (post (>= result 0)) (* n (* n (* n (* n (* n (* n n)))))))"
       erBodyFallback er `shouldBe` map fst (erBodyFallbackCauses er)
       erBodyFallback er `shouldBe` ["square"]
 
-    it "a nonlinear body reports body-outside-fragment (the Leanstral-demo square)" $ do
-      er <- emitFR "(def-shell square [n: int] -> int (post (>= result 0)) (* n n))"
+    it "a nonlinear body over the degree limit reports body-outside-fragment" $ do
+      er <- emitFR "(def-shell square [n: int] -> int (post (>= result 0)) (* n (* n (* n (* n (* n (* n n)))))))"
       causeOf "square" er `shouldBe` Just FallbackBody
 
     it "a whole-map = in the post reports contract-post-outside-fragment (A2-7's 'same')" $ do
@@ -22595,8 +22653,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "SCA-9 (stamp pin): a ground term of + and - alone keeps today's unfolded emission" $
       exprToPred (op "+" (op "-" (i 0) (i 7)) (v "x"))
         `shouldBe` Just (FQBinArith FQAdd (FQBinArith FQSub (FQLit 0) (FQLit 7)) (FQVar "x"))
-    it "SCA-10: refused forms still translate to Nothing" $ do
-      exprToPred (op "*" (v "x") (v "y")) `shouldBe` Nothing
+    it "SCA-10: refused forms still translate to Nothing; a product reflects, outside Σ_auto" $ do
+      exprToPred (op "*" (v "x") (v "y")) `shouldBe` Just (FQBinArith FQMul (FQVar "x") (FQVar "y"))
+      sigmaAutoPred (op "*" (v "x") (v "y")) `shouldBe` Nothing
+      sigmaAutoPred (op "*" (i 8) (v "x")) `shouldBe` Just (FQBinArith FQMul (FQLit 8) (FQVar "x"))
       exprToPred (op "/" (v "x") (op "-" (i 0) (i 8))) `shouldBe` Nothing
       exprToPred (op "/" (v "x") (i 0)) `shouldBe` Nothing
       exprToPred (EApp "rem" [v "x", i 8]) `shouldBe` Nothing
@@ -22617,26 +22677,30 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       fqPredToSMT (FQBinArith FQMul (FQLit 8) (FQVar "x")) `shouldBe` Just "(* 8 x)"
 
     -- Body and guard.
-    it "SCA-14: bodyToPredM reflects an admitted body term and refuses (* x y)" $ do
+    it "SCA-14: bodyToPredM reflects an admitted body term, reflects (* x y) (MUL-VAR-1) and refuses (/ x y)" $ do
       snd (bodyToPredFrom 0 intSe Map.empty Set.empty (EApp "mod" [v "x", i 8]))
         `shouldBe` Just (SimpleVC [] (FQBinArith FQMod (FQVar "x") (FQLit 8)))
-      snd (bodyToPredFrom 0 intSe Map.empty Set.empty (op "*" (v "x") (v "y"))) `shouldBe` Nothing
+      snd (bodyToPredFrom 0 intSe Map.empty Set.empty (op "*" (v "x") (v "y")))
+        `shouldBe` Just (SimpleVC [] (FQBinArith FQMul (FQVar "x") (FQVar "y")))
+      snd (bodyToPredFrom 0 intSe Map.empty Set.empty (op "/" (v "x") (v "y"))) `shouldBe` Nothing
     it "SCA-15: classifyGuardM classifies a parity guard (= (mod x 2) 0)" $
       evalState (classifyGuardM noRename intSe (EApp "=" [EApp "mod" [v "x", i 2], i 0])) 0
         `shouldBe` Just (FQBinPred FQEq (FQBinArith FQMod (FQVar "x") (FQLit 2)) (FQLit 0))
 
     -- Check (strict core) and the advisory hole.
-    it "SCA-16: isCoreBodySyntactic admits (* 8 r), (/ x 8), (mod x 8) and refuses (* x y), (/ x 0), rem" $ do
+    it "SCA-16: isCoreBodySyntactic admits (* 8 r), (/ x 8), (mod x 8), (* x y) (MUL-VAR-1) and refuses (/ x y), (/ x 0), rem" $ do
       isCoreBodySyntactic (op "*" (i 8) (v "r")) `shouldBe` True
       isCoreBodySyntactic (op "/" (v "x") (i 8)) `shouldBe` True
       isCoreBodySyntactic (op "mod" (v "x") (i 8)) `shouldBe` True
-      isCoreBodySyntactic (op "*" (v "x") (v "y")) `shouldBe` False
+      isCoreBodySyntactic (op "*" (v "x") (v "y")) `shouldBe` True
+      isCoreBodySyntactic (op "/" (v "x") (v "y")) `shouldBe` False
       isCoreBodySyntactic (op "/" (v "x") (i 0)) `shouldBe` False
-      isCoreBodySyntactic (op "*" (op "*" (v "x") (v "y")) (i 2)) `shouldBe` False
+      isCoreBodySyntactic (op "*" (op "*" (v "x") (v "y")) (i 2)) `shouldBe` True
       isCoreBodySyntactic (op "rem" (v "x") (i 8)) `shouldBe` False
-    it "SCA-17: (def m8 [r: int] -> int (* 8 r)) passes check; (def f [x: int y: int] -> int (* x y)) does not" $ do
+    it "SCA-17: (def m8 [r: int] -> int (* 8 r)) and (def f ... (* x y)) pass check (MUL-VAR-1); (def d ... (/ x y)) does not" $ do
       checkErrs "(def m8 [r: int] -> int (* 8 r))" `shouldSatisfy` all ((/= SevError) . diagSeverity)
-      checkErrs "(def f [x: int y: int] -> int (* x y))" `shouldSatisfy` any ((== SevError) . diagSeverity)
+      checkErrs "(def f [x: int y: int] -> int (* x y))" `shouldSatisfy` all ((/= SevError) . diagSeverity)
+      checkErrs "(def d [x: int y: int] -> int (/ x y))" `shouldSatisfy` any ((== SevError) . diagSeverity)
     it "SCA-18: isNonLinear fires only on refused forms" $ do
       isNonLinear (op "*" (i 8) (v "r")) `shouldBe` False
       isNonLinear (EApp "mod" [v "x", i 8]) `shouldBe` False
@@ -22648,7 +22712,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "SCA-19: refused forms keep their nonlinear: labels, including a let-bound constant" $ do
       refusedConstructs (EApp "=" [v "result", op "/" (v "x") (op "-" (i 0) (i 8))]) `shouldBe` ["nonlinear:/"]
       refusedConstructs (EApp "=" [v "result", EApp "mod" [v "x", i 0]]) `shouldBe` ["nonlinear:mod"]
-      refusedConstructs (ELet [(PVar "k", Nothing, i 8)] (op "*" (v "k") (v "x"))) `shouldBe` ["nonlinear:*"]
+      refusedConstructs (ELet [(PVar "k", Nothing, i 8)] (op "/" (v "x") (v "k"))) `shouldBe` ["nonlinear:/"]
 
     -- Edge cases end to end, through the solver (single files only).
     it "SCA-20 (edge 1): (mod x 8) at x = -7 proves 1, and the truncation answer -7 is refuted" $ do
@@ -22755,8 +22819,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 14
 
     it "a nonlinear post names the operator, not the whole clause" $ do
-      -- SIGMA-CONST-ARITH-1: (* n 2) is admitted now; (* n n) is still refused.
-      er <- emitFC "(def-shell nl [n: int] -> int (post (= result (* n n))) (+ n n))"
+      -- SIGMA-CONST-ARITH-1: (* n 2) is admitted now. MUL-VAR-1: (* n n)
+      -- is admitted too; a degree-7 product still refuses (design "Limits").
+      er <- emitFC "(def-shell nl [n: int] -> int (post (= result (* n (* n (* n (* n (* n (* n n)))))))) (+ n n))"
       causeOf "nl" er `shouldBe` Just FallbackContractPost
       consOf  "nl" er `shouldBe` Just ["nonlinear:*"]
 
@@ -22794,11 +22859,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "an untranslatable pre reports the pre's constructs" $ do
       er <- emitFC (unlines
         [ "(def-shell pn [n: int] -> int"
-        , "  (pre (>= (* n n) 0))"
+        , "  (pre (>= (/ 100 n) 0))"
         , "  (post (>= result 0))"
         , "  0)" ])
       causeOf "pn" er `shouldBe` Just FallbackContractPre
-      consOf  "pn" er `shouldBe` Just ["nonlinear:*"]
+      consOf  "pn" er `shouldBe` Just ["nonlinear:/"]
 
     -- SHELL-FALLBACK-SILENT-1 changed the second half of this example. Until
     -- that pass a body cause carried NO constructs (the recording site passed a
@@ -22808,7 +22873,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "every constructs entry names a function that fell back; a body cause carries labels, a hole none" $ do
       er <- emitFC (unlines
         [ "(def-shell nl [n: int] -> int (post (= result (* n 2))) (+ n n))"
-        , "(def-shell sq [n: int] -> int (post (>= result 0)) (* n n))"
+        , "(def-shell sq [n: int] -> int (post (>= result 0)) (* n (* n (* n (* n (* n (* n n)))))))"
         , "(def-shell h [n: int] -> int (post (>= result 0)) ?todo)" ])
       map fst (erFallbackConstructs er) `shouldSatisfy`
         all (`elem` erBodyFallback er)
@@ -22821,8 +22886,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "refusedConstructs reports the minimal refusing sub-term, not the whole clause" $ do
       refusedConstructs (EApp "=" [ EVar "result"
-                                  , EApp "*" [EVar "n", EVar "n"] ])
-        `shouldBe` ["nonlinear:*"]
+                                  , EApp "/" [EVar "n", EVar "n"] ])
+        `shouldBe` ["nonlinear:/"]
 
     it "hasHole sees a hole at any depth and is false on a hole-free body" $ do
       hasHole (EHole (HNamed "x")) `shouldBe` True
@@ -24482,7 +24547,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             Just lf -> do
               (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
               removeFile fqPath
-              k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
+              k er (applyAbstractionVerdict Set.empty er (parseFQOutcome code (T.pack out <> T.pack err)))
 
     it "AV-1 A1: h's body-post constraint carries callee g; no constraint of g is marked" $ do
       er <- emitSrc a1
@@ -24525,7 +24590,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "AV-7 all failing ids marked: FQSafe, h falls back with cause abstraction-unsafe and one W-BODY-FALLBACK" $ do
       er <- emitSrc a1
       let ids = idsOf er "h" isBodyPost
-          av  = applyAbstractionVerdict er (FQUnsafe ids)
+          av  = applyAbstractionVerdict Set.empty er (FQUnsafe ids)
           er' = aoEmit av
       aoResult av `shouldBe` FQSafe
       aoReclassified av `shouldBe` [("h", "g")]
@@ -24542,7 +24607,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       er <- emitSrc (a1 ++ "\n" ++ w3)
       let hIds  = idsOf er "h" isBodyPost
           gwIds = idsOf er "gw" isBodyPost
-          av    = applyAbstractionVerdict er (FQUnsafe (hIds ++ gwIds))
+          av    = applyAbstractionVerdict Set.empty er (FQUnsafe (hIds ++ gwIds))
       aoResult av `shouldBe` FQUnsafe gwIds
       map fst (aoReclassified av) `shouldBe` ["h"]
       erBodyFaithfulFns (aoEmit av) `shouldSatisfy` elem "gw"
@@ -24552,7 +24617,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let thenIds = idsOf er "hm" (== "body-post-then")
           elseIds = idsOf er "hm" (== "body-post-else")
       [ Map.member i (marked er) | i <- thenIds ++ elseIds ] `shouldBe` [True, False]
-      let av = applyAbstractionVerdict er (FQUnsafe (thenIds ++ elseIds))
+      let av = applyAbstractionVerdict Set.empty er (FQUnsafe (thenIds ++ elseIds))
       aoResult av `shouldBe` FQUnsafe (thenIds ++ elseIds)
       aoReclassified av `shouldBe` []
       erBodyFaithfulFns (aoEmit av) `shouldSatisfy` elem "hm"
@@ -24560,11 +24625,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "AV-10 an id with no origin is kept; FQUnsafe [] and FQError pass through" $ do
       er <- emitSrc a1
       let ids = idsOf er "h" isBodyPost
-      aoResult (applyAbstractionVerdict er (FQUnsafe (ids ++ [9999]))) `shouldBe` FQUnsafe [9999]
-      aoResult (applyAbstractionVerdict er (FQUnsafe [])) `shouldBe` FQUnsafe []
-      aoReclassified (applyAbstractionVerdict er (FQUnsafe [])) `shouldBe` []
-      aoResult (applyAbstractionVerdict er (FQError "boom")) `shouldBe` FQError "boom"
-      aoResult (applyAbstractionVerdict er FQSafe) `shouldBe` FQSafe
+      aoResult (applyAbstractionVerdict Set.empty er (FQUnsafe (ids ++ [9999]))) `shouldBe` FQUnsafe [9999]
+      aoResult (applyAbstractionVerdict Set.empty er (FQUnsafe [])) `shouldBe` FQUnsafe []
+      aoReclassified (applyAbstractionVerdict Set.empty er (FQUnsafe [])) `shouldBe` []
+      aoResult (applyAbstractionVerdict Set.empty er (FQError "boom")) `shouldBe` FQError "boom"
+      aoResult (applyAbstractionVerdict Set.empty er FQSafe) `shouldBe` FQSafe
 
     it "AV-11 a marked descent id is a candidate: the function falls back and its descent is not discharged" $ do
       er <- emitSrc dsc
@@ -24572,7 +24637,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           cpIds   = idsOf er "fd" (== "call-pre:fd")
       descIds `shouldSatisfy` (not . null)
       [ Map.lookup i (marked er) | i <- descIds ++ cpIds ] `shouldSatisfy` all (== Just "g")
-      let av  = applyAbstractionVerdict er (FQUnsafe (cpIds ++ descIds))
+      let av  = applyAbstractionVerdict Set.empty er (FQUnsafe (cpIds ++ descIds))
           er' = aoEmit av
       aoResult av `shouldBe` FQSafe
       aoReclassified av `shouldBe` [("fd", "g")]
@@ -24658,7 +24723,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             Just lf -> do
               (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
               removeFile fqPath
-              k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
+              k er (applyAbstractionVerdict Set.empty er (parseFQOutcome code (T.pack out <> T.pack err)))
         fellBack er' fn g = do
           lookup fn (erBodyFallbackCauses er') `shouldBe` Just FallbackCalleePostUnassumed
           lookup fn (erFallbackConstructs er') `shouldBe` Just ["post-unassumed:app:" <> g]
@@ -24722,7 +24787,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "CPU-8 every failing id marked: FQSafe; use-it falls back with cause callee-post-unassumed and one W-BODY-FALLBACK" $ do
       er <- emitSrc whole
       let ids = idsOf er "use-it" isBodyPost
-          av  = applyAbstractionVerdict er (FQUnsafe ids)
+          av  = applyAbstractionVerdict Set.empty er (FQUnsafe ids)
           er' = aoEmit av
       aoResult av `shouldBe` FQSafe
       aoReclassified av `shouldBe` []
@@ -24743,14 +24808,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           let er2 = er { erAbstracted = Map.fromList [(9001, "g")]
                        , erPostUnassumed = Map.fromList [(i1, "pos-only")]
                        , erConstraintTable = Map.insert 9001 o1 (erConstraintTable er) }
-              av2 = applyAbstractionVerdict er2 (FQUnsafe [9001, i1])
+              av2 = applyAbstractionVerdict Set.empty er2 (FQUnsafe [9001, i1])
           aoResult av2 `shouldBe` FQSafe
           aoUnassumed av2 `shouldBe` [("use-it", "pos-only")]
           aoReclassified av2 `shouldBe` []
           -- both ids carry the abstraction mark (one also the new mark):
           -- today's output, unchanged
           let er3 = er2 { erAbstracted = Map.fromList [(9001, "g"), (i1, "g")] }
-              av3 = applyAbstractionVerdict er3 (FQUnsafe [9001, i1])
+              av3 = applyAbstractionVerdict Set.empty er3 (FQUnsafe [9001, i1])
           aoReclassified av3 `shouldBe` [("use-it", "g")]
           aoUnassumed av3 `shouldBe` []
           lookup "use-it" (erBodyFallbackCauses (aoEmit av3)) `shouldBe` Just FallbackAbstraction
@@ -24760,7 +24825,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "CPU-10 wrongother: the unmarked failing id keeps every id; use-it is not reclassified" $ do
       er <- emitSrc wrongother
       let ids = idsOf er "use-it" isBodyPost
-          av  = applyAbstractionVerdict er (FQUnsafe ids)
+          av  = applyAbstractionVerdict Set.empty er (FQUnsafe ids)
       aoResult av `shouldBe` FQUnsafe ids
       aoFallbackFns av `shouldBe` []
       erBodyFaithfulFns (aoEmit av) `shouldSatisfy` elem "use-it"
@@ -24771,7 +24836,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let decIds = idsOf er "fd" (== "descent")
       decIds `shouldSatisfy` (not . null)
       [ Map.lookup i (marked er) | i <- decIds ] `shouldSatisfy` all (== Just "pos-only")
-      let av  = applyAbstractionVerdict er (FQUnsafe decIds)
+      let av  = applyAbstractionVerdict Set.empty er (FQUnsafe decIds)
           er' = aoEmit av
       aoResult av `shouldBe` FQSafe
       aoUnassumed av `shouldBe` [("fd", "pos-only")]
@@ -24859,7 +24924,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             Just lf -> do
               (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
               removeFile fqPath
-              k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
+              k er (applyAbstractionVerdict Set.empty er (parseFQOutcome code (T.pack out <> T.pack err)))
 
     it "CC-1 two same-key calls: the later call's post gains one fact over both results" $ do
       let vc  = call kInt (FQVar "x") "_r1" p1 (call kInt (FQVar "y") "_r2" p2 (leaf "_r2"))
@@ -27123,14 +27188,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                         , diagCode d == Just "W-BODY-FALLBACK"
                         , ("'" <> n <> "'") `T.isInfixOf` diagMessage d ]
 
-    it "FAT-1 a * in one branch of an if is named, not the if" $ do
-      er <- emitF [ "(def-shell f [x: int] -> int (post (>= result 0)) (if (>= x 0) (* x x) 0))" ]
-      consOf "f" er `shouldBe` Just ["nonlinear:*"]
-      warnsFor "f" er `shouldSatisfy` any (T.isInfixOf "Refused by: nonlinear:*.")
+    -- MUL-VAR-1: a product (* x x) translates now; a variable divisor keeps
+    -- the refusal that these attribution cases need.
+    it "FAT-1 a / in one branch of an if is named, not the if" $ do
+      er <- emitF [ "(def-shell f [x: int] -> int (post (>= result 0)) (if (>= x 0) (/ 100 x) 0))" ]
+      consOf "f" er `shouldBe` Just ["nonlinear:/"]
+      warnsFor "f" er `shouldSatisfy` any (T.isInfixOf "Refused by: nonlinear:/.")
 
-    it "FAT-2 a * under a let is named, not the let" $ do
-      er <- emitF [ "(def-shell f [x: int] -> int (post (>= result 0)) (if (>= x 0) (let [[y (* x x)]] y) 0))" ]
-      consOf "f" er `shouldBe` Just ["nonlinear:*"]
+    it "FAT-2 a / under a let is named, not the let" $ do
+      er <- emitF [ "(def-shell f [x: int] -> int (post (>= result 0)) (if (>= x 0) (let [[y (/ 100 x)]] y) 0))" ]
+      consOf "f" er `shouldBe` Just ["nonlinear:/"]
 
     it "FAT-3 the innermost refused call is named: string-slice, not string-length" $ do
       er <- emitF [ "(def-shell f [s: string] -> int (post (>= result 0)) (if (= s \"a\") (string-length (string-slice s 0 1)) 0))" ]
@@ -27139,10 +27206,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "FAT-4 a contracted callee, a function parameter and min are not named" $ do
       er <- emitF
         [ "(def-shell g [x: int] -> int (post (>= result 0)) (if (>= x 0) x 0))"
-        , "(def-shell c1 [x: int] -> int (post (>= result 0)) (+ (g x) (* x x)))"
-        , "(def-shell c2 [f: (fn [int] -> int) x: int] -> int (post (>= result 0)) (+ (f x) (* x x)))"
-        , "(def-shell c3 [x: int y: int] -> int (post (>= result 0)) (+ (min x y) (* x y)))" ]
-      map (`consOf` er) ["c1", "c2", "c3"] `shouldBe` replicate 3 (Just ["nonlinear:*"])
+        , "(def-shell c1 [x: int] -> int (post (>= result 0)) (+ (g x) (/ 100 x)))"
+        , "(def-shell c2 [f: (fn [int] -> int) x: int] -> int (post (>= result 0)) (+ (f x) (/ 100 x)))"
+        , "(def-shell c3 [x: int y: int] -> int (post (>= result 0)) (+ (min x y) (/ x y)))" ]
+      map (`consOf` er) ["c1", "c2", "c3"] `shouldBe` replicate 3 (Just ["nonlinear:/"])
 
     it "FAT-5 an if in argument position is named; with nothing inner refused the root is kept" $ do
       er <- emitF [ "(def-shell f [x: int] -> int (post (>= result 0)) (+ (if (> x 0) 1 2) 3))" ]
@@ -27166,7 +27233,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                                                && "Refused by: app:g." `T.isInfixOf` m)
 
     it "FAT-7 a nonlinear pre warns with contract-pre-outside-fragment" $ do
-      er <- emitF [ "(def-shell f [x: int] -> int (pre (>= (* x x) 0)) (post (>= result 0)) (if (>= x 0) x 0))" ]
+      er <- emitF [ "(def-shell f [x: int] -> int (pre (>= (/ 100 x) 0)) (post (>= result 0)) (if (>= x 0) x 0))" ]
       causeOf "f" er `shouldBe` Just FallbackContractPre
       warnsFor "f" er `shouldSatisfy` any (T.isInfixOf "(contract-pre-outside-fragment)")
 
@@ -27439,7 +27506,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       map woGoal (obls [] "(= (mod (map-get m 3) 3) 0)") `shouldBe` [m3has]
 
     it "W16: a refused clause gives Nothing, whatever reads it holds" $ do
-      wdOf [] "(= (map-get m 3) (* x y))" `shouldBe` Nothing
+      wdOf [] "(= (map-get m 3) (/ x y))" `shouldBe` Nothing
       wdOf [] "(and (map-has m 3) (let [(z 1)] z))" `shouldBe` Nothing
 
     it "P1: every sealed-builtin body arm with a pre reads the partial-precondition table" $ do
@@ -27505,7 +27572,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         e2  = "(def-shell mk [n: int] -> map[int,int] (post (and (map-has result 3) (= (map-get result 3) 7))) (map-put (map-empty) 3 7))"
         e3  = "(def-shell mk [n: int] -> map[int,int] (post (and (= (map-get result 3) 7) (map-has result 3))) (map-empty))"
         e4  = "(def-shell g [m: map[int,int]] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) 1)"
-        e18 = "(type Idx (where [x: int] (and (>= x 0) (< (* x x) 16))))\n(def-shell h [b: bytes[4] i: Idx] -> int (pre (> (bytes-get b i) 0)) (post (>= result 0)) 1)"
+        e18 = "(type Idx (where [x: int] (and (>= x 0) (< (/ 16 (+ x 1)) 16))))\n(def-shell h [b: bytes[4] i: Idx] -> int (pre (> (bytes-get b i) 0)) (post (>= result 0)) 1)"
         e20 = "(def-shell g [m: map[int,int] s: string] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) (string-length (string-concat s s)))"
         g5  = "(def-shell h [m: map[int,list[int]] k: int] -> int (pre (> (list-length (map-get m k)) 0)) (post (>= result 0)) 1)"
         holeS   = "(def-shell g [m: map[int,int]] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) ?impl)"
@@ -27547,7 +27614,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             Just lf -> do
               (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
               removeFile fqPath
-              k er (applyAbstractionVerdict er (parseFQOutcome code (T.pack out <> T.pack err)))
+              k er (applyAbstractionVerdict Set.empty er (parseFQOutcome code (T.pack out <> T.pack err)))
         -- one verdict row: the three hard sets, the reclassified function
         -- with its cause and construct, and whether the effective answer is
         -- SAFE (fqExitCode in app/Main.hs maps a SAFE answer to exit 0 and an
@@ -27708,7 +27775,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "E-1 step 1 with post-unassumed: every failing id WD and marked gives welldef:post-unassumed:app:<callee>" $ do
       er <- emitSrc v6
       let wds = wdOf er "g" "wd-post"
-          av  = applyAbstractionVerdict er (FQUnsafe wds)
+          av  = applyAbstractionVerdict Set.empty er (FQUnsafe wds)
       aoResult av `shouldBe` FQSafe
       aoWelldefUnproved av `shouldBe` [("g", "welldef:post-unassumed:app:flag")]
       aoUnassumed av `shouldBe` []
@@ -27719,19 +27786,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       er <- emitSrc v6
       let wds = wdOf er "g" "wd-post"
           er2 = er { erAbstracted = Map.fromList [ (i, "flag") | i <- wds ] }
-          av  = applyAbstractionVerdict er2 (FQUnsafe wds)
+          av  = applyAbstractionVerdict Set.empty er2 (FQUnsafe wds)
       aoWelldefUnproved av `shouldBe` [("g", "welldef:abstraction:app:flag")]
       aoReclassified av `shouldBe` []
 
     it "E-3 steps 2-3 unchanged: a marked truth id beside the marked WD ids decides by the shipped rule" $ do
       er <- emitSrc v7
       let ids = idsOf er "g" (const True)
-          av  = applyAbstractionVerdict er (FQUnsafe ids)
+          av  = applyAbstractionVerdict Set.empty er (FQUnsafe ids)
       aoWelldefUnproved av `shouldBe` []
       aoUnassumed av `shouldBe` [("g", "flag")]
       [ diagCode d | d <- erDiagnostics (aoEmit av), diagCode d == Just "W-CLAUSE-WELLDEF-UNPROVED" ] `shouldBe` []
       let er3 = er { erAbstracted = Map.fromList [ (i, "flag") | i <- ids ] }
-          av3 = applyAbstractionVerdict er3 (FQUnsafe ids)
+          av3 = applyAbstractionVerdict Set.empty er3 (FQUnsafe ids)
       aoReclassified av3 `shouldBe` [("g", "flag")]
       lookup "g" (erFallbackConstructs (aoEmit av3)) `shouldBe` Just ["abstraction:app:flag"]
 
@@ -27745,7 +27812,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "F-2 W-CLAUSE-WELLDEF-UNPROVED names the clause and the site, pointed at the clause" $ do
       er <- emitSrc v6
-      let av = applyAbstractionVerdict er (FQUnsafe (wdOf er "g" "wd-post"))
+      let av = applyAbstractionVerdict Set.empty er (FQUnsafe (wdOf er "g" "wd-post"))
           ws = [ d | d <- erDiagnostics (aoEmit av), diagCode d == Just "W-CLAUSE-WELLDEF-UNPROVED" ]
       ws `shouldSatisfy` (not . null)
       [ diagPointer d | d <- ws ] `shouldSatisfy` all (== Just "/statements/2/post")
@@ -28406,6 +28473,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   -- MUL-VAR-1 (Rev 3a), Steps 1 and 2: ProductNF and ProductFacts
   productSpec
+  recheckSpec
 
 -- | GENERIC-COMPARE-PAIR-1 (GP-2..GP-4): a value of the test-only evaluator
 -- over the compare unfolding.

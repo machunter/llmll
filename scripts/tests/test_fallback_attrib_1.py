@@ -3,10 +3,12 @@
 What a pass here means:
 
 * In fallback_attrib/attrib.llmll, each body fallback names its innermost
-  refused term (`nonlinear:*`, `app:string-slice`), not the enclosing `if` or
+  refused term (`nonlinear:/`, `app:string-slice`), not the enclosing `if` or
   `let`. An `if` in argument position, which the body translator refuses, is
   named `if`.
 * A post that calls a function and a nonlinear pre each raise W-BODY-FALLBACK
+  (MUL-VAR-1: the refused terms are variable divisors, because a product of
+  two variables is inside the fragment now)
   with their contract cause. Before the change they raised nothing in text mode.
 * `g`, which has no post, raises no warning.
 """
@@ -44,15 +46,15 @@ def _warnings(tmp_path: Path) -> dict[str, set[tuple[str, str]]]:
 
 def test_body_fallback_names_the_refused_term(tmp_path):
     w = _warnings(tmp_path)
-    assert w.get("sq-pos") == {("body-outside-fragment", "nonlinear:*")}, w
-    assert w.get("sq-let") == {("body-outside-fragment", "nonlinear:*")}, w
+    assert w.get("div-pos") == {("body-outside-fragment", "nonlinear:/")}, w
+    assert w.get("div-let") == {("body-outside-fragment", "nonlinear:/")}, w
     assert w.get("first-len") == {("body-outside-fragment", "app:string-slice")}, w
-    assert w.get("prod") == {("body-outside-fragment", "nonlinear:*")}, w
+    assert w.get("quot") == {("body-outside-fragment", "nonlinear:/")}, w
     assert w.get("if-arg") == {("body-outside-fragment", "if")}, w
 
 
 def test_contract_cause_warns_and_no_post_does_not(tmp_path):
     w = _warnings(tmp_path)
     assert w.get("post-call") == {("contract-post-outside-fragment", "app:g")}, w
-    assert w.get("pre-sq") == {("contract-pre-outside-fragment", "nonlinear:*")}, w
+    assert w.get("pre-div") == {("contract-pre-outside-fragment", "nonlinear:/")}, w
     assert "g" not in w, w

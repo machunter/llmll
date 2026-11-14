@@ -1030,13 +1030,13 @@ constArithOps = ["*", "/", "mod"]
 
 -- | LT-INV (v0.11): return 'True' if an expression is admissible inside a
 -- strict-core ('SDef') body per the grammar production in the proposal §3.2.
--- Admits: literals, variables, QF-LIA operators (`*`, `/` and `mod` only in an admitted
--- constant-linear form, SIGMA-CONST-ARITH-1; never `rem`), let, if,
+-- Admits: literals, variables, QF-LIA operators, `*` (MUL-VAR-1), `/` and `mod`
+-- only in an admitted constant-linear form (SIGMA-CONST-ARITH-1; never `rem`), let, if,
 -- function application, two-arm Result EMatch, n-arm (>= 2) sum EMatch whose
 -- arms are all nullary / single-payload / catch-all (MATCH-WIDEN-2 verifier
 -- parity), pair constructor, and non-'HProofRequired' holes.
--- Rejects: lambdas, do-notation, await, non-linear operators (a product of two
--- non-constant terms, a non-constant or non-positive divisor, `rem`), a match arm with
+-- Rejects: lambdas, do-notation, await, non-linear operators (a non-constant or
+-- non-positive divisor, `rem`), a match arm with
 -- a multi-payload constructor pattern, and '?proof-required' holes.
 isCoreBodySyntactic :: Expr -> Bool
 isCoreBodySyntactic expr = case expr of
@@ -1044,7 +1044,11 @@ isCoreBodySyntactic expr = case expr of
   EVar _                   -> True
   -- SIGMA-CONST-ARITH-1: `*`, `/` and `mod` are core syntax exactly when the
   -- node is an admitted constant-linear form ('constArithAdmitted').
+  -- MUL-VAR-1 (design decision 3): a product of two non-constant terms is core
+  -- syntax. The verifier normalizes it and adds the fixed fact set; a def it
+  -- cannot prove falls back at verify, as any other def does.
   EOp op args
+    | op == "*"               -> all isCoreBodySyntactic args
     | op `elem` constArithOps -> constArithAdmitted op args && all isCoreBodySyntactic args
     | otherwise               -> isLinearOp op && all isCoreBodySyntactic args
   ELet binds body          -> all (\(_, _, e) -> isCoreBodySyntactic e) binds
@@ -1075,7 +1079,7 @@ isCoreBodySyntactic expr = case expr of
   EAwait _                 -> False
   EDo _                    -> False
   where
-    isLinearOp op = op `notElem` (["*", "/", "mod", "rem"] :: [Name])
+    isLinearOp op = op `notElem` (["/", "mod", "rem"] :: [Name])
     isResultArm (PConstructor n _) = n `elem` (["Success", "Error"] :: [Name])
     isResultArm _                  = False
     isNullaryEnumArm (PConstructor _ []) = True

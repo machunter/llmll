@@ -45,6 +45,7 @@ library
       LLMLL.AbstractionVerdict
       LLMLL.ProductNF
       LLMLL.ProductFacts
+      LLMLL.ProductRecheck
       LLMLL.Serve
       LLMLL.Sketch
       LLMLL.JsonPointer
@@ -169,6 +170,7 @@ test-suite llmll-test
   other-modules:
       ModuleSpec
       ProductSpec
+      RecheckSpec
       Paths_llmll
   hs-source-dirs:
       test

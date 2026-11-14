@@ -32,6 +32,8 @@ import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), emitPred)
 import LLMLL.ProductNF
 import LLMLL.ProductFacts
 import LLMLL.SolverGuard (runSolverGuarded)
+import LLMLL.FixpointIR (FQSort(..))
+import LLMLL.ProductRecheck (mkQuery, expandMonos, recheckQuery, RecheckAnswer(..))
 
 -- ---------------------------------------------------------------------------
 -- s-expressions, as rev3.py writes them
@@ -459,8 +461,53 @@ productSpec = describe "MUL-VAR-1 normal form and fact set (ProductNF, ProductFa
           txt `shouldBe` sort txt
           Map.elems names `shouldBe` [ "mul##" <> T.pack (show i) | i <- [0 .. Map.size names - 1] ]
           Map.keys names `shouldBe` Set.toAscList (Set.fromList (Map.keys names))
-          any (T.isInfixOf "((") txt `shouldBe` False
+          -- a fact prints as ((p1 && p2) => c) or (p => c): the one "((" is
+          -- the implication's opener, and no comparison has a pair of its own
+          all (\t -> T.count "((" t == (if "((" `T.isPrefixOf` t then 1 else 0)) txt `shouldBe` True
+          any (T.isInfixOf "(((") txt `shouldBe` False
+          take 1 [ t | t <- txt, " && " `T.isInfixOf` t ] `shouldSatisfy` all ("((" `T.isPrefixOf`)
+          [ t | t <- txt, "not " `T.isInfixOf` t || " || " `T.isInfixOf` t ] `shouldBe` []
         Left e -> expectationFailure (show e)
+
+  describe "the literal set (design Rev 3b, amendment 3: relation sides at any depth)" $ do
+    -- rev3.py on (>= (* (max x 5) w) 0) with (>= w 0): 13 facts,
+    -- F1 3, F2 4, F3 2, F11 4. On a written (if (> x 7) x 5): 15 facts,
+    -- F1 3, F2 4, F3 2, F11 6 (literals -7, 5 and 7). The emitter prints max
+    -- as (if x <= 5 then 5 else x); rev3.py's form is (if x >= 5 then x else 5).
+    let x = FQVar "x"; w = FQVar "w"
+        hyp = [FQBinPred FQGe w (FQLit 0)]
+        goalOf ite = FQBinPred FQGe (FQBinArith FQMul ite w) (FQLit 0)
+        rev3Max = Map.fromList [("F1", 3), ("F11", 4), ("F2", 4), ("F3", 2)]
+        rev3If7 = Map.fromList [("F1", 3), ("F11", 6), ("F2", 4), ("F3", 2)]
+        superset want got =
+          all (\(k, n) -> Map.findWithDefault 0 k got >= n) (Map.toList want)
+            && all (\k -> k == "F11" || Map.lookup k got == Map.lookup k want) (Map.keys got)
+        -- each fact, with mul##k expanded, is valid over the integers: z3
+        -- finds no model of its negation
+        theorems fr = do
+          mz3 <- findExecutable "z3"
+          case mz3 of
+            Nothing -> pendingWith "z3 not installed"
+            Just z3 -> do
+              let names = monoNames (factMonos (frFacts fr))
+                  back = Map.fromList [ (n, m) | (m, n) <- Map.toList names ]
+                  sorts = Map.fromList [("x", FQInt), ("w", FQInt)]
+              answers <- forM (renderFacts names (frFacts fr)) $ \f ->
+                case mkQuery sorts Map.empty [] (expandMonos back f) of
+                  Left why -> pure (emitPred f, Left why)
+                  Right q -> (\a -> (emitPred f, Right a)) <$> recheckQuery z3 q
+              [ a | a@(_, r) <- answers, r /= Right RUnsat ] `shouldBe` []
+    it "a written if (if x > 7 then x else 5) gives rev3.py's 15 facts" $ do
+      fmap (familyCounts . frFacts) (productFacts hyp (goalOf (FQIte (FQBinPred FQGt x (FQLit 7)) x (FQLit 5))))
+        `shouldBe` Right rev3If7
+    it "max x 5, in the emitter's form and in rev3's form, holds rev3.py's facts (extra ones are F11) and every fact is a theorem" $ do
+      forM_ [ FQIte (FQBinPred FQLe x (FQLit 5)) (FQLit 5) x
+            , FQIte (FQBinPred FQGe x (FQLit 5)) x (FQLit 5) ] $ \ite ->
+        case productFacts hyp (goalOf ite) of
+          Left e -> expectationFailure (show e)
+          Right fr -> do
+            familyCounts (frFacts fr) `shouldSatisfy` superset rev3Max
+            theorems fr
 
   describe "invariance (design \"Invariance\")" $ do
     it "F(pi C) = F(C), F(phi C) = F(C), F(rho C) = rho(F(C)) and their composition, on all 132 witnesses" $ do

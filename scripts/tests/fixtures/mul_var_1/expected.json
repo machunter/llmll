@@ -6,12 +6,16 @@
       "W25",
       "Y5"
     ],
-    "false": 39,
+    "false": 40,
     "false_refuted": 39,
-    "source": "docs/design/mul-var-proposal.md, Measurements, table 1 (Rev 3a)",
-    "true": 93,
+    "known_divergences": [
+      "A5",
+      "AF3"
+    ],
+    "source": "docs/design/mul-var-proposal.md, Measurements, table 1 (Rev 3a); Rev 3b amendment 2 adds A5b and AF3b and marks A5 and AF3 contract-if",
+    "true": 94,
     "true_verified": 89,
-    "witnesses": 132
+    "witnesses": 134
   },
   "witnesses": {
     "A1": {
@@ -60,8 +64,21 @@
       "file": "a5.llmll",
       "group": "A",
       "id": "mv-a5",
+      "known_divergence": "contract-if",
+      "note_divergence": "the product sits in an if inside a contract; exprToPred refuses a contract if (design Rev 3b, amendment 2; row CONTRACT-IF-1), so the function falls back with contract-post-outside-fragment",
       "rev3_row": "A5 product in an if branch",
       "source": "generated",
+      "truth": true
+    },
+    "A5b": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "a5b.llmll",
+      "group": "A",
+      "id": "mv-a5b",
+      "note": "design Rev 3b, amendment 2: A5 with the if in the body",
+      "rev3_row": "A5 product in an if branch (body form)",
+      "source": "hand",
       "truth": true
     },
     "A6": {
@@ -110,8 +127,21 @@
       "file": "af3.llmll",
       "group": "AF",
       "id": "mv-af3",
+      "known_divergence": "contract-if",
+      "note_divergence": "the product sits in an if inside a contract; exprToPred refuses a contract if (design Rev 3b, amendment 2; row CONTRACT-IF-1), so the function falls back with contract-post-outside-fragment",
       "rev3_row": "AF3 if factor with a negative branch",
       "source": "generated",
+      "truth": false
+    },
+    "AF3b": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "af3b.llmll",
+      "group": "AF",
+      "id": "mv-af3b",
+      "note": "design Rev 3b, amendment 2: AF3 with the if in the body; refuted needs the step 6 recheck wiring, until then fallback abstraction:nonlinear:*",
+      "rev3_row": "AF3 if factor with a negative branch (body form)",
+      "source": "hand",
       "truth": false
     },
     "B1": {

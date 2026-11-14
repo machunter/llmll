@@ -39,7 +39,9 @@ TRUST_SCHEMA = json.loads((REPO / "docs" / "llmll-trust-report.schema.json").rea
 INC_REFUTED = "(def inc [x: int] -> int (pre (>= x 0)) (post (> result x)) x)\n"
 INC_CORRECT = "(def inc [x: int] -> int (pre (>= x 0)) (post (> result x)) (+ x 1))\n"
 # A def-shell outside the solver's fragment: strict-core refuses it before the solver runs.
-SQ_FALLBACK = "(def-shell sq [n: int] -> int (post (>= result 0)) (* n n))\n"
+# MUL-VAR-1: a product of degree 8 (over the design "Limits" degree 6) stays
+# outside; (* n n) is inside the fragment now.
+SQ_FALLBACK = "(def-shell sq [n: int] -> int (post (>= result 0)) (* (* (* n n) (* n n)) (* (* n n) (* n n))))\n"
 
 FLAGS = [
     [],
@@ -106,7 +108,9 @@ def test_vs_solver_absent_is_not_run(tmp_path):
 # Before this fix the strict type-check gate in these commands printed text even
 # under `--json`; `llmll --json check` printed the diagnostics object. Measured
 # on the v0.29.1 binary and on 0.28.0: text on stdout for `verify`.
-SQ_CORE_VIOLATION = "(def sq [n: int] -> int (post (>= result 0)) (* n n))\n"
+# MUL-VAR-1: a product of two variables is core now, so the violation is a
+# variable divisor.
+SQ_CORE_VIOLATION = "(def sq [n: int] -> int (post (>= result 0)) (/ 100 n))\n"
 
 
 @pytest.mark.parametrize("cmd", ["verify", "trust-report", "spec-coverage", "build", "run"])

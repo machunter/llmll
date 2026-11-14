@@ -22,7 +22,8 @@ module LLMLL.ObligationMining
   , mineObligations
   , formatObligations
   , formatObligationsJson
-  , isQfLia             -- spec §12: shared QF-LIA check
+  , isQfLia             -- spec §12: shared QF-LIA check (alias of isSigmaAuto)
+  , isSigmaAuto         -- MUL-VAR-1 Rev 3b: Σ_auto without products
   , clauseStrength      -- CLASSIFY-MEASURE: exported for the agreement battery
   , CandidateExpr(..)   -- OBLIG-4: repair suggestions
   , generateCandidates
@@ -42,7 +43,7 @@ import LLMLL.Syntax (Name, Contract(..), Expr(..), Literal(..), Statement(..), D
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, FQVerifyResult(..))
 import LLMLL.TrustReport (TrustReport(..), TrustEntry(..), TrustDependency(..))
 -- LEVER-A3: classification derives from the emitter's own predicates (§6.1).
-import LLMLL.FixpointEmit (buildAliasMap, contractArrGuardsBlock, contractSigGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, exprToPred)
+import LLMLL.FixpointEmit (buildAliasMap, contractArrGuardsBlock, contractSigGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, sigmaAutoPred)
 
 -- ---------------------------------------------------------------------------
 -- Types
@@ -214,8 +215,17 @@ findDefSig name stmts =
 -- gated array guards) are NOT structural and stay in the shared typed
 -- arbiters ('contractSigGuardsBlock' / 'contractArrGuardsBlock'), exactly as
 -- the emitter splits 'exprToPred' from its 'mPostPred' guard chain.
+--
+-- MUL-VAR-1 Rev 3b (amendment 1): the channel now translates a product of two
+-- non-constant terms, but Σ_auto does not widen, so this reads
+-- 'sigmaAutoPred': 'exprToPred' minus such products. A product clause stays
+-- @non_qf_lia@ and a product suggestion stays 'Advisory'.
+isSigmaAuto :: Expr -> Bool
+isSigmaAuto = isJust . sigmaAutoPred
+
+-- | The historical name, kept as an alias of 'isSigmaAuto'.
 isQfLia :: Expr -> Bool
-isQfLia = isJust . exprToPred
+isQfLia = isSigmaAuto
 
 -- | Find a function's contract by name in the statement list.
 findContract :: Name -> [Statement] -> Maybe Contract

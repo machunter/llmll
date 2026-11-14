@@ -109,6 +109,9 @@ fqPredToSMT (FQIte c a b) = (\x y z -> "(ite " <> x <> " " <> y <> " " <> z <> "
                               <$> fqPredToSMT c <*> fqPredToSMT a <*> fqPredToSMT b
 fqPredToSMT (FQApp _ _)  = Nothing   -- uninterpreted-function term → out of fragment
 fqPredToSMT (FQKVar _ _) = Nothing   -- wf constraint variable → out of fragment
+-- MUL-VAR-1: an implication is built only for a product fact, which no
+-- feasibility query holds. It abstains, so this gate is unchanged.
+fqPredToSMT (FQImplies _ _) = Nothing
 
 binApp :: Text -> FQPred -> FQPred -> Maybe Text
 binApp o l r = do

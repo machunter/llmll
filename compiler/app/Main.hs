@@ -1679,7 +1679,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- the verdict ('fqResult'), and every reader below sees the
               -- effective verdict. Only the proof artifact keeps the raw one,
               -- because its replay re-runs the stored .fq.
-              avOut    = applyAbstractionVerdict emitR0 fqResultRaw
+              avOut    = applyAbstractionVerdict Set.empty emitR0 fqResultRaw
               fqResult = aoResult avOut
               emitR    = aoEmit avOut
               abstractionFns = aoReclassified avOut
@@ -2478,7 +2478,7 @@ checkCDPCandidate gm lfBin typeDefs wc = do
       -- FQ-OUT-SPECIAL-1 (closes CDP-FQ-RACE-1): a private temp file, not the
       -- shared /tmp/llmll-cdp-<fn>.fq, and the count check.
       (raw, _) <- solveFQText lfBin (length (fqConstraints (erFQFile emitR))) fqText []   -- VERIFY-BUDGET-1
-      let av = applyAbstractionVerdict emitR raw
+      let av = applyAbstractionVerdict Set.empty emitR raw
       -- CALLEE-POST-UNASSUMED-1: nor is a kill through a dropped callee post.
       if syntheticName `elem` aoFallbackFns av
         then pure Nothing
@@ -3053,7 +3053,7 @@ classifyFillStatus gm mLF sharedStmts fname params mRet contract body = do
             -- returned no verdict was recorded as refuted; it is unavailable.
             -- ABSTRACTION-VERDICT-1: a fill whose only failures need two calls
             -- to one callee to disagree falls back; it is not refuted.
-            let av = applyAbstractionVerdict emitR raw
+            let av = applyAbstractionVerdict Set.empty emitR raw
             case aoResult av of
               -- CALLEE-POST-UNASSUMED-1: either cause, not only abstraction.
               FQSafe | fname `elem` aoFallbackFns av            -> pure FSOutsideFragment

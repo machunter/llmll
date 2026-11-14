@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness AF3b: body form of AF3 (design Rev 3b, amendment 2), group AF, truth false.
+;; Hand-written: an if factor with a negative branch, in the body. x <= 0 and w > 0 give result -w < 0.
+(module mv-af3b
+  (export mv-af3b)
+  (def-shell mv-af3b [x: int w: int] -> int
+    (pre (>= w 0))
+    (post (>= result 0))
+    (* (if (> x 0) x (- 0 1)) w)))

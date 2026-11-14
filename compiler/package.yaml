@@ -107,6 +107,8 @@ library:
     # MUL-VAR-1: the normal form of a product and its fixed fact set (pure)
     - LLMLL.ProductNF
     - LLMLL.ProductFacts
+    # MUL-VAR-1: the native recheck of a product-marked UNSAFE id (IO)
+    - LLMLL.ProductRecheck
     # D5: HTTP serve endpoint
     - LLMLL.Serve
     # D5: Sketch output contract

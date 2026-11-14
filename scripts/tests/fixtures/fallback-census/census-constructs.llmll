@@ -1,9 +1,11 @@
 ;; FALLBACK-CENSUS-1 fixture: which construct refused the clause.
 ;; "contract-post-outside-fragment" is the biggest bucket and says nothing
 ;; about which vocabulary is missing; these two say.
+;; MUL-VAR-1: (* n n) is inside the fragment now. A product of degree 7 is over
+;; the limit (design "Limits", degree 6), so it still refuses the clause.
 
 (def-shell nonlinear_post [n: int] -> int
-  (post (= result (* n n)))
+  (post (= result (* n (* n (* n (* n (* n (* n n))))))))
   (+ n n))
 
 (def-shell string_post [a: string b: string] -> int

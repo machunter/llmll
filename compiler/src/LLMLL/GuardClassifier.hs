@@ -124,9 +124,17 @@ classifyGuardM env se (EApp op [l, r])
 classifyGuardM env se (EApp op args)
   | Just m <- constArithTerm (classifyGuardM env se) op args = m
 
+-- MUL-VAR-1 Rev 3b (amendment 4): a product of two non-constant terms in a
+-- guard is part of the body, so it emits as written, as 'bodyToPredM' does;
+-- 'productPass' rewrites the constraint into its normal form.
+classifyGuardM env se (EApp "*" [l, r]) = do
+  lp <- classifyGuardM env se l
+  rp <- classifyGuardM env se r
+  return $ FQBinArith FQMul <$> lp <*> rp
+
 -- Non-linear in guards
 classifyGuardM _ _ (EApp op [_, _])
-  | op `elem` ["*", "/", "mod", "rem"] = return Nothing
+  | op `elem` ["/", "mod", "rem"] = return Nothing
 
 classifyGuardM env se (EApp "not" [a]) = do
   ap <- classifyGuardM env se a

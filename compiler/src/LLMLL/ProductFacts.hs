@@ -113,6 +113,7 @@ hasProduct = \case
   FQApp _ as -> any hasProduct as
   FQKVar _ as -> any hasProduct as
   FQIte c a b -> hasProduct c || hasProduct a || hasProduct b
+  FQImplies p q -> hasProduct p || hasProduct q
   _ -> False
   where
     nonConst p = case groundValue p of
@@ -363,6 +364,11 @@ tshow = T.pack . show
 -- ---------------------------------------------------------------------------
 
 -- | The two sides of each relation, and each written product, at any depth.
+--
+-- "At any depth" includes the condition of an 'FQIte' (design Rev 3b,
+-- amendment 3): the emitter prints @max@, @min@ and @abs@ as an 'FQIte', so
+-- their comparisons add literals that rev3.py, which reads them as written
+-- calls, does not see. The extra facts are F11 instances, which are theorems.
 collect :: [FQPred] -> Either Refusal ([Poly], [(Poly, Poly)])
 collect ts = do
   rs <- mapM go ts
@@ -385,6 +391,7 @@ collect ts = do
       FQAnd ps -> many ps
       FQOr ps -> many ps
       FQNot p -> go p
+      FQImplies p q -> many [p, q]
       FQApp _ as -> many as
       FQIte c a b -> many [c, a, b]
       _ -> Right ([], [])
@@ -519,15 +526,17 @@ monoNames :: Set.Set Mono -> Map.Map Mono Text
 monoNames ms = Map.fromList
   [ (m, mulSymPrefix <> T.pack (show k)) | (k, m) <- zip [0 :: Int ..] (Set.toAscList (Set.filter ((>= 2) . monoDegree) ms)) ]
 
--- | A fact as a predicate. A fact with premises prints as
--- @(not (p1 && p2)) || c@; the comparisons inside have no parens of their own.
+-- | A fact as a predicate. A fact with premises prints as an implication,
+-- @((p1 && p2) => c)@, or @(p1 => c)@ with one premise; the comparisons inside
+-- have no parens of their own (design "Printing").
 factPred :: Map.Map Mono Text -> Fact -> FQPred
 factPred names f =
   let nm m = FQVar <$> Map.lookup m names
       c = uncurry (relPred nm) (factConc f)
   in case factPrem f of
        [] -> c
-       ps -> FQOr [FQNot (FQAnd [ relPred nm o p | (o, p) <- ps ]), c]
+       [(o, p)] -> FQImplies (relPred nm o p) c
+       ps -> FQImplies (FQAnd [ relPred nm o p | (o, p) <- ps ]) c
 
 -- | The facts as predicates, sorted by their printed text.
 renderFacts :: Map.Map Mono Text -> [Fact] -> [FQPred]

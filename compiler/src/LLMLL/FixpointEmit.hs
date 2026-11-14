@@ -56,6 +56,8 @@ module LLMLL.FixpointEmit
   , selfEqReft                    -- FQ-NAME-COLLIDE-1: { v : s | v = t } without capture
   , hasHole                       -- FALLBACK-CENSUS-1: shared hole walker (defined in Syntax)
   , refusedConstructs             -- FALLBACK-CENSUS-1: per-clause refusal labels
+  , sigmaAutoPred                 -- MUL-VAR-1 Rev 3b: the contract channel minus products
+  , exprHasVarProduct             -- MUL-VAR-1 Rev 3b: a product of two non-constant terms
   , bodyRefusalLabels             -- SHELL-FALLBACK-SILENT-1: per-body refusal labels
   , aNormalizeBody                -- AND-GUARD-PRE-1: unit tests read the lowering
   , classifyResultArms            -- SHELL-FALLBACK-SILENT-1: re-export, defined in Syntax
@@ -156,7 +158,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.IORef
 import Data.Maybe (fromMaybe, mapMaybe, isJust, isNothing, catMaybes, listToMaybe)
-import Data.List (nub, nubBy, partition)
+import Data.List (nub, nubBy, partition, foldl')
 import Data.Function (on)
 import Control.Monad (forM_, forM, when, unless)
 import Control.Monad.State.Strict (State, evalState, get, put, MonadState)
@@ -166,6 +168,7 @@ import Data.Char (isUpper, ord)
 import Data.Bits ((.&.))
 import Numeric (showHex)
 import Data.Graph (stronglyConnComp, SCC(..))
+import Data.Functor.Identity (Identity(..))
 
 import LLMLL.Syntax
 -- ADMIT-SHARED: the shared alias normalization + type-admissibility predicates.
@@ -173,6 +176,9 @@ import LLMLL.Syntax
 -- module's existing consumers are source-compatible.
 import LLMLL.TypeAdmissibility
 import LLMLL.FixpointIR
+import qualified LLMLL.ProductNF as PNF
+import qualified LLMLL.ProductFacts as PF
+import LLMLL.ProductFacts (hasProduct)
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, isWdClause)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkError, mkBodyFallbackWarning, mkDecreasesUndischarged)
 import LLMLL.HoleAnalysis (buildCallGraph)
@@ -346,6 +352,19 @@ data EmitResult = EmitResult
     -- at that call ('cvPostUnassumed'), mapped to that callee (the first by
     -- name). Metadata only: the .fq does not change.
     -- 'LLMLL.AbstractionVerdict' reads it after the solver ran.
+  , erProductMarked      :: Set.Set FQConstraintId
+    -- ^ MUL-VAR-1: each kept constraint that names a monomial symbol
+    -- (@mul##k@) in an environment refinement, its @lhs@ or its @rhs@. An
+    -- UNSAFE answer on it may rest on the product abstraction, so it is not a
+    -- disproof until the native recheck ('LLMLL.ProductRecheck') validates a
+    -- model. Read by 'LLMLL.AbstractionVerdict'.
+  , erMonoTable          :: Map FQConstraintId (Map Text PNF.Mono)
+    -- ^ MUL-VAR-1: per rewritten constraint, each monomial symbol and the
+    -- monomial it stands for. The recheck expands the symbol from it.
+  , erProductLhs         :: Map FQConstraintId FQPred
+    -- ^ MUL-VAR-1: per rewritten constraint, its @lhs@ predicate without the
+    -- product facts (every other ground-fact family kept). The recheck
+    -- queries this, because under an interpreted @*@ the facts are theorems.
   , erMeasuredRecursive  :: [(Text, Int)]
     -- ^ ABSTRACTION-VERDICT-1: the self-recursive def-shells that declare a
     -- measure, with their statement index. A function the verdict layer moves
@@ -1087,8 +1106,8 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- Assemble result
   dataDecs  <- readIORef dataRef
   quals     <- readIORef qualsRef
-  binds     <- readIORef bindsRef
-  consts    <- readIORef constsRef
+  binds0    <- readIORef bindsRef
+  consts0   <- readIORef constsRef
   table     <- readIORef tableRef
   skipped   <- readIORef skippedRef
   bfaithful <- readIORef bodyFaithfulRef
@@ -1101,7 +1120,16 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   ovTainted <- readIORef overflowTaintedRef
   builtinAxioms <- readIORef builtinAxiomsRef  -- TRUST-AXIOM
   callBinders <- readIORef callBindersRef      -- ABSTRACTION-VERDICT-1
-  groundFacts <- readIORef groundFactsRef      -- TRUST-AXIOM family C
+  groundFacts0 <- readIORef groundFactsRef     -- TRUST-AXIOM family C
+  nextBid   <- readIORef bindRef
+  -- MUL-VAR-1: the product pass, over the whole file, before the FREEVAR and
+  -- name-collision guards below, so both see the monomial binders. A
+  -- constraint with no product of two non-constant terms is returned as it
+  -- came, so a product-free file prints byte-identical .fq.
+  let pp      = productPass (Map.keysSet table) (Map.fromList [ (bindId b, b) | b <- binds0 ]) nextBid consts0
+      binds   = binds0 ++ ppBinds pp
+      consts  = ppConstraints pp
+      groundFacts = groundFacts0 ++ [ (n, ["product-facts"]) | n <- ppFactFns pp ]
   -- NIW (v0.12): declare a UF constant for each measure symbol actually used in
   -- any constraint or binder. None used → empty section → byte-identical .fq.
   let ctorNames = Set.fromList $ concat
@@ -1167,7 +1195,15 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                      | (cid, syms) <- collCons
                      , Just o <- [Map.lookup cid table] ]
       collRouted = Map.keysSet collByFn
-      routed     = Map.keysSet freeByFn `Set.union` collRouted
+      -- MUL-VAR-1: a constraint over a limit of "Limits" refuses whole. Its
+      -- owning function is withdrawn on the same route, with the refusal's
+      -- construct (nonlinear:*), as a product was refused before this row.
+      prodByFn   = Map.fromListWith (++)
+                     [ (coFunction o, [(coClause o, r, c)])
+                     | (c, r) <- ppRefused pp
+                     , Just o <- [Map.lookup (conId c) table] ]
+      prodRouted = Map.keysSet prodByFn
+      routed     = Map.keysSet freeByFn `Set.union` collRouted `Set.union` prodRouted
       -- A flagged constraint with no origin cannot be attributed to a function,
       -- so it is KEPT and the solver still refuses the file. That is exactly the
       -- behaviour this guard replaces, narrowed to the one case it cannot
@@ -1185,8 +1221,14 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       bfaithful' = [ n | n <- bfaithful, not (n `Set.member` routed) ]
       bfallback' = bfallback
                 ++ [ (n, if n `Set.member` collRouted then FallbackNameCollision
-                                                     else FallbackUnboundSymbols)
+                         else maybe FallbackUnboundSymbols productRefusalCause (Map.lookup n prodByFn))
                    | n <- Set.toList routed, n `notElem` map fst bfallback ]
+      -- MUL-VAR-1: the construct of a product refusal, for a function this
+      -- route moved (one already in fallback keeps its own).
+      prodConstructs =
+        [ (n, nub [ PNF.refConstruct r | (_, r, _) <- rs ])
+        | (n, rs) <- Map.toList prodByFn
+        , n `notElem` map fst bfallback, not (n `Set.member` collRouted) ]
       -- DECREASES-LEN-1 (DX): the guard's warnings carry a code in the JSON
       -- diagnostic, as W-BODY-FALLBACK does, so an agent can key on them.
       freeVarDiag t = (mkWarning Nothing t) { diagCode = Just "W-FQ-FREEVAR" }
@@ -1216,6 +1258,11 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                <> " the constraint to a function. The file cannot be verified.")
                { diagKind = Just "fq-name-collision" }
            | (cid, syms) <- collOrphans ]
+        ++ [ (mkWarning Nothing $ "W-FQ-PRODUCT-ORPHAN: constraint " <> T.pack (show cid)
+               <> " holds a product over a limit (" <> PNF.refWhy r
+               <> "), and no origin attributes it to a function. Its goal is set to false.")
+               { diagCode = Just "W-FQ-PRODUCT-ORPHAN" }
+           | (cid, r) <- ppOrphans pp ]
       quoteName t = "'" <> t <> "'"
       -- DECREASES-LEN-1: descent is emitted inside the body VC only, so a
       -- self-recursive def-shell that declares a measure and ends in the
@@ -1245,6 +1292,8 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       -- marks the constraint, with no call count. Such a callee is a sealed
       -- builtin, so it enters through its name and not through 'cbAbstractable'.
       bindNames = Map.fromList [ (bindId b, bindName b) | b <- binds ]
+      bindById  = Map.fromList [ (bindId b, b) | b <- binds ]
+      keptIds   = Set.fromList (map conId keptCons)
       abstracted = Map.fromList
         [ (conId c, callee)
         | c <- keptCons
@@ -1286,7 +1335,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
     , erBodyFaithfulFns   = bfaithful'
     , erBodyFallback      = map fst bfallback'
     , erBodyFallbackCauses = bfallback'
-    , erFallbackConstructs = fbConstructs
+    , erFallbackConstructs = fbConstructs ++ prodConstructs
     , erDiagnostics       = diags ++ guardDiags ++ undischargedDiags
     -- A routed function emitted nothing that survived, so it must leave these
     -- four lists too. `erCallPreFns` prints "call-pre obligations: <fn>", and
@@ -1297,7 +1346,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
     , erEmittedPost       = filter (not . (`Set.member` routed)) emPost
     , erCallPreFns        = filter (not . (`Set.member` routed)) callPre
     , erOverflowTaintedFns = filter (not . (`Set.member` routed)) ovTainted
-    , erMeasuredFns        = [ n | (n, (_, es)) <- Map.toList measureMap, all (isJust . exprToPred) es ]
+    , erMeasuredFns        = [ n | (n, (_, es)) <- Map.toList measureMap, all (isJust . measureToPred) es ]
     -- TRUST-AXIOM: a routed function's body VC is withdrawn, so the axioms it
     -- assumed are no longer assumed by anything. Drop it, for the same reason
     -- `erCallPreFns` drops it above.
@@ -1311,6 +1360,14 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
         , let fams = nub (concat [ fs | (m, fs) <- groundFacts, m == n ]) ]
     , erAbstracted         = abstracted
     , erPostUnassumed      = postUnassumed
+    , erProductMarked      = Set.fromList
+        [ conId c
+        | c <- keptCons
+        , let envPreds = [ reftPred (bindReft b) | i <- conEnv c, Just b <- [Map.lookup i bindById] ]
+              syms = Set.unions (map predSymbols (reftPred (conLhs c) : reftPred (conRhs c) : envPreds))
+        , any (PNF.mulSymPrefix `T.isPrefixOf`) (Set.toList syms) ]
+    , erMonoTable          = Map.restrictKeys (ppMonoTable pp) keptIds
+    , erProductLhs         = Map.restrictKeys (ppBaseLhs pp) keptIds
     , erMeasuredRecursive  =
         [ (n, i) | (n, i) <- Map.toList measuredIdx, n `Set.member` recursiveNames ]
     }
@@ -1681,7 +1738,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                        Nothing        -> maybe [] pure mDec  -- letrec: single measure
         mWfPre = contractPre contract >>= exprToPred
     forM_ wfMeasures $ \decE ->
-      case exprToPred decE of
+      case measureToPred decE of
         Nothing      -> addSkip name  -- untranslatable component: skip (SCC stays partial)
         Just decPred -> do
           cid  <- freshCid
@@ -2377,7 +2434,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     -- SCC stays termination_unverified; §3.4.5 firewall).
                     case Map.lookup name measureMap of
                       Nothing -> pure ()   -- f declares no measure
-                      Just (_fParams, fMeasEs) -> case traverse exprToPred fMeasEs of
+                      Just (_fParams, fMeasEs) -> case traverse measureToPred fMeasEs of
                         Nothing ->           -- some caller measure component untranslatable
                           addDiag $ mkWarning Nothing $ "decreases measure of '" <> name
                             <> "' has a non-linear-arithmetic component; no descent obligation emitted "
@@ -2387,7 +2444,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                             when (Set.member callee sccSet) $
                               case Map.lookup callee measureMap of
                                 Nothing -> pure ()   -- callee unmeasured → SCC not fully-declared; stays partial
-                                Just (gParams, gMeasEs) -> case traverse exprToPred gMeasEs of
+                                Just (gParams, gMeasEs) -> case traverse measureToPred gMeasEs of
                                   Nothing -> pure ()  -- callee component untranslatable → skip (stays partial)
                                   Just gMeasPreds
                                     -- EQUAL-LENGTH GATE (professor ruling (b)): a
@@ -4078,6 +4135,36 @@ wdSiteText o = exprToSExpr (woOp o) <> " needs " <> exprToSExpr (surfacePre (woO
 exprToPred :: Expr -> Maybe FQPred
 exprToPred = fmap fst . exprToPredWD []
 
+-- | MUL-VAR-1 (design edge case 16): a decreases measure with a product of
+-- two non-constant terms stays refused. Descent is proved over exact terms,
+-- and the product pass does not reach the measure's constraints.
+measureToPred :: Expr -> Maybe FQPred
+measureToPred e = case exprToPred e of
+  Just p | not (hasProduct p) -> Just p
+  _                           -> Nothing
+
+-- | MUL-VAR-1 Rev 3b (amendment 1): @Σ_auto@ does not widen. The contract
+-- channel translates a product of two non-constant terms, but the consumers
+-- that classify a clause as auto-dischargeable (contract-fragment labels,
+-- suggestion strength, refine reuse) keep the v0.38.1 answer: a clause holding
+-- such a product is outside. A constant-linear `*` ('constArithTerm') is
+-- admitted exactly as before.
+sigmaAutoPred :: Expr -> Maybe FQPred
+sigmaAutoPred e
+  | exprHasVarProduct e = Nothing
+  | otherwise           = exprToPred e
+
+-- | Whether an expression holds a `*` node that 'constArithTerm' does not
+-- admit, i.e. a product of two non-constant terms.
+exprHasVarProduct :: Expr -> Bool
+exprHasVarProduct e = here || any exprHasVarProduct (subExprs e)
+  where
+    here = case e of
+      EApp "*" args@[_, _] -> refusedMul args
+      EOp  "*" args@[_, _] -> refusedMul args
+      _                    -> False
+    refusedMul args = isNothing (constArithTerm (\_ -> Identity (Just FQTrue)) "*" args)
+
 -- | CLAUSE-WELLDEF-1 (§4.1.1, W7): the one clause traversal. It returns the
 -- term that 'exprToPred' always returned and, beside it, the definedness
 -- obligations @WD(C, e)@ of every partial builtin the term applies. A new
@@ -4142,6 +4229,10 @@ exprToPredWD c (EApp op [l, r])
   -- divisor is a positive constant, so the arm adds no obligation; the
   -- dividend's own obligations ride the writer-shaped @tr@.
   | Just m <- constArithTerm tr op [l, r] = let (os, mp) = m in (\p -> (p, os)) <$> mp
+  -- MUL-VAR-1: a product of two non-constant terms reflects as written. It
+  -- never reaches the solver as `*`: 'productPass' rewrites the constraint
+  -- into its normal form. `*` is total, so the arm adds no obligation.
+  | op == "*" = bin (FQBinArith FQMul)
   -- non-linear ops: reject
   | op `elem` ["*", "/", "mod", "rem", "^", "**"] = Nothing
   where
@@ -4527,6 +4618,11 @@ extractQualifiers sortMap clause fnName expr =
       -- free-symbol crash this guard exists to prevent. All A1/A2 cruxes
       -- discharge without array qualifiers; correct as-is, no change.
       | not (Set.null (appNames pred `Set.difference` Set.fromList ["strLen", "listLen"])) -> []
+      -- MUL-VAR-1: a qualifier is a hint for kvar inference, and no emitted
+      -- constraint holds a kvar. A clause with a product of two non-constant
+      -- terms gives none, as before products translated, so no `*` of two
+      -- variables reaches the solver through a qualifier.
+      | hasProduct pred -> []
       | otherwise -> atomicQualifiers sortMap fnName clause pred
 
 -- BOOL-FRAG (v0.14.15): sortMap carries each var's real FQSort (result + params);
@@ -4556,6 +4652,7 @@ predVars (FQNot p)            = predVars p
 predVars (FQKVar _ args)      = concatMap predVars args
 predVars (FQApp _ args)       = concatMap predVars args  -- NIW: measure args carry the free vars
 predVars (FQIte c a b)        = concatMap predVars [c, a, b]
+predVars (FQImplies a b)      = predVars a ++ predVars b
 
 -- | MAP-RET-POST-1: does this predicate read `result` through the split map
 -- encoding? 'mapPairTermsC' rewrites a map-rooted contract term into the
@@ -5272,6 +5369,16 @@ bodyToPredM env se cenv sccSet (EApp op args)
       return $ case vc of
         Just (SimpleVC [] p) -> Just p
         _                    -> Nothing
+
+-- MUL-VAR-1: a product of two non-constant terms, each a simple term, as for
+-- `+` and `-`. 'productPass' rewrites the constraint into its normal form.
+bodyToPredM env se cenv sccSet (EApp "*" [l, r]) = do
+  lvc <- bodyToPredM env se cenv sccSet l
+  rvc <- bodyToPredM env se cenv sccSet r
+  case (lvc, rvc) of
+    (Just (SimpleVC [] lp), Just (SimpleVC [] rp)) ->
+      return . Just $ SimpleVC [] (FQBinArith FQMul lp rp)
+    _ -> return Nothing
 
 -- Non-linear operators: reject
 bodyToPredM _ _ _ _ (EApp op [_, _])
@@ -7238,6 +7345,7 @@ predSortOf (FQOr _)          = FQBool
 predSortOf (FQKVar _ _)      = FQInt  -- fallback
 predSortOf (FQApp _ _)       = FQInt  -- NIW: measures are integer-valued
 predSortOf (FQIte _ a _)     = predSortOf a  -- MINMAX-FRAG-1: int-valued branches
+predSortOf (FQImplies _ _)   = FQBool  -- MUL-VAR-1: a product fact
 
 -- | Build a SortEnv from function parameters (int-typed only for BODY-VC-0).
 -- v0.8.0: uses isIntLike with alias map to resolve type aliases.
@@ -7327,6 +7435,241 @@ reflectIntBuiltin b ps
   | isReflectedCompare b = reflectCompare b ps
 reflectIntBuiltin _ _          = Nothing
 
+-- ---------------------------------------------------------------------------
+-- MUL-VAR-1: the product pass
+-- ---------------------------------------------------------------------------
+
+-- | What the product pass did to the file (design "Normal form", "Fact set",
+-- "Printing" and "The mark").
+data ProductPass = ProductPass
+  { ppConstraints :: [FQConstraint]
+    -- ^ every constraint in its first order: rewritten, or as it came (no
+    -- product, or refused), with a constraint whose goal reduced to @true@
+    -- removed (its clause is proved by the normal form)
+  , ppBinds       :: [FQBind]
+    -- ^ the binders the pass added: a @true@ copy of each environment binder
+    -- whose refinement moved into an @lhs@, and the @mul##k@ binders
+  , ppRefused     :: [(FQConstraint, PNF.Refusal)]
+    -- ^ constraints with an origin that a limit refused, as they came
+  , ppOrphans     :: [(FQConstraintId, PNF.Refusal)]
+    -- ^ refused constraints with no origin. Each is replaced by @true@ ⟹
+    -- @false@, so the solver answers UNSAFE on it and nothing is proved
+  , ppMonoTable   :: Map FQConstraintId (Map Text PNF.Mono)
+  , ppBaseLhs     :: Map FQConstraintId FQPred
+  , ppFactFns     :: [Text]
+    -- ^ the function tag of each rewritten constraint that received a fact
+  }
+
+-- | One constraint, rewritten.
+data ProductRewrite = ProductRewrite
+  { rwMoved :: [FQBindId]          -- ^ environment binders whose refinement moved into the lhs
+  , rwNames :: [(Text, PNF.Mono)]  -- ^ each monomial symbol, in symbol order
+  , rwLhs   :: FQPred              -- ^ the lhs with the product facts
+  , rwBase  :: FQPred              -- ^ the lhs without them
+  , rwRhs   :: FQPred
+  , rwFacts :: Int
+  }
+
+-- | MUL-VAR-1: rewrite each constraint that holds a product of two
+-- non-constant terms (in an environment refinement, its @lhs@ or its @rhs@).
+--
+-- * Each predicate that holds a product is printed in normal form: each
+--   relation as @positive terms op negated negative terms@, sums flat, each
+--   monomial of degree 2 or more as one symbol @mul##k@. A predicate with no
+--   product is kept as it came.
+-- * An environment refinement that holds a product moves into the @lhs@ (with
+--   the binder's own name for its bound variable), and the constraint's
+--   environment gets a @true@ copy of that binder. A binder is shared by many
+--   constraints, and each constraint numbers its monomials itself.
+-- * The fact set ('PF.productFacts') is appended to the @lhs@, sorted by its
+--   printed text. Each @mul##k@ gets a binder with refinement @true@; @k@
+--   follows the sorted order of every monomial of degree 2 or more in the
+--   constraint and its facts.
+-- * A goal that reduces to @true@ removes the constraint; a conjunct of the
+--   goal that reduces to @true@ is dropped; a goal that reduces to @false@ is
+--   sent as @false@.
+-- * A refusal (a limit of "Limits") leaves the constraint as it came and
+--   reports it, so the caller routes its function to the fallback channel.
+productPass :: Set.Set FQConstraintId -> Map FQBindId FQBind -> FQBindId -> [FQConstraint] -> ProductPass
+productPass withOrigin bmap next0 cs0 = go next0 Map.empty cs0 (ProductPass [] [] [] [] Map.empty Map.empty [])
+  where
+    go _ _ [] acc = acc
+      { ppConstraints = reverse (ppConstraints acc)
+      , ppBinds       = reverse (ppBinds acc)
+      , ppRefused     = reverse (ppRefused acc)
+      , ppOrphans     = reverse (ppOrphans acc)
+      , ppFactFns     = reverse (ppFactFns acc) }
+    go next copies (c : rest) acc = case productRewrite bmap c of
+      Nothing -> go next copies rest acc { ppConstraints = c : ppConstraints acc }
+      Just (Left r)
+        | conId c `Set.member` withOrigin ->
+            go next copies rest acc { ppConstraints = c : ppConstraints acc
+                                    , ppRefused = (c, r) : ppRefused acc }
+        | otherwise ->
+            let c' = c { conLhs = (conLhs c) { reftPred = FQTrue }
+                       , conRhs = (conRhs c) { reftPred = FQFalse } }
+            in go next copies rest acc { ppConstraints = c' : ppConstraints acc
+                                       , ppOrphans = (conId c, r) : ppOrphans acc }
+      Just (Right Nothing) -> go next copies rest acc
+      Just (Right (Just rw)) ->
+        let -- a true copy of each moved binder, once per binder
+            (next1, copies1, copyBinds) = foldl' copyOf (next, copies, []) (rwMoved rw)
+            copyOf (n, cm, bs) i
+              | Map.member i cm = (n, cm, bs)
+              | Just b <- Map.lookup i bmap =
+                  (n + 1, Map.insert i n cm, FQBind n (bindName b) ((bindReft b) { reftPred = FQTrue }) : bs)
+              | otherwise = (n, cm, bs)
+            mulIds = [ next1 + k | k <- [0 .. length (rwNames rw) - 1] ]
+            mulBinds = [ FQBind i nmk (FQReft "v" FQInt FQTrue) | (i, (nmk, _)) <- zip mulIds (rwNames rw) ]
+            env' = [ if i `elem` rwMoved rw then Map.findWithDefault i i copies1 else i | i <- conEnv c ] ++ mulIds
+            c' = c { conEnv = env'
+                   , conLhs = (conLhs c) { reftPred = rwLhs rw }
+                   , conRhs = (conRhs c) { reftPred = rwRhs rw } }
+        in go (next1 + length mulIds) copies1 rest acc
+             { ppConstraints = c' : ppConstraints acc
+             , ppBinds = reverse mulBinds ++ copyBinds ++ ppBinds acc
+             , ppMonoTable = Map.insert (conId c) (Map.fromList (rwNames rw)) (ppMonoTable acc)
+             , ppBaseLhs = Map.insert (conId c) (rwBase rw) (ppBaseLhs acc)
+             , ppFactFns = [ fnTagOf c | rwFacts rw > 0 ] ++ ppFactFns acc }
+
+-- | MUL-VAR-1: the cause of a function withdrawn because a limit refused one
+-- of its constraints, read as a refusal was read before products translated:
+-- a refused @pre@ constraint is a pre outside the fragment, a refused
+-- constraint whose goal holds the product is a post outside the fragment, and
+-- any other is a body outside the fragment.
+productRefusalCause :: [(Text, PNF.Refusal, FQConstraint)] -> FallbackCause
+productRefusalCause rs
+  | any (\(cl, _, _) -> cl `elem` ["pre", "wd-pre"]) rs = FallbackContractPre
+  | any (\(_, _, c) -> hasProduct (reftPred (conRhs c))) rs = FallbackContractPost
+  | otherwise = FallbackBody
+
+-- | One constraint through the product pass. 'Nothing': it holds no product.
+-- @Right Nothing@: its goal reduced to @true@.
+productRewrite :: Map FQBindId FQBind -> FQConstraint -> Maybe (Either PNF.Refusal (Maybe ProductRewrite))
+productRewrite bmap c
+  | not anyProd = Nothing
+  | otherwise = Just $ do
+      fr <- PF.productFacts hyps goal
+      (_, polys1) <- nfAll (const Nothing)
+      let monos = Set.filter ((>= 2) . PNF.monoDegree) (PNF.monosDeep polys1)
+                    `Set.union` PF.factMonos (PF.frFacts fr)
+          names = PF.monoNames monos
+          nm m  = FQVar <$> Map.lookup m names
+      ((lhs', moved', rhs'), _) <- nfAll nm
+      let facts = PF.renderFacts names (PF.frFacts fr)
+          base  = conjoinFlat (lhs' : moved')
+          full  = conjoinFlat (lhs' : moved' ++ facts)
+          goal' = simplifyGoal rhs'
+      when (hasProduct full || hasProduct goal') $
+        Left (PNF.Refusal "nonlinear:*" "a product the normal form did not print as a symbol")
+      pure $ if goal' == FQTrue then Nothing else Just ProductRewrite
+        { rwMoved = map bindId prodEnv
+        , rwNames = [ (t, m) | (m, t) <- Map.toList names ]
+        , rwLhs   = full
+        , rwBase  = base
+        , rwRhs   = goal'
+        , rwFacts = length facts }
+  where
+    envBs   = [ b | i <- conEnv c, Just b <- [Map.lookup i bmap] ]
+    hypOf b = let r = bindReft b
+              in if reftVar r == bindName b then reftPred r
+                 else applySubst (Map.singleton (reftVar r) (FQVar (bindName b))) (reftPred r)
+    prodEnv = [ b | b <- envBs, hasProduct (reftPred (bindReft b)) ]
+    lhsP    = reftPred (conLhs c)
+    goal    = reftPred (conRhs c)
+    anyProd = not (null prodEnv) || hasProduct lhsP || hasProduct goal
+    hyps    = [ hypOf b | b <- envBs, reftPred (bindReft b) /= FQTrue ] ++ PF.flatConjuncts [lhsP]
+    nfAll nm = do
+      (l, a) <- nfPred nm lhsP
+      ms     <- mapM (nfPred nm . hypOf) prodEnv
+      (r, b) <- nfPred nm goal
+      pure ((l, map fst ms, r), a ++ concatMap snd ms ++ b)
+
+-- | A flat conjunction, with @true@ conjuncts dropped.
+conjoinFlat :: [FQPred] -> FQPred
+conjoinFlat ps = case filter (/= FQTrue) (concatMap spl ps) of
+  []  -> FQTrue
+  [q] -> q
+  qs  -> FQAnd qs
+  where spl (FQAnd xs) = concatMap spl xs
+        spl p          = [p]
+
+-- | A goal after normal form (design "Normal form", 5 and 6): a conjunct that
+-- reduced to @true@ is dropped, and one that reduced to @false@ makes the goal
+-- @false@.
+simplifyGoal :: FQPred -> FQPred
+simplifyGoal p = case p of
+  FQAnd _ -> let qs = filter (/= FQTrue) (spl p)
+             in if FQFalse `elem` qs then FQFalse else conjoinFlat qs
+  _       -> p
+  where spl (FQAnd xs) = concatMap spl xs
+        spl q          = [q]
+
+-- | A predicate in normal form, with the polynomials it printed. A predicate
+-- with no product is returned as it came.
+nfPred :: (PNF.Mono -> Maybe FQPred) -> FQPred -> Either PNF.Refusal (FQPred, [PNF.Poly])
+nfPred nm p
+  | not (hasProduct p) = Right (p, [])
+  | otherwise = case p of
+      FQBinPred op l r
+        | Just o <- nfRelOp op, not (nfPredShaped l), not (nfPredShaped r) -> do
+            lp <- PNF.toPoly l
+            rp <- PNF.toPoly r
+            let q = PNF.psub lp rp
+            Right (PNF.relPred nm o q, [q])
+        | otherwise -> do
+            (a, x) <- side l
+            (b, y) <- side r
+            Right (FQBinPred op a b, x ++ y)
+      FQAnd ps -> (\xs -> (FQAnd (map fst xs), concatMap snd xs)) <$> mapM (nfPred nm) ps
+      FQOr ps  -> (\xs -> (FQOr (map fst xs), concatMap snd xs)) <$> mapM (nfPred nm) ps
+      FQNot q  -> (\(a, x) -> (FQNot a, x)) <$> nfPred nm q
+      FQImplies a b -> do
+        (a', x) <- nfPred nm a
+        (b', y) <- nfPred nm b
+        Right (FQImplies a' b', x ++ y)
+      FQApp f as -> (\xs -> (FQApp f (map fst xs), concatMap snd xs)) <$> mapM side as
+      FQIte c a b -> do
+        (c', x) <- nfPred nm c
+        (a', y) <- side a
+        (b', z) <- side b
+        Right (FQIte c' a' b', x ++ y ++ z)
+      FQKVar _ _ -> Left (PNF.Refusal "nonlinear:*" "a product inside a kvar argument")
+      _ -> nfTerm nm p
+  where
+    side t | nfPredShaped t = nfPred nm t
+           | otherwise      = nfTerm nm t
+
+-- | An integer term in normal form.
+nfTerm :: (PNF.Mono -> Maybe FQPred) -> FQPred -> Either PNF.Refusal (FQPred, [PNF.Poly])
+nfTerm nm t
+  | not (hasProduct t) = Right (t, [])
+  | otherwise = do
+      q <- PNF.toPoly t
+      Right (PNF.polyPred nm q, [q])
+
+nfRelOp :: FQBinOp -> Maybe PNF.RelOp
+nfRelOp = \case
+  FQLt  -> Just PNF.RLt
+  FQLe  -> Just PNF.RLe
+  FQGt  -> Just PNF.RGt
+  FQGe  -> Just PNF.RGe
+  FQEq  -> Just PNF.REq
+  FQNeq -> Just PNF.RNe
+  _     -> Nothing
+
+-- | A predicate-shaped term, as 'LLMLL.ProductNF' reads one.
+nfPredShaped :: FQPred -> Bool
+nfPredShaped = \case
+  FQBinPred op _ _ -> isJust (nfRelOp op)
+  FQNot _   -> True
+  FQAnd _   -> True
+  FQOr _    -> True
+  FQTrue    -> True
+  FQFalse   -> True
+  FQImplies _ _ -> True
+  _         -> False
+
 -- | Capture-free predicate substitution.
 -- Replaces free variables in a FQPred according to the substitution map.
 -- Variables not in the map are left unchanged.
@@ -7339,6 +7682,7 @@ applySubst subst (FQOr ps) = FQOr (map (applySubst subst) ps)
 applySubst subst (FQNot p) = FQNot (applySubst subst p)
 applySubst subst (FQApp f args) = FQApp f (map (applySubst subst) args)  -- NIW: substitute measure args
 applySubst subst (FQIte c a b) = FQIte (applySubst subst c) (applySubst subst a) (applySubst subst b)
+applySubst subst (FQImplies a b) = FQImplies (applySubst subst a) (applySubst subst b)
 applySubst _ p = p  -- FQLit, FQTrue, FQFalse unchanged
 
 -- | Does the postcondition use constructor-dependent reasoning?

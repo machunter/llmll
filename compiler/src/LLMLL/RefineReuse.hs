@@ -59,7 +59,7 @@ import           LLMLL.Syntax
 import           LLMLL.FixpointIR
   ( FQFile(..), FQBind(..), FQReft(..), FQConstraint(..)
   , FQPred(..), emptyFQFile, emitFQFile, fqNameCollisions )
-import           LLMLL.FixpointEmit (AliasMap, typeToSortA, exprToPred, contractMentionsArrOp)
+import           LLMLL.FixpointEmit (AliasMap, typeToSortA, sigmaAutoPred, contractMentionsArrOp)
 import           LLMLL.ObligationAssembly (substExpr, classifyContractFragment)
 import           LLMLL.PBT (canonicalExpr)
 import           LLMLL.DiagnosticFQ
@@ -180,7 +180,9 @@ buildSubsumptionFQ :: AliasMap
 buildSubsumptionFQ aliases (sPs, sRet, sC) (dPs, _dRet, dC) = do
   let (preS, postS) = alphaNormalizeContract sPs sC
       (preD, postD) = alphaNormalizeContract dPs dC
-      toFQ = maybe (Just FQTrue) exprToPred
+      -- MUL-VAR-1 Rev 3b: this .fq skips the product pass, so a product
+      -- of two non-constant terms abstains here ('sigmaAutoPred').
+      toFQ = maybe (Just FQTrue) sigmaAutoPred
   preSfq  <- toFQ preS
   preDfq  <- toFQ preD
   postSfq <- toFQ postS

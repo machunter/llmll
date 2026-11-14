@@ -31,12 +31,14 @@ needs_binary = pytest.mark.skipif(
            "(the cells call `llmll verify`, which shells out to liquid-fixpoint)",
 )
 
+# MUL-VAR-1: (* n n) is inside the fragment now; a product of degree 8 is over
+# the limit (design "Limits", degree 6), so sq3 still falls back from the body.
 FIXTURE = """(module sq
   (export sq3)
   (def-shell sq3 [n: int] -> int
     (pre (>= n 0))
     (post (>= result n))
-    (* n n)))
+    (* (* (* n n) (* n n)) (* (* n n) (* n n)))))
 """
 
 # `bad` is refuted by the solver, so the run fails and NO sidecar write happens.
@@ -46,7 +48,7 @@ FIXTURE_UNSAFE = """(module two
   (def-shell sq3 [n: int] -> int
     (pre (>= n 0))
     (post (>= result n))
-    (* n n))
+    (* (* (* n n) (* n n)) (* (* n n) (* n n))))
   (def bad [m: int] -> int
     (post (> result m))
     m))

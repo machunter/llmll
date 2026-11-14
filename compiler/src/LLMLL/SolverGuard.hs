@@ -22,6 +22,7 @@ module LLMLL.SolverGuard
   , renderStopKind
   , ResourceStop(..)
   , runSolverGuarded
+  , runSolverGuardedInput
   , solverFormText
   , QualSyntax(..)
   , decideQualSyntax
@@ -245,10 +246,26 @@ solverFormText bin txt
 hasQualifier :: Text -> Bool
 hasQualifier t = "qualif " `T.isPrefixOf` t || "\nqualif " `T.isInfixOf` t
 
+-- | MUL-VAR-1: run a solver with a script on its standard input, under the
+-- memory limit and a time limit of at most @secs@ seconds (the global time
+-- limit when it is smaller and not 0). The native recheck sends its query
+-- this way, so it writes no file that another run could share (CDP-FQ-RACE-1).
+runSolverGuardedInput :: Int -> FilePath -> [String] -> String -> IO (Either ResourceStop (ExitCode, String, String))
+runSolverGuardedInput secs bin args input = do
+  lim <- getSolverLimits
+  let t = if slTimeSecs lim > 0 then min secs (slTimeSecs lim) else secs
+  runGuardedWith lim { slTimeSecs = t } (Just input) bin args
+
 -- | The guard itself, with no change to the @.fq@ file.
 runGuardedRaw :: FilePath -> [String] -> IO (Either ResourceStop (ExitCode, String, String))
 runGuardedRaw bin args = do
   lim <- getSolverLimits
+  runGuardedWith lim Nothing bin args
+
+-- | The guard, under the given limits, with an optional standard input. With
+-- 'Nothing' the child's standard input is closed at once, as before.
+runGuardedWith :: SolverLimits -> Maybe String -> FilePath -> [String] -> IO (Either ResourceStop (ExitCode, String, String))
+runGuardedWith lim mInput bin args = do
   t0  <- getMonotonicTime
   let cp = (proc bin args)
              { std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe
@@ -263,7 +280,6 @@ runGuardedRaw bin args = do
           forM_ grp killGroup
           forM_ grp $ \g -> atomicModifyIORef' liveGroups (\s -> (Set.delete g s, ()))
     flip onException cleanup $ restore $ do
-      hClose hin
       mapM_ (`hSetEncoding` utf8) [hout, herr]
       outV  <- newEmptyMVar
       errV  <- newEmptyMVar
@@ -273,6 +289,16 @@ runGuardedRaw bin args = do
             putMVar v (either (\(_ :: SomeException) -> "") id r)
       drain hout outV
       drain herr errV
+      -- MUL-VAR-1: the input is written after both drains start, from its own
+      -- thread, so a child that writes before it reads cannot block it. A
+      -- child that exits early closes the pipe; that error is ignored.
+      case mInput of
+        Nothing -> hClose hin
+        Just input -> void $ forkIO $ do
+          r <- try (hSetEncoding hin utf8 >> hPutStr hin input >> hClose hin)
+          case r of
+            Left (_ :: SomeException) -> void (try (hClose hin) :: IO (Either SomeException ()))
+            Right () -> pure ()
       -- The executable is not built -threaded, so 'waitForProcess' would block
       -- every Haskell thread, this loop included. 'getProcessExitCode' does
       -- not block; it is polled every 50 ms.
