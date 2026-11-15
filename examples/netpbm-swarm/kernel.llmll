@@ -1,3 +1,5 @@
+;; MUL-VAR-1 step 8 restatement: the pre's channel case split (=> (= c 1) (< i w)) (=> (= c 3) (< i (* 3 w)))
+;; is stated as one product, (< i (* c w)) (and (< i (* c cw)) in crop-sample). Witness K1.
 ;; kernel — LEVEL 2 of the netpbm-swarm verified core.
 ;; Depends on: types (0), sample (0), geom (1). Verify those first, in that
 ;; order, then this module.
@@ -41,7 +43,7 @@
         (and (or (= c 1) (= c 3))
         (and (>= w 1)
         (and (>= i 0)
-             (and (=> (= c 1) (< i w)) (=> (= c 3) (< i (* 3 w)))))))))
+             (< i (* c w)))))))
   (post (and (>= result 0)
         (and (<= result m)
         (and (=> (and (= c 1)
@@ -76,7 +78,7 @@
         (and (>= cw 1)
         (and (<= (+ x0 cw) w)
         (and (>= i 0)
-             (and (=> (= c 1) (< i cw)) (=> (= c 3) (< i (* 3 cw)))))))))))
+             (< i (* c cw)))))))))
   (post (and (>= result 0)
         (and (<= result m)
         (and (=> (and (= c 1)
@@ -136,7 +138,7 @@
         (and (or (= c 1) (= c 3))
         (and (>= w 1)
         (and (>= i 0)
-             (and (=> (= c 1) (< i w)) (=> (= c 3) (< i (* 3 w)))))))))
+             (< i (* c w)))))))
   (post (and (>= result 0)
         (and (<= result (* 3 m))
              (and (=> (and (= w 1)
