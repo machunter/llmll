@@ -748,6 +748,11 @@ data TCState = TCState
   -- closure modules' names qualified, opened names bare) to its declared type
   -- parameters, so a site records its type arguments in declared order.
   , tcGenericDecls   :: Map Name [(Name, Maybe TyConstraint)]
+  -- MUL-VAR-1 Rev 3a: appended at the END for the reason 'tcRetTypes' gives.
+  -- Each closure module's function (qualified, and bare once opened) whose
+  -- body or contract holds a product of two non-constant terms, with the
+  -- first such product. Read by 'checkCalleeAdmissibility' only.
+  , tcImportedProducts :: Map Name Expr
   } deriving (Show)
 
 type TC a = State TCState a
@@ -1102,7 +1107,7 @@ resolveRetTypes gm strict env aliases cs xmodSeed stmts m0
                       (TCState envSeeded [] aliases Nothing False False [] [] cs
                                Map.empty Map.empty [] strict gm False 0
                                Map.empty [] Map.empty seeded sccs Map.empty
-                               Map.empty Set.empty Map.empty Map.empty)
+                               Map.empty Set.empty Map.empty Map.empty Map.empty)
       in Map.mapWithKey (keep (tcRetTypes st)) m
     -- SC1 again, on the read side: a round may only replace a wildcard, and only
     -- with something that is not itself a wildcard. A freshened wildcard
@@ -1363,6 +1368,7 @@ checkCalleeAdmissibility func = do
     am <- gets tcAliasMap   -- COMP-4 (a): admissible-sum constructors are admissible
     unless (not excluded && (persistedVerified || trusted || isAdmissibleConstructor am func)) $ do
       enclosing <- gets (maybe "<unknown>" id . tcCurrentFn)
+      prods <- gets tcImportedProducts
       -- CORE-EXCL gets its OWN diagnostic: the membership message's remedy
       -- ("verify it first") is unreachable for a sealed builtin.
       let localDefs = Set.fromList [ n | st <- stmts, Just (n, _, _, _, _) <- [normalizeDefStmt st] ]
@@ -1370,8 +1376,31 @@ checkCalleeAdmissibility func = do
             | func `elem` ffiEntryNames stmts = mkCoreFfiCallee enclosing func
             | Set.member func localDefs    = mkCoreMembershipViolationLocal enclosing func isRec
             | Just via <- viaTA            = mkCoreTerminationAssumed enclosing func via
+            -- MUL-VAR-1 Rev 3a: verify ran on the imported callee (a sidecar
+            -- entry exists and is not admissible), and its body or contract
+            -- holds a product of two non-constant terms. Today's "verify it
+            -- first" would loop. No JSON pointer addresses a statement of
+            -- another module from this file, so the text prints the product.
+            | Just _ <- Map.lookup func csMap
+            , Just p <- Map.lookup func prods = mkCoreMembershipNonlinear enclosing func (renderProductSExpr p)
             | otherwise                    = mkCoreMembershipViolation enclosing func
       modify $ \s -> s { tcErrors = tcErrors s ++ [d] }
+
+-- | MUL-VAR-1 Rev 3a: the S-expression of a product, for the core-admission
+-- text. Arithmetic, variables, literals and applications print as written;
+-- any other form prints as @(…)@.
+renderProductSExpr :: Expr -> Text
+renderProductSExpr = go
+  where
+    go e = case e of
+      EVar v             -> v
+      ELit (LitInt n)    -> T.pack (show n)
+      ELit (LitBool b)   -> if b then "true" else "false"
+      EOp op as          -> app op as
+      EApp f as          -> app f as
+      EIf c t f          -> app "if" [c, t, f]
+      _                  -> "(\x2026)"
+    app f as = "(" <> T.unwords (f : map go as) <> ")"
 
 -- | JSON-NOEQ (JSON-1): equality is denied at the sealed @Json@ carrier.
 --
@@ -1579,7 +1608,7 @@ initialTCState :: GrammarMode -> TypeEnv -> AliasMap -> Bool -> Bool -> TCState
 initialTCState gm env am sketch strict =
   TCState env [] (Map.union am builtinAliases) Nothing False sketch [] [] Map.empty Map.empty Map.empty []
           strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty Map.empty
-          Map.empty Set.empty Map.empty Map.empty
+          Map.empty Set.empty Map.empty Map.empty Map.empty
 
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
@@ -1838,7 +1867,8 @@ typeCheckWithCacheModeSites' gm strict cache entryCS baseEnv stmts =
                  (closureDecls cl)
                  (Set.fromList [ p | p <- importsOf stmts, Map.member p cl ])
                  Map.empty
-                 (genericDeclsOf cl))
+                 (genericDeclsOf cl)
+                 (importedProductsOf cl))
       -- XMOD-SCOPE R1: one declaration for each top-level name in this
       -- module's build closure. The closure is this module's own imports,
       -- transitively ('closureOf'), not the whole cache, so a collision inside
@@ -1894,6 +1924,20 @@ typeCheckWithCacheModeSites' gm strict cache entryCS baseEnv stmts =
     -- over the cache fold makes the first module a colliding name appears in win
     -- (deterministic; same bias as the qualified-name/status seeds above).
     seedAliases acc menv = Map.union (meAliasMap menv) acc
+
+-- | MUL-VAR-1 Rev 3a: each function of a closure module whose body or
+-- contract holds a product of two non-constant terms ('firstNonConstProduct',
+-- the emitter's test), under its qualified name (the key 'seedStatus' gives
+-- its contract status), with the first such product: body first, then pre,
+-- then post.
+importedProductsOf :: ModuleCache -> Map Name Expr
+importedProductsOf cl = Map.fromList
+  [ (T.intercalate "." path <> "." <> n, p)
+  | (path, menv) <- Map.toList cl
+  , st <- meStatements menv
+  , Just (n, _, _, c, b) <- [normalizeDefStmt st]
+  , Just p <- [listToMaybe (mapMaybe firstNonConstProduct (b : catMaybesL [contractPre c, contractPost c]))] ]
+  where catMaybesL xs = [ x | Just x <- xs ]
 
 -- | GENERICS-1: the declared type parameters of every generic def-shell in a
 -- closure, under its qualified name (the key 'seedModule' gives its type).
@@ -2496,6 +2540,14 @@ checkStatement (SOpen openPath_ mNames) = do
     modify $ \s -> s
       { tcContractStatus =
           Map.insertWith (\_new old -> old) bareName cs (tcContractStatus s) }
+  -- MUL-VAR-1 Rev 3a: the same bare keys for the product an opened function
+  -- holds, so the core-admission text names it at a bare call too.
+  prods <- gets tcImportedProducts
+  forM_ (Map.toList filteredCS) $ \(bareName, _) ->
+    case Map.lookup (prefix <> bareName) prods of
+      Just p  -> modify $ \s -> s { tcImportedProducts =
+                   Map.insertWith (\_new old -> old) bareName p (tcImportedProducts s) }
+      Nothing -> pure ()
 
 -- | SExport is a compile-time annotation only; no type-checking action needed.
 checkStatement (SExport _) = pure ()
@@ -3447,8 +3499,14 @@ inferHole (HProofRequired reason mPred) = do
       predOk <- compatibleExpanded predType TBool
       unless predOk $
         tcError $ "?proof-required predicate must be bool, got " <> typeLabel predType
-      when (isNonLinear pred) $
-        tcWarn "?proof-required predicate contains non-linear arithmetic: cannot be discharged by QF-LIA; Leanstral obligation required"
+      -- MUL-VAR-1 ("Lean worklist"): the warning keeps its form. A product
+      -- of two non-constant terms is no longer 'isNonLinear', and the
+      -- solver may prove it with the product facts, so its text does not say
+      -- that QF-LIA cannot discharge it.
+      if isNonLinear pred
+        then tcWarn "?proof-required predicate contains non-linear arithmetic: cannot be discharged by QF-LIA; Leanstral obligation required"
+        else when (isJust (firstNonConstProduct pred)) $
+          tcWarn "?proof-required predicate contains a product of two non-constant terms: verify may prove it with the product facts; where they do not, Leanstral obligation required"
   pure (TVar "?")
 
 -- | Infer type from do-steps with pair-thread enforcement (PR 2).

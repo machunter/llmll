@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness BF2: hand-written restatement of rev3.py row "BF2 byte value bound one short", group BF, truth false.
+;; c inlined as (bytes-set b 0 7); b is bytes[64]; adds bytesLen b = w*h so the read in the pre is defined.
+(module mv-bf2
+  (export mv-bf2)
+  (def-shell mv-bf2 [w: int h: int y: int x: int b: bytes[64] v: int] -> int
+    (pre (and (>= y 0) (and (< y h) (and (>= x 0) (and (< x w) (and (= (bytes-length b) (* w h)) (= v (bytes-get (bytes-set b 0 7) (+ (* y w) x)))))))))
+    (post (< (* 2 v) 510))
+    0))

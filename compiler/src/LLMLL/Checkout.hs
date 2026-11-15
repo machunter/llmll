@@ -73,7 +73,7 @@ import System.Directory (doesFileExist, copyFile, removeFile)
 import System.FilePath (replaceExtension, takeExtension)
 import System.Random (randomRIO)
 import Data.List (isSuffixOf)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, isJust)
 
 import LLMLL.JsonPointer (resolvePointer, isHoleNode, findDescendantHoles)
 import LLMLL.Diagnostic (Diagnostic(..), Severity(..))
@@ -82,7 +82,7 @@ import LLMLL.HoleAnalysis (collectHolesExprPath, holeKind)
 import LLMLL.TypeCheck (ScopeBinding(..), ScopeSource(..))
 import LLMLL.TrustReport (TrustEntry)
 import LLMLL.ObligationAssembly (trustLabel, importedContractedFns, exprToSExpr, substExpr)
-import LLMLL.ObligationMining (isQfLia)
+import LLMLL.FixpointEmit (exprToPred)
 import LLMLL.HubQuery (QueryResult(..))
 
 -- ---------------------------------------------------------------------------
@@ -1051,17 +1051,19 @@ assembleAssumptions aliasMap env hyps =
   -- (v2a) definitional equalities of in-scope let-bindings whose RHS is in the
   -- auto-discharge fragment. A let-binding appears in the hole's shEnv iff the
   -- hole is inside its body, so @(= y e)@ genuinely holds at the hole (the body
-  -- VC assumes it, FixpointEmit). The @isQfLia@ filter is the emitter's own
-  -- translatability check (CLASSIFY-MEASURE: literally 'exprToPred'-backed), so
+  -- VC assumes it, FixpointEmit). The filter is the emitter's own
+  -- translatability check ('exprToPred' itself, CLASSIFY-MEASURE), so
   -- a call/opaque/string-literal RHS is skipped while measure, pair, ctor, and
   -- array-op RHS — all VC-assumed — surface; since only real let-bindings carry
   -- an @sbDef@, the type-alias-name and enclosing-fn-name leaks that ride the
-  -- SrcLetBinding tag stay excluded.
+  -- SrcLetBinding tag stay excluded. MUL-VAR-1 Rev 3b (amendment 1): this is
+  -- the one consumer that keeps a product of two non-constant terms, because
+  -- the body VC assumes it: a filling agent needs @(= y (* w h))@.
   [ exprToSExpr (EApp "=" [EVar name, rhs])
   | (name, binding) <- Map.toAscList env
   , sbSource binding == SrcLetBinding
   , Just rhs        <- [sbDef binding]
-  , isQfLia rhs
+  , isJust (exprToPred rhs)
   ]
   ++
   -- (v2b) match-scrutinee case hypotheses, already path-filtered and

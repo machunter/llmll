@@ -53,3 +53,14 @@
 {"module": "xform", "hole": "hex-hi-body", "pointer": "/statements/6/body", "result": "PatchSuccess", "secs": 0.2, "verification": [{"body_faithful": true, "fn": "hex-hi"}], "diagnostics": null}
 {"module": "xform", "hole": "hex-lo-body", "pointer": "/statements/7/body", "result": "PatchSuccess", "secs": 0.2, "verification": [{"body_faithful": true, "fn": "hex-lo"}], "diagnostics": null}
 {"module": "xform", "hole": "digit-code-body", "pointer": "/statements/8/body", "result": "PatchSuccess", "secs": 0.2, "verification": [{"body_faithful": true, "fn": "digit-code"}], "diagnostics": null}
+{"module": "raster", "hole": "chroma-dim-body", "pointer": "/statements/0/body", "result": "PatchSuccess", "secs": 0.1, "verification": [{"body_faithful": true, "fn": "chroma-dim"}], "diagnostics": null}
+{"module": "raster", "hole": "plane-w-body", "pointer": "/statements/1/body", "result": "PatchSuccess", "secs": 0.1, "verification": [{"body_faithful": true, "fn": "plane-w"}], "diagnostics": null}
+{"module": "raster", "hole": "plane-h-body", "pointer": "/statements/2/body", "result": "PatchSuccess", "secs": 0.1, "verification": [{"body_faithful": true, "fn": "plane-h"}], "diagnostics": null}
+{"module": "raster", "hole": "next-x-body", "pointer": "/statements/3/body", "result": "PatchSuccess", "secs": 0.3, "verification": [{"body_faithful": true, "fn": "next-x"}], "diagnostics": null}
+{"module": "raster", "hole": "next-y-body", "pointer": "/statements/4/body", "result": "PatchSuccess", "secs": 0.7, "verification": [{"body_faithful": true, "fn": "next-y"}], "diagnostics": null}
+{"module": "raster", "hole": "next-p-body", "pointer": "/statements/5/body", "result": "PatchSuccess", "secs": 0.7, "verification": [{"body_faithful": true, "fn": "next-p"}], "diagnostics": null}
+{"module": "raster", "hole": "frame-end-body", "pointer": "/statements/6/body", "result": "PatchSuccess", "secs": 0.1, "verification": [{"body_faithful": true, "fn": "frame-end?"}], "diagnostics": null}
+{"module": "raster", "hole": "marker-step-body", "pointer": "/statements/7/body", "result": "PatchSuccess", "secs": 0.4, "verification": [{"body_faithful": true, "fn": "marker-step"}], "diagnostics": null}
+{"module": "raster", "hole": "plane-area-body", "pointer": "/statements/8/body", "result": "PatchSuccess", "secs": 0.5, "verification": [{"body_faithful": true, "fn": "plane-area"}], "diagnostics": null}
+{"module": "raster", "hole": "frame-size-body", "pointer": "/statements/9/body", "result": "PatchSuccess", "secs": 0.2, "verification": [{"body_faithful": true, "fn": "frame-size"}], "diagnostics": null}
+{"module": "raster", "hole": "plane-offset-body", "pointer": "/statements/10/body", "result": "PatchSuccess", "secs": 0.6, "verification": [{"body_faithful": true, "fn": "plane-offset"}], "diagnostics": null}

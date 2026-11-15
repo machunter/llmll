@@ -1,0 +1,7 @@
+;; MUL-VAR-1 witness B4: hand-written restatement of rev3.py row "B4 two-array map, product key", group B, truth true.
+;; hs, vl are the presence and value arrays of one map[int,int] m. hs2/vl2 are inlined as (map-put m (* y w) v); select hs2 k = 1 is (map-has ... k).
+(module mv-b4
+  (export mv-b4)
+  (def-shell mv-b4 [w: int y: int v: int m: map[int,int]] -> int
+    (post (map-has (map-put m (* y w) v) (* w y)))
+    0))

@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness K8: hand-written restatement of rev3.py row "K8 last channel of a pixel, bytesLen", group K, truth true.
+;; b is bytes[64].
+(module mv-k8
+  (export mv-k8)
+  (def-shell mv-k8 [w: int h: int ch: int y: int x: int k: int b: bytes[64]] -> int
+    (pre (and (>= w 1) (and (>= h 1) (and (>= ch 1) (and (>= y 0) (and (< y h) (and (>= x 0) (and (< x w) (and (>= k 0) (and (< k ch) (= (bytes-length b) (* (* w h) ch))))))))))))
+    (post (< (+ (* (+ (* y w) x) ch) k) (bytes-length b)))
+    0))

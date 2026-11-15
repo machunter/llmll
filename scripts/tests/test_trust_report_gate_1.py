@@ -38,9 +38,11 @@ needs_binary = pytest.mark.skipif(
 
 INC_REFUTED = "(def inc [x: int] -> int (pre (>= x 0)) (post (> result x)) x)\n"
 
+# MUL-VAR-1: (* x x) >= 0 is proved now; a product of degree 8 is over the
+# limit (design "Limits", degree 6), so sq still falls back and keeps `tested`.
 SQ = """(def-shell sq [x: int] -> int
   (post (>= result 0))
-  (* x x))
+  (* (* (* x x) (* x x)) (* (* x x) (* x x))))
 (check "sq is non-negative"
   (for-all [x: int]
     (>= (sq x) 0)))
@@ -51,7 +53,7 @@ FORGED_SRC = """(module sq
   (def-shell sq3 [n: int] -> int
     (pre (>= n 0))
     (post (>= result n))
-    (* n n)))
+    (* (* (* n n) (* n n)) (* (* n n) (* n n)))))
 """
 
 FORGED = {
@@ -156,7 +158,7 @@ def test_e10_a_safe_verify_keeps_the_tested_record(tmp_path):
 def test_e11_a_body_edit_after_test_demotes_and_is_listed(tmp_path):
     src = _write(tmp_path, "sq.llmll", SQ)
     assert _llmll(tmp_path, "test", "sq.llmll").returncode == 0
-    src.write_text(SQ.replace("(* x x))", "(+ (* x x) 0))"), encoding="utf-8")
+    src.write_text(SQ.replace("(* (* (* x x) (* x x)) (* (* x x) (* x x))))", "(+ (* (* (* x x) (* x x)) (* (* x x) (* x x))) 0))"), encoding="utf-8")
     rep = _report_json(tmp_path, "sq.llmll")
     assert _entry(rep, "sq")["post_level"] == "asserted"
     assert rep["discarded_records"] == ["sq"]

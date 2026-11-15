@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness BF9: hand-written restatement of rev3.py row "BF9 plane copy into a bytes buffer", group BF, truth false.
+;; b is bytes[64]; v = select b src is dropped (its read is out of bounds in the counterexample, and v is not in the goal).
+(module mv-bf9
+  (export mv-bf9)
+  (def-shell mv-bf9 [w: int h: int c: int pad: int y: int x: int st: int src: int b: bytes[64]] -> int
+    (pre (and (>= w 1) (and (>= h 1) (and (>= c 1) (and (>= pad 0) (and (>= y 0) (and (<= y h) (and (>= x 0) (and (< x w) (and (= st (+ (* w c) pad)) (and (= src (+ (* y st) (* x c))) (= (bytes-length b) (* h st)))))))))))))
+    (post (< src (bytes-length b)))
+    0))

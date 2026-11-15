@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness BF3: hand-written restatement of rev3.py row "BF3 read back the stored byte", group BF, truth false.
+;; c inlined as (bytes-set b (+ (* y w) x) 7); b is bytes[64].
+(module mv-bf3
+  (export mv-bf3)
+  (def-shell mv-bf3 [w: int y: int x: int b: bytes[64] v: int] -> int
+    (pre (and (= y 0) (and (= x 0) (and (>= w 1) (= v (bytes-get (bytes-set b (+ (* y w) x) 7) (+ (* y w) x)))))))
+    (post (!= v 7))
+    0))

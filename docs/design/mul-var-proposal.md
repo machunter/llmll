@@ -1,7 +1,7 @@
 ---
 name: mul-var-proposal
 title: "MUL-VAR-1: state and prove a product of two variables, so that an image layout can have a contract"
-status: "Rev 3a, SETTLED 2026-11-07; amended 2026-11-14 (the caller-side core-admission message, see Messages). The user took all six decisions as recommended and accepted the free-symbol change. Folds amendments A1 to A5 of mul-var-rev2-professor-review.md. z3 4.8.12 run recorded. Nothing with a product has gone through llmll verify."
+status: "Rev 3b, SETTLED 2026-11-07; amended 2026-11-14 twice (3a: the caller-side core-admission message; 3b: implementation findings, see Amendment Rev 3b). The user took all six decisions as recommended and accepted the free-symbol change. Folds amendments A1 to A5 of mul-var-rev2-professor-review.md. z3 4.8.12 run recorded. Nothing with a product has gone through llmll verify."
 date: 2026-11-07
 author: language-team
 rows: "MUL-VAR-1 (G7, PLAN). Depends on FQ-ARITH-FLAT-1 and FQ-NAME-COLLIDE-1 (both PLAN, unshipped). Related: CLAUSE-WELLDEF-1 (shipped v0.37.0), ABSTRACTION-VERDICT-1 (shipped v0.34.0), CDP-FQ-RACE-1 (G1, PLAN), BITWISE-WIDTH-1 (G7, PLAN), FFI-KERNEL-1 (G7, PLAN), CORE-SYNTAX-MSG-1 (G3, PLAN), LEAN-GA (parking lot). Filed at settlement: DIV-VAR-1 (G7, DECIDE), MUL-SLACK-1 (G7, MEASURE)."
@@ -10,7 +10,7 @@ consumers: [user, professor, compiler-engineer, documentation-lead]
 
 # MUL-VAR-1: a product of two variables in a contract
 
-**Status: Rev 3a, SETTLED 2026-11-07, amended 2026-11-14.** Rev 3a changes only the caller-side `core-membership-violation` text in "Messages", which names the product but not the cause. The user accepted the amendment on 2026-11-14. The compiler was not changed. The roadmap row `MUL-VAR-1` moved from DECIDE to PLAN, and two rows were filed. See "Settlement".
+**Status: Rev 3b, SETTLED 2026-11-07, amended 2026-11-14.** Rev 3b records five implementation findings: see "Amendment, Rev 3b". Rev 3a changes only the caller-side `core-membership-violation` text in "Messages", which names the product but not the cause. The user accepted the amendment on 2026-11-14. The compiler was not changed. The roadmap row `MUL-VAR-1` moved from DECIDE to PLAN, and two rows were filed. See "Settlement".
 
 ## Settlement
 
@@ -36,6 +36,18 @@ consumers: [user, professor, compiler-engineer, documentation-lead]
 **How to read the numbers.** A number with no label comes from a run of `rev3.py` on this revision, on z3 4.15.4 and liquid-fixpoint 0.9.6.3.7. A number labelled "Rev 2 prototype", "review" or "Rev 1" is carried from that source and was not rerun. **Every VC here is built by a script. Nothing with a product went through `llmll verify`.** No emitter exists, so the tables show what the design does on hand-built VCs. CPU seconds count `fixpoint` with its z3 child, at a load average of 5 to 9, so read them as upper bounds. W22 cost 13.5, 13.7 and 18.0 CPU s in three places in one run, which shows the noise. **A number labelled z3 4.8.12 comes from CI run 42410952361 of this script** (see "z3 4.8.12"). That run covers the same script-built VCs and no `llmll verify`.
 
 **The script.** `rev3.py` is one file with no imports beyond the Python standard library, no arguments and no local paths. It is in the session scratchpad folder `mulvar`, and it is not committed. Both runs in this record used the file with SHA-256 `7c0e03d0cd7a7191c889b5818dff26bc6bac87d7a660459f1087dfd45723ad50`. That file has one defect, which voids one output row: see "The void row". The corrected file has SHA-256 `14e9441d20f55f4025ae33eb5029114e0ef1fb5ac59a90efa33b884c6b4cda12`. The record copies each number that it uses, because the script and its output are temporary files. The first implementation step must repeat the tables through `llmll verify`.
+
+## Amendment, Rev 3b (2026-11-14)
+
+The user accepted these after the steps 3–5 implementation report. They come from the real emitter, not from `rev3.py`.
+
+1. **`Σ_auto` consumers keep products out.** `isQfLia` derives from `exprToPred`, so admitting `*` widened every consumer of it. "`Σ_auto` does not widen" (see "Verification mapping") governs. A predicate `isSigmaAuto`, which refuses a product of two non-constant terms, serves `classifyContractFragment`, the `ObligationMining` strength decision, CLASSIFY-MEASURE and `RefineReuse.buildSubsumptionFQ`. A product contract stays `non_qf_lia`, and a product suggestion stays `Advisory`. **Exception:** the let-binding hints of `compiler/src/LLMLL/Checkout.hs` admit products, because the body VC assumes them. A hole-filling agent needs `(= y (* w h))`.
+2. **Contract `if` stays outside the fragment.** `exprToPred` refuses `EIf` in a contract, with or without a product. Witnesses A5 and AF3 put their product in a contract `if`, so they fall back. They stay in the corpus as known divergences. The body-form witnesses `a5b` (true) and `af3c` (false) test the `FQIte` claim on the real encoding. `af3c` is `(if (> x 0) 0 (* x w))` with `(pre (>= w 0))` and `(post (>= result 0))`. A first restatement, `af3b`, put the `if` under `*`, which the body translator refuses, so it was replaced. The table becomes 89 of 94 true and 39 of 40 false. A separate row, `CONTRACT-IF-1`, covers contract `if`.
+3. **The literal set includes relation sides inside an `FQIte` condition.** "At any depth" in "Fact set" requires it. Rev 3a step-0 work had excluded them for `max x 5`; that is reverted. The extra facts are F11 instances, which are theorems.
+4. **A product in a body guard is admitted.** Decision 3 covers a guard, because a guard is part of a body. `classifyGuardM` emits a non-constant `*` as a product, and `productPass` sees it.
+5. **The `abstraction_fallback` key** names the construct, so a product prints `abstraction:nonlinear:*`, never `abstraction:app:` with an empty callee.
+
+Old tests that pinned "`*` is refused" get new expected results. A test that covers a fallback path moves to a product that still falls back, W23 in shape.
 
 ## Restatement
 

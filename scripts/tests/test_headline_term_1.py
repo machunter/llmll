@@ -69,11 +69,14 @@ MAIN_USES_SPIN = """(import loop)
   (spin s))
 """
 
-# The import claims 42 and returns x*x: the body falls back, so the post is
-# assumed, and it is false.
+# The import claims 42 and returns x to the 7th: the body falls back, so the
+# post is assumed, and it is false. MUL-VAR-1: (* x x) is no longer a
+# fallback; with the native recheck its false post is refuted (x = -3). A
+# product of degree 7 is over the design "Limits" degree 6, so it still falls
+# back before the solver.
 LIB_SQ = """(def-shell sq [x: int] -> int
   (post (= result 42))
-  (* x x))
+  (* x (* x (* x (* x (* x (* x x)))))))
 """
 
 MAIN_USES_SQ = """(import lib)

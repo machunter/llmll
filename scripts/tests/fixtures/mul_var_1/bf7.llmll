@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness BF7: hand-written restatement of rev3.py row "BF7 distinct strings, equal length claim", group BF, truth false.
+;; strLen is (string-length _).
+(module mv-bf7
+  (export mv-bf7)
+  (def-shell mv-bf7 [w: int h: int s: string t: string] -> int
+    (pre (and (!= s t) (= (string-length s) (* w h))))
+    (post (= (string-length t) (* w h)))
+    0))

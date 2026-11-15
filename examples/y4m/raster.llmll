@@ -10,11 +10,14 @@
 ;;
 ;; The shell walks the payload byte by byte with a raster cursor (p, y, x).
 ;; next-x / next-y / next-p advance the cursor by one byte. So every plane
-;; offset is reached by counting, and the frame size w*h + 2*cw*ch (which is
-;; nonlinear) is never needed by a contract: a frame ends exactly when the
-;; cursor wraps from the last V sample back to (0, 0, 0) (frame-end?).
+;; offset is reached by counting: a frame ends exactly when the cursor wraps
+;; from the last V sample back to (0, 0, 0) (frame-end?). The cursor defs need
+;; no product.
 ;;
-;; All divisions have the constant divisor 2, so every formula is linear.
+;; All divisions have the constant divisor 2. The last three defs (plane-area,
+;; frame-size, plane-offset) state the frame size w*h + 2*cw*ch and plane
+;; offsets as contracts with products of two variables; verify proves them
+;; with product facts (MUL-VAR-1).
 ;; A def never calls a def of its own module (that is not body-faithful), so
 ;; the plane dimensions are spelled out in each body and post.
 
@@ -136,3 +139,32 @@
   (if (= k 4) (if (= b 69) 5 -1)
   (if (= k 5) (if (= b 10) 6 (if (= b 32) 7 -1))
       (if (= b 10) 6 7))))))))
+
+;; ─── MUL-VAR-1 step 8 restatement (witnesses Y1, Y4, Y6, Y8, Y9) ────────
+;; The products the header says no contract needs, stated as contracts.
+
+;; Area of plane p: at least 1, at most the luma area w*h.
+(def plane-area [w: int h: int p: int] -> int
+  (pre  (and (>= w 1) (and (>= h 1) (and (>= p 0) (<= p 2)))))
+  (post (and (>= result 1) (<= result (* w h))))
+  (let [(pw (if (= p 0) w (/ (+ w 1) 2)))
+        (ph (if (= p 0) h (/ (+ h 1) 2)))]
+    (* pw ph)))
+
+;; Size of one 4:2:0 frame payload: w*h + 2*cw*ch, between luma+2 and 3*luma.
+(def frame-size [w: int h: int] -> int
+  (pre  (and (>= w 1) (>= h 1)))
+  (post (and (>= result (+ (* w h) 2)) (<= result (* 3 (* w h)))))
+  (+ (* w h) (* 2 (* (/ (+ w 1) 2) (/ (+ h 1) 2)))))
+
+;; Offset of the cursor inside its plane: y*pw + x, inside the plane's area.
+(def plane-offset [w: int h: int p: int y: int x: int] -> int
+  (pre  (and (>= w 1) (and (>= h 1) (and (>= p 0) (and (<= p 2)
+        (and (>= y 0) (and (>= x 0)
+        (and (=> (= p 0) (and (< x w) (< y h)))
+             (=> (> p 0) (and (< x (/ (+ w 1) 2)) (< y (/ (+ h 1) 2))))))))))))
+  (post (and (>= result 0)
+        (and (=> (= p 0) (< result (* w h)))
+             (=> (> p 0) (< result (* (/ (+ w 1) 2) (/ (+ h 1) 2)))))))
+  (let [(pw (if (= p 0) w (/ (+ w 1) 2)))]
+    (+ (* y pw) x)))

@@ -154,7 +154,7 @@ def test_verify_json_validates(tmp_path, name):
     doc = _doc(p)
     errors = sorted(v.iter_errors(doc), key=lambda e: list(e.path))
     assert not errors, "\n".join(f"{list(e.path)}: {e.message}" for e in errors)
-    assert doc["verify_json_version"] == "1.1.0"
+    assert doc["verify_json_version"] == "1.2.0"  # MUL-VAR-1 widened abstraction_fallback
     assert doc["exit_code"] == p.returncode
 
 

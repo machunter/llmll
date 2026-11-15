@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness B1: hand-written restatement of rev3.py row "B1 byte square, needs byte-range", group B, truth true.
+;; b is bytes[64]; i gains 0 <= i < 64 so that the read in the pre is defined.
+(module mv-b1
+  (export mv-b1)
+  (def-shell mv-b1 [v: int i: int b: bytes[64]] -> int
+    (pre (and (>= i 0) (and (< i 64) (= v (bytes-get b i)))))
+    (post (<= (* v v) 65025))
+    0))

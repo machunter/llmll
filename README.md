@@ -50,14 +50,14 @@ Those tools prove the same kind of property, and LLMLL's proof path (liquid-fixp
 
 ## Prove what the solver can't — kernel-checked
 
-Not every property is decidable by SMT. `square(n) = n*n` claims `result ≥ 0` — but `n*n` is **nonlinear**, outside the linear-arithmetic fragment LLMLL sends to the solver, so the SMT verifier can only mark the postcondition `asserted` (an explicit "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
+Not every property is decidable by SMT. `square(n) = n⁸` claims `result ≥ 0`. The SMT verifier proves a product such as `n*n ≥ 0` from a fixed set of facts about multiplication, but `n⁸` has degree 8, over the limit of 6, so it can only mark the postcondition `asserted` (an explicit "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
 
 <p align="center"><img src="docs/assets/leanstral.gif" width="760" alt="LLMLL experimental verified-lean demo"></p>
 <p align="center"><sub>Experimental. Recorded live on v0.26.3 against the Leanstral API; regenerate with <code>examples/leanstral-demo/demo.sh</code> (needs an API key and a Lean 4 + Mathlib project).</sub></p>
 
 ```text
 $ llmll verify examples/leanstral-demo/square.llmll --trust-report
-  square:  post: asserted                       # nonlinear: outside the SMT fragment, not proven
+  square:  post: asserted                       # degree 8: over the product limit, not proven
 
 $ LLMLL_LEANSTRAL_API_KEY=… llmll verify examples/leanstral-demo/square.llmll \
     --leanstral --leanstral-lean-project ~/proofcheck --trust-report
@@ -111,7 +111,7 @@ LLMLL treats **verification as the coordination protocol**. A lead agent defines
 
 ## What's proven vs. not — read this before believing the headline
 
-The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive **QF-LIA core** — integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and n-arm matches on admissible (non-recursive) sums (`Result` and user ADTs, nested and sequential) — **extended with three decidable theories**: the array class (`bytes[n]` memory safety, and `map[{int,string},{int,bool,string}]` get-after-put / key-presence / construction / read-modify-write), admissible datatype construction, and string **literals** (equality, distinctness, and code-point length). That covers numeric bounds, conservation invariants, length preservation, array/map bounds-and-presence safety, and string-tag discrimination. Everything else — string **structure** (concatenation, substring, regex), recursive-payload ADTs, non-linear arithmetic (`* / mod`), IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix in [`LLMLL.md §5.3.5`](LLMLL.md)). Recursion is inside the fragment: with a `(decreases e)` measure the solver discharges, the proof is total; without one, it holds only if the recursion terminates, and the `verify` headline drops the `✅` and names the function.
+The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive **QF-LIA core** — integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and n-arm matches on admissible (non-recursive) sums (`Result` and user ADTs, nested and sequential) — **extended with three decidable theories**: the array class (`bytes[n]` memory safety, and `map[{int,string},{int,bool,string}]` get-after-put / key-presence / construction / read-modify-write), admissible datatype construction, and string **literals** (equality, distinctness, and code-point length). That covers numeric bounds, conservation invariants, length preservation, array/map bounds-and-presence safety, and string-tag discrimination. A product of two variables, such as a frame size `w*h`, is proved from a fixed set of facts about integer multiplication: sound but not complete, and a false claim is refuted only with a counterexample that native z3 finds and LLMLL checks. Everything else — string **structure** (concatenation, substring, regex), recursive-payload ADTs, division or `mod` by a variable, a product the multiplication facts cannot prove, IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix in [`LLMLL.md §5.3.5`](LLMLL.md)). Recursion is inside the fragment: with a `(decreases e)` measure the solver discharges, the proof is total; without one, it holds only if the recursion terminates, and the `verify` headline drops the `✅` and names the function.
 
 Nonlinear obligations have an **experimental** Lean 4 path: the opt-in `--leanstral` flag shown above, which needs a Leanstral API key and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is deferred. `--leanstral-mock` runs the same pipeline against a mock prover, for testing.
 
@@ -204,7 +204,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 
 ## Verification Boundary
 
-LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core** with **compositional call-chain reasoning**: integer and `bool` values, linear arithmetic and comparisons, let-bindings, conditionals, calls to contracted functions (assume-guarantee, same-file or imported), n-arm matches on non-recursive sums, pairs, non-recursive datatype construction, the array class (`bytes[n]` and `map` operations) and string literals. Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions, each with an explicit trust label.
+LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core** with **compositional call-chain reasoning**: integer and `bool` values, linear arithmetic and comparisons, products of two variables (sound, not complete), let-bindings, conditionals, calls to contracted functions (assume-guarantee, same-file or imported), n-arm matches on non-recursive sums, pairs, non-recursive datatype construction, the array class (`bytes[n]` and `map` operations) and string literals. Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions, each with an explicit trust label.
 
 | Construct | SMT body-faithful | Fallback |
 |---|---|---|
@@ -222,7 +222,8 @@ LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core*
 | String literals in `=` / `!=`, `string-length` of a literal | ✅ | string structure (concat, substring, regex): contract-only |
 | `EMatch` (recursive-sum payload), `ELambda`, `EDo` | ❌ | contract-only / runtime |
 | `letrec` (own body VC) | ❌ | runtime + `:decreases` |
-| Non-linear ops (`*`, `/`, `mod`) | ❌ | runtime + `?proof-required` (experimental `--leanstral`) |
+| Product of two variables (`(* w h)`) | ✅ partial (fixed multiplication facts; a false claim is refuted only with a checked native z3 counterexample) | not proved: contract-only, `abstraction:nonlinear:*`; over the degree or size limits: contract-only |
+| `/`, `mod` by a variable; `rem`, `^`, `**` | ❌ | runtime + `?proof-required` (experimental `--leanstral`) |
 | **Int overflow** | ✅ no gap | `int` is unbounded (`Integer`) in both the verifier and the generated code |
 
 Full verification matrix: [`LLMLL.md §5.3.5`](LLMLL.md).

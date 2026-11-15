@@ -60,7 +60,8 @@ import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, 
 import LLMLL.ObligationAssembly (exprToSExpr)
 import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause, abstractedBuiltins)
 import LLMLL.FixpointIR (FQFile(..))
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoReportCtx)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoReportCtx, nonlinearConstruct)
+import LLMLL.ProductRecheck (recheckVerdict)
 import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
@@ -692,13 +693,16 @@ reVerify fp cache retTypes stmts bodyTargets
           -- VERIFY-BUDGET-1: through the guard, so a solver over its memory
           -- or time limit is stopped and the patch is not written.
           (rawResult, _) <- solveFQText lfBin (length (fqConstraints (erFQFile emitR))) fqText []
+          -- MUL-VAR-1 ("Four callers"): the native recheck runs here too, so a
+          -- fill with an offset bug in a product contract is rejected as
+          -- refuted when z3 gives a validated model, not written as a fallback.
+          (av, _) <- recheckVerdict emitR rawResult
           let -- VERDICT-UNSTABLE-1: same rule as 'doVerify'. A dead solver
               -- must not reject a patch as if the contract were refuted.
               -- ABSTRACTION-VERDICT-1: the effective verdict, as 'doVerify'
               -- reads it. A patched function whose only failures need two
               -- calls to one callee to disagree is written, and reported
               -- through 'notProved' as a fallback, not rejected as refuted.
-              av       = applyAbstractionVerdict emitR rawResult
               fqResult = aoResult av
               fqReport = fqResultToReportWD fp table (aoReportCtx av) fqResult
           case fqResult of
@@ -714,6 +718,13 @@ notProved f = not (pfBodyFaithful f) && pfCause f /= Just "no-post"
 
 notProvedMessage :: PatchedFn -> Text
 notProvedMessage f
+  -- MUL-VAR-1 ("Messages"): a product needs no second call, and names no
+  -- callee.
+  | pfCause f == Just (renderFallbackCause FallbackAbstraction)
+  , (c : _) <- pfConstructs f
+  , c == nonlinearConstruct =
+  "'" <> pfName f <> "' was not proved: a product is in the failing constraint, and native z3 found no counterexample ("
+    <> c <> "). Its postcondition was assumed."
   -- ABSTRACTION-VERDICT-1: the solver did answer UNSAFE here, so "passed the
   -- solver" would be false; and the construct is a callee, not a construct to
   -- rewrite away.

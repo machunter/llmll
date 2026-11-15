@@ -48,7 +48,8 @@ REPO = Path(__file__).resolve().parents[2]
 CONSERVE = REPO / "examples" / "payments-core" / "conserve.llmll"
 
 # One body-faithful contracted def (inc), one contracted def-shell whose
-# non-linear body falls back (square), and one uncontracted def-shell (plumb)
+# non-linear body falls back (square; MUL-VAR-1: a product of degree 8, over the
+# design "Limits" degree 6, since (* x x) is proved now), and one uncontracted def-shell (plumb)
 # that falls back as `no-post` and must NOT be counted.
 PARTIAL = """\
 (def inc [x: int] -> int
@@ -57,7 +58,7 @@ PARTIAL = """\
 
 (def-shell square [x: int] -> int
   (post (>= result 0))
-  (* x x))
+  (* (* (* x x) (* x x)) (* (* x x) (* x x))))
 
 (def-shell plumb [x: int] -> int
   (inc x))

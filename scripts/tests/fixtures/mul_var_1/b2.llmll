@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness B2: hand-written restatement of rev3.py row "B2 bytes-set keeps a product index in range", group B, truth true.
+;; c = store b 0 7 is inlined as (bytes-set b 0 7): whole-bytes = does not reflect. bytesLen c = bytesLen b is the emitter's own fact. b is bytes[64].
+(module mv-b2
+  (export mv-b2)
+  (def-shell mv-b2 [w: int h: int y: int x: int b: bytes[64]] -> int
+    (pre (and (>= y 0) (and (< y h) (and (>= x 0) (and (< x w) (= (bytes-length b) (* w h)))))))
+    (post (< (+ (* y w) x) (bytes-length (bytes-set b 0 7))))
+    0))

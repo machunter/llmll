@@ -39,7 +39,9 @@ TRUST_SCHEMA = json.loads((REPO / "docs" / "llmll-trust-report.schema.json").rea
 INC_REFUTED = "(def inc [x: int] -> int (pre (>= x 0)) (post (> result x)) x)\n"
 INC_CORRECT = "(def inc [x: int] -> int (pre (>= x 0)) (post (> result x)) (+ x 1))\n"
 # A def-shell outside the solver's fragment: strict-core refuses it before the solver runs.
-SQ_FALLBACK = "(def-shell sq [n: int] -> int (post (>= result 0)) (* n n))\n"
+# MUL-VAR-1: a product of degree 8 (over the design "Limits" degree 6) stays
+# outside; (* n n) is inside the fragment now.
+SQ_FALLBACK = "(def-shell sq [n: int] -> int (post (>= result 0)) (* (* (* n n) (* n n)) (* (* n n) (* n n))))\n"
 
 FLAGS = [
     [],
@@ -93,6 +95,25 @@ def test_vs_strict_core_refusal_is_not_run(tmp_path):
     assert (doc["solver_verdict"], doc["exit_code"]) == ("not-run", 1)
 
 
+# MUL-VAR-1 (verify_json_version 1.2.0): a product the facts cannot prove and
+# the native recheck cannot refute (witness W23, x*x != 2*y*y) prints
+# `abstraction:nonlinear:*` under `abstraction_fallback`. The 1.1.0 pattern
+# `^abstraction:app:` rejected it.
+W23_PRODUCT_FALLBACK = (
+    "(def-shell w23 [x: int y: int] -> int (pre (and (> x 0) (> y 0)))"
+    " (post (not (= (* x x) (* 2 (* y y))))) 0)\n"
+)
+
+
+@pytest.mark.parametrize("flags", [[], ["--trust-report"]], ids=["plain", "--trust-report"])
+def test_vs_product_fallback_validates(tmp_path, flags):
+    r, doc = _verify(tmp_path, W23_PRODUCT_FALLBACK, flags)
+    _assert_valid(doc, r.returncode)
+    assert doc["verify_json_version"] == "1.2.0"
+    assert doc["abstraction_fallback"] == {"w23": "abstraction:nonlinear:*"}, doc
+    assert r.returncode == 0
+
+
 def test_vs_solver_absent_is_not_run(tmp_path):
     empty = tmp_path / "empty-path"
     empty.mkdir()
@@ -106,7 +127,9 @@ def test_vs_solver_absent_is_not_run(tmp_path):
 # Before this fix the strict type-check gate in these commands printed text even
 # under `--json`; `llmll --json check` printed the diagnostics object. Measured
 # on the v0.29.1 binary and on 0.28.0: text on stdout for `verify`.
-SQ_CORE_VIOLATION = "(def sq [n: int] -> int (post (>= result 0)) (* n n))\n"
+# MUL-VAR-1: a product of two variables is core now, so the violation is a
+# variable divisor.
+SQ_CORE_VIOLATION = "(def sq [n: int] -> int (post (>= result 0)) (/ 100 n))\n"
 
 
 @pytest.mark.parametrize("cmd", ["verify", "trust-report", "spec-coverage", "build", "run"])

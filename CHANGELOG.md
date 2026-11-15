@@ -4,6 +4,83 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.38.1)
+
+**Measured, v0.38.1 against this branch, over 800 sources (liquid-fixpoint 0.9.6.3.7):**
+
+- `.fq` text is byte-identical on all 664 sources that hold no product. 134 files change
+  verdict, all of them files with a product; 39 go from exit 0 to exit 1, and they are exactly
+  the 39 false witnesses that are now refuted. `scripts/fallback_census.py`: no per-file
+  change. `make refute-crux-gate`: 99 passed, 0 failed.
+- **Witness table** (`scripts/tests/fixtures/mul_var_1/`, 134 programs through `llmll verify`):
+  89 of 94 true witnesses verify, 39 of 40 false witnesses are refuted. The product facts the
+  emitter adds equal those of the design's reference script (`scripts/mulvar/rev3.py`) on all
+  132 witnesses it covers.
+- **Cost:** verifying all 800 files took 38.5 CPU s, then 64.4. Files with no product show no
+  cost; the witness W22 alone takes 8.9 s.
+
+### `MUL-VAR-1`: a contract can state a product of two variables
+
+- **A product of two non-constant `int` terms is in the contract fragment.** `(post (< r (* w h)))`
+  with `(= r (+ (* y w) x))`, `0 <= y < h` and `0 <= x < w` in the `pre` verifies. A `def` body
+  and an `if` guard may hold a product too, so a `def` with one stays strict core. Design record:
+  [`docs/design/mul-var-proposal.md`](docs/design/mul-var-proposal.md) Rev 3b.
+- **How it is proved.** Each product is normalized to a polynomial, and each monomial becomes one
+  free solver symbol. A fixed set of ground theorems of integer multiplication (F1 to F11, the
+  family `product-facts`) is added per constraint; the set does not change when conjuncts are
+  reordered, equation sides are swapped or a variable is renamed. Limits: degree 6, closure 256,
+  size 256, 32 settled forms. Over 64 product pairs in one constraint, the monotonicity and
+  congruence facts are left out. SAFE is a proof. Each fact is a theorem over unbounded `int`, so
+  the family rides `codegen_semantics_version` and the trust report discloses it.
+- **A false claim is `refuted`, with a counterexample.** An UNSAFE answer on a constraint that
+  holds a product is rechecked by native z3 (rlimit 2000000, 5 s). Only a `sat` model that exact
+  evaluation confirms gives `refuted`, exit 1, and the line
+  `VC counterexample: h=1 r=2 result=0 w=2 x=2 y=0. Callee results in it are assumed, not computed.`
+  The line prints only source-level names. A native `unsat` never gives `verified`. The recheck
+  runs in `verify`, `patch`, `diverge-report` and `--cdp`.
+- **An unprovable true claim falls back.** The function falls back with cause
+  `abstraction-unsafe` and construct `abstraction:nonlinear:*` (never `abstraction:app:` with an
+  empty callee). `W-BODY-FALLBACK` gets a four-line form:
+  `W-BODY-FALLBACK <f>: the post is not proved. A product is in the failing constraint.`, the
+  `Refused by:` line, `Product facts did not prove it. Native z3 found no counterexample.` (or
+  the pair-limit or over-limit line), and `The post stays a run-time check. A strict-core def
+  that calls <f> will be refused.` `patch` reports such a fill as not proved, naming the product.
+- **Still refused, as `nonlinear:*`, `nonlinear:/` or `nonlinear:mod`:** a product over a limit,
+  and a divisor that is not a positive ground constant (`DIV-VAR-1`). A refused product in a
+  `pre` falls back as `contract-pre-outside-fragment`. A product in a contract `if` stays outside
+  the fragment, as every contract `if` does (`CONTRACT-IF-1`); witnesses A5 and AF3 fall back.
+- **`Σ_auto` does not widen.** A VC that holds a product is class (b), sound and not complete,
+  for `classifyContractFragment`, the obligation-mining strength decision, CLASSIFY-MEASURE and
+  the `refine` reuse check. A product contract stays `non_qf_lia`; a product suggestion stays
+  `Advisory`.
+- **A strict-core caller of an imported callee that fell back on a product** gets
+  `core-membership-violation` with the text `callee 'm.f' was verified but is not body-faithful.
+  Its body holds a product of two non-constant terms at (* x (* x x)); verify may fall back on
+  such a product.` and the suggestion to run `llmll verify` on the callee's module and read
+  `W-BODY-FALLBACK`. The text names the product, not the cause, because the sidecar does not
+  record the cause (`CORE-ADMIT-CAUSE-1`).
+- **`verify --json` is `verify_json_version` 1.2.0.** No key is added. `abstraction_fallback`
+  admits `abstraction:nonlinear:*` (schema pattern `^abstraction:(app:|nonlinear:)`), and
+  `welldef_unproved` may carry `welldef:abstraction:nonlinear:*`.
+- **Replay reruns the recheck.** `replay-artifact` on a product artifact requires the stored VC
+  byte for byte, reruns the native recheck, and fails closed when a recorded `refuted` or
+  `ill-defined` verdict does not reproduce.
+- **Holes and warnings follow the verify outcome.** A product no longer creates a
+  `non-linear-contract` hole. The `--leanstral` worklist selects a function whose fallback
+  construct is `abstraction:nonlinear:*` or `nonlinear:*`, or whose body holds a variable divisor,
+  `rem`, `^` or `**`. The `?proof-required` warning on a product no longer says that QF-LIA cannot
+  discharge it. The `--trust-report` names `product-facts` among the ground-fact families.
+- **Examples.** `examples/y4m/raster.llmll` states `plane-area`, `frame-size` and `plane-offset`
+  as contracts (8 to 11 verified). `examples/netpbm-swarm/kernel.llmll` states its bound as
+  `(< i (* c w))`. `examples/leanstral-demo/square.llmll` now computes `n^8`, because `n*n >= 0`
+  verifies without Lean.
+- **No other version changes:** JSON-AST schema 0.15.0, `checker_soundness_version`,
+  `proof_artifact_version` 0.3.0 and `trust_report_version` 1.11.0 stay. CI runs
+  `scripts/tests/test_mul_var_1.py` (11 cells) on the runner's z3; the `TRUST-REPORT-GATE-1`
+  count goes from 71 to 73.
+
+**Tests:** hspec 3166 → 3246, 0 failures; Python 837 → 853 passed, 10 skipped.
+
 ## v0.38.1: flat `.fq` printing (2026-11-12)
 
 **Measured, v0.38.0 against this release, each binary over its own copy of the tree

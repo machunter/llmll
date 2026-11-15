@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness A5b: body form of A5 (design Rev 3b, amendment 2), group A, truth true.
+;; Hand-written: the product sits in an if in the body, so the FQIte claim runs on the real encoding.
+(module mv-a5b
+  (export mv-a5b)
+  (def-shell mv-a5b [x: int w: int] -> int
+    (pre (>= w 0))
+    (post (>= result 0))
+    (if (> x 0) (* x w) 0)))

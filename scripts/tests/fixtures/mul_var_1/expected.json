@@ -1,0 +1,1387 @@
+{
+  "summary": {
+    "design_misses": [
+      "W14",
+      "W23",
+      "W25",
+      "Y5"
+    ],
+    "false": 40,
+    "false_refuted": 39,
+    "known_divergences": [
+      "A5",
+      "AF3"
+    ],
+    "source": "docs/design/mul-var-proposal.md, Measurements, table 1 (Rev 3a); Rev 3b amendment 2 adds A5b and AF3c and marks A5 and AF3 contract-if",
+    "true": 94,
+    "true_verified": 89,
+    "witnesses": 134
+  },
+  "witnesses": {
+    "A1": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "a1.llmll",
+      "group": "A",
+      "id": "mv-a1",
+      "rev3_row": "A1 abs as a factor",
+      "source": "generated",
+      "truth": true
+    },
+    "A2": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "a2.llmll",
+      "group": "A",
+      "id": "mv-a2",
+      "rev3_row": "A2 mod as a factor",
+      "source": "generated",
+      "truth": true
+    },
+    "A3": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "a3.llmll",
+      "group": "A",
+      "id": "mv-a3",
+      "rev3_row": "A3 mod below its divisor, scaled",
+      "source": "generated",
+      "truth": true
+    },
+    "A4": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "a4.llmll",
+      "group": "A",
+      "id": "mv-a4",
+      "rev3_row": "A4 max as a factor",
+      "source": "generated",
+      "truth": true
+    },
+    "A5": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "a5.llmll",
+      "group": "A",
+      "id": "mv-a5",
+      "known_divergence": "contract-if",
+      "note_divergence": "the product sits in an if inside a contract; exprToPred refuses a contract if (design Rev 3b, amendment 2; row CONTRACT-IF-1), so the function falls back with contract-post-outside-fragment",
+      "rev3_row": "A5 product in an if branch",
+      "source": "generated",
+      "truth": true
+    },
+    "A5b": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "a5b.llmll",
+      "group": "A",
+      "id": "mv-a5b",
+      "note": "design Rev 3b, amendment 2: A5 with the if in the body",
+      "rev3_row": "A5 product in an if branch (body form)",
+      "source": "hand",
+      "truth": true
+    },
+    "A6": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "a6.llmll",
+      "group": "A",
+      "id": "mv-a6",
+      "rev3_row": "A6 abs offsets in a raster",
+      "source": "generated",
+      "truth": true
+    },
+    "A7": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "a7.llmll",
+      "group": "A",
+      "id": "mv-a7",
+      "rev3_row": "A7 interleaved channel by mod",
+      "source": "generated",
+      "truth": true
+    },
+    "AF1": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "af1.llmll",
+      "group": "AF",
+      "id": "mv-af1",
+      "rev3_row": "AF1 abs product can be zero",
+      "source": "generated",
+      "truth": false
+    },
+    "AF2": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "af2.llmll",
+      "group": "AF",
+      "id": "mv-af2",
+      "rev3_row": "AF2 mod bound off by one",
+      "source": "generated",
+      "truth": false
+    },
+    "AF3": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "af3.llmll",
+      "group": "AF",
+      "id": "mv-af3",
+      "known_divergence": "contract-if",
+      "note_divergence": "the product sits in an if inside a contract; exprToPred refuses a contract if (design Rev 3b, amendment 2; row CONTRACT-IF-1), so the function falls back with contract-post-outside-fragment",
+      "rev3_row": "AF3 if factor with a negative branch",
+      "source": "generated",
+      "truth": false
+    },
+    "AF3c": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "af3c.llmll",
+      "group": "AF",
+      "id": "mv-af3c",
+      "note": "design Rev 3b, amendment 2: AF3 with the product in the else branch of a body if; replaces af3b, whose if sat under * (the body translator refuses it)",
+      "rev3_row": "AF3 if factor with a negative branch (body form)",
+      "source": "hand",
+      "truth": false
+    },
+    "B1": {
+      "design_verdict": "verified",
+      "faithful": false,
+      "file": "b1.llmll",
+      "group": "B",
+      "id": "mv-b1",
+      "note": "bytes[64] fixes bytesLen(b); i gains 0 <= i < 64 so the read in the pre is defined",
+      "rev3_row": "B1 byte square, needs byte-range",
+      "source": "hand",
+      "truth": true
+    },
+    "B2": {
+      "design_verdict": "verified",
+      "faithful": false,
+      "file": "b2.llmll",
+      "group": "B",
+      "id": "mv-b2",
+      "note": "whole-bytes = does not reflect: c is inlined as (bytes-set b 0 7) and the length-preservation hypothesis is the emitter's own fact; bytes[64]",
+      "rev3_row": "B2 bytes-set keeps a product index in range",
+      "source": "hand",
+      "truth": true
+    },
+    "B3": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "b3.llmll",
+      "group": "B",
+      "id": "mv-b3",
+      "note": "string-length is the strLen measure",
+      "rev3_row": "B3 strLen holds the product",
+      "source": "hand",
+      "truth": true
+    },
+    "B4": {
+      "design_verdict": "verified",
+      "faithful": false,
+      "file": "b4.llmll",
+      "group": "B",
+      "id": "mv-b4",
+      "note": "the two-array map (hs, vl) is one map[int,int]; whole-map = does not reflect, so hs2/vl2 are inlined as (map-put m (* y w) v) and select hs2 _ = 1 is map-has",
+      "rev3_row": "B4 two-array map, product key",
+      "source": "hand",
+      "truth": true
+    },
+    "BF1": {
+      "design_verdict": "refuted",
+      "faithful": false,
+      "file": "bf1.llmll",
+      "group": "BF",
+      "id": "mv-bf1",
+      "note": "as B2: c inlined, bytes[64]",
+      "rev3_row": "BF1 bytes-set, index off by one",
+      "source": "hand",
+      "truth": false
+    },
+    "BF2": {
+      "design_verdict": "refuted",
+      "faithful": false,
+      "file": "bf2.llmll",
+      "group": "BF",
+      "id": "mv-bf2",
+      "note": "c inlined; bytes[64]; adds bytesLen(b) = w*h so the read in the pre is defined",
+      "rev3_row": "BF2 byte value bound one short",
+      "source": "hand",
+      "truth": false
+    },
+    "BF3": {
+      "design_verdict": "refuted",
+      "faithful": false,
+      "file": "bf3.llmll",
+      "group": "BF",
+      "id": "mv-bf3",
+      "note": "c inlined; bytes[64]",
+      "rev3_row": "BF3 read back the stored byte",
+      "source": "hand",
+      "truth": false
+    },
+    "BF4": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "bf4.llmll",
+      "group": "BF",
+      "id": "mv-bf4",
+      "note": "string-length is the strLen measure",
+      "rev3_row": "BF4 strLen, off by one",
+      "source": "hand",
+      "truth": false
+    },
+    "BF5": {
+      "design_verdict": "refuted",
+      "faithful": false,
+      "file": "bf5.llmll",
+      "group": "BF",
+      "id": "mv-bf5",
+      "note": "as B4: one map[int,int], map-put inlined, presence via map-has",
+      "rev3_row": "BF5 two-array map, unwritten key",
+      "source": "hand",
+      "truth": false
+    },
+    "BF6": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "bf6.llmll",
+      "group": "BF",
+      "id": "mv-bf6",
+      "note": "string = and string-length; depends on string variable equality reflecting",
+      "rev3_row": "BF6 equal strings, length off by one",
+      "source": "hand",
+      "truth": false
+    },
+    "BF7": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "bf7.llmll",
+      "group": "BF",
+      "id": "mv-bf7",
+      "note": "string != and string-length; depends on string variable disequality reflecting",
+      "rev3_row": "BF7 distinct strings, equal length claim",
+      "source": "hand",
+      "truth": false
+    },
+    "BF8": {
+      "design_verdict": "refuted",
+      "faithful": false,
+      "file": "bf8.llmll",
+      "group": "BF",
+      "id": "mv-bf8",
+      "note": "the string-valued array is a map[int,string]; map-get needs presence, so map-has mv k and map-has mv j are added before the reads",
+      "rev3_row": "BF8 string-valued map, product key",
+      "source": "hand",
+      "truth": false
+    },
+    "BF9": {
+      "design_verdict": "refuted",
+      "faithful": false,
+      "file": "bf9.llmll",
+      "group": "BF",
+      "id": "mv-bf9",
+      "note": "bytes[64] fixes bytesLen(b); v = (bytes-get b src) is dropped because its read is out of bounds exactly in the counterexample (v is not in the goal)",
+      "rev3_row": "BF9 plane copy into a bytes buffer",
+      "source": "hand",
+      "truth": false
+    },
+    "K1": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k1.llmll",
+      "group": "K",
+      "id": "mv-k1",
+      "rev3_row": "K1 channel 1 or 3 as a disjunct (kernel.llmll:44)",
+      "source": "generated",
+      "truth": true
+    },
+    "K10": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k10.llmll",
+      "group": "K",
+      "id": "mv-k10",
+      "rev3_row": "K10 RGB to row index, product of quotient",
+      "source": "generated",
+      "truth": true
+    },
+    "K11": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k11.llmll",
+      "group": "K",
+      "id": "mv-k11",
+      "rev3_row": "K11 quotient below width",
+      "source": "generated",
+      "truth": true
+    },
+    "K12": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k12.llmll",
+      "group": "K",
+      "id": "mv-k12",
+      "rev3_row": "K12 stride equals padded row, two names",
+      "source": "generated",
+      "truth": true
+    },
+    "K13": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k13.llmll",
+      "group": "K",
+      "id": "mv-k13",
+      "rev3_row": "K13 weighted 3x3 kernel, nonneg",
+      "source": "generated",
+      "truth": true
+    },
+    "K2": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k2.llmll",
+      "group": "K",
+      "id": "mv-k2",
+      "rev3_row": "K2 the same, channel fact split by if",
+      "source": "generated",
+      "truth": true
+    },
+    "K3": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k3.llmll",
+      "group": "K",
+      "id": "mv-k3",
+      "rev3_row": "K3 row offset, variable channels",
+      "source": "generated",
+      "truth": true
+    },
+    "K4": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k4.llmll",
+      "group": "K",
+      "id": "mv-k4",
+      "rev3_row": "K4 sample count below header limit",
+      "source": "generated",
+      "truth": true
+    },
+    "K5": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k5.llmll",
+      "group": "K",
+      "id": "mv-k5",
+      "rev3_row": "K5 row above in a blur",
+      "source": "generated",
+      "truth": true
+    },
+    "K6": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k6.llmll",
+      "group": "K",
+      "id": "mv-k6",
+      "rev3_row": "K6 crop window in a padded buffer",
+      "source": "generated",
+      "truth": true
+    },
+    "K7": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k7.llmll",
+      "group": "K",
+      "id": "mv-k7",
+      "rev3_row": "K7 half-scale of a product",
+      "source": "generated",
+      "truth": true
+    },
+    "K8": {
+      "design_verdict": "verified",
+      "faithful": false,
+      "file": "k8.llmll",
+      "group": "K",
+      "id": "mv-k8",
+      "note": "bytes[64] fixes bytesLen(b)",
+      "rev3_row": "K8 last channel of a pixel, bytesLen",
+      "source": "hand",
+      "truth": true
+    },
+    "K9": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "k9.llmll",
+      "group": "K",
+      "id": "mv-k9",
+      "rev3_row": "K9 mod as a factor, written via div",
+      "source": "generated",
+      "truth": true
+    },
+    "KF1": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "kf1.llmll",
+      "group": "KF",
+      "id": "mv-kf1",
+      "rev3_row": "KF1 channel disjunct, wrong bound",
+      "source": "generated",
+      "truth": false
+    },
+    "KF2": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "kf2.llmll",
+      "group": "KF",
+      "id": "mv-kf2",
+      "rev3_row": "KF2 crop, stride below row",
+      "source": "generated",
+      "truth": false
+    },
+    "KF3": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "kf3.llmll",
+      "group": "KF",
+      "id": "mv-kf3",
+      "rev3_row": "KF3 blur row above at y=0",
+      "source": "generated",
+      "truth": false
+    },
+    "KF4": {
+      "design_verdict": "refuted",
+      "faithful": false,
+      "file": "kf4.llmll",
+      "group": "KF",
+      "id": "mv-kf4",
+      "note": "bytes[64] fixes bytesLen(b)",
+      "rev3_row": "KF4 last channel, ch-1 omitted",
+      "source": "hand",
+      "truth": false
+    },
+    "M1": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "m1.llmll",
+      "group": "M",
+      "id": "mv-m1",
+      "rev3_row": "M1 x<=w (off by one)",
+      "source": "generated",
+      "truth": false
+    },
+    "M2": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "m2.llmll",
+      "group": "M",
+      "id": "mv-m2",
+      "rev3_row": "M2 y<=h",
+      "source": "generated",
+      "truth": false
+    },
+    "M3": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "m3.llmll",
+      "group": "M",
+      "id": "mv-m3",
+      "rev3_row": "M3 swapped stride y*h",
+      "source": "generated",
+      "truth": false
+    },
+    "M4": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "m4.llmll",
+      "group": "M",
+      "id": "mv-m4",
+      "rev3_row": "M4 no lower bound",
+      "source": "generated",
+      "truth": false
+    },
+    "M5": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "m5.llmll",
+      "group": "M",
+      "id": "mv-m5",
+      "rev3_row": "M5 negative h,w product",
+      "source": "generated",
+      "truth": false
+    },
+    "M6": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "m6.llmll",
+      "group": "M",
+      "id": "mv-m6",
+      "rev3_row": "M6 w*w = w*h",
+      "source": "generated",
+      "truth": false
+    },
+    "M7": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "m7.llmll",
+      "group": "M",
+      "id": "mv-m7",
+      "rev3_row": "M7 wrong chroma w/2",
+      "source": "generated",
+      "truth": false
+    },
+    "M8": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "m8.llmll",
+      "group": "M",
+      "id": "mv-m8",
+      "rev3_row": "M8 blit with swapped widths",
+      "source": "generated",
+      "truth": false
+    },
+    "M9": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "m9.llmll",
+      "group": "M",
+      "id": "mv-m9",
+      "rev3_row": "M9 3-D stride uses w for a",
+      "source": "generated",
+      "truth": false
+    },
+    "N1": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "n1.llmll",
+      "group": "N",
+      "id": "mv-n1",
+      "rev3_row": "N1 regroup wrong",
+      "source": "generated",
+      "truth": false
+    },
+    "N10": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "n10.llmll",
+      "group": "N",
+      "id": "mv-n10",
+      "rev3_row": "N10 narrow row, stride too small",
+      "source": "generated",
+      "truth": false
+    },
+    "N2": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "n2.llmll",
+      "group": "N",
+      "id": "mv-n2",
+      "rev3_row": "N2 buffer short by one row",
+      "source": "generated",
+      "truth": false
+    },
+    "N3": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "n3.llmll",
+      "group": "N",
+      "id": "mv-n3",
+      "rev3_row": "N3 rotate90 wrong stride",
+      "source": "generated",
+      "truth": false
+    },
+    "N4": {
+      "design_verdict": "refuted",
+      "faithful": false,
+      "file": "n4.llmll",
+      "group": "N",
+      "id": "mv-n4",
+      "note": "bytes[64] fixes bytesLen(b)",
+      "rev3_row": "N4 bytes-get off by one",
+      "source": "hand",
+      "truth": false
+    },
+    "N5": {
+      "design_verdict": "refuted",
+      "faithful": false,
+      "file": "n5.llmll",
+      "group": "N",
+      "id": "mv-n5",
+      "note": "bytes[64] fixes bytesLen(b); the read in the pre is out of bounds exactly in the counterexample, so LLMLL may report ill-defined rather than refuted",
+      "rev3_row": "N5 bytes read off by one, value",
+      "source": "hand",
+      "truth": false
+    },
+    "N6": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "n6.llmll",
+      "group": "N",
+      "id": "mv-n6",
+      "rev3_row": "N6 linear bug, callee post holds product",
+      "source": "generated",
+      "truth": false
+    },
+    "N7": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "n7.llmll",
+      "group": "N",
+      "id": "mv-n7",
+      "rev3_row": "N7 linear bug beside a hard fact",
+      "source": "generated",
+      "truth": false
+    },
+    "N8": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "n8.llmll",
+      "group": "N",
+      "id": "mv-n8",
+      "rev3_row": "N8 regrouped alias, wrong factor",
+      "source": "generated",
+      "truth": false
+    },
+    "N9": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "n9.llmll",
+      "group": "N",
+      "id": "mv-n9",
+      "rev3_row": "N9 goal false by normal form",
+      "source": "generated",
+      "truth": false
+    },
+    "O1": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "o1.llmll",
+      "group": "O",
+      "id": "mv-o1",
+      "rev3_row": "O1 two definitions of x",
+      "source": "generated",
+      "truth": true
+    },
+    "O2": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "o2.llmll",
+      "group": "O",
+      "id": "mv-o2",
+      "rev3_row": "O2 stride named twice",
+      "source": "generated",
+      "truth": true
+    },
+    "O3": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "o3.llmll",
+      "group": "O",
+      "id": "mv-o3",
+      "rev3_row": "O3 and in a pre, two products",
+      "source": "generated",
+      "truth": true
+    },
+    "P1": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "p1.llmll",
+      "group": "P",
+      "id": "mv-p1",
+      "rev3_row": "P1 assoc",
+      "source": "generated",
+      "truth": true
+    },
+    "P2": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "p2.llmll",
+      "group": "P",
+      "id": "mv-p2",
+      "rev3_row": "P2 regroup value",
+      "source": "generated",
+      "truth": true
+    },
+    "P3": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "p3.llmll",
+      "group": "P",
+      "id": "mv-p3",
+      "rev3_row": "P3 offset, h*(w*ch) buffer",
+      "source": "generated",
+      "truth": true
+    },
+    "P4": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "p4.llmll",
+      "group": "P",
+      "id": "mv-p4",
+      "rev3_row": "P4 stride named, (w*h)*ch",
+      "source": "generated",
+      "truth": true
+    },
+    "P5": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "p5.llmll",
+      "group": "P",
+      "id": "mv-p5",
+      "rev3_row": "P5 let constant channel",
+      "source": "generated",
+      "truth": true
+    },
+    "P6": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "p6.llmll",
+      "group": "P",
+      "id": "mv-p6",
+      "rev3_row": "P6 commuted aliases, any sign",
+      "source": "generated",
+      "truth": true
+    },
+    "P7": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "p7.llmll",
+      "group": "P",
+      "id": "mv-p7",
+      "rev3_row": "P7 cancel",
+      "source": "generated",
+      "truth": true
+    },
+    "PF": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "pf.llmll",
+      "group": "PF",
+      "id": "mv-pf",
+      "rev3_row": "PF plane copy, y<=h, src vs total",
+      "source": "generated",
+      "truth": false
+    },
+    "PF2": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "pf2.llmll",
+      "group": "PF",
+      "id": "mv-pf2",
+      "rev3_row": "PF2 plane copy, v vs luma only",
+      "source": "generated",
+      "truth": false
+    },
+    "Q1": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q1.llmll",
+      "group": "Q",
+      "id": "mv-q1",
+      "rev3_row": "Q1 next-row regrouped",
+      "source": "generated",
+      "truth": true
+    },
+    "Q10": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q10.llmll",
+      "group": "Q",
+      "id": "mv-q10",
+      "rev3_row": "Q10 narrow row in wide stride",
+      "source": "generated",
+      "truth": true
+    },
+    "Q11": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q11.llmll",
+      "group": "Q",
+      "id": "mv-q11",
+      "rev3_row": "Q11 padded stride, var channels",
+      "source": "generated",
+      "truth": true
+    },
+    "Q12": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q12.llmll",
+      "group": "Q",
+      "id": "mv-q12",
+      "rev3_row": "Q12 stride offset, padded",
+      "source": "generated",
+      "truth": true
+    },
+    "Q13": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q13.llmll",
+      "group": "Q",
+      "id": "mv-q13",
+      "rev3_row": "Q13 pad variable",
+      "source": "generated",
+      "truth": true
+    },
+    "Q14": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q14.llmll",
+      "group": "Q",
+      "id": "mv-q14",
+      "rev3_row": "Q14 row end in a stride",
+      "source": "generated",
+      "truth": true
+    },
+    "Q15": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q15.llmll",
+      "group": "Q",
+      "id": "mv-q15",
+      "rev3_row": "Q15 total bound by a limit",
+      "source": "generated",
+      "truth": true
+    },
+    "Q2": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q2.llmll",
+      "group": "Q",
+      "id": "mv-q2",
+      "rev3_row": "Q2 alias both factors",
+      "source": "generated",
+      "truth": true
+    },
+    "Q3": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q3.llmll",
+      "group": "Q",
+      "id": "mv-q3",
+      "rev3_row": "Q3 equation written reversed",
+      "source": "generated",
+      "truth": true
+    },
+    "Q4": {
+      "design_verdict": "verified",
+      "faithful": false,
+      "file": "q4.llmll",
+      "group": "Q",
+      "id": "mv-q4",
+      "note": "bytes[n] fixes bytesLen(b) to a literal (LLMLL has no unsized bytes); here bytes[64]",
+      "rev3_row": "Q4 buffer length as function",
+      "source": "hand",
+      "truth": true
+    },
+    "Q5": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q5.llmll",
+      "group": "Q",
+      "id": "mv-q5",
+      "rev3_row": "Q5 chained constant",
+      "source": "generated",
+      "truth": true
+    },
+    "Q6": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q6.llmll",
+      "group": "Q",
+      "id": "mv-q6",
+      "rev3_row": "Q6 stride = 3w, equality",
+      "source": "generated",
+      "truth": true
+    },
+    "Q7": {
+      "design_verdict": "verified",
+      "faithful": false,
+      "file": "q7.llmll",
+      "group": "Q",
+      "id": "mv-q7",
+      "note": "bytes[64] fixes bytesLen(b); the read in the pre carries a CLAUSE-WELLDEF-1 definedness obligation",
+      "rev3_row": "Q7 product as a bytes index",
+      "source": "hand",
+      "truth": true
+    },
+    "Q8": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q8.llmll",
+      "group": "Q",
+      "id": "mv-q8",
+      "rev3_row": "Q8 alias by bounds",
+      "source": "generated",
+      "truth": true
+    },
+    "Q9": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "q9.llmll",
+      "group": "Q",
+      "id": "mv-q9",
+      "rev3_row": "Q9 equation in a disjunct",
+      "source": "generated",
+      "truth": true
+    },
+    "R1": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "r1.llmll",
+      "group": "R",
+      "id": "mv-r1",
+      "rev3_row": "R1 rotate90 offset",
+      "source": "generated",
+      "truth": true
+    },
+    "R2": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "r2.llmll",
+      "group": "R",
+      "id": "mv-r2",
+      "rev3_row": "R2 BMP row stride",
+      "source": "generated",
+      "truth": true
+    },
+    "R3": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "r3.llmll",
+      "group": "R",
+      "id": "mv-r3",
+      "rev3_row": "R3 four-plane total",
+      "source": "generated",
+      "truth": true
+    },
+    "R4": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "r4.llmll",
+      "group": "R",
+      "id": "mv-r4",
+      "rev3_row": "R4 bound from product pre",
+      "source": "generated",
+      "truth": true
+    },
+    "W1": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w1.llmll",
+      "group": "W",
+      "id": "mv-w1",
+      "rev3_row": "W1 commute w*h = h*w",
+      "source": "generated",
+      "truth": true
+    },
+    "W10": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w10.llmll",
+      "group": "W",
+      "id": "mv-w10",
+      "rev3_row": "W10 frame i of k",
+      "source": "generated",
+      "truth": true
+    },
+    "W11": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w11.llmll",
+      "group": "W",
+      "id": "mv-w11",
+      "rev3_row": "W11 distribute",
+      "source": "generated",
+      "truth": true
+    },
+    "W12": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w12.llmll",
+      "group": "W",
+      "id": "mv-w12",
+      "rev3_row": "W12 next row",
+      "source": "generated",
+      "truth": true
+    },
+    "W13": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w13.llmll",
+      "group": "W",
+      "id": "mv-w13",
+      "rev3_row": "W13 byte index, bytes-length",
+      "source": "generated",
+      "truth": true
+    },
+    "W14": {
+      "design_verdict": "fallback",
+      "faithful": true,
+      "file": "w14.llmll",
+      "group": "W",
+      "id": "mv-w14",
+      "rev3_row": "W14 chroma covers (4cw*ch >= w*h)",
+      "source": "generated",
+      "truth": true
+    },
+    "W15": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w15.llmll",
+      "group": "W",
+      "id": "mv-w15",
+      "rev3_row": "W15 down2 (w/2)*(h/2) <= w*h",
+      "source": "generated",
+      "truth": true
+    },
+    "W16": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w16.llmll",
+      "group": "W",
+      "id": "mv-w16",
+      "rev3_row": "W16 hflip offset",
+      "source": "generated",
+      "truth": true
+    },
+    "W17": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w17.llmll",
+      "group": "W",
+      "id": "mv-w17",
+      "rev3_row": "W17 transpose offset",
+      "source": "generated",
+      "truth": true
+    },
+    "W18": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w18.llmll",
+      "group": "W",
+      "id": "mv-w18",
+      "rev3_row": "W18 alias of factor",
+      "source": "generated",
+      "truth": true
+    },
+    "W19": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w19.llmll",
+      "group": "W",
+      "id": "mv-w19",
+      "rev3_row": "W19 3-D offset z*h*w+y*w+x",
+      "source": "generated",
+      "truth": true
+    },
+    "W2": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w2.llmll",
+      "group": "W",
+      "id": "mv-w2",
+      "rev3_row": "W2 buffer len w*h*3",
+      "source": "generated",
+      "truth": true
+    },
+    "W20": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w20.llmll",
+      "group": "W",
+      "id": "mv-w20",
+      "rev3_row": "W20 int64 bound from ranges",
+      "source": "generated",
+      "truth": true
+    },
+    "W21": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w21.llmll",
+      "group": "W",
+      "id": "mv-w21",
+      "rev3_row": "W21 frame within file",
+      "source": "generated",
+      "truth": true
+    },
+    "W22": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w22.llmll",
+      "group": "W",
+      "id": "mv-w22",
+      "rev3_row": "W22 4-factor monotone",
+      "source": "generated",
+      "truth": true
+    },
+    "W23": {
+      "design_verdict": "fallback",
+      "faithful": true,
+      "file": "w23.llmll",
+      "group": "W",
+      "id": "mv-w23",
+      "rev3_row": "W23 irrational: x*x != 2*y*y",
+      "source": "generated",
+      "truth": true
+    },
+    "W24": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w24.llmll",
+      "group": "W",
+      "id": "mv-w24",
+      "rev3_row": "W24 x*x+y*y=z*z parity",
+      "source": "generated",
+      "truth": true
+    },
+    "W25": {
+      "design_verdict": "fallback",
+      "faithful": true,
+      "file": "w25.llmll",
+      "group": "W",
+      "id": "mv-w25",
+      "rev3_row": "W25 AM-GM (a+b)^2>=4ab",
+      "source": "generated",
+      "truth": true
+    },
+    "W26": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w26.llmll",
+      "group": "W",
+      "id": "mv-w26",
+      "rev3_row": "W26 two-image blit",
+      "source": "generated",
+      "truth": true
+    },
+    "W3": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w3.llmll",
+      "group": "W",
+      "id": "mv-w3",
+      "rev3_row": "W3 crux y*w+x < w*h",
+      "source": "generated",
+      "truth": true
+    },
+    "W4": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w4.llmll",
+      "group": "W",
+      "id": "mv-w4",
+      "rev3_row": "W4 stride",
+      "source": "generated",
+      "truth": true
+    },
+    "W5": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w5.llmll",
+      "group": "W",
+      "id": "mv-w5",
+      "rev3_row": "W5 channels var",
+      "source": "generated",
+      "truth": true
+    },
+    "W5b": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w5b.llmll",
+      "group": "W",
+      "id": "mv-w5b",
+      "rev3_row": "W5b channels unnamed",
+      "source": "generated",
+      "truth": true
+    },
+    "W6": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w6.llmll",
+      "group": "W",
+      "id": "mv-w6",
+      "rev3_row": "W6 crop size",
+      "source": "generated",
+      "truth": true
+    },
+    "W7": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w7.llmll",
+      "group": "W",
+      "id": "mv-w7",
+      "rev3_row": "W7 crop offset",
+      "source": "generated",
+      "truth": true
+    },
+    "W8": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w8.llmll",
+      "group": "W",
+      "id": "mv-w8",
+      "rev3_row": "W8 chroma offset",
+      "source": "generated",
+      "truth": true
+    },
+    "W9": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "w9.llmll",
+      "group": "W",
+      "id": "mv-w9",
+      "rev3_row": "W9 v plane in frame",
+      "source": "generated",
+      "truth": true
+    },
+    "Y1": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y1.llmll",
+      "group": "Y",
+      "id": "mv-y1",
+      "rev3_row": "Y1 chroma plane <= luma plane",
+      "source": "generated",
+      "truth": true
+    },
+    "Y10": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y10.llmll",
+      "group": "Y",
+      "id": "mv-y10",
+      "rev3_row": "Y10 luma plane area equals w*h, under p=0",
+      "source": "generated",
+      "truth": true
+    },
+    "Y11": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y11.llmll",
+      "group": "Y",
+      "id": "mv-y11",
+      "rev3_row": "Y11 p>0 plane area equals inline chroma",
+      "source": "generated",
+      "truth": true
+    },
+    "Y12": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y12.llmll",
+      "group": "Y",
+      "id": "mv-y12",
+      "rev3_row": "Y12 frame total from cases, any p",
+      "source": "generated",
+      "truth": true
+    },
+    "Y2": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y2.llmll",
+      "group": "Y",
+      "id": "mv-y2",
+      "rev3_row": "Y2 U-plane offset inside the frame",
+      "source": "generated",
+      "truth": true
+    },
+    "Y3": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y3.llmll",
+      "group": "Y",
+      "id": "mv-y3",
+      "rev3_row": "Y3 V-plane offset inside the frame",
+      "source": "generated",
+      "truth": true
+    },
+    "Y4": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y4.llmll",
+      "group": "Y",
+      "id": "mv-y4",
+      "rev3_row": "Y4 frame at least luma+2",
+      "source": "generated",
+      "truth": true
+    },
+    "Y5": {
+      "design_verdict": "fallback",
+      "faithful": true,
+      "file": "y5.llmll",
+      "group": "Y",
+      "id": "mv-y5",
+      "rev3_row": "Y5 frame at least 3/2 luma (W14 class)",
+      "source": "generated",
+      "truth": true
+    },
+    "Y6": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y6.llmll",
+      "group": "Y",
+      "id": "mv-y6",
+      "rev3_row": "Y6 frame at most 3 luma",
+      "source": "generated",
+      "truth": true
+    },
+    "Y7": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y7.llmll",
+      "group": "Y",
+      "id": "mv-y7",
+      "rev3_row": "Y7 chroma dims written inline",
+      "source": "generated",
+      "truth": true
+    },
+    "Y8": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y8.llmll",
+      "group": "Y",
+      "id": "mv-y8",
+      "rev3_row": "Y8 plane cursor from plane-w/plane-h posts",
+      "source": "generated",
+      "truth": true
+    },
+    "Y9": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "y9.llmll",
+      "group": "Y",
+      "id": "mv-y9",
+      "rev3_row": "Y9 plane area <= luma, cases in a post",
+      "source": "generated",
+      "truth": true
+    },
+    "YF2": {
+      "design_verdict": "verified",
+      "faithful": true,
+      "file": "yf2.llmll",
+      "group": "Y",
+      "id": "mv-yf2",
+      "rev3_row": "YF2 U offset, x<=cw (true: review's label corrected)",
+      "source": "generated",
+      "truth": true
+    },
+    "YF3": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "yf3.llmll",
+      "group": "YF",
+      "id": "mv-yf3",
+      "rev3_row": "YF3 frame omits one chroma plane",
+      "source": "generated",
+      "truth": false
+    },
+    "YF4": {
+      "design_verdict": "refuted",
+      "faithful": true,
+      "file": "yf4.llmll",
+      "group": "YF",
+      "id": "mv-yf4",
+      "rev3_row": "YF4 chroma floor, n/2 not (n+1)/2",
+      "source": "generated",
+      "truth": false
+    }
+  }
+}

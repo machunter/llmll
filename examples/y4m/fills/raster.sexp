@@ -35,3 +35,15 @@
 (if (= k 4) (if (= b 69) 5 -1)
 (if (= k 5) (if (= b 10) 6 (if (= b 32) 7 -1))
     (if (= b 10) 6 7)))))))
+
+;; ?plane-area-body
+(let [(pw (if (= p 0) w (/ (+ w 1) 2)))
+      (ph (if (= p 0) h (/ (+ h 1) 2)))]
+  (* pw ph))
+
+;; ?frame-size-body
+(+ (* w h) (* 2 (* (/ (+ w 1) 2) (/ (+ h 1) 2))))
+
+;; ?plane-offset-body
+(let [(pw (if (= p 0) w (/ (+ w 1) 2)))]
+  (+ (* y pw) x))

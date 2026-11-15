@@ -1,0 +1,8 @@
+;; MUL-VAR-1 witness BF1: hand-written restatement of rev3.py row "BF1 bytes-set, index off by one", group BF, truth false.
+;; c inlined as (bytes-set b 0 7); b is bytes[64].
+(module mv-bf1
+  (export mv-bf1)
+  (def-shell mv-bf1 [w: int h: int y: int x: int b: bytes[64]] -> int
+    (pre (and (>= y 0) (and (< y h) (and (>= x 0) (and (<= x w) (= (bytes-length b) (* w h)))))))
+    (post (< (+ (* y w) x) (bytes-length (bytes-set b 0 7))))
+    0))
