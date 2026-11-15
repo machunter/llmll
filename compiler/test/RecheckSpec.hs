@@ -554,6 +554,20 @@ recheckSpec = describe "MUL-VAR-1 product pass, mark and native recheck" $ do
     it "the refuted line prints integer and boolean values in name order, in the one allowed form" $ do
       counterexampleLine [("y", VInt 24), ("h", VInt 25), ("b", VMap (VInt 0) Map.empty), ("w", VInt 21), ("x", VInt (-1)), ("p", VBool True)]
         `shouldBe` "VC counterexample: h=25 p=true w=21 x=-1 y=24. Callee results in it are assumed, not computed."
+    it "the refuted line prints source names only: a renamed let maps back, internal binders are dropped" $ do
+      -- The y4m false control (plane-offset, +1 on the offset) printed
+      -- _bv_pw_31=1 before this; pw is the source let.
+      counterexampleLine
+        [ ("_bv_pw_31", VInt 1), ("h", VInt 5), ("p", VInt 0), ("result", VInt 5)
+        , ("w", VInt 1), ("x", VInt 0), ("y", VInt 4)
+        , ("_bv_anf_7", VInt 9), ("_bv_call_plane_w_12", VInt 3), ("_bv_call_bytes_get_2", VInt 0)
+        , ("_bv__scrut_4", VInt 1), ("_bv__match_success_5", VBool True)
+        , ("result$val", VInt 2), ("r$tag", VInt 0), ("mul##0", VInt 4) ]
+        `shouldBe` "VC counterexample: h=5 p=0 pw=1 result=5 w=1 x=0 y=4. Callee results in it are assumed, not computed."
+    it "the refuted line drops a renamed binder whose source name is ambiguous" $ do
+      -- a let shadowing a parameter, and two lets of one name
+      counterexampleLine [("x", VInt 1), ("_bv_x_3", VInt 2), ("_bv_t_4", VInt 5), ("_bv_t_9", VInt 6), ("_bv_u_10", VInt 7)]
+        `shouldBe` "VC counterexample: u=7 x=1. Callee results in it are assumed, not computed."
     it "patch: notProvedMessage names the product, not two calls" $ do
       notProvedMessage (PatchedFn "f" False (Just "abstraction-unsafe") ["abstraction:nonlinear:*"])
         `shouldBe` "'f' was not proved: a product is in the failing constraint, and native z3 found no counterexample (abstraction:nonlinear:*). Its postcondition was assumed."

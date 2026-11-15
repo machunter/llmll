@@ -477,16 +477,57 @@ recheckVerdict er r
 
 -- | MUL-VAR-1 ("Messages", Refuted): the validated model of a rechecked id,
 -- in the one form the design allows. Integer and boolean variables only, in
--- name order; an array or a @Str@ token is not printed.
+-- name order; an array or a @Str@ token is not printed. Only source-level
+-- names are printed ('sourceName'): the model itself is unchanged, the
+-- compiler's own binders are left out of the line.
 counterexampleLine :: [(Text, Value)] -> Text
 counterexampleLine vals =
   "VC counterexample: "
-  <> T.unwords [ v <> "=" <> shown | (v, x) <- sortOn fst vals, Just shown <- [scalar x] ]
+  <> T.unwords [ v <> "=" <> shown | (v, x) <- sortOn fst shownVals, Just shown <- [scalar x] ]
   <> ". Callee results in it are assumed, not computed."
   where
     scalar (VInt n)  = Just (tshow n)
     scalar (VBool b) = Just (if b then "true" else "false")
     scalar _         = Nothing
+    named   = [ (n, k, x) | (v, x) <- vals, Just (n, k) <- [sourceName v] ]
+    direct  = Set.fromList [ n | (n, SrcDirect, _) <- named ]
+    renamed = Map.fromListWith (+) [ (n, 1 :: Int) | (n, SrcRenamed, _) <- named ]
+    -- A renamed binder maps cleanly when its source name is not also a
+    -- parameter (or @result@) in the model and no other renamed binder in
+    -- the model has the same source name (shadowed lets); otherwise it is
+    -- left out rather than printed ambiguously.
+    shownVals = [ (n, x) | (n, k, x) <- named
+                , k == SrcDirect
+                  || (not (n `Set.member` direct) && Map.lookup n renamed == Just 1) ]
+
+data SrcKind = SrcDirect | SrcRenamed
+  deriving (Eq, Show)
+
+-- | The source-level name of a model variable, or 'Nothing' for a
+-- compiler-internal binder.
+--
+-- * @result@ and a parameter are emitted under their own name.
+-- * A let, match-payload, lambda or do binder is emitted by 'freshName' as
+--   @_bv_<source>_<n>@ and maps back to @<source>@.
+-- * 'freshName' also makes the internal binders @_bv_anf_<n>@ (ANF
+--   temporaries), @_bv_call_<f>_<n>@ (hoisted call and builtin results),
+--   @_bv__scrut_<n>@ and @_bv__match_success_<n>@; these are dropped.
+-- * A name with @$@ (@x$has@, @x$val@, @result$val@, @r$ok@, @r$tag@, ...)
+--   or @#@ (@mul##k@) is an emitter projection or symbol; dropped.
+-- * Any other name with a leading underscore is internal; dropped.
+sourceName :: Text -> Maybe (Text, SrcKind)
+sourceName v
+  | T.any (\c -> c == '$' || c == '#') v = Nothing
+  | Just rest <- T.stripPrefix "_bv_" v =
+      let (revDigits, revBase) = T.span isDigit (T.reverse rest)
+          base = T.reverse (T.drop 1 revBase)
+      in if T.null revDigits || not ("_" `T.isPrefixOf` revBase) || T.null base
+              || "_" `T.isPrefixOf` base || base == "anf" || "call_" `T.isPrefixOf` base
+           then Nothing
+           else Just (base, SrcRenamed)
+  | "_" `T.isPrefixOf` v = Nothing
+  | T.null v = Nothing
+  | otherwise = Just (v, SrcDirect)
 
 -- ---------------------------------------------------------------------------
 -- Reading z3's output
