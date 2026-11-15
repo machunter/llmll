@@ -594,6 +594,7 @@ jobs:
       # and left this count at 68, so C5 failed on main from then until it was
       # raised to 69. FQ-OUT-SPECIAL-1 (9496a672) added the `--fq-out {dir}`
       # matrix row, two cells, so 71; C5 failed on main at 4d216151 until then.
+      # MUL-VAR-1 step 7 added test_vs_product_fallback_validates (two cells), so 73.
       - name: Run TRUST-REPORT-GATE-1 cells (pytest, needs the solver)
         run: |
           set -euo pipefail
@@ -604,8 +605,24 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/trust-report-gate.log"; then
             echo "a TRUST-REPORT-GATE-1 cell skipped; fixpoint and jsonschema must be present here"; exit 1
           fi
-          grep -q ' 71 passed' "$RUNNER_TEMP/trust-report-gate.log" \
-            || { echo "TRUST-REPORT-GATE-1: expected 71 passed cells"; exit 1; }
+          grep -q ' 73 passed' "$RUNNER_TEMP/trust-report-gate.log" \
+            || { echo "TRUST-REPORT-GATE-1: expected 73 passed cells"; exit 1; }
+
+      # MUL-VAR-1: the 134-witness table (89/94 true verified, 39/40 false
+      # refuted) and the end-to-end cells (verify, patch, diverge, --cdp,
+      # replay), against this runner's apt z3 (4.8.12). The native recheck
+      # needs z3 on PATH; it was installed above. Same skip and count guards.
+      - name: Run MUL-VAR-1 witness cells (pytest, needs the solver and z3)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_mul_var_1.py -v -rs \
+            | tee "$RUNNER_TEMP/mul-var-1.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/mul-var-1.log"; then
+            echo "a MUL-VAR-1 cell skipped; fixpoint and z3 must be on PATH here"; exit 1
+          fi
+          grep -q ' 11 passed' "$RUNNER_TEMP/mul-var-1.log" \
+            || { echo "MUL-VAR-1: expected 11 passed cells"; exit 1; }
 
       # REGEX-CAPTURE-1 / REGEX-CASE-1's end-to-end cells. They build and run one
       # program with GHC (needs the toolchain), run `check` per agreement row,
