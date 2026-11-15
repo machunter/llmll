@@ -1787,6 +1787,31 @@ Modules declared in `llmll-hub` include verified proof metadata and are importab
 
 `llmll` uses a strictly functional approach to IO. **Logic functions never perform side effects.** Instead, they return `Command` values that *describe* the intended effect. The runtime executes these commands and feeds the result back as the next `Input`.
 
+> **Lineage.** The model belongs to the family of Haskell's pre-monadic I/O. The Haskell 1.2
+> Report (Hudak et al., SIGPLAN Notices 27(5), 1992, §7) typed a program as
+> `Dialogue = [Response] -> [Request]`, a lazy function from the stream of responses to the stream
+> of requests, and built continuation I/O on top of it. Haskell 1.3 replaced both with monadic I/O
+> (Peyton Jones and Wadler, *Imperative Functional Programming*, POPL 1993). LLMLL departs from
+> `Dialogue` in one respect and keeps two of its costs.
+>
+> - **The departure.** A program is one step of a Mealy machine, called once per turn, not a
+>   function over a response stream. `:init` takes no response (§9.5), and step *n* receives only
+>   the response to command *n−1* (§9.7). A first command that depends on a response, which hangs
+>   a `Dialogue` program, cannot be written. The step's shape is an arrow (Hughes, *Generalising
+>   Monads to Arrows*, SCP 2000), and its structure is fixed before it runs, which is what lets
+>   each step be verified as an ordinary function.
+> - **Cost kept: a response is not tied to its command.** `Response` classifies shape, not
+>   provenance (§9.7), so a program records what it is waiting for in its own state. Parameterizing
+>   `Command[a]` would close this (`CMD-A` in [`docs/compiler-team-roadmap.md`](docs/compiler-team-roadmap.md)).
+> - **Cost kept: no bind inside a step.** A dependent sequence spans turns, and the program writes
+>   its continuation into its state. A bind surface that the compiler lowers to this machine,
+>   with known continuations only, is parked as `EFFECT-BIND-1`.
+>
+> A builtin's declared fact about its response (§13.9) is trusted, not checked, and plays the role
+> of the trivial adaptor that Lux gives an atomic I/O primitive (*Declarative Debugging Meets the
+> World*, ENTCS 216, 2008, §4). His evidence is recorded at runtime; LLMLL's is assumed by the
+> solver.
+
 ### 9.1 The Core Pattern
 
 Every logic function that interacts with the world follows this signature:
