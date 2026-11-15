@@ -4,9 +4,9 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.38.1)
+## v0.39.0: products of two variables in contracts (2026-11-15)
 
-**Measured, v0.38.1 against this branch, over 800 sources (liquid-fixpoint 0.9.6.3.7):**
+**Measured, v0.38.1 against this release, over 800 sources (liquid-fixpoint 0.9.6.3.7):**
 
 - `.fq` text is byte-identical on all 664 sources that hold no product. 134 files change
   verdict, all of them files with a product; 39 go from exit 0 to exit 1, and they are exactly
