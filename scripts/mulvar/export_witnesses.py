@@ -6,11 +6,14 @@ rev3.py sections 6, 7 and 4, this writes the hypotheses as rev3's VC sees them
 (top-level `and` split, with the ground-fact families of a bytes or Str row
 added) and the goal, as s-expression text, with what rev3.py's generator
 gives: the number of facts, the pairs T, the cap state, the closure size, the
-largest degree, and the facts per family; or the refusal construct.
+largest degree, the facts per family, and per family a SHA-256 of the fact
+lines (see `fact_line`), which the hspec differential compares fact for fact;
+or the refusal construct.
 
 Usage: python3 scripts/mulvar/export_witnesses.py [out.json]
 Default out: compiler/test/fixtures/mul_var_1/witnesses.json
 """
+import hashlib
 import json
 import os
 import sys
@@ -29,6 +32,30 @@ def sx(t):
     return "(" + " ".join(sx(x) for x in t) + ")"
 
 
+def fact_line(f):
+    """One fact as a name-stable line: family, premises, conclusion.
+
+    Each relation prints as `op[pkey]` after rev3's canonical form (`>` and
+    `>=` turned round, `=` and `!=` on the smaller of p and -p). An atom prints
+    as rev3's key (`x`, `div(1*w+1*,2)`, `bytesLen(1*b)`), which the hspec
+    differential rebuilds from the emitter's atoms. Premises are a set.
+    """
+    fam, prem, con = f
+
+    def rel(o, p):
+        o2, p2 = rev3.VC.canon(o, p)
+        return f"{o2}[{rev3.pkey(p2)}]"
+    return f"{fam}|{';'.join(sorted({rel(o, p) for o, p in prem}))}|{rel(*con)}"
+
+
+def fact_digests(fx):
+    """Per family: the SHA-256 of the sorted fact lines of that family."""
+    by = {}
+    for f in fx:
+        by.setdefault(f[0], []).append(fact_line(f))
+    return {k: hashlib.sha256("\n".join(sorted(v)).encode()).hexdigest() for k, v in sorted(by.items())}
+
+
 def stats(vs, h, g, sorts=None):
     try:
         vc = rev3.VC(h, g, sorts)
@@ -40,7 +67,8 @@ def stats(vs, h, g, sorts=None):
     for f in fx:
         fam[f[0]] = fam.get(f[0], 0) + 1
     return dict(hyps=hyps, goal=sx(g), facts=len(fx), T=vc.T, capped=vc.capped,
-                closure=vc.closure_size, maxdeg=vc.max_deg, families=dict(sorted(fam.items())))
+                closure=vc.closure_size, maxdeg=vc.max_deg, families=dict(sorted(fam.items())),
+                fact_digests=fact_digests(fx))
 
 
 def main():

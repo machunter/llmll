@@ -14,7 +14,11 @@ import Control.Monad (forM, forM_)
 import qualified Data.Aeson as A
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as AKM
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import qualified Crypto.Hash.SHA256 as SHA256
+import qualified Data.Text.Encoding as TE
+import Text.Printf (printf)
 import Data.Char (isDigit)
 import Data.List (foldl', sort)
 import qualified Data.Map.Strict as Map
@@ -105,6 +109,7 @@ data Row = Row
   , rowClosure  :: Int
   , rowMaxDeg   :: Int
   , rowFamilies :: Map.Map Text Int
+  , rowDigests  :: Map.Map Text Text
   }
 
 loadRows :: IO ([Row], [Row])
@@ -132,6 +137,9 @@ loadRows = do
           fams = case AKM.lookup "families" o of
             Just (A.Object fo) -> Map.fromList [ (AK.toText k, n') | (k, A.Number x) <- AKM.toList fo, let n' = round x ]
             _ -> Map.empty
+          digs = case AKM.lookup "fact_digests" o of
+            Just (A.Object fo) -> Map.fromList [ (AK.toText k, d) | (k, A.String d) <- AKM.toList fo ]
+            _ -> Map.empty
       Just Row
         { rowName = n
         , rowHyps = map (toPred . parseSx) (mapMaybe str (V.toList hs))
@@ -146,6 +154,7 @@ loadRows = do
         , rowClosure = int "closure"
         , rowMaxDeg = int "maxdeg"
         , rowFamilies = fams
+        , rowDigests = digs
         }
     row _ = Nothing
 
@@ -158,6 +167,71 @@ summarize r = (length (frFacts r), frPairs r, frCapped r, frClosure r, frMaxDeg 
 
 expectedOf :: Row -> (Int, Int, Bool, Int, Int, Map.Map Text Int)
 expectedOf r = (rowFacts r, rowT r, rowCapped r, rowClosure r, rowMaxDeg r, rowFamilies r)
+
+-- ---------------------------------------------------------------------------
+-- The fact multiset in rev3.py's naming (the differential)
+-- ---------------------------------------------------------------------------
+
+-- | An atom renamed to rev3.py's key: a variable is its name; @/@, @mod@, an
+-- 'FQIte' and an application print as rev3's @div(..)@, @mod(..)@, @ite(..)@
+-- and @f(..)@ over rev3's polynomial key. Only the names change: the
+-- polynomials are the emitter's own.
+rev3Atom :: Atom -> Text
+rev3Atom a = case atomKind a of
+  AVar v -> v
+  ADiv p k -> "div(" <> rev3Poly p <> "," <> T.pack (show k) <> ")"
+  AMod p k -> "mod(" <> rev3Poly p <> "," <> T.pack (show k) <> ")"
+  AIte c p q -> "ite(" <> rev3Cond c <> "," <> rev3Poly p <> "," <> rev3Poly q <> ")"
+  AApp f as -> f <> "(" <> T.intercalate "," (map arg as) <> ")"
+  AOpaque p -> "opaque:" <> emitPred p
+  where
+    arg (ArgP p) = rev3Poly p
+    arg (ArgC c) = rev3Cond c
+
+rev3Op :: RelOp -> Text
+rev3Op = \case
+  RLt -> "<"; RLe -> "<="; RGt -> ">"; RGe -> ">="; REq -> "="; RNe -> "!="
+
+rev3Cond :: Cond -> Text
+rev3Cond = \case
+  CRel o p -> rev3Op o <> "[" <> rev3Poly p <> "]"
+  CAnd cs -> "and[" <> T.intercalate "," (map rev3Cond cs) <> "]"
+  COr cs -> "or[" <> T.intercalate "," (map rev3Cond cs) <> "]"
+  CNot c -> "not[" <> rev3Cond c <> "]"
+  CLeaf p -> "leaf:" <> emitPred p
+
+-- | rev3.py's @pkey@: terms sorted by (monomial as a sorted tuple of atom
+-- keys, coefficient), each @c*a.b@, joined by @+@; the zero polynomial is @0@.
+rev3Poly :: Poly -> Text
+rev3Poly p
+  | Map.null p = "0"
+  | otherwise = T.intercalate "+"
+      [ T.pack (show c) <> "*" <> T.intercalate "." ks
+      | (ks, c) <- sort [ (sort (map rev3Atom (monoAtoms m)), c) | (m, c) <- Map.toList p ] ]
+
+-- | rev3.py's @VC.canon@, on rev3's key order.
+rev3Rel :: (RelOp, Poly) -> Text
+rev3Rel (o, p) = case o of
+  RGt -> fmt RLt (pneg p)
+  RGe -> fmt RLe (pneg p)
+  _ | o `elem` [REq, RNe] ->
+        let n = pneg p in if rev3Poly n < rev3Poly p then fmt o n else fmt o p
+    | otherwise -> fmt o p
+  where fmt o' q = rev3Op o' <> "[" <> rev3Poly q <> "]"
+
+-- | One fact as @export_witnesses.py@'s @fact_line@ prints it.
+rev3Line :: Fact -> Text
+rev3Line f =
+  familyName (factFamily f) <> "|"
+    <> T.intercalate ";" (Set.toAscList (Set.fromList (map rev3Rel (factPrem f))))
+    <> "|" <> rev3Rel (factConc f)
+
+-- | Per family, the SHA-256 of the sorted lines, as @fact_digests@.
+rev3Digests :: [Fact] -> Map.Map Text Text
+rev3Digests fs =
+  Map.map (hex . SHA256.hash . TE.encodeUtf8 . T.intercalate "\n" . sort)
+    (Map.fromListWith (++) [ (familyName (factFamily f), [rev3Line f]) | f <- fs ])
+  where hex = T.pack . concatMap (printf "%02x") . BS.unpack
 
 -- ---------------------------------------------------------------------------
 -- Variants: π (conjunct permutation), φ (equation flip), ρ (renaming)
@@ -452,6 +526,28 @@ productSpec = describe "MUL-VAR-1 normal form and fact set (ProductNF, ProductFa
         (_, got) -> [(rowName r, either show (show . summarize) got, show (expectedOf r))]
       diffs `shouldBe` []
       sum [ either (const 0) (length . frFacts) (factsOf r) | r <- ws ] `shouldBe` 58487
+    it "differential: every witness's fact multiset equals rev3.py's, fact for fact, after renaming atoms to rev3's keys" $ do
+      -- witnesses.json holds, per witness and family, the SHA-256 of rev3.py's
+      -- sorted fact lines (export_witnesses.py, fact_line). The counts above
+      -- could agree while the facts differ; this compares the facts.
+      let bad = [ (rowName r, fam)
+                | r <- ws, Nothing <- [rowRefused r], Right fr <- [factsOf r]
+                , let got = rev3Digests (frFacts fr)
+                , fam <- Set.toList (Set.fromList (Map.keys got ++ Map.keys (rowDigests r)))
+                , Map.lookup fam got /= Map.lookup fam (rowDigests r) ]
+      length [ r | r <- ws, not (Map.null (rowDigests r)) ] `shouldSatisfy` (>= 120)
+      bad `shouldBe` []
+      -- the renaming is exercised: witnesses whose facts hold an atom that is
+      -- not a variable (/, mod, if, an application) compare too
+      let compound fr = or [ case atomKind a of AVar _ -> False; _ -> True
+                           | m <- Set.toList (factMonos (frFacts fr)), a <- monoAtoms m ]
+      length [ () | r <- ws, Right fr <- [factsOf r], compound fr ] `shouldSatisfy` (>= 20)
+    it "differential control: one fact dropped from W3 changes its digest" $ do
+      let r = lookupRow ws "W3"
+      case factsOf r of
+        Right fr -> rev3Digests (drop 1 (frFacts fr)) `shouldNotBe` rowDigests r
+        Left e -> expectationFailure (show e)
+
     it "prints facts sorted by text, mul##k numbered in sorted monomial order, sums flat" $ do
       let r = lookupRow ws "W3"
       case factsOf r of
