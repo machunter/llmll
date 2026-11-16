@@ -646,6 +646,7 @@ pType = choice
   , TBool     <$ symbol "bool"
   , TUnit     <$ symbol "unit"
   , try pBytesType
+  , try pBytesUnsizedType
   , try pListType
   , try pMapType
   , try pResultType
@@ -709,6 +710,15 @@ pBytesType = do
       setOffset end
       pure (TBytes 0)
     else pure (TBytes (fromInteger n))
+
+-- | BYTES-UNSIZED-1: the bare word @bytes@ is the unsized byte type. It comes
+-- after 'pBytesType', so @bytes[4]@ (and @bytes [4]@) keep their meaning, and
+-- it must not be followed by an identifier character or @[@: without that
+-- boundary a user type such as @bytes-buf@ would split into @bytes@ and a
+-- stray @-buf@. The identifier characters are those of 'pIdent'.
+pBytesUnsizedType :: Parser Type
+pBytesUnsizedType =
+  TBytesU <$ lexeme' (string "bytes" <* notFollowedBy (alphaNumChar <|> oneOf ("-_?.[" :: String)))
 
 pListType :: Parser Type
 pListType = do

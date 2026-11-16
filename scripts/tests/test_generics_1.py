@@ -207,7 +207,7 @@ def test_json_ast_round_trip(tmp_path):
     assert p.returncode == 0, p.stdout + p.stderr
     (ast,) = list(tmp_path.glob("generated/pick/pick.ast.json"))
     text = ast.read_text(encoding="utf-8")
-    assert json.loads(text)["schemaVersion"] == "0.15.0"
+    assert json.loads(text)["schemaVersion"] == "0.16.0"
     assert '"type_params"' in text
     c = _run(["check", str(ast)], tmp_path)
     assert c.returncode == 0, c.stdout + c.stderr

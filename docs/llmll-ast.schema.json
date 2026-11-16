@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://llmll.dev/schemas/v0.15/ast.schema.json",
-  "title": "LLMLL v0.15 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
-  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.15.0' (GENERICS-1: a def-shell may carry the optional 'type_params' list, and Type gains the 'type-var' kind; was 0.14.0 for FLOAT-LIT-1: a literal pattern may carry the optional 'literal_kind' key, int or float, so a float pattern such as 2.0 keeps its kind; was 0.13.0 for AST-TYPE-ALIAS-1 + FFI-CONV-1: a type-decl body may be any Type, and Type gains the boundary kinds hs-text, hs-int and hs-maybe; was 0.12.0 for MODE-CLI-1 + MODE-HTTP-1: def-main mode is the string enum console/cli and the http object is removed; 0.11.0 for PROC-BOUNDARY-1's optional 'status' on def-main, an exit-status projection from the state type to int, 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason); PatchResult gained PatchVerifyUnavailable at v0.26.0 (PATCH-FAILOPEN-1).",
+  "$id": "https://llmll.dev/schemas/v0.16/ast.schema.json",
+  "title": "LLMLL v0.16 JSON-AST Schema (companion defs rev 0.12.1 — DEMO-COMP)",
+  "description": "A JSON representation of the LLMLL Abstract Syntax Tree. Every .llmll source file must correspond to a JSON object validated against the top-level 'Program' definition. This schema is the machine-checked interface between AI code-generators and the LLMLL compiler pipeline. The Program AST format is 'schemaVersion: 0.16.0' (BYTES-UNSIZED-1: Type gains the 'bytes-unsized' kind, the byte type of any length, and the 'bytes' kind's 'length' minimum is 0, which the reader always accepted; was 0.15.0 for GENERICS-1: a def-shell may carry the optional 'type_params' list, and Type gains the 'type-var' kind; was 0.14.0 for FLOAT-LIT-1: a literal pattern may carry the optional 'literal_kind' key, int or float, so a float pattern such as 2.0 keeps its kind; was 0.13.0 for AST-TYPE-ALIAS-1 + FFI-CONV-1: a type-decl body may be any Type, and Type gains the boundary kinds hs-text, hs-int and hs-maybe; was 0.12.0 for MODE-CLI-1 + MODE-HTTP-1: def-main mode is the string enum console/cli and the http object is removed; 0.11.0 for PROC-BOUNDARY-1's optional 'status' on def-main, an exit-status projection from the state type to int, 0.10.0 for DISCARD-1's optional 'discard' on do-step plus the removal of 'read' from def-main, 0.9.0 for SRC-CONJ-1's optional pre_clauses/post_clauses per-conjunct provenance arrays on def/def-shell, 0.8.0 for REC-DESCENT decreases, 0.7.0 for DEF-RET return_type, and 0.6.0 for the GrammarCoreInversion default and the 'def'/'def-shell' node kinds that replaced 'def-logic'); the agent-facing companion definitions (CheckoutToken, PatchResult) are versioned separately and were last revised at 0.12.1 (DEMO-COMP: contracted_functions pre/post/tier/return_type, consumed_guarantees, brief_version, the callee-precondition-unmet patch sub-reason); PatchResult gained PatchVerifyUnavailable at v0.26.0 (PATCH-FAILOPEN-1).",
 
   "$defs": {
 
@@ -13,9 +13,9 @@
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
-          "description": "The compiler emits '0.15.0'. It reads every version in this enum, which is ParserJSON.acceptedSchemaVersions, and rejects any other (the newer fields are additive-optional). The enum states what the reader accepts: it does not check that an older document omits fields added after its version. v0.15.0 adds the optional 'type_params' list on def-shell and the 'type-var' Type kind (GENERICS-1), additive. v0.14.0 adds the optional 'literal_kind' key on a literal pattern (FLOAT-LIT-1), additive. v0.13.0 lets a type-decl body be any Type, a plain alias (AST-TYPE-ALIAS-1), and adds the Tier 1 boundary type kinds hs-text, hs-int and hs-maybe (FFI-CONV-1); both are additive. v0.12.0 makes def-main 'mode' the plain string enum console/cli and removes the http object (MODE-HTTP-1), and a cli step takes (State, Response) (MODE-CLI-1); no tracked document used http, so every older version stays readable. v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
+          "description": "The compiler emits '0.16.0'. It reads every version in this enum, which is ParserJSON.acceptedSchemaVersions, and rejects any other (the newer fields are additive-optional). The enum states what the reader accepts: it does not check that an older document omits fields added after its version. v0.16.0 adds the 'bytes-unsized' Type kind (BYTES-UNSIZED-1), additive, and lowers the 'bytes' kind's 'length' minimum from 1 to 0 (drift D1: the reader always accepted 0). v0.15.0 adds the optional 'type_params' list on def-shell and the 'type-var' Type kind (GENERICS-1), additive. v0.14.0 adds the optional 'literal_kind' key on a literal pattern (FLOAT-LIT-1), additive. v0.13.0 lets a type-decl body be any Type, a plain alias (AST-TYPE-ALIAS-1), and adds the Tier 1 boundary type kinds hs-text, hs-int and hs-maybe (FFI-CONV-1); both are additive. v0.12.0 makes def-main 'mode' the plain string enum console/cli and removes the http object (MODE-HTTP-1), and a cli step takes (State, Response) (MODE-CLI-1); no tracked document used http, so every older version stays readable. v0.11.0 adds the optional 'status' field on def-main (PROC-BOUNDARY-1), purely additive: absent means exit 0 on the done? path, which is what every earlier document meant. v0.10.0 added the optional 'discard' flag on do-step and REMOVED 'read' from def-main (DISCARD-1); v0.9.0 added the optional pre_clauses/post_clauses per-conjunct provenance arrays (SRC-CONJ-1); v0.8.0 added the optional decreases array on def-shell (REC-DESCENT); v0.7.0 added optional return_type on def/def-shell (DEF-RET); kind:\"def\" and kind:\"def-shell\" nodes are the standard forms under --grammar=core-inversion (now the default).",
           "type": "string",
-          "enum": ["0.15.0", "0.14.0", "0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+          "enum": ["0.16.0", "0.15.0", "0.14.0", "0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
         },
         "llmll_version": {
           "description": "Compiler version that emitted this file. Informational only — the compiler does not validate this field.",
@@ -445,7 +445,7 @@
       "description": "Any LLMLL type expression. Corresponds to EBNF 'type'.",
       "type": "object",
       "required": ["kind"],
-      "properties": { "kind": { "type": "string", "enum": ["primitive", "list", "map", "result", "promise", "bytes", "fn-type", "where", "pair-type", "command", "named", "hs-text", "hs-int", "hs-maybe", "type-var"] } },
+      "properties": { "kind": { "type": "string", "enum": ["primitive", "list", "map", "result", "promise", "bytes", "bytes-unsized", "fn-type", "where", "pair-type", "command", "named", "hs-text", "hs-int", "hs-maybe", "type-var"] } },
       "allOf": [
         {
           "if": { "properties": { "kind": { "const": "primitive" } } },
@@ -470,6 +470,10 @@
         {
           "if": { "properties": { "kind": { "const": "bytes" } } },
           "then": { "$ref": "#/$defs/TypeBytes" }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "bytes-unsized" } } },
+          "then": { "$ref": "#/$defs/TypeBytesUnsized" }
         },
         {
           "if": { "properties": { "kind": { "const": "fn-type" } } },
@@ -568,7 +572,17 @@
       "additionalProperties": false,
       "properties": {
         "kind":   { "type": "string", "const": "bytes" },
-        "length": { "type": "integer", "minimum": 1 }
+        "length": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "TypeBytesUnsized": {
+      "description": "BYTES-UNSIZED-1 (0.16.0): the byte type of any length, the bare word 'bytes' in S-expressions. A separate kind, not an optional 'length' on kind 'bytes', so a dropped 'length' stays a schema error; it carries no other key.",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "const": "bytes-unsized" }
       }
     },
 

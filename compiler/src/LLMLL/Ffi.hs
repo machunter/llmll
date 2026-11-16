@@ -146,6 +146,9 @@ allowed c inKey ty = case ty of
   TUnit       -> Nothing
   TBytes _
     | c /= CRes -> Nothing
+  -- BYTES-UNSIZED-1: the unsized byte type stays refused at the boundary, in
+  -- every position, until FFI-BYTES-1 (step 4) replaces this arm.
+  TBytesU     -> Just "bytes at the Tier 1 boundary needs FFI-BYTES-1"
   -- FFI-CONV-1 (D10): the boundary types and the direction rule.
   TCustom "hs-text"
     | c == CFn  -> inFn

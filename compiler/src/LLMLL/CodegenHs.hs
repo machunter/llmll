@@ -2746,6 +2746,10 @@ toHsType TString           = "String"
 toHsType TBool             = "Bool"
 toHsType TUnit             = "()"
 toHsType (TBytes _)        = "[Word8]"
+-- BYTES-UNSIZED-1: strict ByteString (byte-io-proposal Part 4); the preamble
+-- already imports Data.ByteString qualified as BS. The runtime operations
+-- over it arrive with step 3, S3.
+toHsType TBytesU           = "BS.ByteString"
 toHsType (TList t)         = "[" <> toHsType t <> "]"
 toHsType (TMap k v)        = "(Map.Map " <> hsArg AppArg k <> " " <> hsArg AppArg v <> ")"
 toHsType (TResult t e)     = "(Either " <> hsArg AppArg e <> " " <> hsArg AppArg t <> ")"

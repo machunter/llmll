@@ -441,6 +441,7 @@ renderTypeArg t = case t of
   TBool            -> "bool"
   TUnit            -> "unit"
   TBytes n         -> "bytes[" <> T.pack (show n) <> "]"
+  TBytesU          -> "bytes"
   TList a          -> "list[" <> renderTypeArg a <> "]"
   TMap k v         -> "map[" <> renderTypeArg k <> "," <> renderTypeArg v <> "]"
   TResult a b      -> "Result[" <> renderTypeArg a <> "," <> renderTypeArg b <> "]"

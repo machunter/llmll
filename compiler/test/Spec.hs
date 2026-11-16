@@ -2042,7 +2042,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts -> Set.member "f" (trPartialFns (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` True
 
-    it "RD1-5: emitted AST stamps schemaVersion 0.15.0; a 0.7.0 doc still parses (backward-compat)" $ do
+    it "RD1-5: emitted AST stamps schemaVersion 0.16.0; a 0.7.0 doc still parses (backward-compat)" $ do
       -- SRC-CONJ-1: stamp retargeted 0.8.0 -> 0.9.0 (pre_clauses/post_clauses).
       -- DISCARD-1: retargeted 0.9.0 -> 0.10.0 (do-step discard; def-main read removed).
       -- PROC-BOUNDARY-1: retargeted 0.10.0 -> 0.11.0 (optional def-main status).
@@ -2050,11 +2050,12 @@ main = hspec $ do
       -- AST-TYPE-ALIAS-1 + FFI-CONV-1: retargeted 0.12.0 -> 0.13.0 (alias bodies, boundary types).
       -- FLOAT-LIT-1: retargeted 0.13.0 -> 0.14.0 (literal_kind on literal patterns).
       -- GENERICS-1: retargeted 0.14.0 -> 0.15.0 (type_params, the type-var kind).
+      -- BYTES-UNSIZED-1: retargeted 0.15.0 -> 0.16.0 (the bytes-unsized kind).
       let src = T.pack "(def-shell f [x: int] -> int (decreases x) (f x))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
-          T.isInfixOf "0.15.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
+          T.isInfixOf "0.16.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
       let doc07 = BLC.pack "{\"schemaVersion\":\"0.7.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[{\"name\":\"x\",\"type\":\"int\"}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}]}"
       case parseJSONAST GrammarCoreInversion "<test>" doc07 of
         Left e  -> expectationFailure ("a 0.7.0 doc must still parse: " ++ show e)
@@ -20419,10 +20420,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- PROC-BOUNDARY-1 stamp, must still be read. AST-TYPE-ALIAS-1 + FFI-CONV-1
     -- moved it to 0.13.0, and 0.12.0 must still be read. FLOAT-LIT-1 moved it
     -- to 0.14.0, and 0.13.0 must still be read. GENERICS-1 moved it to 0.15.0,
-    -- and 0.14.0 must still be read.
+    -- and 0.14.0 must still be read. BYTES-UNSIZED-1 moved it to 0.16.0, and
+    -- 0.15.0 must still be read.
     it "PB-11: the 0.11.0 stamp is in acceptedSchemaVersions, and 0.10.0 still is" $ do
-      expectedSchemaVersion `shouldBe` "0.15.0"
+      expectedSchemaVersion `shouldBe` "0.16.0"
       acceptedSchemaVersions `shouldContain` [expectedSchemaVersion]
+      acceptedSchemaVersions `shouldContain` ["0.15.0"]
       acceptedSchemaVersions `shouldContain` ["0.14.0"]
       acceptedSchemaVersions `shouldContain` ["0.13.0"]
       acceptedSchemaVersions `shouldContain` ["0.12.0"]
@@ -24328,10 +24331,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "where and sum bodies still read as before" $
       roundTrip ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"]
         `shouldBe` Right (parsed ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"])
-    it "a 0.12.0 document still reads, and the stamp is 0.15.0" $ do
+    it "a 0.12.0 document still reads, and the stamp is 0.16.0" $ do
       let doc12 = BLC.pack "{\"schemaVersion\":\"0.12.0\",\"statements\":[{\"kind\":\"type-decl\",\"name\":\"Name\",\"body\":{\"kind\":\"primitive\",\"name\":\"string\"}}]}"
       parseJSONAST GrammarCoreInversion "<test>" doc12 `shouldBe` Right [STypeDef "Name" TString]
-      BLC.unpack (emitJsonAST (parsed ["(type Name string)"])) `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.15.0\""
+      BLC.unpack (emitJsonAST (parsed ["(type Name string)"])) `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.16.0\""
 
   -- -----------------------------------------------------------------------
   -- FLOAT-LIT-1 (decimal-numbers-proposal Rev 1, R1-1..R1-4): signed float
@@ -26505,8 +26508,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       out `shouldNotSatisfy` isInfixOf "type_params"
       out `shouldNotSatisfy` isInfixOf "type-var"
       map bindTypeParams stmts `shouldBe` stmts
-    it "G1-S1-12 schema 0.15.0 is emitted and read, and a 0.14.0 document still reads" $ do
-      expectedSchemaVersion `shouldBe` "0.15.0"
+    -- BYTES-UNSIZED-1 moved the emitted stamp on to 0.16.0; 0.15.0 is still read.
+    it "G1-S1-12 schema 0.15.0 is read (the stamp is now 0.16.0), and a 0.14.0 document still reads" $ do
+      expectedSchemaVersion `shouldBe` "0.16.0"
       acceptedSchemaVersions `shouldContain` ["0.15.0", "0.14.0"]
       isRight (parseJSONAST GrammarCoreInversion "<g1>" (BLC.pack (doc "0.14.0"
         "{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}")))
@@ -28546,6 +28550,84 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.takeEnd 400 upToSite `shouldSatisfy` T.isInfixOf "liquid-fixpoint / z3 not found on PATH"
       srcs <- mapM TIO.readFile ["app/Main.hs", "src/LLMLL/PatchApply.hs", "src/LLMLL/RefineReuse.hs"]
       map (T.isInfixOf "runFQSolver") srcs `shouldBe` [False, False, False]
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S1 (BYTES-UNSIZED-1): the unsized `bytes` type, its two
+  -- front ends, the reserved type name, the FFI refusal and schema 0.16.0 + D1.
+  -- No operation is typed yet (S2), so these pin the parse and the AST only.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S1: the bytes type, the parsers and schema 0.16.0" $ do
+    let parsedB src = case parseStatements GrammarCoreInversion "<bio>" (T.unlines src) of
+          Left err -> error ("BYTE-IO S1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsB src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedB src))
+                    , diagSeverity d == SevError ]
+        sigOf ss = [ (map snd ps, r) | SDefShell { defShellParams = ps, defShellReturn = r } <- ss ]
+        roundTripB src = parseJSONAST GrammarCoreInversion "<bio-rt>" (emitJsonAST (parsedB src))
+        docB sv ty = BLC.pack ("{\"schemaVersion\":\"" ++ sv ++ "\",\"statements\":[{\"kind\":\"def-shell\","
+                     ++ "\"name\":\"f\",\"params\":[{\"name\":\"b\",\"param_type\":" ++ ty ++ "}],"
+                     ++ "\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}")
+    it "T-P1 bare bytes parses as TBytesU in a parameter and a return type, and checks" $ do
+      let src = ["(def-shell keep [b: bytes] -> bytes b)"]
+      sigOf (parsedB src) `shouldBe` [([TBytesU], Just TBytesU)]
+      errsB src `shouldBe` []
+    it "T-P2 bare bytes nests: list[bytes], Result[bytes, int], a pair, and before ] , )" $
+      sigOf (parsedB ["(def-shell g [xs: list[bytes] r: Result[bytes, int] p: (bytes, int)] -> int 0)"])
+        `shouldBe` [([TList TBytesU, TResult TBytesU TInt, TPair TBytesU TInt], Just TInt)]
+    it "T-P3 a user type whose name starts with bytes stays a user type (the word boundary)" $
+      sigOf (parsedB [ "(type bytes-buf int)", "(type bytes2 int)", "(type bytes? int)"
+                     , "(def-shell h [a: bytes-buf c: bytes2 d: bytes?] -> int 0)" ])
+        `shouldBe` [([TCustom "bytes-buf", TCustom "bytes2", TCustom "bytes?"], Just TInt)]
+    it "T-P4 bytes[n] keeps its meaning, with or without a space before the bracket, and bytes[0] reads" $
+      sigOf (parsedB ["(def-shell k [a: bytes[4] c: bytes [8] z: bytes[0]] -> bytes[4] a)"])
+        `shouldBe` [([TBytes 4, TBytes 8, TBytes 0], Just (TBytes 4))]
+    it "T-P5 (type bytes ...) is refused with kind reserved-type-name; a sibling name is not" $ do
+      map fst (errsB ["(type bytes int)", "(def-shell f [x: int] -> int x)"])
+        `shouldBe` [Just "reserved-type-name"]
+      errsB ["(type bytes-buf int)", "(def-shell f [x: bytes-buf] -> int 0)"] `shouldBe` []
+    it "T-P6 JSON-AST: bytes emits kind bytes-unsized with no other key and round-trips" $ do
+      let src = ["(def-shell keep [b: bytes xs: list[bytes]] -> bytes b)"]
+          out = BLC.unpack (emitJsonAST (parsedB src))
+      out `shouldSatisfy` isInfixOf "\"kind\": \"bytes-unsized\""
+      roundTripB src `shouldBe` Right (parsedB src)
+    it "T-P7 JSON-AST: bytes-unsized with a length key is refused (strict keys); bytes without length still is" $ do
+      case parseJSONAST GrammarCoreInversion "<bio>" (docB "0.16.0" "{\"kind\":\"bytes-unsized\",\"length\":4}") of
+        Left d  -> do diagKind d `shouldBe` Just "unexpected-key"
+                      diagMessage d `shouldSatisfy` T.isInfixOf "bytes-unsized"
+        Right _ -> expectationFailure "a bytes-unsized type with a length key must be refused"
+      isLeft (parseJSONAST GrammarCoreInversion "<bio>" (docB "0.16.0" "{\"kind\":\"bytes\"}")) `shouldBe` True
+      parseJSONAST GrammarCoreInversion "<bio>" (docB "0.16.0" "{\"kind\":\"bytes-unsized\"}")
+        `shouldBe` Right (parsedB ["(def-shell f [b: bytes] 0)"])
+    it "T-P8 a schema 0.15.0 document still reads" $
+      isRight (parseJSONAST GrammarCoreInversion "<bio>" (docB "0.15.0" "{\"kind\":\"bytes\",\"length\":4}"))
+        `shouldBe` True
+    it "T-P9 the emitted document stamps 0.16.0, and the reader accepts both 0.16.0 and 0.15.0" $ do
+      BLC.unpack (emitJsonAST (parsedB ["(def-shell keep [b: bytes] -> bytes b)"]))
+        `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.16.0\""
+      expectedSchemaVersion `shouldBe` "0.16.0"
+      acceptedSchemaVersions `shouldContain` ["0.16.0", "0.15.0"]
+    it "T-P10 the schema: TypeBytes.length minimum 0 (D1), kind bytes-unsized, TypeBytesUnsized closed; a bytes[0] document reads" $ do
+      raw <- BL.readFile (".." </> "docs" </> "llmll-ast.schema.json")
+      let look k (Just (Object m)) = KM.lookup (K.fromString k) m
+          look _ _                 = Nothing
+          at ks = foldl (flip look) (decode raw :: Maybe Value) ks
+      at ["$defs", "TypeBytes", "properties", "length", "minimum"] `shouldBe` Just (Number 0)
+      at ["$defs", "TypeBytesUnsized", "additionalProperties"] `shouldBe` Just (Bool False)
+      at ["$defs", "TypeBytesUnsized", "properties", "kind", "const"] `shouldBe` Just (String "bytes-unsized")
+      case at ["$defs", "Type", "properties", "kind", "enum"] of
+        Just (Array a) -> [ t | String t <- foldr (:) [] a ] `shouldContain` ["bytes-unsized"]
+        other          -> expectationFailure ("no Type kind enum: " ++ show other)
+      case at ["$defs", "Program", "properties", "schemaVersion", "enum"] of
+        Just (Array a) -> take 2 [ t | String t <- foldr (:) [] a ] `shouldBe` ["0.16.0", "0.15.0"]
+        other          -> expectationFailure ("no schemaVersion enum: " ++ show other)
+      parseJSONAST GrammarCoreInversion "<bio>" (docB "0.16.0" "{\"kind\":\"bytes\",\"length\":0}")
+        `shouldBe` Right (parsedB ["(def-shell f [b: bytes[0]] 0)"])
+    it "T-P11 bytes at a haskell.* boundary keeps the refusal, with the FFI-BYTES-1 text; bytes[n] as a parameter is still allowed" $ do
+      let iface ty = "(import haskell.filepath (interface [[take-extension (fn [p: " <> ty <> "] -> string)]]))"
+      errsB [iface "bytes"] `shouldSatisfy`
+        any (\(k, m) -> k == Just "ffi-type-unsupported" && "bytes at the Tier 1 boundary needs FFI-BYTES-1" `T.isInfixOf` m)
+      [ m | (_, m) <- errsB [iface "bytes[4]"], "FFI-BYTES-1" `T.isInfixOf` m ] `shouldBe` []
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

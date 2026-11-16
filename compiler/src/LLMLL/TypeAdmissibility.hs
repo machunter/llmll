@@ -210,6 +210,7 @@ module LLMLL.TypeAdmissibility
   , nullaryEnumArity
     -- * Fact-injection type gates
   , bytesLenOf
+  , isBytesTy
   , boolValuedMapTy
     -- * The shared admissibility predicate
   , admits
@@ -622,6 +623,16 @@ bytesLenOf :: AliasMap -> Type -> Maybe Int
 bytesLenOf am t = case resolveAliasTy am t of
   TBytes n -> Just n
   _        -> Nothing
+
+-- | BYTES-UNSIZED-1: alias-resolved byte-array type test, true for @bytes[n]@
+-- and for the unsized @bytes@. A site that only asks "is this a byte array"
+-- uses this; a site that EARNS a length ('bytesLenOf' above) must not, so an
+-- unsized value never gets an asserted length (FACT-AG-LEN).
+isBytesTy :: AliasMap -> Type -> Bool
+isBytesTy am t = case resolveAliasTy am t of
+  TBytes _ -> True
+  TBytesU  -> True
+  _        -> False
 
 -- | LEVER-A2.2: a map whose keys are int-or-string and values are bool (the
 -- 0\/1-bridged value class). Gates the value-range-fact scoping (@boolValArrs@),

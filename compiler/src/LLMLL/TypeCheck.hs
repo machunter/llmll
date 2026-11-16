@@ -2430,6 +2430,14 @@ checkStatement (STypeDef name body) = do
                 \functions (§13.9)"
            else "its constructors are sealed because the response alphabet is a \
                 \function of the command alphabet"
+  -- BYTES-UNSIZED-1: the bare word `bytes` is the unsized byte type, so a
+  -- user type of that name could never be referred to (every `bytes` in a type
+  -- position reads as the builtin). Refused, on the RESERVED-NAME-1 precedent.
+  -- Checked here, not in a parser, so both front ends refuse it alike.
+  when (name == "bytes") $
+    tcErrorK "reserved-type-name" $
+      "type 'bytes' is reserved: the bare word bytes is the builtin byte type "
+      <> "of any length; rename the type"
   -- Check that dependent type constraints are well-formed
   case body of
     TDependent bindName base constraint -> do

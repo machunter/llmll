@@ -73,8 +73,12 @@ HTTP_WITNESS = """\
 # Constructs the compiler emits that no tracked source happens to use, so SV-1
 # never sees them. The unit literal `()` emits `"lit-unit"`, which the schema
 # did not list until the orchestra repair found it through the fill prompt.
+# BYTES-UNSIZED-1 (schema 0.16.0): no tracked source names the unsized byte
+# type yet, and none declares bytes[0], whose length the schema refused (D1)
+# while the reader accepted it. One witness covers both.
 WITNESSES = {
     "unit literal": "(def-shell nothing [x: int] -> unit ())\n",
+    "bytes-unsized": "(def-shell keep [b: bytes z: bytes[0]] -> bytes b)\n",
 }
 
 
