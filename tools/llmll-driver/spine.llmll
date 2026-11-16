@@ -546,7 +546,8 @@
       ((RNone)   "stage-L=no-exit-status")
       ((RText t) (cat3 "stage-L=unexpected-text:" t ""))
       ((RErr e)  (cat3 "stage-L=run-failed:" e ""))
-      ((RList _) "stage-L=no-exit-status")))
+      ((RList _) "stage-L=no-exit-status")
+      ((RBytes _) "stage-L=no-exit-status")))
 
   ;; ---- stage G2's shell ----------------------------------------------
 
@@ -659,7 +660,8 @@
                       ((RText t)  t)
                       ((RCode n)  (int-to-string n))
                       ((RErr e)   (string-concat "ERR:" e))
-                      ((RList ns) (int-to-string (list-length ns)))))))
+                      ((RList ns) (int-to-string (list-length ns)))
+                      ((RBytes _) "bytes")))))
     ;; s=2: read the artifact the reconciler wrote.
     (if (= s 2)
         (pair 3 (wasi.fs.read "experiments/rfc-swarm/data/reconciliation.json"))
@@ -674,7 +676,8 @@
                     ((RNone)    "stage-E=no-artifact")
                     ((RCode _)  "stage-E=no-artifact")
                     ((RErr e)   (string-concat "stage-E=read-failed:" e))
-                    ((RList _)  "stage-E=no-artifact"))))
+                    ((RList _)  "stage-E=no-artifact")
+                    ((RBytes _) "stage-E=no-artifact"))))
     ;; s=4: read the dispositioned inventory stage J gates on.
     (if (= s 4)
         (pair 5 (wasi.fs.read "experiments/rfc-swarm/data/inventory-dispositioned.json"))
@@ -691,7 +694,8 @@
                   ((RNone)    (wasi.io.stdout "stage-J=no-artifact"))
                   ((RCode _)  (wasi.io.stdout "stage-J=no-artifact"))
                   ((RErr e)   (wasi.io.stdout (string-concat "stage-J=read-failed:" e)))
-                  ((RList _)  (wasi.io.stdout "stage-J=no-artifact"))))
+                  ((RList _)  (wasi.io.stdout "stage-J=no-artifact"))
+                  ((RBytes _) (wasi.io.stdout "stage-J=no-artifact"))))
     ;; s=6: re-read it. A Response carries only the latest command's payload, so
     ;; the inventory parsed at s=5 is gone by now.
     (if (= s 6)
@@ -707,7 +711,8 @@
                     ((RNone)    "stage-J=no-artifact")
                     ((RCode _)  "stage-J=no-artifact")
                     ((RErr e)   (string-concat "stage-J=read-failed:" e))
-                    ((RList _)  "stage-J=no-artifact"))))
+                    ((RList _)  "stage-J=no-artifact")
+                    ((RBytes _) "stage-J=no-artifact"))))
     ;; RC-4: the terminating step's command is not performed (LLMLL.md:1561).
     ;; done? is evaluated on the state a step RETURNS, so the last state must
     ;; carry a throwaway; the stage-E-only spine's (pair 5 (stdout "")) was
@@ -744,7 +749,8 @@
                    ((RNone)   (wasi.io.stdout "stage-L=no-trust-report"))
                    ((RCode _) (wasi.io.stdout "stage-L=no-trust-report"))
                    ((RErr e)  (wasi.io.stdout (string-concat "stage-L=read-failed:" e)))
-                   ((RList _) (wasi.io.stdout "stage-L=no-trust-report"))))
+                   ((RList _) (wasi.io.stdout "stage-L=no-trust-report"))
+                   ((RBytes _) (wasi.io.stdout "stage-L=no-trust-report"))))
     ;; s=11: re-read it, since a Response carries only the latest payload.
     (if (= s 11)
         (pair 12 (wasi.fs.read "/tmp/llmll-spine-tr.json"))
@@ -763,7 +769,8 @@
                      ((RNone)   "stage-L=no-trust-report")
                      ((RCode _) "stage-L=no-trust-report")
                      ((RErr e)  (string-concat "stage-L=read-failed:" e))
-                     ((RList _) "stage-L=no-trust-report"))))
+                     ((RList _) "stage-L=no-trust-report")
+                     ((RBytes _) "stage-L=no-trust-report"))))
     ;; s=13: RFC-COV-1 both ways, at freeze strength.
     (if (= s 13)
         (pair 14 (wasi.proc.run "/usr/bin/python3"
@@ -796,7 +803,8 @@
                      ((RNone)   "stage-G2=no-artifact")
                      ((RCode _) "stage-G2=no-artifact")
                      ((RErr e)  (string-concat "stage-G2=read-failed:" e))
-                     ((RList _) "stage-G2=no-artifact"))))
+                     ((RList _) "stage-G2=no-artifact")
+                     ((RBytes _) "stage-G2=no-artifact"))))
         (pair 18 (wasi.io.stdout ""))))))))))))))))))))
 
   (def-shell spine-done? [s: int] -> bool (>= s 18))

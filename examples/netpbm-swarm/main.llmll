@@ -190,7 +190,8 @@
       ((RErr e)
         (pair (mk 4 args (string-concat-many ["netpbm: " e "\n"])) (wasi.io.stdout "")))
       ((RCode n)
-        (pair (mk 4 args "netpbm: unexpected status response\n") (wasi.io.stdout ""))))))
+        (pair (mk 4 args "netpbm: unexpected status response\n") (wasi.io.stdout "")))
+      ((RBytes _) (pair (mk 4 args "netpbm: unexpected bytes response\n") (wasi.io.stdout ""))))))
 
 (def-shell report [s: State] -> Command
   (if (= (st-phase s) 3)

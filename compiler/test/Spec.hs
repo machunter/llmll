@@ -15095,7 +15095,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "proc-spec", "proc-cwd", "proc-stdin", "proc-stdout", "proc-stderr"
               , "proc-stderr-to-stdout", "proc-env", "seq-commands"
               -- Response constructors: values via builtinCtorNames, not builtins.
-              , "RText", "RCode", "RErr", "RList" ]
+              , "RText", "RCode", "RErr", "RList", "RBytes" ]
             fnNames = [ n | (n, TFn _ _) <- Map.toList builtinEnv, not ("wasi." `T.isPrefixOf` n) ]
         sort [ n | n <- fnNames, not (n `Set.member` modeledBuiltins) ] `shouldBe` sort excluded
 
@@ -18957,7 +18957,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- Prelude entries were confirmed to have zero preamble binding lines.
         resolvedElsewhere =
           [ "abs", "min", "max", "not"
-          , "RNone", "RText", "RCode", "RErr", "RList" ]
+          , "RNone", "RText", "RCode", "RErr", "RList", "RBytes" ]
 
         needsBinding =
           [ n | (n, ty) <- Map.toList builtinEnv
@@ -19032,9 +19032,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- -concat, -concat-many, -from-list, -to-list, -widen, -from-string,
       -- -to-string). All nine take the generic emission to a runtimePreamble
       -- body, so all nine land in needsBinding: 103 -> 112.
-      Map.size builtinEnv      `shouldBe` 144
+      -- 144 -> 145 with BYTES-READ-1's RBytes, a constructor of the data
+      -- Response block, so it lands in resolvedElsewhere: 9 -> 10.
+      Map.size builtinEnv      `shouldBe` 145
       length needsBinding      `shouldBe` 112
-      length resolvedElsewhere `shouldBe` 9
+      length resolvedElsewhere `shouldBe` 10
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
     -- equation is exempt from the preamble check below BY CONSTRUCTION: its
@@ -19940,6 +19942,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "    ((RCode n) n)"
           , "    ((RErr e) 0)"
           , "    ((RList ns) (list-length ns))"
+          -- BYTES-READ-1: the sixth arm.
+          , "    ((RBytes b) (bytes-length b))"
           ]
 
     -- Exhaustiveness is what bounds the unchecked command-to-response pairing:
@@ -19955,7 +19959,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ]
       any (T.isInfixOf "RErr") (msgsOf (srcOf missing)) `shouldBe` True
 
-    it "a match on all five arms is accepted" $
+    it "a match on all six arms is accepted" $
       errsOf (srcOf allArms) `shouldBe` []
 
     -- The fifth arm's own migration diagnostic. A program written against the
@@ -20000,7 +20004,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "the value and type halves declare the same constructors" $ do
       let valueHalf = sort [ n | n <- Map.keys builtinEnv
-                               , n `elem` ["RNone", "RText", "RCode", "RErr", "RList"] ]
+                               , n `elem` ["RNone", "RText", "RCode", "RErr", "RList", "RBytes"] ]
           typeHalf  = sort $ case Map.lookup "Response" builtinAliases of
                         Just (TSumType ctors) -> map fst ctors
                         _                     -> []
@@ -20360,12 +20364,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     -- The arm set does NOT move. CAP-PROC's rule is that needing a new arm is
     -- the signal EFFECT-RESP's arm set was wrong; a vector of strings is what
-    -- RList already carries. Response stays five-wide.
-    it "PB-4: rides the EXISTING RList arm; Response gains no sixth arm" $ do
+    -- RList already carries. PROC-BOUNDARY-1 added no arm; the sixth arm,
+    -- RBytes, is BYTES-READ-1's (a byte payload RList cannot carry).
+    it "PB-4: rides the EXISTING RList arm; PROC-BOUNDARY-1 adds no arm" $ do
       T.isInfixOf "return (RList as)" preambleText `shouldBe` True
       case Map.lookup "Response" builtinAliases of
         Just (TSumType ctors) -> map fst ctors
-                                   `shouldMatchList` ["RNone","RText","RCode","RErr","RList"]
+                                   `shouldMatchList` ["RNone","RText","RCode","RErr","RList","RBytes"]
         _ -> expectationFailure "Response has no TSumType body"
 
     it "PB-5: the preamble defines wasi_proc_args and publishes through llmll_publish_io" $ do
@@ -20744,7 +20749,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- EXHAUSTIVENESS, which is what bounds the pairing residue.
     it "buildAliasMap resolves Response even with no STypeDef in the module" $
       Map.lookup "Response" (buildAliasMap []) `shouldSatisfy` \m -> case m of
-        Just (TSumType ctors) -> length ctors == 5   -- Rev 5 added RList
+        Just (TSumType ctors) -> length ctors == 6   -- Rev 5 added RList, BYTES-READ-1 RBytes
         _                     -> False
 
     it "a module's own aliases still win the union" $ do
@@ -29159,6 +29164,74 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       sort (erBodyFaithfulFns erBad) `shouldBe` ["get3", "use"]
       expectSolveS erOk "Safe"
       expectSolveS erBad "Unsafe"
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S6 (BYTES-READ-1): the sixth Response arm, RBytes. It sits
+  -- last, so tags 0 to 4 keep their numbers; a five-arm exhaustive match now
+  -- fails check, and that one message carries its repair (F11).
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S6: the RBytes arm" $ do
+    let parsedA src = case parseStatements GrammarCoreInversion "<bio6>" (T.unlines src) of
+          Left err -> error ("BYTE-IO S6 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsA src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedA src))
+                    , diagSeverity d == SevError ]
+        emitA src =
+          let ss = parsedA src
+              (_, retTypes) = typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv ss
+          in emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty retTypes ss
+        fiveArms = [ "(def-shell k [r: Response] -> int"
+                   , "  (match r ((RNone) 0) ((RText t) 1) ((RCode c) 2) ((RErr e) 3) ((RList l) 4)))" ]
+        repair = "; add ((RBytes _) ...) or a wildcard (_ ...)"
+    it "T-A1 RBytes is the sixth and last arm, with payload bytes" $ do
+      case Map.lookup "Response" builtinAliases of
+        Just (TSumType ctors) -> do
+          map fst ctors `shouldBe` ["RNone", "RText", "RCode", "RErr", "RList", "RBytes"]
+          lookup "RBytes" ctors `shouldBe` Just (Just TBytesU)
+        _ -> expectationFailure "Response has no TSumType body"
+      Map.lookup "RBytes" builtinEnv `shouldBe` Just (TFn [TBytesU] (TCustom "Response"))
+    it "T-A2 a five-arm exhaustive match fails, naming RBytes, with the one-line repair" $ do
+      let es = errsA fiveArms
+      map fst es `shouldBe` [Just "non-exhaustive-match"]
+      map snd es `shouldBe`
+        [ "non-exhaustive match in 'k': type 'RNone | RText | RCode | RErr | RList | RBytes' "
+          <> "has unmatched constructors: RBytes (covered: RNone, RText, RCode, RErr, RList)" <> repair ]
+      -- Another missing arm with RBytes covered: no repair text, since it
+      -- would name the wrong arm.
+      let noList = [ "(def-shell k [r: Response] -> int"
+                   , "  (match r ((RNone) 0) ((RText t) 1) ((RCode c) 2) ((RErr e) 3) ((RBytes b) 5)))" ]
+      map snd (errsA noList) `shouldSatisfy` all (not . T.isInfixOf "add ((RBytes")
+      -- A user sum keeps its message byte for byte.
+      map snd (errsA [ "(type T (| A int) (| B int))"
+                     , "(def-shell u [t: T] -> int (match t ((A x) x)))" ])
+        `shouldBe` ["non-exhaustive match in 'u': type 'A | B' has unmatched constructors: B (covered: A)"]
+    it "T-A3 a wildcard match and a six-arm match both check" $ do
+      errsA [ "(def-shell k [r: Response] -> int"
+            , "  (match r ((RCode c) c) (_ 0)))" ] `shouldBe` []
+      errsA [ "(def-shell k [r: Response] -> int"
+            , "  (match r ((RNone) 0) ((RText t) 1) ((RCode c) 2) ((RErr e) 3) ((RList l) 4)"
+            , "    ((RBytes b) (bytes-length b))))" ] `shouldBe` []
+    it "T-A4 RBytes is a builtin constructor of the evaluator, the preamble and the reserved names" $ do
+      Set.member "RBytes" builtinCtorNames `shouldBe` True
+      isReservedHsName "RBytes" `shouldBe` True
+      let pre = T.lines (T.unlines runtimePreamble)
+          resp = takeWhile (not . T.isInfixOf "deriving") (dropWhile (/= "data Response") pre)
+      resp `shouldBe` [ "data Response", "  = RNone", "  | RText String", "  | RCode Integer"
+                      , "  | RErr String", "  | RList [String]", "  | RBytes BS.ByteString" ]
+    it "T-A5 the .fq tag domain of a Response binder gains exactly one disjunct, tag 5" $ do
+      er <- emitA [ "(def-shell code-of [r: Response] -> int"
+                  , "  (post (>= result 0))"
+                  , "  (match r ((RCode c) (if (>= c 0) c 0)) ((RText t) 1) (_ 2)))" ]
+      let tagLines = [ l | l <- T.lines (erFQText er), "r_tag :" `T.isInfixOf` l ]
+      tagLines `shouldBe`
+        [ "bind 0 r_tag : { v : int | r_tag = 0 || r_tag = 1 || r_tag = 2 || r_tag = 3 || r_tag = 4 || r_tag = 5 }" ]
+      erBodyFaithfulFns er `shouldBe` ["code-of"]
+    it "T-A6 an RBytes construction checks at bytes only" $ do
+      errsA [ "(def-shell wrap [b: bytes] -> Response (RBytes b))" ] `shouldBe` []
+      errsA [ "(def-shell wrap [s: string] -> Response (RBytes s))" ] `shouldNotBe` []
+      errsA [ "(def-shell wrap [b: bytes[8]] -> Response (RBytes b))" ] `shouldNotBe` []
+      errsA [ "(def-shell wrap [b: bytes[8]] -> Response (RBytes (bytes-widen b)))" ] `shouldBe` []
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

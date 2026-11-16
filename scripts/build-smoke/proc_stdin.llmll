@@ -40,7 +40,8 @@
       ((RErr e)   e)
       ((RNone)    "")
       ((RCode n)  "")
-      ((RList xs) "")))
+      ((RList xs) "")
+      ((RBytes _) "")))
 
   ;; The report is a one-line summary so the harness compares text, not layout.
   (def-shell ps-report [tag: string t: string] -> string

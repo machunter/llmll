@@ -445,6 +445,9 @@ builtinEnv = Map.fromList $
   -- be persisted and re-read without inventing a delimiter, and a filename may
   -- contain a newline.
   , ("RList",              TFn [TList TString] (TCustom "Response"))
+  -- BYTES-READ-1: the sixth arm. Producers are wasi.fs.read-bytes and
+  -- wasi.io.stdin-bytes. The payload is the unsized bytes type.
+  , ("RBytes",             TFn [TBytesU] (TCustom "Response"))
   -- §13.11 Cryptographic operations (v0.6.1)
   -- Opaque primitives backed by real Haskell crypto in preamble.
   -- Correctness is outside the decidable fragment — classified as Asserted.
@@ -1611,6 +1614,13 @@ tcEmitNonExhaustive typeName missing covered = do
   modify $ \s -> s
     { tcErrors = tcErrors s ++ [mkNonExhaustiveMatch fn typeName missing covered] }
 
+-- | 'tcEmitNonExhaustive' with a repair appended to the message (BYTES-READ-1).
+tcEmitNonExhaustiveRepair :: Name -> [Name] -> [Name] -> Text -> TC ()
+tcEmitNonExhaustiveRepair typeName missing covered repair = do
+  fn <- gets (maybe "<top>" id . tcCurrentFn)
+  let d = mkNonExhaustiveMatch fn typeName missing covered
+  modify $ \s -> s { tcErrors = tcErrors s ++ [d { diagMessage = diagMessage d <> repair }] }
+
 -- | The initial 'TCState', shared by the three entry points below.
 --
 -- Factored out with ADMIT-SHARED for one reason: the alias map is no longer
@@ -2098,7 +2108,7 @@ checkStatements rawStmts = do
             "constructor '" <> ctorName <> "' is reserved: True and False are "
             <> "the constructors of bool; rename it"
     -- RESERVED-NAME-1: a constructor may not take a builtin's name either
-    -- (the Response constructors RNone, RText, RCode, RErr, RList are builtin
+    -- (the Response constructors RNone, RText, RCode, RErr, RList, RBytes are builtin
     -- keys). Before this, plain check only warned (Phase 2 below) and the
     -- strict checker in `llmll build` then rejected the same program, so check
     -- and build disagreed. Same rule and kind as the top-level form in
@@ -3638,7 +3648,10 @@ checkExhaustive scrutTy arms = do
         let allCtors  = map fst ctors
             missing   = filter (`notElem` covered) allCtors
         unless (null missing) $
-          tcEmitNonExhaustive (typeLabel scrutTy) missing covered
+          if isResponseSum && "RBytes" `elem` missing
+            then tcEmitNonExhaustiveRepair (typeLabel scrutTy) missing covered
+                   "; add ((RBytes _) ...) or a wildcard (_ ...)"
+            else tcEmitNonExhaustive (typeLabel scrutTy) missing covered
       TResult _ _ -> do
         -- Built-in: Success / Error must both be present
         -- NOTE: TPair is handled by the fallthrough `_ -> pure ()` case below;
@@ -3658,6 +3671,10 @@ checkExhaustive scrutTy arms = do
     isWild PWildcard = True
     isWild (PVar _)  = True
     isWild _         = False
+    -- BYTES-READ-1 (F11): the sixth Response arm breaks every exhaustive
+    -- five-arm match, so that one message carries its one-line repair. Every
+    -- other sum keeps its message byte for byte.
+    isResponseSum = Just scrutTy == Map.lookup "Response" builtinAliases
 
 -- ---------------------------------------------------------------------------
 -- Pattern Checking

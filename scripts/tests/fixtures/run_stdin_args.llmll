@@ -23,7 +23,8 @@
     ((RText t)  (pair (+ s 1) (wasi.io.stdout "NOARGS")))
     ((RErr e)   (pair (+ s 1) (wasi.io.stdout "NOARGS")))
     ((RCode n)  (pair (+ s 1) (wasi.io.stdout "NOARGS")))
-    ((RList ns) (pair (+ s 1) (wasi.io.stdout (string-concat-many ns))))))
+    ((RList ns) (pair (+ s 1) (wasi.io.stdout (string-concat-many ns))))
+    ((RBytes _) (pair (+ s 1) (wasi.io.stdout "NOARGS")))))
 
 (def-shell ra-done? [s: int] -> bool
   (> s 1))

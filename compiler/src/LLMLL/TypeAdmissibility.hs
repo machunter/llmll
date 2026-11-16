@@ -259,9 +259,15 @@ buildAliasMap stmts =
 -- hand; the constructor set here is the one the exhaustiveness check reads.
 --
 -- Payload classes are 'string' and 'int' only, both inside Σ_auto, which is why
--- this addition does not widen the verification fragment. There is deliberately
--- no RBytes arm: @bytes[n]@ needs a literal type-level length and a file read's
--- length is not statically known. Binary reads are a named residue.
+-- this addition does not widen the verification fragment.
+--
+-- BYTES-READ-1 (BYTE-IO step 3): the sixth arm, RBytes, carries the unsized
+-- @bytes@ type ('TBytesU'), which a file read needs because its length is not
+-- statically known. It sits LAST so tags 0 to 4 keep their numbers in the .fq
+-- tag domain. Its payload sorts as the byte array, which 'admissiblePayload'
+-- refuses, so a match that names RBytes falls back; a wildcard arm keeps its
+-- verdict. 'LLMLL.RespFact' gets no row for it: the one candidate fact,
+-- bytesLen(b) >= 0, is already given by the measure discipline.
 builtinAliases :: AliasMap
 builtinAliases = Map.fromList
   [ ("Response", TSumType
@@ -273,6 +279,8 @@ builtinAliases = Map.fromList
       -- carrier, so a body matching this arm falls back exactly as any
       -- list-mentioning body does. No fragment widening.
       , ("RList", Just (TList TString))
+      -- BYTES-READ-1: last, so the five existing tags keep their numbers.
+      , ("RBytes", Just TBytesU)
       ])
   ]
 

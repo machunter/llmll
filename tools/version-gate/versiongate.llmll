@@ -304,7 +304,8 @@
       ((RErr _)  "")
       ((RNone)   "")
       ((RCode _) "")
-      ((RList _) "")))
+      ((RList _) "")
+      ((RBytes _) "")))
 
   (def-shell argv-of [r: Response] -> list[string]
     (match r
@@ -312,7 +313,8 @@
       ((RNone)    (list-empty))
       ((RText _)  (list-empty))
       ((RCode _)  (list-empty))
-      ((RErr _)   (list-empty))))
+      ((RErr _)   (list-empty))
+      ((RBytes _) (list-empty))))
 
   (def-shell flag-value [as: list[string] f: string] -> string
     (first (list-fold as (pair "" false)

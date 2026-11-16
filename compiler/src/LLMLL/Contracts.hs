@@ -515,7 +515,7 @@ evalExprStaticWithCtors = evalC
 -- | The sealed 'Response' constructors (TypeCheck.hs builtinEnv, EFFECT-RESP).
 -- Pure values, so a property may build one and pass it to a step function.
 builtinCtorNames :: Set Name
-builtinCtorNames = Set.fromList ["RNone", "RText", "RCode", "RErr", "RList"]
+builtinCtorNames = Set.fromList ["RNone", "RText", "RCode", "RErr", "RList", "RBytes"]
 
 evalC :: Set Name -> FuncEnv -> Int -> Map Name Expr -> Expr -> Maybe Expr
 

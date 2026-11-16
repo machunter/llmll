@@ -96,7 +96,8 @@
     ((RNone)    (list-empty))
     ((RText _)  (list-empty))
     ((RCode _)  (list-empty))
-    ((RErr _)   (list-empty))))
+    ((RErr _)   (list-empty))
+    ((RBytes _) (list-empty))))
 
 (def-shell last-field [xs: list[string]] -> string
   (unwrap-or (list-nth xs (- (list-length xs) 1)) ""))

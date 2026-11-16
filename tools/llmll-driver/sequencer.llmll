@@ -956,7 +956,8 @@
       ((RErr _)   "")
       ((RNone)    "")
       ((RCode _)  "")
-      ((RList _)  "")))
+      ((RList _)  "")
+      ((RBytes _) "")))
 
   ;; The same projection as hex-of, named for what the 4d arms read out of
   ;; it: a transcript or a file, present when the read answered text.
@@ -972,7 +973,8 @@
       ((RText _)  0)
       ((RErr _)   0)
       ((RNone)    0)
-      ((RList _)  0)))
+      ((RList _)  0)
+      ((RBytes _) 0)))
 
   ;; Whole seconds. json-of-int is the only numeric injection, so the field
   ;; cannot carry the reference's one-decimal float; see manifest.llmll's
@@ -1083,7 +1085,8 @@
       ((RErr _)   (start-run (with-man rn (empty-manifest))))
       ((RNone)    (start-run (with-man rn (empty-manifest))))
       ((RCode _)  (start-run (with-man rn (empty-manifest))))
-      ((RList _)  (start-run (with-man rn (empty-manifest))))))
+      ((RList _)  (start-run (with-man rn (empty-manifest))))
+      ((RBytes _) (start-run (with-man rn (empty-manifest))))))
 
   ;; THE `wave` SUB-COMMAND IS DISPATCHED BEFORE `parse-cfg`, and the order is
   ;; not a style choice. Cover cells W5 and W6 assert the WAVE's usage text at
@@ -1610,7 +1613,8 @@
           ((RErr _)  (pre-absent rn b i j "is absent or is not readable text"))
           ((RNone)   (pre-absent rn b i j "was not readable"))
           ((RCode _) (pre-absent rn b i j "was not readable"))
-          ((RList _) (pre-absent rn b i j "was not readable"))))))
+          ((RList _) (pre-absent rn b i j "was not readable"))
+          ((RBytes _) (pre-absent rn b i j "was not readable"))))))
 
   ;; ---- Srcs and Src ----------------------------------------------------
 
@@ -1620,7 +1624,8 @@
       ((RText _)  (list-empty))
       ((RErr _)   (list-empty))
       ((RNone)    (list-empty))
-      ((RCode _)  (list-empty))))
+      ((RCode _)  (list-empty))
+      ((RBytes _) (list-empty))))
 
   (def-shell src-path [c: Cfg n: string] -> string
     (wd-path c (string-concat "00-source/" n)))
@@ -1663,7 +1668,8 @@
                       "no agent can cite."])))
       ((RNone)   (halt-verdict rn (b-k b) Absent "pinned source unreadable"))
       ((RCode _) (halt-verdict rn (b-k b) Absent "pinned source unreadable"))
-      ((RList _) (halt-verdict rn (b-k b) Absent "pinned source unreadable"))))
+      ((RList _) (halt-verdict rn (b-k b) Absent "pinned source unreadable"))
+      ((RBytes _) (halt-verdict rn (b-k b) Absent "pinned source unreadable"))))
 
   ;; ---- Prov and Copy ---------------------------------------------------
   ;;
@@ -1692,7 +1698,8 @@
       ((RText _)  (list-empty))
       ((RErr _)   (list-empty))
       ((RNone)    (list-empty))
-      ((RCode _)  (list-empty))))
+      ((RCode _)  (list-empty))
+      ((RBytes _) (list-empty))))
 
   ;; The rubric write that closes the provisioning (:651). Stage D's single
   ;; precondition value IS the rubric text, mode RAW.
@@ -1820,7 +1827,8 @@
                         "--prompts-dir " (ag-prompts (cfg-agent (cfg-of rn)))])))
         ((RNone)   (halt-verdict rn (b-k b) Absent "prompt template unreadable"))
         ((RCode _) (halt-verdict rn (b-k b) Absent "prompt template unreadable"))
-        ((RList _) (halt-verdict rn (b-k b) Absent "prompt template unreadable")))))
+        ((RList _) (halt-verdict rn (b-k b) Absent "prompt template unreadable"))
+        ((RBytes _) (halt-verdict rn (b-k b) Absent "prompt template unreadable")))))
 
   ;; ---- Delegate --------------------------------------------------------
   ;;
@@ -1859,7 +1867,8 @@
                "larger --timeout, or treat the overrun as a finding."])))
         ((RText _) (halt-errored rn (b-k b) "agent produced no exit status"))
         ((RNone)   (halt-errored rn (b-k b) "agent produced no exit status"))
-        ((RList _) (halt-errored rn (b-k b) "agent produced no exit status")))))
+        ((RList _) (halt-errored rn (b-k b) "agent produced no exit status"))
+        ((RBytes _) (halt-errored rn (b-k b) "agent produced no exit status")))))
 
   ;; ---- content-shape extraction (4c) -----------------------------------
   ;;
@@ -2437,7 +2446,8 @@
                  "s budget, or could not be started (" e ")"])))
           ((RText _) (halt-errored rn (kc-k d) "stage K: llmll check produced no exit status"))
           ((RNone)   (halt-errored rn (kc-k d) "stage K: llmll check produced no exit status"))
-          ((RList _) (halt-errored rn (kc-k d) "stage K: llmll check produced no exit status"))))))
+          ((RList _) (halt-errored rn (kc-k d) "stage K: llmll check produced no exit status"))
+          ((RBytes _) (halt-errored rn (kc-k d) "stage K: llmll check produced no exit status"))))))
 
   ;; ---- N ---------------------------------------------------------------
   ;;
@@ -2676,7 +2686,8 @@
       ((RText _) false)
       ((RNone)   false)
       ((RCode _) false)
-      ((RList _) false)))
+      ((RList _) false)
+      ((RBytes _) false)))
 
   (def-shell o-copy-detail [rn: Run l: Loop] -> string
     (string-concat-many
@@ -2827,7 +2838,8 @@
                       (source-name (a-url l)) " is unchanged"])))
       ((RText _) (halt-errored rn (lp-k l) "stage A: the fetch produced no arm"))
       ((RCode _) (halt-errored rn (lp-k l) "stage A: the fetch produced no arm"))
-      ((RList _) (halt-errored rn (lp-k l) "stage A: the fetch produced no arm"))))
+      ((RList _) (halt-errored rn (lp-k l) "stage A: the fetch produced no arm"))
+      ((RBytes _) (halt-errored rn (lp-k l) "stage A: the fetch produced no arm"))))
 
   (def-shell adigest-step [rn: Run l: Loop r: Response] -> ((Run, Ctl), Command)
     (if (present? r)
@@ -3115,7 +3127,8 @@
       ((RErr e)  (halt-errored rn (sp-k d)
                    (string-concat-many
                      ["stage E: reconcile.py could not be run (" e ")"])))
-      ((RList _) (halt-errored rn (sp-k d) (e-exit-detail rn (- 0 1))))))
+      ((RList _) (halt-errored rn (sp-k d) (e-exit-detail rn (- 0 1))))
+      ((RBytes _) (halt-errored rn (sp-k d) (e-exit-detail rn (- 0 1))))))
 
   (def-shell e-read-step [rn: Run d: (int, (int, (int, (bool, (string, Json))))) r: Response] -> ((Run, Ctl), Command)
     (if (not (present? r))
@@ -3511,7 +3524,8 @@
       ((RList _)  (l-decide rn d (- 0 1)))
       ((RErr e)   (halt-errored rn (sp-k d)
                     (string-concat-many
-                      ["stage L: RFC-COV-1 could not be run (" e ")"])))))
+                      ["stage L: RFC-COV-1 could not be run (" e ")"])))
+      ((RBytes _) (l-decide rn d (- 0 1)))))
 
   (def-shell l-arm-step [rn: Run d: (int, (int, (int, (bool, (string, Json))))) r: Response] -> ((Run, Ctl), Command)
     (if (= (sp-s d) 0)
@@ -3582,7 +3596,8 @@
       ((RErr _)   (outp-decide rn b false 0 ""))
       ((RNone)    (outp-decide rn b false 0 ""))
       ((RCode _)  (outp-decide rn b false 0 ""))
-      ((RList _)  (outp-decide rn b false 0 ""))))
+      ((RList _)  (outp-decide rn b false 0 ""))
+      ((RBytes _) (outp-decide rn b false 0 ""))))
 
   ;; The reference's outputs map is comprehended over the declared outputs THAT
   ;; EXIST (:2010-2011), so a missing artifact yields a SHORT map rather than a

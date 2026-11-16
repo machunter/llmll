@@ -1189,6 +1189,9 @@ runtimePreamble =
   , "  | RCode Integer"
   , "  | RErr String"
   , "  | RList [String]"
+  -- BYTES-READ-1: last, as in builtinAliases. Strict ByteString, the lowering
+  -- of the unsized bytes type (toHsType TBytesU).
+  , "  | RBytes BS.ByteString"
   , "  deriving (Eq, Show)"
   , ""
   , "{-# NOINLINE llmll_response_slot #-}"
@@ -3776,7 +3779,7 @@ hsImportedNames =
 -- rule in 'isReservedHsName' and are not repeated here.
 hsPreambleNames :: [Text]
 hsPreambleNames =
-  [ "Response", "RNone", "RText", "RCode", "RErr", "RList"
+  [ "Response", "RNone", "RText", "RCode", "RErr", "RList", "RBytes"
   , "Json", "JNull", "JBool", "JNum", "JStr", "JArr", "JObj"
   , "ProcSpec"
   , "bit_and", "bit_or", "bit_shl", "bit_shr", "bit_xor"

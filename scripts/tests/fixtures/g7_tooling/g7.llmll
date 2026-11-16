@@ -24,7 +24,8 @@
     ((RErr e)   (string-concat "RErr " e))
     ((RList es) (string-concat "RList "
                   (list-fold es "" (fn [acc: string e: string]
-                    (string-concat acc (string-concat e "<<SEP>>"))))))))
+                    (string-concat acc (string-concat e "<<SEP>>"))))))
+    ((RBytes _) "RBytes")))
 
 ;; Every line of the corpus, normalized, one per output line.
 (def-shell norm-all [text: string] -> string

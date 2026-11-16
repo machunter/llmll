@@ -47,7 +47,8 @@
       ((RNone)    (pair (+ s 1) (wasi.io.stdout "RNone")))
       ((RErr e)   (pair (+ s 1) (wasi.io.stdout (string-concat "RErr " e))))
       ((RText t)  (pair (+ s 1) (wasi.io.stdout (string-concat "RText " t))))
-      ((RCode n)  (pair (+ s 1) (wasi.io.stdout (string-concat "RCode " (int-to-string n)))))))
+      ((RCode n)  (pair (+ s 1) (wasi.io.stdout (string-concat "RCode " (int-to-string n)))))
+      ((RBytes _) (pair (+ s 1) (wasi.io.stdout "RBytes")))))
 
   (def hg-done? [s: int] -> bool
     (>= s 3))
