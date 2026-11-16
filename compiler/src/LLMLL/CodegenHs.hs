@@ -540,22 +540,140 @@ runtimePreamble =
   , "-- §13.12 Bytes / map operations (Lever A stage A0)."
   , "-- Builtin contracts fire here as runtime assertions (the §5.3.4 backstop);"
   , "-- verify-time discharge of the same obligations is stage A1/A2."
-  , "bytes_length :: [Word8] -> Int"
-  , "bytes_length = length"
+  -- BYTES-UNSIZED-1: the class, both instances, the three dispatching names and
+  -- the nine new operations. A verbatim copy of the LLMLL.RuntimePure blocks
+  -- (PBT-EVAL-PARITY-1 checks it line for line); the list instance holds the
+  -- v0.39.0 [Word8] bodies, and bytes_length / bytes_get / bytes_set stay
+  -- top-level names, so emitApp and build-smoke see them where they were.
+  , "-- BYTES-UNSIZED-1 (byte-io-proposal Part 4). bytes[n] lowers to [Word8] and"
+  , "-- bytes to a strict ByteString; one class gives both the three operations, so"
+  , "-- codegen emits one name per operation. The list instance holds the v0.39.0"
+  , "-- [Word8] bodies unchanged (a [w] head keeps it Haskell 2010; bytes[n] only"
+  , "-- ever reaches it at Word8). llmll_uB forces a result; llmll_bytesLabel names"
+  , "-- the value in a clause message."
+  , "class LlmllBytes b where"
+  , "  llmll_bytesLength :: b -> Int"
+  , "  llmll_bytesGet    :: b -> Integer -> Integer"
+  , "  llmll_bytesSet    :: b -> Integer -> Integer -> b"
+  , "  llmll_uB          :: b -> ()"
+  , "  llmll_bytesLabel  :: b -> String"
   , ""
-  -- INT-INDEX-WRAP-1: the index is the unbounded int, compared before it is
-  -- narrowed. A narrowing seam used to wrap 2^64 + 1 to 1, so the runtime
-  -- precondition saw an in-bounds index and wrote the wrong byte.
-  , "bytes_get :: [Word8] -> Integer -> Integer"
-  , "bytes_get b i"
-  , "  | i < 0 || i >= toInteger (length b) = error (\"bytes-get: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
-  , "  | otherwise                          = fromIntegral (b !! fromInteger i)"
+  , "instance Integral w => LlmllBytes [w] where"
+  , "  llmll_bytesLength = length"
+  , "  llmll_bytesGet b i"
+  , "    | i < 0 || i >= toInteger (length b) = error (\"bytes-get: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+  , "    | otherwise                          = fromIntegral (b !! fromInteger i)"
+  , "  llmll_bytesSet b i v"
+  , "    | i < 0 || i >= toInteger (length b) = error (\"bytes-set: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+  , "    | v < 0 || v > 255                   = error (\"bytes-set: pre-condition failed: value \" ++ show v ++ \" outside byte range 0..255\")"
+  , "    | otherwise                          = let k = fromInteger i in take k b ++ [fromIntegral v] ++ drop (k + 1) b"
+  , "  llmll_uB = llmll_uS"
+  , "  llmll_bytesLabel b = \"bytes[\" ++ show (length b) ++ \"]\""
   , ""
-  , "bytes_set :: [Word8] -> Integer -> Integer -> [Word8]"
-  , "bytes_set b i v"
-  , "  | i < 0 || i >= toInteger (length b) = error (\"bytes-set: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
-  , "  | v < 0 || v > 255                   = error (\"bytes-set: pre-condition failed: value \" ++ show v ++ \" outside byte range 0..255\")"
-  , "  | otherwise                          = let k = fromInteger i in take k b ++ [fromIntegral v] ++ drop (k + 1) b"
+  , "-- The index is the unbounded int, compared before it is narrowed"
+  , "-- (INT-INDEX-WRAP-1), so 2^64 + 1 is out of bounds, not index 1."
+  , "instance LlmllBytes BS.ByteString where"
+  , "  llmll_bytesLength = BS.length"
+  , "  llmll_bytesGet b i"
+  , "    | i < 0 || i >= toInteger (BS.length b) = error (\"bytes-get: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes of length \" ++ show (BS.length b))"
+  , "    | otherwise                             = toInteger (BS.index b (fromInteger i))"
+  , "  llmll_bytesSet b i v"
+  , "    | i < 0 || i >= toInteger (BS.length b) = error (\"bytes-set: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes of length \" ++ show (BS.length b))"
+  , "    | v < 0 || v > 255                      = error (\"bytes-set: pre-condition failed: value \" ++ show v ++ \" outside byte range 0..255\")"
+  , "    | otherwise                             = let k = fromInteger i in BS.concat [BS.take k b, BS.singleton (fromInteger v), BS.drop (k + 1) b]"
+  , "  llmll_uB b = b `seq` ()"
+  , "  llmll_bytesLabel b = \"bytes of length \" ++ show (BS.length b)"
+  , ""
+  , "bytes_length :: LlmllBytes b => b -> Int"
+  , "bytes_length = llmll_bytesLength"
+  , ""
+  , "bytes_get :: LlmllBytes b => b -> Integer -> Integer"
+  , "bytes_get = llmll_bytesGet"
+  , ""
+  , "bytes_set :: LlmllBytes b => b -> Integer -> Integer -> b"
+  , "bytes_set = llmll_bytesSet"
+  , ""
+  , "-- The length comes first. A length past the Int range stops rather than wraps."
+  , "bytes_make :: Integer -> Integer -> BS.ByteString"
+  , "bytes_make n v"
+  , "  | n < 0                           = error (\"bytes-make: pre-condition failed: length \" ++ show n ++ \" is negative\")"
+  , "  | v < 0 || v > 255                = error (\"bytes-make: pre-condition failed: value \" ++ show v ++ \" outside byte range 0..255\")"
+  , "  | n > toInteger (maxBound :: Int) = error (\"bytes-make: length \" ++ show n ++ \" is too large to represent\")"
+  , "  | otherwise                       = BS.replicate (fromInteger n) (fromInteger v)"
+  , ""
+  , "-- The half-open range [s, e). A pre, not a clamp: an offset error stops here."
+  , "bytes_slice :: BS.ByteString -> Integer -> Integer -> BS.ByteString"
+  , "bytes_slice b s e"
+  , "  | s < 0 || s > e || e > toInteger (BS.length b) = error (\"bytes-slice: pre-condition failed: range [\" ++ show s ++ \", \" ++ show e ++ \") outside bytes of length \" ++ show (BS.length b))"
+  , "  | otherwise                                     = BS.take (fromInteger (e - s)) (BS.drop (fromInteger s) b)"
+  , ""
+  , "bytes_concat :: BS.ByteString -> BS.ByteString -> BS.ByteString"
+  , "bytes_concat a b = BS.append a b"
+  , ""
+  , "bytes_concat_many :: [BS.ByteString] -> BS.ByteString"
+  , "bytes_concat_many = BS.concat"
+  , ""
+  , "bytes_to_list :: BS.ByteString -> [Integer]"
+  , "bytes_to_list b = map toInteger (BS.unpack b)"
+  , ""
+  , "bytes_widen :: [Word8] -> BS.ByteString"
+  , "bytes_widen = BS.pack"
+  , ""
+  , "-- Error k: k is the index of the first element outside 0..255."
+  , "bytes_from_list :: [Integer] -> Either Integer BS.ByteString"
+  , "bytes_from_list xs = case [ k | (k, x) <- zip [0 ..] xs, x < 0 || x > 255 ] of"
+  , "  (k : _) -> Left k"
+  , "  []      -> Right (BS.pack (map fromInteger xs))"
+  , ""
+  , "-- UTF-8. A lone surrogate U+DC80..U+DCFF is the byte GHC could not decode in"
+  , "-- argv or a directory name, so it maps back to that one byte; any other lone"
+  , "-- surrogate encodes as U+FFFD. Each code point gives 1 to 4 bytes."
+  , "bytes_from_string :: String -> BS.ByteString"
+  , "bytes_from_string s = BS.pack (concatMap llmll_utf8Enc s)"
+  , ""
+  , "llmll_utf8Enc :: Char -> [Word8]"
+  , "llmll_utf8Enc ch"
+  , "  | c >= 0xDC80 && c <= 0xDCFF = [fromIntegral (c - 0xDC00)]"
+  , "  | c >= 0xD800 && c <= 0xDFFF = [0xEF, 0xBF, 0xBD]"
+  , "  | c < 0x80                   = [fromIntegral c]"
+  , "  | c < 0x800                  = [fromIntegral (0xC0 + c `div` 64), fromIntegral (0x80 + c `mod` 64)]"
+  , "  | c < 0x10000                = [fromIntegral (0xE0 + c `div` 4096), fromIntegral (0x80 + (c `div` 64) `mod` 64), fromIntegral (0x80 + c `mod` 64)]"
+  , "  | otherwise                  = [fromIntegral (0xF0 + c `div` 262144), fromIntegral (0x80 + (c `div` 4096) `mod` 64), fromIntegral (0x80 + (c `div` 64) `mod` 64), fromIntegral (0x80 + c `mod` 64)]"
+  , "  where c = LChar.ord ch"
+  , ""
+  , "-- Strict UTF-8 (RFC 3629: no overlong form, no surrogate, nothing past"
+  , "-- U+10FFFF). Error k: k is the offset of the first byte of the first invalid"
+  , "-- or truncated sequence. The result never holds a lone surrogate."
+  , "bytes_to_string :: BS.ByteString -> Either Integer String"
+  , "bytes_to_string b = llmll_utf8Dec b 0 []"
+  , ""
+  , "llmll_utf8Dec :: BS.ByteString -> Int -> String -> Either Integer String"
+  , "llmll_utf8Dec b k acc"
+  , "  | k >= n                                                       = Right (reverse acc)"
+  , "  | x < 0x80                                                     = next 1 x"
+  , "  | x >= 0xC2 && x <= 0xDF && cb 1 0x80 0xBF                     = next 2 ((x - 0xC0) * 64 + y 1)"
+  , "  | x == 0xE0 && cb 1 0xA0 0xBF && cb 2 0x80 0xBF                = next 3 three"
+  , "  | x == 0xED && cb 1 0x80 0x9F && cb 2 0x80 0xBF                = next 3 three"
+  , "  | x >= 0xE1 && x <= 0xEF && x /= 0xED && cb 1 0x80 0xBF && cb 2 0x80 0xBF = next 3 three"
+  , "  | x == 0xF0 && cb 1 0x90 0xBF && cb 2 0x80 0xBF && cb 3 0x80 0xBF = next 4 four"
+  , "  | x >= 0xF1 && x <= 0xF3 && cb 1 0x80 0xBF && cb 2 0x80 0xBF && cb 3 0x80 0xBF = next 4 four"
+  , "  | x == 0xF4 && cb 1 0x80 0x8F && cb 2 0x80 0xBF && cb 3 0x80 0xBF = next 4 four"
+  , "  | otherwise                                                    = Left (toInteger k)"
+  , "  where"
+  , "    n = BS.length b"
+  , "    x = at 0"
+  , "    at j = fromIntegral (BS.index b (k + j)) :: Int"
+  , "    cb j lo hi = k + j < n && at j >= lo && at j <= hi"
+  , "    y j = at j - 0x80"
+  , "    three = (x - 0xE0) * 4096 + y 1 * 64 + y 2"
+  , "    four = (x - 0xF0) * 262144 + y 1 * 4096 + y 2 * 64 + y 3"
+  , "    next m cp = llmll_utf8Dec b (k + m) (LChar.chr cp : acc)"
+  , ""
+  , "-- The forcer of a Result whose Error carries an int (bytes-from-list,"
+  , "-- bytes-to-string); llmll_uE's Error carries a string."
+  , "llmll_uEI :: (a -> ()) -> Either Integer a -> ()"
+  , "llmll_uEI _ (Left k)  = k `seq` ()"
+  , "llmll_uEI r (Right v) = r v"
   , ""
   -- INT-INDEX-WRAP-1 (D2): a timeout in microseconds, clamped into Int before
   -- System.Timeout sees it. Inside Int64 it is the identity; a count past
@@ -595,16 +713,31 @@ runtimePreamble =
   , "  Just v  -> v"
   , "  Nothing -> error (ctx ++ \" is undefined: map-get key \" ++ show k ++ \" not present\")"
   , ""
-  , "llmll_cl_bytes_get :: String -> [Word8] -> Integer -> Integer"
+  -- BYTES-UNSIZED-1: the two byte helpers take either byte type (the class);
+  -- llmll_bytesLabel prints bytes[n] for the list instance, so a bytes[n]
+  -- clause message is the v0.39.0 text. bytes-make and bytes-slice are partial
+  -- too, so a clause guards them the same way.
+  , "llmll_cl_bytes_get :: LlmllBytes b => String -> b -> Integer -> Integer"
   , "llmll_cl_bytes_get ctx b i"
-  , "  | i < 0 || i >= toInteger (length b) = error (ctx ++ \" is undefined: bytes-get index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
-  , "  | otherwise                          = bytes_get b i"
+  , "  | i < 0 || i >= toInteger (bytes_length b) = error (ctx ++ \" is undefined: bytes-get index \" ++ show i ++ \" out of bounds for \" ++ llmll_bytesLabel b)"
+  , "  | otherwise                                = bytes_get b i"
   , ""
-  , "llmll_cl_bytes_set :: String -> [Word8] -> Integer -> Integer -> [Word8]"
+  , "llmll_cl_bytes_set :: LlmllBytes b => String -> b -> Integer -> Integer -> b"
   , "llmll_cl_bytes_set ctx b i v"
-  , "  | i < 0 || i >= toInteger (length b) = error (ctx ++ \" is undefined: bytes-set index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
-  , "  | v < 0 || v > 255                   = error (ctx ++ \" is undefined: bytes-set value \" ++ show v ++ \" outside byte range 0..255\")"
-  , "  | otherwise                          = bytes_set b i v"
+  , "  | i < 0 || i >= toInteger (bytes_length b) = error (ctx ++ \" is undefined: bytes-set index \" ++ show i ++ \" out of bounds for \" ++ llmll_bytesLabel b)"
+  , "  | v < 0 || v > 255                         = error (ctx ++ \" is undefined: bytes-set value \" ++ show v ++ \" outside byte range 0..255\")"
+  , "  | otherwise                                = bytes_set b i v"
+  , ""
+  , "llmll_cl_bytes_make :: String -> Integer -> Integer -> BS.ByteString"
+  , "llmll_cl_bytes_make ctx n v"
+  , "  | n < 0            = error (ctx ++ \" is undefined: bytes-make length \" ++ show n ++ \" is negative\")"
+  , "  | v < 0 || v > 255 = error (ctx ++ \" is undefined: bytes-make value \" ++ show v ++ \" outside byte range 0..255\")"
+  , "  | otherwise        = bytes_make n v"
+  , ""
+  , "llmll_cl_bytes_slice :: String -> BS.ByteString -> Integer -> Integer -> BS.ByteString"
+  , "llmll_cl_bytes_slice ctx b s e"
+  , "  | s < 0 || s > e || e > toInteger (BS.length b) = error (ctx ++ \" is undefined: bytes-slice range [\" ++ show s ++ \", \" ++ show e ++ \") outside bytes of length \" ++ show (BS.length b))"
+  , "  | otherwise                                     = bytes_slice b s e"
   , ""
   , "llmll_cl_unwrap :: String -> Either String a -> a"
   , "llmll_cl_unwrap _   (Right v) = v"
@@ -2547,6 +2680,8 @@ clauseGuardHelpers =
   [ ("map-get",   "llmll_cl_map_get")
   , ("bytes-get", "llmll_cl_bytes_get")
   , ("bytes-set", "llmll_cl_bytes_set")
+  , ("bytes-make",  "llmll_cl_bytes_make")   -- BYTES-UNSIZED-1
+  , ("bytes-slice", "llmll_cl_bytes_slice")
   , ("unwrap",    "llmll_cl_unwrap")
   , ("/",         "llmll_cl_div")
   , ("mod",       "llmll_cl_mod")
@@ -2747,8 +2882,8 @@ toHsType TBool             = "Bool"
 toHsType TUnit             = "()"
 toHsType (TBytes _)        = "[Word8]"
 -- BYTES-UNSIZED-1: strict ByteString (byte-io-proposal Part 4); the preamble
--- already imports Data.ByteString qualified as BS. The runtime operations
--- over it arrive with step 3, S3.
+-- already imports Data.ByteString qualified as BS. The operations over it are
+-- the LlmllBytes instance and the bytes_* bodies of the runtime preamble.
 toHsType TBytesU           = "BS.ByteString"
 toHsType (TList t)         = "[" <> toHsType t <> "]"
 toHsType (TMap k v)        = "(Map.Map " <> hsArg AppArg k <> " " <> hsArg AppArg v <> ")"
@@ -3646,6 +3781,9 @@ hsPreambleNames =
   , "ProcSpec"
   , "bit_and", "bit_or", "bit_shl", "bit_shr", "bit_xor"
   , "bytes_get", "bytes_length", "bytes_set", "bytes_zero", "err", "hmac_sha1"
+  -- BYTES-UNSIZED-1
+  , "LlmllBytes", "bytes_make", "bytes_slice", "bytes_concat", "bytes_concat_many"
+  , "bytes_from_list", "bytes_to_list", "bytes_widen", "bytes_from_string", "bytes_to_string"
   , "int_to_string", "is_ok", "jsonHexVal", "jsonIsDigit", "jsonIsHex"
   , "jsonIsIntLexeme", "jsonLit", "jsonMaxDepth", "jsonNumOk", "jsonPArr"
   , "jsonPNumber", "jsonPObj", "jsonPString", "jsonPValue", "jsonQuote"
@@ -4133,8 +4271,15 @@ esResultForcers =
   , ("path-normalize",     "llmll_uS")
   , ("int-to-string",      "llmll_uS")
   , ("string-to-int",      "llmll_uE llmll_uW")
-  , ("bytes-set",          "llmll_uS")
-  , ("clause%bytes-set",   "llmll_uS")  -- CLAUSE-WELLDEF-1: the guarded bytes-set
+  -- BYTES-UNSIZED-1: bytes-set returns the type it was given, so its forcer is
+  -- the class's (llmll_uS on the list instance, as before; WHNF on the strict
+  -- ByteString). A ByteString result is whole at WHNF, so the operations that
+  -- return `bytes` need no entry; the three below return a list or a Result.
+  , ("bytes-set",          "llmll_uB")
+  , ("clause%bytes-set",   "llmll_uB")  -- CLAUSE-WELLDEF-1: the guarded bytes-set
+  , ("bytes-to-list",      "llmll_uL llmll_uW")
+  , ("bytes-from-list",    "llmll_uEI llmll_uW")
+  , ("bytes-to-string",    "llmll_uEI llmll_uS")
   , ("bytes-zero",         "llmll_uS")  -- EXAMPLE-BUILD-1: reached only with its length
   , ("sha1",               "llmll_uS")
   , ("hmac-sha1",          "llmll_uS")

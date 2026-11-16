@@ -764,6 +764,11 @@ parseType = withObject "Type" $ \o -> do
 -- typeLabel that could collide with TCustom, extend this function.
 resolveNamedType :: Text -> Type
 resolveNamedType "DelegationError" = TDelegationError
+-- BYTES-UNSIZED-1: `bytes` is the builtin unsized byte type (its typeLabel),
+-- and `(type bytes ...)` is refused as reserved-type-name, so a named `bytes`
+-- can only mean the builtin. Without this arm it became a user type named
+-- bytes, which the S-expression front end cannot spell.
+resolveNamedType "bytes"           = TBytesU
 resolveNamedType n                 = TCustom n
 
 -- ---------------------------------------------------------------------------

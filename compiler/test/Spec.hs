@@ -4,6 +4,7 @@ module Main (main) where
 import Test.Hspec
 import Control.Monad (forM_, when, unless)
 import Control.Exception (finally)
+import Data.Word (Word8)
 import System.Exit (ExitCode(..), exitWith, exitSuccess, exitFailure)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Maybe (fromJust, isJust, isNothing, listToMaybe, mapMaybe, fromMaybe)
@@ -9161,7 +9162,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     Left err -> error (show err)
                     Right stmts -> cgHsSource (generateHaskell "t" stmts)
         src `shouldSatisfy` T.isInfixOf "(bytes_zero 8)"
-        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "bytes_get :: [Word8] -> Integer -> Integer"
+        -- BYTES-UNSIZED-1: bytes_get dispatches on the byte type (LlmllBytes);
+        -- bytes[n] still lowers to [Word8], through the list instance.
+        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "bytes_get :: LlmllBytes b => b -> Integer -> Integer"
+        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "instance Integral w => LlmllBytes [w] where"
         T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "map_get :: (Ord k, Show k) => Map.Map k v -> k -> v"
 
       it "A0-8 verification inertness: a body using array ops falls back (unreflected ops), never crashes emission" $ do
@@ -15082,7 +15086,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "proc-spec", "proc-cwd", "proc-stdin", "proc-stdout", "proc-stderr"
               , "proc-stderr-to-stdout", "proc-env", "seq-commands"
               -- Response constructors: values via builtinCtorNames, not builtins.
-              , "RText", "RCode", "RErr", "RList" ]
+              , "RText", "RCode", "RErr", "RList"
+              -- BYTES-UNSIZED-1: typed in step 3 S2; the evaluator models them
+              -- in S4, which removes them from this list.
+              , "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many"
+              , "bytes-from-list", "bytes-to-list", "bytes-widen"
+              , "bytes-from-string", "bytes-to-string" ]
             fnNames = [ n | (n, TFn _ _) <- Map.toList builtinEnv, not ("wasi." `T.isPrefixOf` n) ]
         sort [ n | n <- fnNames, not (n `Set.member` modeledBuiltins) ] `shouldBe` sort excluded
 
@@ -19015,8 +19024,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- 128 -> 135 with BITWISE-1's five and CHAR-CODE-1's two. All seven take
       -- Integer arguments, so each is a preamble body reached by the generic
       -- emission and lands in needsBinding: 96 -> 103.
-      Map.size builtinEnv      `shouldBe` 135
-      length needsBinding      `shouldBe` 103
+      -- 135 -> 144 with BYTES-UNSIZED-1's nine operations (bytes-make, -slice,
+      -- -concat, -concat-many, -from-list, -to-list, -widen, -from-string,
+      -- -to-string). All nine take the generic emission to a runtimePreamble
+      -- body, so all nine land in needsBinding: 103 -> 112.
+      Map.size builtinEnv      `shouldBe` 144
+      length needsBinding      `shouldBe` 112
       length resolvedElsewhere `shouldBe` 9
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -25207,22 +25220,21 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       RP.string_char_at s (p64 + 41) `shouldBe` ""
       RP.string_slice s (p64 + 33) (p64 + 40) `shouldBe` ""
 
+    -- BYTES-UNSIZED-1: the [Word8] bodies moved into the LlmllBytes list
+    -- instance, which LLMLL.RuntimePure holds verbatim (PBT-EVAL-PARITY-1), so
+    -- the witness runs in process instead of through runghc on extracted
+    -- preamble blocks. The three expected lines are unchanged.
     it "IIW-8 bytes_get / bytes_set refuse an index outside the bytes (witness 6)" $ do
-      r <- runBlocks "bytes" ["import Data.Word (Word8)", "import Control.Exception (try, evaluate, ErrorCall(..))"]
-             ["bytes_get", "bytes_set"]
-             [ "  r1 <- try (evaluate (sum (bytes_set (replicate 4 0) (2 ^ (64 :: Int) + 1) 7)))"
-             , "  putStrLn (either (\\(ErrorCall m) -> m) show (r1 :: Either ErrorCall Word8))"
-             , "  r2 <- try (evaluate (bytes_get (replicate 4 0) (2 ^ (64 :: Int))))"
-             , "  putStrLn (either (\\(ErrorCall m) -> m) show (r2 :: Either ErrorCall Integer))"
-             , "  print (bytes_get (bytes_set (replicate 4 0) 1 7) 1)" ]
-      case r of
-        Nothing -> pendingWith "runghc not on PATH"
-        Just (code, out, err) -> do
-          (code, err) `shouldBe` (ExitSuccess, "")
-          lines out `shouldBe`
-            [ "bytes-set: pre-condition failed: index 18446744073709551617 out of bounds for bytes[4]"
-            , "bytes-get: pre-condition failed: index 18446744073709551616 out of bounds for bytes[4]"
-            , "7" ]
+      let z4  = replicate 4 0 :: [Word8]
+      r1 <- CE.try (CE.evaluate (sum (RP.bytes_set z4 (2 ^ (64 :: Int) + 1) 7)))
+      r2 <- CE.try (CE.evaluate (RP.bytes_get z4 (2 ^ (64 :: Int))))
+      [ either (\(CE.ErrorCall m) -> m) show (r1 :: Either CE.ErrorCall Word8)
+        , either (\(CE.ErrorCall m) -> m) show (r2 :: Either CE.ErrorCall Integer)
+        , show (RP.bytes_get (RP.bytes_set z4 1 7) 1) ]
+        `shouldBe`
+          [ "bytes-set: pre-condition failed: index 18446744073709551617 out of bounds for bytes[4]"
+          , "bytes-get: pre-condition failed: index 18446744073709551616 out of bounds for bytes[4]"
+          , "7" ]
 
     it "IIW-9 D2: the process timeout clamps into Int instead of wrapping" $ do
       any (T.isInfixOf "fromIntegral (secs * 1000000)") runtimePreamble `shouldBe` False
@@ -26888,7 +26900,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- reached through map-get's own argument, so map-get's gate.
             , ("llmll_cl_map_get", TCKey) ]
           -- Contexts no type parameter can reach: the argument is int-typed in builtinEnv.
-          notReached = ["wasi_http_response"]
+          -- BYTES-UNSIZED-1: the LlmllBytes context of the three byte operations
+          -- and their two clause helpers is not reachable either: inferArrayOp
+          -- refuses any first argument but bytes, bytes[n] or an unresolved hole,
+          -- so a rigid type parameter is a type error there (measured: "expects
+          -- bytes[n] or bytes as argument 1, got a"), whatever its constraint.
+          notReached = [ "wasi_http_response"
+                       , "bytes_length", "bytes_get", "bytes_set", "llmll_cl_bytes_get", "llmll_cl_bytes_set" ]
           sigs = [ (fn, ctx)
                  | l <- runtimePreamble
                  , let (fn, rest) = T.breakOn " :: " l
@@ -28049,7 +28067,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       emitExpr (g "mod" "C" [EVar "a", EVar "d"]) `shouldSatisfy` T.isInfixOf "llmll_cl_mod"
       emitExpr (g "unwrap" "C" [EVar "r"]) `shouldSatisfy` T.isInfixOf "llmll_cl_unwrap"
       emitExpr (g "bytes-get" "C" [EVar "b", EVar "i"]) `shouldSatisfy` T.isInfixOf "llmll_cl_bytes_get"
-      emitExpr (g "bytes-set" "C" [EVar "b", EVar "i", EVar "v"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uS) (llmll_cl_bytes_set"
+      emitExpr (g "bytes-set" "C" [EVar "b", EVar "i", EVar "v"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uB) (llmll_cl_bytes_set"
 
   -- -----------------------------------------------------------------------
   -- BITWISE-1 + CHAR-CODE-1 (docs/design/byte-io-proposal.md Parts 3 and 5).
@@ -28628,6 +28646,230 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       errsB [iface "bytes"] `shouldSatisfy`
         any (\(k, m) -> k == Just "ffi-type-unsupported" && "bytes at the Tier 1 boundary needs FFI-BYTES-1" `T.isInfixOf` m)
       [ m | (_, m) <- errsB [iface "bytes[4]"], "FFI-BYTES-1" `T.isInfixOf` m ] `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S2 (BYTES-UNSIZED-1): typing of the operations. Each new
+  -- signature, the overloads of bytes-length/-get/-set, the two-way refusal
+  -- between bytes and bytes[n], equality, order and map-key. Typing only:
+  -- nothing here is verified or built (S3 to S5).
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S2: typing of the bytes operations" $ do
+    let parsedT src = case parseStatements GrammarCoreInversion "<bio2>" (T.unlines src) of
+          Left err -> error ("BYTE-IO S2 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsT src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedT src))
+                    , diagSeverity d == SevError ]
+        okT src  = errsT src `shouldBe` []
+        badT src = errsT src `shouldNotBe` []
+        kindsT src = map fst (errsT src)
+    it "T-T1 bytes-make: int int -> bytes, the length first" $ do
+      okT  ["(def-shell mk [n: int] -> bytes (bytes-make n 7))"]
+      badT ["(def-shell mk [s: string] -> bytes (bytes-make s 7))"]
+      badT ["(def-shell mk [n: int] -> int (bytes-make n 7))"]
+      badT ["(def-shell mk [n: int] -> bytes[4] (bytes-make n 7))"]
+    it "T-T2 bytes-slice: bytes int int -> bytes; a bytes[n] reaches it only through bytes-widen" $ do
+      okT  ["(def-shell sl [b: bytes s: int e: int] -> bytes (bytes-slice b s e))"]
+      badT ["(def-shell sl [b: bytes[8]] -> bytes (bytes-slice b 0 1))"]
+      okT  ["(def-shell sl [b: bytes[8]] -> bytes (bytes-slice (bytes-widen b) 0 1))"]
+      badT ["(def-shell sl [b: bytes s: string] -> bytes (bytes-slice b s 1))"]
+    it "T-T3 bytes-concat: bytes bytes -> bytes" $ do
+      okT  ["(def-shell cat [a: bytes b: bytes] -> bytes (bytes-concat a b))"]
+      badT ["(def-shell cat [a: bytes b: bytes[4]] -> bytes (bytes-concat a b))"]
+    it "T-T4 bytes-concat-many: list[bytes] -> bytes" $ do
+      okT  ["(def-shell cm [xs: list[bytes]] -> bytes (bytes-concat-many xs))"]
+      badT ["(def-shell cm [xs: list[int]] -> bytes (bytes-concat-many xs))"]
+      badT ["(def-shell cm [xs: list[bytes[4]]] -> bytes (bytes-concat-many xs))"]
+    it "T-T5 bytes-from-list: list[int] -> Result[bytes, int]" $ do
+      okT  ["(def-shell fl [xs: list[int]] -> Result[bytes, int] (bytes-from-list xs))"]
+      okT  [ "(def-shell fl [xs: list[int]] -> int"
+           , "  (match (bytes-from-list xs) ((Success b) (bytes-length b)) ((Error i) i)))" ]
+      badT ["(def-shell fl [xs: list[int]] -> bytes (bytes-from-list xs))"]
+    it "T-T6 bytes-to-list: bytes -> list[int]" $ do
+      okT  ["(def-shell tl [b: bytes] -> list[int] (bytes-to-list b))"]
+      badT ["(def-shell tl [b: bytes[4]] -> list[int] (bytes-to-list b))"]
+    it "T-T7 bytes-widen: bytes[n] -> bytes, for any n" $ do
+      okT  ["(def-shell w [k: bytes[8]] -> bytes (bytes-widen k))"]
+      okT  ["(def-shell w [k: bytes[0]] -> int (bytes-length (bytes-widen k)))"]
+      badT ["(def-shell w [k: bytes[8]] -> bytes[8] (bytes-widen k))"]
+      Map.lookup "bytes-widen" builtinEnv `shouldBe` Just (TFn [TVar "bs"] TBytesU)
+    it "T-T8 bytes-from-string: string -> bytes" $ do
+      okT  ["(def-shell fs [s: string] -> bytes (bytes-from-string s))"]
+      badT ["(def-shell fs [n: int] -> bytes (bytes-from-string n))"]
+    it "T-T9 bytes-to-string: bytes -> Result[string, int]" $ do
+      okT  ["(def-shell ts [b: bytes] -> Result[string, int] (bytes-to-string b))"]
+      badT ["(def-shell ts [b: bytes] -> string (bytes-to-string b))"]
+    it "T-T10 bytes-length and bytes-get take the unsized bytes, and still take bytes[n]" $ do
+      okT  ["(def-shell lg [b: bytes] -> int (+ (bytes-length b) (bytes-get b 0)))"]
+      okT  ["(def-shell lg [b: bytes[4]] -> int (+ (bytes-length b) (bytes-get b 0)))"]
+      [ m | (_, m) <- errsT ["(def-shell lg [s: string] -> int (bytes-length s))"] ]
+        `shouldSatisfy` any (T.isInfixOf "expects bytes[n] or bytes as argument 1")
+    it "T-T11 bytes-set on bytes returns bytes; on bytes[4] it still returns bytes[4]" $ do
+      okT  ["(def-shell st [b: bytes] -> bytes (bytes-set b 0 1))"]
+      badT ["(def-shell st [b: bytes] -> bytes[4] (bytes-set b 0 1))"]
+      okT  ["(def-shell st [b: bytes[4]] -> bytes[4] (bytes-set b 0 1))"]
+      badT ["(def-shell st [b: bytes[4]] -> bytes (bytes-set b 0 1))"]
+    it "T-T12 bytes and bytes[4] are not compatible, in either direction (argument and return)" $ do
+      badT ["(def-shell u [b: bytes] -> int 0)", "(def-shell c [k: bytes[4]] -> int (u k))"]
+      badT ["(def-shell s4 [k: bytes[4]] -> int 0)", "(def-shell c [b: bytes] -> int (s4 b))"]
+      badT ["(def-shell r [k: bytes[4]] -> bytes k)"]
+      badT ["(def-shell r [b: bytes] -> bytes[4] b)"]
+      okT  ["(def-shell u [b: bytes] -> int 0)", "(def-shell c [b: bytes] -> int (u b))"]
+    it "T-T13 bytes-widen refuses an argument that is already bytes, and a non-byte one" $ do
+      [ m | (_, m) <- errsT ["(def-shell w [b: bytes] -> bytes (bytes-widen b))"] ]
+        `shouldSatisfy` any (T.isInfixOf "'bytes-widen' expects bytes[n] as argument 1, got bytes")
+      badT ["(def-shell w [s: string] -> bytes (bytes-widen s))"]
+      badT ["(def-shell w [k: bytes[4] j: bytes[4]] -> bytes (bytes-widen k j))"]
+    it "T-T14 bytes-zero stays sized: a -> bytes body has no determining length" $ do
+      [ m | (_, m) <- errsT ["(def-shell z [] -> bytes (bytes-zero))"] ]
+        `shouldSatisfy` any (T.isInfixOf "determines bytes[n]")
+      okT ["(def-shell z [] -> bytes[4] (bytes-zero))"]
+    it "T-T15 = and != on bytes check (byte-wise equality at run time)" $ do
+      okT ["(def-shell eq [a: bytes b: bytes] -> bool (= a b))"]
+      okT ["(def-shell ne [a: bytes b: bytes] -> bool (!= a b))"]
+      noEqWitness Map.empty TBytesU `shouldBe` Nothing
+    it "T-T16 bytes is not ordered and not a map key: compare, list-sort and a map[bytes, int] operation are refused" $ do
+      kindsT ["(def-shell co [a: bytes b: bytes] -> int (compare a b))"] `shouldBe` [Just "order-undefined"]
+      kindsT ["(def-shell so [xs: list[bytes]] -> list[bytes] (list-sort xs))"] `shouldBe` [Just "order-undefined"]
+      -- The map gate's kinded refusal comes first; the key argument's own
+      -- mismatch follows it, as for any other refused key sort.
+      take 1 (kindsT ["(def-shell mg [m: map[bytes, int] b: bytes] -> int (map-get m b))"]) `shouldBe` [Just "map-key-undefined"]
+      okT ["(def-shell mt [m: map[bytes, int]] -> int 1)"]
+      noOrdWitness Map.empty TBytesU `shouldBe` Just TBytesU
+      noKeyWitness Map.empty TBytesU `shouldBe` Just TBytesU
+    -- Ruling on S1 open question 7: JSON {"kind":"named","name":"bytes"} is the
+    -- builtin, as resolveNamedType already maps "DelegationError"; it never
+    -- becomes a user type named bytes.
+    it "T-T17 JSON-AST: a named type spelled bytes reads as the builtin unsized bytes, not a user type" $ do
+      let docN = BLC.pack ("{\"schemaVersion\":\"0.16.0\",\"statements\":[{\"kind\":\"def-shell\","
+                 ++ "\"name\":\"f\",\"params\":[{\"name\":\"b\",\"param_type\":{\"kind\":\"named\",\"name\":\"bytes\"}}],"
+                 ++ "\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}")
+      parseJSONAST GrammarCoreInversion "<bio2>" docN
+        `shouldBe` Right (parsedT ["(def-shell f [b: bytes] 0)"])
+    it "T-T18 an unannotated callee's wildcard is rejected at a bytes position, as at bytes[n]" $ do
+      wildAssumeRejects Map.empty TBytesU `shouldBe` True
+      wildAssumeRejects Map.empty (TBytes 4) `shouldBe` True
+      wildAssumeRejects Map.empty (TList TBytesU) `shouldBe` False
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S3 (BYTES-UNSIZED-1): the runtime of the pure operations.
+  -- The LlmllBytes class with the v0.39.0 [Word8] bodies in its list instance
+  -- and a strict ByteString instance, and the nine new bodies, all in
+  -- LLMLL.RuntimePure and copied verbatim into the preamble. The vectors are
+  -- the refuting-body table of the step-3 plan's contract plan.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S3: the runtime of the pure bytes operations" $ do
+    let bs        = BSS.pack
+        errOf x   = do r <- CE.try (CE.evaluate x)
+                       pure (either (\(CE.ErrorCall m) -> Just m) (const Nothing) r)
+        preLines  = T.lines (T.unlines runtimePreamble)
+        p64       = 2 ^ (64 :: Int) :: Integer
+        noSurr    = filter (\c -> fromEnum c < 0xD800 || fromEnum c > 0xDFFF)
+    it "T-R1 the preamble carries the class, both instances, the dispatching names and the nine bodies" $ do
+      let heads = [ "class LlmllBytes b where", "instance Integral w => LlmllBytes [w] where"
+                  , "instance LlmllBytes BS.ByteString where"
+                  , "bytes_length :: LlmllBytes b => b -> Int", "bytes_get :: LlmllBytes b => b -> Integer -> Integer"
+                  , "bytes_set :: LlmllBytes b => b -> Integer -> Integer -> b"
+                  , "bytes_make :: Integer -> Integer -> BS.ByteString"
+                  , "bytes_slice :: BS.ByteString -> Integer -> Integer -> BS.ByteString"
+                  , "bytes_concat :: BS.ByteString -> BS.ByteString -> BS.ByteString"
+                  , "bytes_concat_many :: [BS.ByteString] -> BS.ByteString"
+                  , "bytes_to_list :: BS.ByteString -> [Integer]", "bytes_widen :: [Word8] -> BS.ByteString"
+                  , "bytes_from_list :: [Integer] -> Either Integer BS.ByteString"
+                  , "bytes_from_string :: String -> BS.ByteString"
+                  , "bytes_to_string :: BS.ByteString -> Either Integer String"
+                  , "llmll_uEI :: (a -> ()) -> Either Integer a -> ()" ]
+      [ h | h <- heads, h `notElem` preLines ] `shouldBe` []
+      -- the old monomorphic [Word8] signatures are gone (one definition each)
+      length (filter ("bytes_get ::" `T.isPrefixOf`) preLines) `shouldBe` 1
+    it "T-R2 the list instance holds the v0.39.0 [Word8] bodies byte for byte; make, concat, concat-many, to-list and widen vectors" $ do
+      let v039 = [ "bytes_length = length"
+                 , "bytes_get b i"
+                 , "  | i < 0 || i >= toInteger (length b) = error (\"bytes-get: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+                 , "  | otherwise                          = fromIntegral (b !! fromInteger i)"
+                 , "bytes_set b i v"
+                 , "  | i < 0 || i >= toInteger (length b) = error (\"bytes-set: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+                 , "  | v < 0 || v > 255                   = error (\"bytes-set: pre-condition failed: value \" ++ show v ++ \" outside byte range 0..255\")"
+                 , "  | otherwise                          = let k = fromInteger i in take k b ++ [fromIntegral v] ++ drop (k + 1) b" ]
+          inst = takeWhile (not . T.null) (drop 1 (dropWhile (/= "instance Integral w => LlmllBytes [w] where") preLines))
+          rename = T.replace "llmll_bytesLength" "bytes_length" . T.replace "llmll_bytesGet" "bytes_get"
+                   . T.replace "llmll_bytesSet" "bytes_set"
+      take 8 (map (rename . T.drop 2) inst) `shouldBe` v039
+      RP.bytes_make 3 7 `shouldBe` bs [7, 7, 7]
+      RP.bytes_make 0 9 `shouldBe` BSS.empty
+      RP.bytes_concat (bs [0x61, 0x62]) (bs [0x63]) `shouldBe` bs [0x61, 0x62, 0x63]
+      RP.bytes_concat_many [bs [1], bs [2, 3], BSS.empty, bs [4]] `shouldBe` bs [1, 2, 3, 4]
+      RP.bytes_to_list (bs [0, 128, 255]) `shouldBe` [0, 128, 255]
+      RP.bytes_widen [0, 0, 9, 0] `shouldBe` bs [0, 0, 9, 0]
+      RP.bytes_set (bs [0x61, 0x62, 0x63]) 1 255 `shouldBe` bs [0x61, 255, 0x63]
+      RP.bytes_get (bs [0x61, 0x62, 0x63]) 2 `shouldBe` 0x63
+      RP.bytes_length (bs [1, 2, 3]) `shouldBe` 3
+      errOf (RP.bytes_make 2 256) >>= (`shouldSatisfy` maybe False ("bytes-make: pre-condition failed: value 256" `isPrefixOf`))
+      errOf (RP.bytes_make (-1) 0) >>= (`shouldSatisfy` maybe False ("bytes-make: pre-condition failed: length -1" `isPrefixOf`))
+      errOf (RP.bytes_make (p64 * p64) 0) >>= (`shouldSatisfy` maybe False ("bytes-make: length" `isPrefixOf`))
+    it "T-R3 bytes-slice is the half-open [s, e), and a transposed or outside range stops instead of clamping" $ do
+      let h = bs [0x68, 0x65, 0x6C, 0x6C, 0x6F]
+      RP.bytes_slice h 1 4 `shouldBe` bs [0x65, 0x6C, 0x6C]
+      RP.bytes_slice h 2 2 `shouldBe` BSS.empty
+      RP.bytes_slice h 0 5 `shouldBe` h
+      forM_ [(3, 2), (-1, 1), (0, 6), (p64, p64 + 1)] $ \(s0, e0) ->
+        errOf (RP.bytes_slice h s0 e0) >>= (`shouldSatisfy` maybe False ("bytes-slice: pre-condition failed" `isPrefixOf`))
+    it "T-R4 bytes-from-string is UTF-8; U+DC80..U+DCFF give one byte, any other lone surrogate U+FFFD; 1 to 4 bytes per code point" $ do
+      RP.bytes_from_string "\233" `shouldBe` bs [0xC3, 0xA9]
+      RP.bytes_from_string "\56575" `shouldBe` bs [0xFF]
+      RP.bytes_from_string "\56448" `shouldBe` bs [0x80]
+      RP.bytes_from_string "\55296" `shouldBe` bs [0xEF, 0xBF, 0xBD]
+      RP.bytes_from_string "\56447" `shouldBe` bs [0xEF, 0xBF, 0xBD]
+      RP.bytes_from_string "\128512" `shouldBe` bs [0xF0, 0x9F, 0x98, 0x80]
+      RP.bytes_from_string "\1114111" `shouldBe` bs [0xF4, 0x8F, 0xBF, 0xBF]
+    it "T-R4p bytes-from-string agrees with Data.Text's UTF-8 off the surrogates, and gives 1 to 4 bytes per code point (P10)" $
+      property $ \s0 ->
+        let s = noSurr s0
+            n = BSS.length (RP.bytes_from_string s0)
+        in RP.bytes_from_string s == TE.encodeUtf8 (T.pack s) && length s0 <= n && n <= 4 * length s0
+    it "T-R5 an index of 2^64 + 1 is out of bounds on bytes (not index 1), for get and set" $ do
+      let b = bs [10, 20, 30]
+      errOf (RP.bytes_get b (p64 + 1)) >>= (`shouldBe` Just "bytes-get: pre-condition failed: index 18446744073709551617 out of bounds for bytes of length 3")
+      errOf (RP.bytes_set b (p64 + 1) 7) >>= (`shouldBe` Just "bytes-set: pre-condition failed: index 18446744073709551617 out of bounds for bytes of length 3")
+      errOf (RP.bytes_set b 0 256) >>= (`shouldBe` Just "bytes-set: pre-condition failed: value 256 outside byte range 0..255")
+      errOf (RP.bytes_get b (-1)) >>= (`shouldSatisfy` maybe False ("bytes-get: pre-condition failed" `isPrefixOf`))
+      RP.llmll_bytesLabel b `shouldBe` "bytes of length 3"
+      RP.llmll_bytesLabel ([1, 2] :: [Word8]) `shouldBe` "bytes[2]"
+    it "T-R6 bytes-to-string is strict (Error at the first invalid sequence); bytes-from-list names the first byte out of range" $ do
+      RP.bytes_to_string (bs [0xC3]) `shouldBe` Left 0
+      map (RP.bytes_to_string . bs)
+          [ [0x61, 0xC3, 0x28], [0xC0, 0x80], [0xED, 0xA0, 0x80], [0xF4, 0x90, 0x80, 0x80]
+          , [0xE0, 0x80, 0x80], [0xF0, 0x80, 0x80, 0x80], [0x61, 0x62, 0xFF], [0xF0, 0x9F, 0x98] ]
+        `shouldBe` map Left [1, 0, 0, 0, 0, 0, 2, 0]
+      RP.bytes_to_string (bs [0xE2, 0x82, 0xAC, 0x61]) `shouldBe` Right "\8364a"
+      RP.bytes_to_string (bs [0xED, 0x9F, 0xBF]) `shouldBe` Right "\55295"
+      RP.bytes_from_list [256] `shouldBe` Left 0
+      RP.bytes_from_list [1, -1] `shouldBe` Left 1
+      RP.bytes_from_list [0, 255, 128] `shouldBe` Right (bs [0, 255, 128])
+      RP.bytes_from_list [] `shouldBe` Right BSS.empty
+    -- An independent oracle: the source reader's Unicode table 3-7 check
+    -- (Diagnostic.firstInvalidUtf8Offset) and Data.Text's decoder.
+    it "T-R6p bytes-to-string agrees with an independent UTF-8 check on any bytes, and inverts bytes-from-string off the surrogates" $
+      property $ \ws s0 ->
+        let b = BSS.pack ws
+            s = noSurr s0
+        in RP.bytes_to_string b
+             == maybe (either (const (Left (-1))) (Right . T.unpack) (TE.decodeUtf8' b))
+                      (Left . toInteger) (firstInvalidUtf8Offset b)
+           && RP.bytes_to_string (RP.bytes_from_string s) == Right s
+    it "T-R7 codegen: the forcers, the two new clause helpers, and one name per operation" $ do
+      lookup "bytes-set" esResultForcers `shouldBe` Just "llmll_uB"
+      lookup "bytes-to-list" esResultForcers `shouldBe` Just "llmll_uL llmll_uW"
+      lookup "bytes-from-list" esResultForcers `shouldBe` Just "llmll_uEI llmll_uW"
+      lookup "bytes-to-string" esResultForcers `shouldBe` Just "llmll_uEI llmll_uS"
+      emitExpr (EApp "clause%bytes-make" [ELit (LitString "C"), EVar "n", EVar "v"]) `shouldSatisfy` T.isInfixOf "llmll_cl_bytes_make"
+      emitExpr (EApp "clause%bytes-slice" [ELit (LitString "C"), EVar "b", EVar "s", EVar "e"]) `shouldSatisfy` T.isInfixOf "llmll_cl_bytes_slice"
+      clauseGuardedOps `shouldContain` ["bytes-make", "bytes-slice"]
+      emitApp "bytes-widen" [EVar "k"] `shouldBe` "(bytes_widen (k))"
+      [ h | h <- ["llmll_cl_bytes_get :: LlmllBytes b => String -> b -> Integer -> Integer"
+                 , "llmll_cl_bytes_make :: String -> Integer -> Integer -> BS.ByteString"
+                 , "llmll_cl_bytes_slice :: String -> BS.ByteString -> Integer -> Integer -> BS.ByteString"]
+          , h `notElem` preLines ] `shouldBe` []
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

@@ -403,7 +403,10 @@ clauseGuardedOps :: [Name]
 clauseGuardedOps =
   [ "map-get", "bytes-get", "bytes-set", "unwrap", "/", "mod", "%"
   , "bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"
-  , "string-code-at", "string-from-code" ]
+  , "string-code-at", "string-from-code"
+  -- BYTES-UNSIZED-1: partial (a length or value pre, a range pre), so a clause
+  -- check stops with "is undefined" rather than the builtin's own error.
+  , "bytes-make", "bytes-slice" ]
 
 -- ---------------------------------------------------------------------------
 -- Compile-time Contract Evaluation (Symbolic)

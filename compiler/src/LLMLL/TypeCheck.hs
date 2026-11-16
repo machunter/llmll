@@ -462,7 +462,26 @@ builtinEnv = Map.fromList $
   , ("bytes-get",    TFn [TVar "bs", TInt] TInt)
   , ("bytes-set",    TFn [TVar "bs", TInt, TInt] (TVar "bs"))
   , ("bytes-zero",   TFn [] (TVar "bs"))
-  , ("map-has",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] TBool)
+  -- BYTES-UNSIZED-1 (byte-io-proposal Rev 2, Part 4): the nine new operations.
+  -- bytes-length / bytes-get / bytes-set above also take the unsized `bytes`
+  -- (inferArrayOp). bytes-widen is typed in inferArrayOp too, because its
+  -- argument is `bytes[n]` for any n, which no signature here can say; its
+  -- entry serves name membership only. The other eight type through these
+  -- ordinary signatures: they take and give the unsized type only, so a
+  -- `bytes[n]` value reaches them through an explicit bytes-widen. bytes-make
+  -- takes the length first. bytes-from-list and bytes-to-string answer a
+  -- Result: Error carries the index of the first byte out of 0..255, or the
+  -- offset of the first invalid UTF-8 sequence.
+  , ("bytes-make",        TFn [TInt, TInt] TBytesU)
+  , ("bytes-slice",       TFn [TBytesU, TInt, TInt] TBytesU)
+  , ("bytes-concat",      TFn [TBytesU, TBytesU] TBytesU)
+  , ("bytes-concat-many", TFn [TList TBytesU] TBytesU)
+  , ("bytes-from-list",   TFn [TList TInt] (TResult TBytesU TInt))
+  , ("bytes-to-list",     TFn [TBytesU] (TList TInt))
+  , ("bytes-widen",       TFn [TVar "bs"] TBytesU)
+  , ("bytes-from-string", TFn [TString] TBytesU)
+  , ("bytes-to-string",   TFn [TBytesU] (TResult TString TInt))
+  , ("map-has",     TFn [TMap (TVar "k") (TVar "v"), TVar "k"] TBool)
   , ("map-get",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] (TVar "v"))
   , ("map-put",      TFn [TMap (TVar "k") (TVar "v"), TVar "k", TVar "v"] (TMap (TVar "k") (TVar "v")))
   , ("map-empty",    TFn [] (TMap (TVar "k") (TVar "v")))
@@ -3824,7 +3843,7 @@ freeTVarNames _                  = Set.empty  -- TInt, TString, TBool, TUnit, TB
 -- on purpose — TFn [] (TMap k v) types generically.
 arrayOpNames :: [Name]
 arrayOpNames =
-  [ "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
+  [ "bytes-length", "bytes-get", "bytes-set", "bytes-zero", "bytes-widen"
   , "map-has", "map-get", "map-put", "map-keys", "map-entries" ]
 
 -- | LEVER-A0: dedicated typing for the array/map operation family (proposal
@@ -3861,6 +3880,18 @@ inferArrayOp func args = case func of
     intArg 1
     intArg 2
     pure bTy
+  -- BYTES-UNSIZED-1: bytes[n] -> bytes, for any n. The argument must be the
+  -- sized type: widening a value that is already `bytes` is refused, so the
+  -- operation keeps one meaning (byte-io-proposal Part 4, P2).
+  "bytes-widen" -> do
+    checkArity 1
+    t <- argAt 0
+    case t of
+      TBytes _ -> pure ()
+      TVar _   -> pure ()  -- unresolved (hole/unknown): lenient
+      other    -> tcError $ "function 'bytes-widen' expects bytes[n] as argument 1, got "
+                            <> typeLabel other
+    pure TBytesU
   "map-has" -> do
     checkArity 2
     _ <- mapArgAndKey
@@ -3905,9 +3936,12 @@ inferArrayOp func args = case func of
       t <- argAt j
       case t of
         TBytes _ -> pure t
+        -- BYTES-UNSIZED-1: bytes-length, bytes-get and bytes-set also take the
+        -- unsized type; bytes-set then keeps it (bytes in, bytes out).
+        TBytesU  -> pure t
         TVar _   -> pure t  -- unresolved (hole/unknown): lenient
         other    -> do
-          tcError $ "function '" <> func <> "' expects bytes[n] as argument "
+          tcError $ "function '" <> func <> "' expects bytes[n] or bytes as argument "
                     <> tshow (j + 1) <> ", got " <> typeLabel other
           pure (TVar "?")
     intArg j = do

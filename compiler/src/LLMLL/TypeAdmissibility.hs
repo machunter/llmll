@@ -697,5 +697,10 @@ admits am t = boolValuedMapTy am t
 --
 -- @'admits' am t ==> 'wildAssumeRejects' am t@ by construction, so the seams
 -- cannot become narrower than the soundness gate by accident.
+--
+-- BYTES-UNSIZED-1: the byte arm tests 'isBytesTy', so the unsized @bytes@ is
+-- rejected at the seams as @bytes[n]@ is (step-3 plan). No length fact is
+-- asserted or owed for it, so this is the diagnostic half only: the remedy
+-- (annotate the callee's return) is the same.
 wildAssumeRejects :: AliasMap -> Type -> Bool
-wildAssumeRejects am t = admits am t || isJust (bytesLenOf am t)
+wildAssumeRejects am t = admits am t || isBytesTy am t
