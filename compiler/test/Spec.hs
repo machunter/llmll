@@ -116,7 +116,7 @@ import LLMLL.Specialize (specialize, specializeWithRet, GenericStats(..), emptyG
 import LLMLL.CodegenHs (typeParamContext, constraintHsClasses)  -- GENERICS-1 S6
 import LLMLL.TrustReport (genericNotInstantiatedLabel)  -- GENERICS-1 S5
 -- PBT-EVAL-PARITY-1
-import LLMLL.Contracts (evalExprStaticWithCtors, modeledBuiltins, builtinCtorNames)
+import LLMLL.Contracts (evalExprStaticWithCtors, modeledBuiltins, builtinCtorNames, bytesValE, bytesFlat)
 import LLMLL.PBT (unreducedReason, ctorNamesOf)
 import LLMLL.PBT (runPropertyTestsWithSeed, generateSamplesPure, propertySeed, pbtGeneratorTag, intBoundaries, maxRefineAttempts)
 import LLMLL.TrustReport (liveCheckHashes)
@@ -15086,12 +15086,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "proc-spec", "proc-cwd", "proc-stdin", "proc-stdout", "proc-stderr"
               , "proc-stderr-to-stdout", "proc-env", "seq-commands"
               -- Response constructors: values via builtinCtorNames, not builtins.
-              , "RText", "RCode", "RErr", "RList"
-              -- BYTES-UNSIZED-1: typed in step 3 S2; the evaluator models them
-              -- in S4, which removes them from this list.
-              , "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many"
-              , "bytes-from-list", "bytes-to-list", "bytes-widen"
-              , "bytes-from-string", "bytes-to-string" ]
+              , "RText", "RCode", "RErr", "RList" ]
             fnNames = [ n | (n, TFn _ _) <- Map.toList builtinEnv, not ("wasi." `T.isPrefixOf` n) ]
         sort [ n | n <- fnNames, not (n `Set.member` modeledBuiltins) ] `shouldBe` sort excluded
 
@@ -28870,6 +28865,90 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                  , "llmll_cl_bytes_make :: String -> Integer -> Integer -> BS.ByteString"
                  , "llmll_cl_bytes_slice :: String -> BS.ByteString -> Integer -> Integer -> BS.ByteString"]
           , h `notElem` preLines ] `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S4 (BYTES-UNSIZED-1): the evaluator and the generator.
+  -- The canonical byte value (bytesValE) serves bytes and bytes[n]; every
+  -- operation reduces on it through its LLMLL.RuntimePure body, a failed pre
+  -- discards, and one generator draws both types.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S4: the evaluator and generator for the bytes operations" $ do
+    let ev      = evalExprStatic Map.empty
+        lint    = ELit . LitInt
+        lstr    = ELit . LitString . T.pack
+        bv      = bytesValE . BSS.pack
+        consOf  = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+        ws8 xs  = map (fromIntegral :: Int -> Word8) xs
+        runSrc src = case parseStatements GrammarCoreInversion "<bio4>" (T.pack src) of
+          Left e      -> error ("BYTE-IO S4 test source failed to parse: " ++ show e)
+          Right stmts -> runPropertyTests stmts
+    it "T-E1 bytes-make, bytes-length, bytes-get and bytes-set reduce on the canonical value as the runtime does" $ do
+      ev (EApp "bytes-make" [lint 3, lint 7]) `shouldBe` Just (bytesValE (RP.bytes_make 3 7))
+      ev (EApp "bytes-length" [EApp "bytes-make" [lint 3, lint 7]]) `shouldBe` Just (lint 3)
+      ev (EApp "bytes-get" [bv [1, 2, 255], lint 2]) `shouldBe` Just (lint 255)
+      ev (EApp "bytes-set" [bv [1, 2, 3], lint 0, lint 9]) `shouldBe` Just (bv [9, 2, 3])
+      -- bytes[n] keeps its override chain: the v0.39.0 reductions are unchanged
+      ev (EApp "bytes-get" [EApp "bytes-set" [EApp "bytes-zero" [lint 4], lint 1, lint 5], lint 1]) `shouldBe` Just (lint 5)
+    it "T-E2 slice, concat, concat-many and to-list match the runtime on any bytes" $ property $ \xs0 ys0 s0 e0 ->
+      let xs = ws8 xs0; ys = ws8 ys0
+          bx = BSS.pack xs; by = BSS.pack ys
+          n  = toInteger (length xs)
+          s  = toInteger (abs (s0 :: Int)) `mod` (n + 1)
+          e  = s + toInteger (abs (e0 :: Int)) `mod` (n - s + 1)
+      in ev (EApp "bytes-slice" [bytesValE bx, lint s, lint e]) == Just (bytesValE (RP.bytes_slice bx s e))
+         && ev (EApp "bytes-concat" [bytesValE bx, bytesValE by]) == Just (bytesValE (RP.bytes_concat bx by))
+         && ev (EApp "bytes-concat-many" [consOf [bytesValE by, bytesValE bx]]) == Just (bytesValE (RP.bytes_concat_many [by, bx]))
+         && ev (EApp "bytes-to-list" [bytesValE bx]) == Just (consOf (map lint (RP.bytes_to_list bx)))
+    it "T-E3 from-string, to-string and from-list give the runtime's value and its Error offset" $ do
+      ev (EApp "bytes-from-string" [lstr "\233"]) `shouldBe` Just (bv [0xC3, 0xA9])
+      ev (EApp "bytes-to-string" [bv [0xC3, 0xA9]]) `shouldBe` Just (EApp "Success" [lstr "\233"])
+      ev (EApp "bytes-to-string" [bv [0x61, 0xC3]]) `shouldBe` Just (EApp "Error" [lint 1])
+      ev (EApp "bytes-from-list" [consOf [lint 1, lint 256, lint 2]]) `shouldBe` Just (EApp "Error" [lint 1])
+      ev (EApp "bytes-from-list" [consOf [lint 0, lint 255]]) `shouldBe` Just (EApp "Success" [bv [0, 255]])
+    it "T-E3p from-string then to-string is the identity on any string the evaluator holds" $ property $ \s0 ->
+      let s = T.unpack (T.pack s0)   -- the evaluator's strings are Text: no lone surrogate
+      in ev (EApp "bytes-to-string" [EApp "bytes-from-string" [lstr s]]) == Just (EApp "Success" [lstr s])
+         && ev (EApp "bytes-from-string" [lstr s]) == Just (bytesValE (RP.bytes_from_string s))
+    it "T-E4 bytes-widen reads a sized value of either form; the canonical value is a value; = decides on it" $ do
+      ev (EApp "bytes-widen" [EApp "bytes-set" [EApp "bytes-zero" [lint 3], lint 2, lint 8]]) `shouldBe` Just (bv [0, 0, 8])
+      ev (EApp "bytes-widen" [bv [4, 5]]) `shouldBe` Just (bv [4, 5])
+      ev (bv [1, 2]) `shouldBe` Just (bv [1, 2])
+      ev (EOp "=" [bv [1, 2], EApp "bytes-make" [lint 2, lint 1]]) `shouldBe` Just (ELit (LitBool False))
+      ev (EOp "=" [bv [1, 1], EApp "bytes-make" [lint 2, lint 1]]) `shouldBe` Just (ELit (LitBool True))
+      -- the override chain is not canonical, so = against it still declines
+      ev (EOp "=" [bv [0], EApp "bytes-zero" [lint 1]]) `shouldBe` Nothing
+    it "T-E5 a failed builtin pre discards the sample (Nothing), never the runtime's error" $ do
+      ev (EApp "bytes-make" [lint (-1), lint 0]) `shouldBe` Nothing
+      ev (EApp "bytes-make" [lint 2, lint 256]) `shouldBe` Nothing
+      ev (EApp "bytes-make" [lint 100000, lint 0]) `shouldBe` Nothing   -- past rangeCap
+      ev (EApp "bytes-slice" [bv [1, 2, 3, 4, 5], lint 3, lint 2]) `shouldBe` Nothing
+      ev (EApp "bytes-slice" [bv [1, 2], lint 0, lint 3]) `shouldBe` Nothing
+      ev (EApp "bytes-get" [bv [1, 2], lint (2 ^ (64 :: Int) + 1)]) `shouldBe` Nothing
+      ev (EApp "bytes-get" [bv [1, 2], lint (-1)]) `shouldBe` Nothing
+      ev (EApp "bytes-set" [bv [1, 2], lint 2, lint 0]) `shouldBe` Nothing
+      ev (EApp "bytes-set" [bv [1, 2], lint 0, lint 256]) `shouldBe` Nothing
+    it "T-E6 the generator draws exactly n bytes for bytes[n] and 0..32 bytes for bytes, both canonical" $ do
+      let (envS, _) = generateSamplesPure 7 [] [("b", TBytes 4)] 100
+          (envU, _) = generateSamplesPure 7 [] [("b", TBytesU)] 100
+          lenOf env = BSS.length <$> (bytesFlat =<< Map.lookup "b" env)
+          lensU     = map lenOf envU
+      map lenOf envS `shouldBe` replicate 100 (Just 4)
+      all (\l -> maybe False (\k -> k >= 0 && k <= 32) l) lensU `shouldBe` True
+      length (nub lensU) `shouldSatisfy` (> 5)
+    it "T-E7 a property over bytes[4] passes (F10), and one over bytes reduces through the new operations" $ do
+      r1 <- runSrc (unlines [ "(def-shell blen [b: bytes[4]] -> int (bytes-length b))"
+                            , "(check \"len is 4\" (for-all [b: bytes[4]] (= (blen b) 4)))" ])
+      map pbtStatus (pbtResults r1) `shouldBe` [PBTPassed]
+      r2 <- runSrc (unlines [ "(check \"cat len\" (for-all [a: bytes c: bytes]"
+                            , "  (= (bytes-length (bytes-concat a c)) (+ (bytes-length a) (bytes-length c)))))"
+                            , "(check \"widen\" (for-all [k: bytes[3]] (= (bytes-to-list (bytes-widen k)) (bytes-to-list (bytes-widen k)))))" ])
+      map pbtStatus (pbtResults r2) `shouldBe` [PBTPassed, PBTPassed]
+    it "T-E8 a failing bytes sample shrinks toward length 0: the reported value is the shortest that still fails" $ do
+      r <- runSrc "(check \"short\" (for-all [b: bytes] (< (bytes-length b) 3)))"
+      map pbtStatus (pbtResults r) `shouldBe` [PBTFailed]
+      let cx = maybe "" id (pbtCounterexample (head (pbtResults r)))
+      T.count "\"cons\"" cx `shouldBe` 3
+      cx `shouldSatisfy` T.isPrefixOf "b = "
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

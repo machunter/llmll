@@ -69,7 +69,8 @@ import Data.IORef (IORef, newIORef, modifyIORef', readIORef)
 import qualified Crypto.Hash.SHA256 as SHA256
 
 import LLMLL.Syntax
-import LLMLL.Contracts (evalExprStaticWithCtors, FuncEnv, buildFuncEnv, maxFuel, modeledBuiltins, builtinCtorNames)
+import LLMLL.Contracts (evalExprStaticWithCtors, FuncEnv, buildFuncEnv, maxFuel, modeledBuiltins, builtinCtorNames, bytesValE, bytesFlat)
+import Data.Word (Word8)
 import LLMLL.Ffi (FfiEntry(..), ffiEntriesOf, camelName)
 import LLMLL.BuildScope (stripModuleQualifiers, longestModulePrefix)
 import LLMLL.CallGraph (extractRefs)
@@ -453,6 +454,15 @@ genInt = QC.frequency
   , (5, QC.resize 1000 arbitrary)
   , (1, choose (negate (2 ^ (64 :: Int)), 2 ^ (64 :: Int))) ]
 
+-- | BYTES-UNSIZED-1: byte draws, with the two ends of the range and the sign
+-- bit boundary weighted in.
+genByte :: Gen Word8
+genByte = QC.frequency [ (1, QC.elements [0, 127, 128, 255]), (4, choose (0, 255)) ]
+
+-- | BYTES-UNSIZED-1: the longest unsized @bytes@ sample.
+bytesMaxLen :: Int
+bytesMaxLen = 32
+
 -- | The default seed of a property: the leading 60 bits of its body hash, so
 -- the same property draws the same samples on every run.
 propertySeed :: Expr -> Int
@@ -547,7 +557,14 @@ generateValue _ _ TFloat       = pureG (ELit . LitFloat <$> (arbitrary :: Gen Do
 generateValue _ _ TString      = pureG (ELit . LitString . T.pack <$> (arbitrary :: Gen String))
 generateValue _ _ TBool        = pureG (ELit . LitBool <$> (arbitrary :: Gen Bool))
 generateValue _ _ TUnit        = pureG (pure (ELit LitUnit))
-generateValue _ _ (TBytes _)   = pureG (ELit . LitString . T.pack <$> (arbitrary :: Gen String))
+-- BYTES-UNSIZED-1 (step 3, S4): one generator for both byte types, drawing the
+-- evaluator's canonical value ('bytesValE'): exactly n bytes for @bytes[n]@,
+-- a length in 0..'bytesMaxLen' for @bytes@. It used to draw a string literal,
+-- which no bytes operation reduces on, so every such property skipped (F10).
+generateValue _ _ (TBytes n)   = pureG (bytesValE . BS.pack <$> vectorOf n genByte)
+generateValue _ _ TBytesU      = pureG $ do
+  len <- choose (0, bytesMaxLen)
+  bytesValE . BS.pack <$> vectorOf len genByte
 generateValue gctx depth (TDependent binder base predE) = loop
   where
     -- LLMLL.md §5.2 rejection sampling: draw from the base type, keep the
@@ -627,12 +644,22 @@ shrinkFailing gctx bindings evalEnv = go (1000 :: Int)
     firstStep env = listToMaybe'
       [ env'
       | (name, ty) <- bindings
-      , Just (ELit (LitInt v)) <- [Map.lookup name env]
-      , c <- QC.shrinkIntegral v
-      , let cand = ELit (LitInt c)
+      , cand <- candidates ty (Map.lookup name env)
       , legal ty cand
       , let env' = Map.insert name cand env
       , evalEnv env' == Just False ]
+    candidates _ (Just (ELit (LitInt v))) = map (ELit . LitInt) (QC.shrinkIntegral v)
+    -- BYTES-UNSIZED-1: an unsized bytes sample shrinks toward length 0 by
+    -- dropping bytes ('QC.shrinkList' with no element shrink). A bytes[n]
+    -- sample keeps its length, so it is reported as drawn.
+    candidates ty (Just v)
+      | isUnsizedBytes ty, Just bs <- bytesFlat v =
+          map (bytesValE . BS.pack) (QC.shrinkList (const []) (BS.unpack bs))
+    candidates _ _ = []
+    isUnsizedBytes ty = case expandAliasPure (gcAliases gctx) ty of
+      TBytesU                  -> True
+      TDependent _ TBytesU _   -> True
+      _                        -> False
     legal ty cand = case resolveTop ty of
       TDependent binder _ predE -> refinementHolds gctx binder predE cand
       _                         -> True

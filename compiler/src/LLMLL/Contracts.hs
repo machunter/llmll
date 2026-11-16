@@ -39,6 +39,8 @@ module LLMLL.Contracts
   , buildFuncEnv
   , maxFuel
   , evalOp
+  , bytesValE
+  , bytesFlat
 
     -- * Module-Level Analysis
   , analyzeContracts
@@ -54,6 +56,8 @@ import Control.Monad (foldM, zipWithM)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified LLMLL.RuntimePure as RP
+import qualified Data.ByteString as BS
+import Data.Word (Word8)
 
 import LLMLL.Syntax
 
@@ -771,9 +775,54 @@ evalBuiltinApp _ _ _ "bytes-zero" [ELit (LitInt n)] =
 evalBuiltinApp _ _ _ "bytes-set" [b, ELit (LitInt i), ELit (LitInt v)]
   | Just n <- bytesChainLen b, i >= 0, i < n, v >= 0, v <= 255 =
       Just (EApp "bytes-set" [b, ELit (LitInt i), ELit (LitInt v)])
+-- BYTES-UNSIZED-1 (step 3, S4): on the canonical value 'bytesValTag' (both
+-- byte types), the three operations run the runtime's ByteString instance.
+-- The pre is decided here first, so a failed one discards (Nothing) and the
+-- runtime's error is never raised in the checker.
+evalBuiltinApp _ _ _ "bytes-set" [b, ELit (LitInt i), ELit (LitInt v)]
+  | Just bs <- bytesFlat b, i >= 0, i < toInteger (BS.length bs), v >= 0, v <= 255 =
+      Just (bytesValE (RP.bytes_set bs i v))
 evalBuiltinApp _ _ _ "bytes-set" _                  = Nothing
+evalBuiltinApp _ _ _ "bytes-length" [b]
+  | Just bs <- bytesFlat b = Just (ELit (LitInt (toInteger (RP.bytes_length bs))))
 evalBuiltinApp _ _ _ "bytes-length" [b]             = ELit . LitInt <$> bytesChainLen b
+evalBuiltinApp _ _ _ "bytes-get" [b, ELit (LitInt i)]
+  | Just bs <- bytesFlat b =
+      if i >= 0 && i < toInteger (BS.length bs) then Just (ELit (LitInt (RP.bytes_get bs i))) else Nothing
 evalBuiltinApp _ _ _ "bytes-get" [b, ELit (LitInt i)] = bytesChainGet b i
+-- BYTES-UNSIZED-1 (step 3, S4): the nine new operations, each answered by its
+-- 'LLMLL.RuntimePure' body (PBT-EVAL-PARITY-1). A partial one (bytes-make,
+-- bytes-slice) decides its pre first and discards on failure, as bytes-get
+-- does. bytes-make and bytes-widen of a length past 'rangeCap' discard, as
+-- 'range' does, so the value is never built in the checker's memory. A
+-- Result's Error carries the int offset the runtime gives.
+evalBuiltinApp _ _ _ "bytes#" [xs]
+  | Just _ <- bytesFlat (EApp bytesValTag [xs]) = Just (EApp bytesValTag [xs])
+evalBuiltinApp _ _ _ "bytes-make" [ELit (LitInt n), ELit (LitInt v)]
+  | n >= 0, n <= rangeCap, v >= 0, v <= 255 = Just (bytesValE (RP.bytes_make n v))
+evalBuiltinApp _ _ _ "bytes-slice" [b, ELit (LitInt s), ELit (LitInt e)] = do
+  bs <- bytesFlat b
+  if s >= 0 && s <= e && e <= toInteger (BS.length bs)
+    then Just (bytesValE (RP.bytes_slice bs s e))
+    else Nothing
+evalBuiltinApp _ _ _ "bytes-concat" [a, b] =
+  bytesValE <$> (RP.bytes_concat <$> bytesFlat a <*> bytesFlat b)
+evalBuiltinApp _ _ _ "bytes-concat-many" [xs] =
+  bytesValE . RP.bytes_concat_many <$> (mapM bytesFlat =<< consToList xs)
+evalBuiltinApp _ _ _ "bytes-to-list" [b] =
+  listE . map (ELit . LitInt) . RP.bytes_to_list <$> bytesFlat b
+evalBuiltinApp _ _ _ "bytes-widen" [b] = bytesValE . RP.bytes_widen <$> bytesWords b
+evalBuiltinApp _ _ _ "bytes-from-list" [xs] = do
+  vs <- mapM intLit =<< consToList xs
+  pure $ case RP.bytes_from_list vs of
+    Left k   -> EApp "Error" [ELit (LitInt k)]
+    Right bs -> EApp "Success" [bytesValE bs]
+evalBuiltinApp _ _ _ "bytes-from-string" [s] = bytesValE . RP.bytes_from_string <$> strV s
+evalBuiltinApp _ _ _ "bytes-to-string" [b] = do
+  bs <- bytesFlat b
+  pure $ case RP.bytes_to_string bs of
+    Left k  -> EApp "Error" [ELit (LitInt k)]
+    Right s -> EApp "Success" [strE s]
 
 -- PBT-EVAL-PARITY-1. The pure §13 builtins, each answered by the SAME
 -- definition the generated program runs ('LLMLL.RuntimePure', pinned to
@@ -906,6 +955,9 @@ modeledBuiltins = Set.fromList
   , "bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"
   , "ok", "err", "is-ok", "unwrap", "unwrap-or"
   , "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
+  , "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many"
+  , "bytes-from-list", "bytes-to-list", "bytes-widen"
+  , "bytes-from-string", "bytes-to-string"
   , "map-has", "map-get", "map-put", "map-empty"
   ]
 
@@ -1044,6 +1096,43 @@ bytesChainGet b i = do
       | otherwise = bytesWalk base idx
     bytesWalk (EApp "bytes-set" [base, _, _]) idx = bytesWalk base idx
     bytesWalk _ _ = 0
+
+-- | BYTES-UNSIZED-1 (step 3, S4): the canonical byte value of the evaluator,
+-- for @bytes@ and @bytes[n]@ alike: the tag applied to a cons/nil chain of
+-- int literals, each in 0..255. The tag is not an LLMLL identifier (the
+-- lexer admits no @#@), so no program function can capture it. The value
+-- re-evaluates to itself (the "bytes#" arm of 'evalBuiltinApp'), as a closure
+-- substitution requires. 'valueEq' compares two of them structurally, which
+-- is the runtime's Eq, because the chain is canonical; it still declines
+-- against the 'bytes-zero' override chain, which is not.
+bytesValTag :: Name
+bytesValTag = "bytes#"
+
+-- | The canonical value of a byte string.
+bytesValE :: BS.ByteString -> Expr
+bytesValE bs = EApp bytesValTag [listE (map (ELit . LitInt . toInteger) (BS.unpack bs))]
+
+-- | The bytes of a canonical value; Nothing on any other form or on an
+-- element outside 0..255.
+bytesFlat :: Expr -> Maybe BS.ByteString
+bytesFlat (EApp "bytes#" [xs]) = do
+  vs <- mapM intLit =<< consToList xs
+  if all (\v -> v >= 0 && v <= 255) vs then Just (BS.pack (map fromInteger vs)) else Nothing
+bytesFlat _ = Nothing
+
+-- | The bytes of either form: the canonical value, or a 'bytes-zero' override
+-- chain of a known length up to 'rangeCap' (bytes-widen of a sized value).
+bytesWords :: Expr -> Maybe [Word8]
+bytesWords b
+  | Just bs <- bytesFlat b = Just (BS.unpack bs)
+  | Just n <- bytesChainLen b, n <= rangeCap =
+      mapM (\i -> bytesChainGet b i >>= intLit >>= byteOf) [0 .. n - 1]
+  | otherwise = Nothing
+  where byteOf v = if v >= 0 && v <= 255 then Just (fromInteger v) else Nothing
+
+intLit :: Expr -> Maybe Integer
+intLit (ELit (LitInt n)) = Just n
+intLit _                 = Nothing
 
 -- ---------------------------------------------------------------------------
 -- List Helpers (OBLIG-PBT-2 / F-032)
