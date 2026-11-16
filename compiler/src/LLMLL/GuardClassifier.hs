@@ -156,6 +156,18 @@ classifyGuardM env se (EApp "map-has" [EVar m, kE]) = do
                                      (FQLit 1)) <$> mk
     else return Nothing
 
+-- BYTES-UNSIZED-1 (byte-io-proposal Rev 2a, item 1; U1 (a)): `(bytes-length x)`
+-- in a guard is `bytesLen(x)` when `x` is a variable of the byte-array sort
+-- (`bytes` and `bytes[n]`), the term the clause channel ('exprToPredWD') and the
+-- body channel already emit, so the guard is exact: no trusted item and no
+-- abstraction mark. Any other argument, or a variable at another sort or none,
+-- keeps the fallback. `string-length` and `list-length` guards are NOT here
+-- (DECREASES-IF-GUARD-1).
+classifyGuardM env se (EApp "bytes-length" [EVar x]) =
+  let renamed = fromMaybe x (Map.lookup x env)
+  in return $ case Map.lookup renamed se of
+       Just (FQArr FQInt FQInt) -> Just (FQApp "bytesLen" [FQVar renamed])
+       _                        -> Nothing
 classifyGuardM env se (EApp "and" args) = do
   ps <- mapM (classifyGuardM env se) args
   return $ if all isJust ps then Just (FQAnd (catMaybes ps)) else Nothing

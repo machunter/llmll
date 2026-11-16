@@ -692,15 +692,20 @@ admits am t = boolValuedMapTy am t
 --     way (the call-site or body-VC length obligation is undischargeable against
 --     an unannotated callee, so the program is REFUTED), but a type error at the
 --     seam names the remedy (annotate the callee's return) where a refuted
---     obligation does not. Keeping the arm here costs nothing: every program it
---     rejects would have been refuted downstream.
+--     obligation does not. For @bytes[n]@, keeping the arm costs nothing: every
+--     such program it rejects would have been refuted downstream.
 --
 -- @'admits' am t ==> 'wildAssumeRejects' am t@ by construction, so the seams
 -- cannot become narrower than the soundness gate by accident.
 --
 -- BYTES-UNSIZED-1: the byte arm tests 'isBytesTy', so the unsized @bytes@ is
--- rejected at the seams as @bytes[n]@ is (step-3 plan). No length fact is
--- asserted or owed for it, so this is the diagnostic half only: the remedy
--- (annotate the callee's return) is the same.
+-- rejected at the seams as @bytes[n]@ is (step-3 plan, S2). The "refuted
+-- downstream anyway" argument above does NOT carry over: an unsized value owes
+-- no length ('bytesLenOf' is Nothing, so 'FixpointEmit.bytesLenParamPre' and
+-- 'FixpointEmit.bytesLenRetPost' emit nothing for it) and no fact is asserted
+-- for it, so nothing downstream would refute the hop. For @bytes@ the arm is a
+-- policy, not a consequence: it rejects programs that would otherwise check,
+-- and its only value is that it keeps the two byte types alike at the seams
+-- and names the remedy (annotate the callee's return).
 wildAssumeRejects :: AliasMap -> Type -> Bool
 wildAssumeRejects am t = admits am t || isBytesTy am t

@@ -49,6 +49,7 @@ module LLMLL.FixpointEmit
   , BuiltinAxiom(..)              -- TRUST-AXIOM: one sealed-builtin axiom a function's evidence rests on
   , sealedAxiomBuiltins           -- TRUST-AXIOM: the builtins whose assumed post is an axiom
   , abstractedBuiltins            -- ABSTRACTION-VERDICT-1 clause 1: partially reflected builtins
+  , bytesCallNames                -- BYTES-UNSIZED-1: the step-3 byte operations the ANF pass hoists
   , exactBitBuiltins              -- BITWISE-1: the names with an exact reflection
   , BitExact(..), bitExact, bitExactTerm  -- BITWISE-1: the exact-form recognizer (unit tests)
   , injectRangeFactsLabeled       -- TRUST-AXIOM family C: facts plus the families they belong to
@@ -109,6 +110,7 @@ module LLMLL.FixpointEmit
   , admissibleDatatype           -- COMP-4 (a): acyclic-closure admissibility
   , sortableComponent            -- PAIR-RET-2: pair-component faithful-sortability
   , pairParamSorts               -- PAIR-GUARD-PROJ-1: pair params at their Pair2 sort
+  , bytesParamSorts              -- BYTES-UNSIZED-1: byte params at the array sort (guards)
   , markIntBuiltins, exprBinders -- MINMAX-GUARD-1: the hole report marks guards as the verifier does
   , resultReturnUnsafe           -- COMP-4-RESULT: non-admissible Result-return firewall
   , typeToSortA                  -- COMP-4 (a): alias-aware sort (FQData for payload sums)
@@ -413,9 +415,9 @@ data BuiltinAxiom = BuiltinAxiom
   } deriving (Show, Eq)
 
 -- | TRUST-AXIOM: the builtins whose 'cvPostAssumption' is an axiom rather than
--- a discharged contract. These are the six sealed builtin 'CallVC' arms of
--- 'bodyToPredM': the four array arms and, since CHAR-CODE-1, the two character
--- arms. The exact bit forms are NOT here ('exactBitBuiltins'): each result is the
+-- a discharged contract. These are the sealed builtin 'CallVC' arms of
+-- 'bodyToPredM': the four array arms, since CHAR-CODE-1 the two character
+-- arms, and since BYTES-UNSIZED-1 the seven step-3 byte arms (thirteen). The exact bit forms are NOT here ('exactBitBuiltins'): each result is the
 -- arithmetic term itself, which assumes nothing about the operation. A user
 -- function's 'CallVC' is NOT here: its post is the callee's own contract,
 -- discharged by the callee's body VC under assume-guarantee (LLMLL.md §5.3.4).
@@ -426,7 +428,11 @@ data BuiltinAxiom = BuiltinAxiom
 sealedAxiomBuiltins :: Set.Set Name
 sealedAxiomBuiltins = Set.fromList
   [ "bytes-get", "bytes-set", "bytes-zero", "map-get"
-  , "string-code-at", "string-from-code" ]
+  , "string-code-at", "string-from-code"
+  -- BYTES-UNSIZED-1 (byte-io-proposal Part 4): the step-3 arms. bytes-make and
+  -- bytes-widen are exact; the other five are partial ('abstractedBuiltins').
+  , "bytes-make", "bytes-widen", "bytes-slice", "bytes-concat", "bytes-concat-many"
+  , "bytes-to-list", "bytes-from-string" ]
 
 -- | ABSTRACTION-VERDICT-1, clause 1 of docs/design/byte-io-proposal.md Rev 2
 -- (Part 0): the builtins whose result the VC reflects only PARTIALLY, so an UNSAFE
@@ -436,7 +442,10 @@ sealedAxiomBuiltins = Set.fromList
 -- constraint whose environment holds such a result, with no call count. Clause 2
 -- (two calls to one callee) is the other half of 'erAbstracted'.
 abstractedBuiltins :: Set.Set Name
-abstractedBuiltins = Set.fromList ["string-code-at", "string-from-code"]
+abstractedBuiltins = Set.fromList
+  [ "string-code-at", "string-from-code"
+  -- BYTES-UNSIZED-1: a length fact only; the content is unknown.
+  , "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-to-list", "bytes-from-string" ]
 
 -- | BITWISE-1: the names whose 'CallVC' arm reflects an exact form. Two such
 -- calls in one constraint are two arithmetic terms, so clause 2 of the verdict
@@ -455,6 +464,19 @@ bitCharCallNames :: Set.Set Name
 bitCharCallNames = Set.fromList
   [ "bit-and", "bit-or", "bit-xor", "bit-shl", "bit-shr"
   , "string-code-at", "string-from-code" ]
+
+-- | BYTES-UNSIZED-1: the step-3 byte operations the ANF pass hoists, so each
+-- argument is a variable when its arm reads it and each call-pre rides the
+-- 'CallVC' channel. With @bytes-get@ and @bytes-set@ (already hoisted) these are
+-- eleven of the twelve names. @bytes-length@ is NOT here (Rev 2a item 1): it has
+-- no call-pre, and a hoist would change the @.fq@ text of every file naming it.
+-- @bytes-from-list@ and @bytes-to-string@ have no arm; a hoisted one reaches the
+-- catch-all and the caller falls back with @app:<name>@.
+bytesCallNames :: Set.Set Name
+bytesCallNames = Set.fromList
+  [ "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many"
+  , "bytes-from-list", "bytes-to-list", "bytes-widen"
+  , "bytes-from-string", "bytes-to-string" ]
 
 -- | BITWISE-1: a bit application with an exact reflection. The field is the
 -- operand the solver still sees and the numeral the form divides or multiplies
@@ -1519,7 +1541,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
   -- binders (mapPairTermsB roots on them), so obligations over it fall back.
   let arrGate = arrGateActive cenv contract mBody
       arrParams = if arrGate
-                    then [ (n, t) | (n, t) <- params, isJust (bytesLenOf aliases t) ]
+                    then [ (n, t) | (n, t) <- params, isBytesTy aliases t ]
                     else []
       mapParams = if arrGate
                     then [ (n, t) | (n, t) <- params, mapArrEncodableTy aliases t ]
@@ -1540,16 +1562,17 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
         let (c', labels) = injectBoolValRangeFactsLabeled boolValArrs c
         unless (null labels) $ addGroundFacts (fnTagOf c) labels
         addConst0 c'
-      sortA1 t = case bytesLenOf aliases t of
-                   Just _ | arrGate -> byteArraySort
-                   _                -> typeToSortA aliases t
+      -- BYTES-UNSIZED-1: the unsized `bytes` takes the array sort too.
+      sortA1 t
+        | arrGate, isBytesTy aliases t = byteArraySort
+        | otherwise                    = typeToSortA aliases t
   -- ARR-RANGE-NAME: the seed of the bytes evidence set is every param and the
   -- result whose declared (or RET-RESOLVE-resolved) type is bytes[n]. It is
   -- registered before this function's first constraint; the body walk below
   -- extends it before any body constraint is added.
   let bytesSeed = Set.fromList
         [ n | (n, t) <- params ++ [ ("result", rt) | Just rt <- [mRet] ]
-            , isJust (bytesLenOf aliases t) ]
+            , isBytesTy aliases t ]
   addBytesArrs name bytesSeed
   -- NIW (v0.12): non-int params used as measure arguments get an opaque carrier
   -- binder so (strLen s) / (listLen xs) resolve to an in-scope symbol. Scoped to
@@ -2030,7 +2053,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             seedD <- readIORef bodyCounterRef
             let anfNames = Map.keysSet cenv
                              `Set.union` Set.fromList ["bytes-get", "bytes-set", "map-get"]
-                             `Set.union` bitCharCallNames
+                             `Set.union` bitCharCallNames `Set.union` bytesCallNames
                 (bodyD, seedD') = evalState
                   (do r <- aNormalizeBody anfNames (expandMapLets (Map.keysSet cenv) body')
                       c <- get
@@ -2060,7 +2083,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             let (newSeed, mBodyVC0) =
                   if isJust mMapRetPair
                     then (seed, Nothing)
-                    else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts (buildCtorSums aliases localSums, pairParamSorts aliases params) cenv sccSet
+                    else bodyToPredFromRS seed sortEnv refEnv scrutTagMap calleeSorts (buildCtorSums aliases localSums, Map.union (pairParamSorts aliases params) (bytesParamSorts arrParams)) cenv sccSet
                            (markIntBuiltins (Set.fromList (map fst params) `Set.union` Map.keysSet cenv)
                                             (reifyBytesZeroLen mRet body'))
             writeIORef bodyCounterRef newSeed
@@ -2598,10 +2621,10 @@ emitParamBind aliases freshBid addBind (n, t) = do
       paramSort ty = case ty of
         TPair _ _ -> typeToSortA aliases ty
         _         -> typeToSort ty
-      reft = case bytesLenOf aliases t of
-        Just _   -> FQReft "v" byteArraySort FQTrue
-        Nothing  -> FQReft "v" (paramSort (resolveAliasTy aliases t))
-                      (enumTagDomain aliases "v" t)
+      reft
+        | isBytesTy aliases t = FQReft "v" byteArraySort FQTrue
+        | otherwise           = FQReft "v" (paramSort (resolveAliasTy aliases t))
+                                  (enumTagDomain aliases "v" t)
       b = FQBind bid n reft
   addBind b
   return b
@@ -2700,8 +2723,13 @@ exprMentionsVar target = go
 -- ---------------------------------------------------------------------------
 
 -- | The reflected bytes-op family (stage A1). NOT the map ops.
+-- BYTES-UNSIZED-1: the nine step-3 operations join, so a function that names
+-- one turns the gate on; a function that names none keeps its gate state.
 bytesOpNames :: [Name]
-bytesOpNames = ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"]
+bytesOpNames = ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"
+               , "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many"
+               , "bytes-from-list", "bytes-to-list", "bytes-widen"
+               , "bytes-from-string", "bytes-to-string"]
 
 -- | The reflected map-op family (stage A2).
 mapOpNames :: [Name]
@@ -2881,8 +2909,8 @@ wholeArrEqClause :: AliasMap -> [(Name, Type)] -> Maybe Type -> Maybe Expr -> Bo
 wholeArrEqClause _ _ _ Nothing = False
 wholeArrEqClause am params mRet (Just e0) = go e0
   where
-    bytesVars = Set.fromList $ [ n | (n, t) <- params, isJust (bytesLenOf am t) ]
-                            ++ [ "result" | Just t <- [mRet], isJust (bytesLenOf am t) ]
+    bytesVars = Set.fromList $ [ n | (n, t) <- params, isBytesTy am t ]
+                            ++ [ "result" | Just t <- [mRet], isBytesTy am t ]
     mapVars = Set.fromList $ [ n | (n, t) <- params, isMapTy am t ]
                           ++ [ "result" | Just t <- [mRet], isMapTy am t ]
     go (EApp op [l, r])
@@ -3647,6 +3675,10 @@ typeToSort (TDependent _ base _) = typeToSort base
 -- discharging *scope* is QF-LIA-scalar components (int/bool/string-measure), enforced
 -- per-operator by exprToPred — a non-scalar projection used outside Σ_auto falls back.
 typeToSort (TPair a b) = FQDataApp "Pair2" [typeToSort a, typeToSort b]
+-- BYTES-UNSIZED-1 (byte-io-proposal P6, D6): both byte types are the byte array.
+-- A `bytes[n]` constructor field used to be declared `int` through the default.
+typeToSort (TBytes _) = byteArraySort
+typeToSort TBytesU    = byteArraySort
 typeToSort _     = FQInt  -- conservative default
 
 -- | COMP-4 (a): alias-aware sort. An admissible sum lowers to its native FQData
@@ -3704,6 +3736,17 @@ pairParamSorts aliases params = Map.fromList
   , TPair a b <- [resolveAliasTy aliases t]
   , sortableComponent aliases a
   , sortableComponent aliases b ]
+
+-- | BYTES-UNSIZED-1 (Rev 2a item 1): the byte-array params of a function, at
+-- 'byteArraySort', for the guard channel's @bytes-length@ arm. The emitter
+-- passes the GATED list ('arrParams'), the params it binds at the array sort,
+-- so a guard reflects @bytesLen(x)@ only over a declared array binder. Joined to
+-- the pair map the guard reads ('pairParamSorts'); the other readers of that
+-- map match only a @Pair2@ sort, so an array entry reaches no one else.
+-- 'LLMLL.ObligationAssembly' passes every byte param, as it does the pair
+-- params, so a path condition classifies as the verifier's guard does.
+bytesParamSorts :: [(Name, Type)] -> Map.Map Name FQSort
+bytesParamSorts ps = Map.fromList [ (n, byteArraySort) | (n, _) <- ps ]
 
 sortableComponent :: AliasMap -> Type -> Bool
 sortableComponent am t0 = case resolveAliasTy am t0 of
@@ -4099,6 +4142,8 @@ data PartialOp
   | PBitNonNeg FQPred                -- ^ BITWISE-1: the operand of an exact form
   | PStringCodeAt FQPred FQPred      -- ^ CHAR-CODE-1: string, index (body only, D4)
   | PStringFromCode FQPred           -- ^ CHAR-CODE-1: code (body only, D4)
+  | PBytesMake FQPred FQPred         -- ^ BYTES-UNSIZED-1: length, value (body only)
+  | PBytesSlice FQPred FQPred FQPred -- ^ BYTES-UNSIZED-1: bytes, start, end (body only)
   deriving (Show, Eq)
 
 -- | CLAUSE-WELLDEF-1: the ONE table of partial-builtin preconditions π_f.
@@ -4124,6 +4169,16 @@ partialPre (PStringFromCode c) =
   FQAnd [ FQBinPred FQGe c (FQLit 0)
         , FQBinPred FQLe c (FQLit 1114111)
         , FQOr [ FQBinPred FQLt c (FQLit 55296), FQBinPred FQGt c (FQLit 57343) ] ]
+-- BYTES-UNSIZED-1 (step-3 plan, contract plan): the literal pres of the two
+-- partial constructors, as the runtime bodies in 'LLMLL.RuntimePure' test them.
+partialPre (PBytesMake n v) =
+  FQAnd [ FQBinPred FQGe n (FQLit 0)
+        , FQBinPred FQGe v (FQLit 0)
+        , FQBinPred FQLe v (FQLit 255) ]
+partialPre (PBytesSlice b st en) =
+  FQAnd [ FQBinPred FQGe st (FQLit 0)
+        , FQBinPred FQLe st en
+        , FQBinPred FQLe en (FQApp "bytesLen" [b]) ]
 
 -- | CLAUSE-WELLDEF-1: one definedness obligation of a clause, @C ⟹ π_f@.
 data WDObl = WDObl
@@ -4776,7 +4831,7 @@ bodyToPredFromRS seed sortEnv refEnv scrutTags calleeSorts matchCtx cenv sccSet 
   -- runs FIRST: pure map-typed lets substitute into their bodies, reducing the
   -- §5.1 pipeline shape to the composite form. Inert for map-let-free bodies.
   let callNames = Map.keysSet cenv `Set.union` Set.fromList ["bytes-get", "bytes-set", "map-get"]
-                    `Set.union` bitCharCallNames
+                    `Set.union` bitCharCallNames `Set.union` bytesCallNames
       (result, finalCounter) = runStateFrom seed $ do
         expr' <- aNormalizeBody callNames (expandMapLets (Map.keysSet cenv) expr)
         runReaderT (bodyToPredM Map.empty sortEnv cenv sccSet expr') (refEnv, scrutTags, calleeSorts, matchCtx)
@@ -5637,6 +5692,105 @@ bodyToPredM env se cenv sccSet (EApp "string-from-code" [cE])
                                  r FQStr (SimpleVC [] (FQVar r)) Nothing False
         _ -> return Nothing
 
+-- BYTES-UNSIZED-1 (byte-io-proposal Part 4; step-3 plan, contract plan). The
+-- step-3 operations in the `bytes-get` shape: a fresh result, a PROVE-polarity
+-- pre where the operation is partial (tag "call-pre:<name>"), and an assumed
+-- post split into reflection and lemma parts. After ANF every byte argument
+-- is a variable. Each arm is a sealed axiom ('sealedAxiomBuiltins');
+-- bytes-make and bytes-widen are exact, the other five state a length only
+-- and are 'abstractedBuiltins', so an UNSAFE answer resting on one falls back
+-- (`abstraction:app:<name>`). bytes-from-list and bytes-to-string have no arm.
+
+-- `bytes-make n v`: the constant array, and its length (exact).
+bodyToPredM env se cenv sccSet (EApp "bytes-make" [nE, vE])
+  | Map.notMember "bytes-make" env = do
+      mN <- bodyToPredM env se cenv sccSet nE
+      mV <- bodyToPredM env se cenv sccSet vE
+      case (mN, mV) of
+        (Just (SimpleVC [] nP), Just (SimpleVC [] vP)) -> do
+          r <- freshName "call_bytes_make"
+          let pre   = partialPre (PBytesMake nP vP)
+              parts = [ ("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_default" [vP]))
+                      , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) nP) ]
+              post  = conjoinAll (map snd parts)
+          return . Just $ CallVC "bytes-make" [nP, vP] [] (Just pre) (Just post) parts
+                                 r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+        _ -> return Nothing
+
+-- `bytes-widen b`: the identity on the array (exact, no lemma). The sized
+-- length is not restated, so a widened value has a length only where `b` has
+-- one (FACT-AG-LEN, P2).
+bodyToPredM env _ _ _ (EApp "bytes-widen" [EVar b])
+  | Map.notMember "bytes-widen" env = do
+      let bP = FQVar (fromMaybe b (Map.lookup b env))
+      r <- freshName "call_bytes_widen"
+      let parts = [("reflection", FQBinPred FQEq (FQVar r) bP)]
+          post  = conjoinAll (map snd parts)
+      return . Just $ CallVC "bytes-widen" [bP] [] Nothing (Just post) parts
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+
+-- `bytes-slice b s e`: the range pre, and the length of the slice (partial).
+bodyToPredM env se cenv sccSet (EApp "bytes-slice" [EVar b, sE, eE])
+  | Map.notMember "bytes-slice" env = do
+      let bP = FQVar (fromMaybe b (Map.lookup b env))
+      mS <- bodyToPredM env se cenv sccSet sE
+      mE <- bodyToPredM env se cenv sccSet eE
+      case (mS, mE) of
+        (Just (SimpleVC [] sP), Just (SimpleVC [] eP)) -> do
+          r <- freshName "call_bytes_slice"
+          let pre   = partialPre (PBytesSlice bP sP eP)
+              parts = [("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQBinArith FQSub eP sP))]
+              post  = conjoinAll (map snd parts)
+          return . Just $ CallVC "bytes-slice" [bP, sP, eP] [] (Just pre) (Just post) parts
+                                 r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+        _ -> return Nothing
+
+-- `bytes-concat a b`: the sum of the lengths (partial).
+bodyToPredM env _ _ _ (EApp "bytes-concat" [EVar a, EVar b])
+  | Map.notMember "bytes-concat" env = do
+      let aP = FQVar (fromMaybe a (Map.lookup a env))
+          bP = FQVar (fromMaybe b (Map.lookup b env))
+      r <- freshName "call_bytes_concat"
+      let parts = [("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r])
+                                         (FQBinArith FQAdd (FQApp "bytesLen" [aP]) (FQApp "bytesLen" [bP])))]
+          post  = conjoinAll (map snd parts)
+      return . Just $ CallVC "bytes-concat" [aP, bP] [] Nothing (Just post) parts
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+
+-- `bytes-concat-many xs`: a length, and nothing more (partial). The list is
+-- not read, so it needs no binder.
+bodyToPredM env _ _ _ (EApp "bytes-concat-many" [EVar _])
+  | Map.notMember "bytes-concat-many" env = do
+      r <- freshName "call_bytes_concat_many"
+      let parts = [("lemma", FQBinPred FQGe (FQApp "bytesLen" [FQVar r]) (FQLit 0))]
+          post  = conjoinAll (map snd parts)
+      return . Just $ CallVC "bytes-concat-many" [] [] Nothing (Just post) parts
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+
+-- `bytes-to-list b`: a list of the same length (partial).
+bodyToPredM env _ _ _ (EApp "bytes-to-list" [EVar b])
+  | Map.notMember "bytes-to-list" env = do
+      let bP = FQVar (fromMaybe b (Map.lookup b env))
+      r <- freshName "call_bytes_to_list"
+      let parts = [("lemma", FQBinPred FQEq (FQApp "listLen" [FQVar r]) (FQApp "bytesLen" [bP]))]
+          post  = conjoinAll (map snd parts)
+      return . Just $ CallVC "bytes-to-list" [bP] [] Nothing (Just post) parts
+                             r FQList (SimpleVC [] (FQVar r)) Nothing False
+
+-- `bytes-from-string s`: one to four bytes per character (partial). `4 * strLen(s)`
+-- is a constant multiplier (SIGMA-CONST-ARITH-1).
+bodyToPredM env se _ _ (EApp "bytes-from-string" [sE])
+  | Map.notMember "bytes-from-string" env
+  , Just sP <- strArgTerm env se sE = do
+      r <- freshName "call_bytes_from_string"
+      let lenR  = FQApp "bytesLen" [FQVar r]
+          lenS  = FQApp "strLen" [sP]
+          parts = [ ("lemma", FQBinPred FQLe lenS lenR)
+                  , ("lemma", FQBinPred FQLe lenR (FQBinArith FQMul (FQLit 4) lenS)) ]
+          post  = conjoinAll (map snd parts)
+      return . Just $ CallVC "bytes-from-string" [sP] [] Nothing (Just post) parts
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+
 -- Normalize EOp to EApp
 bodyToPredM env se cenv sccSet (EOp name args) = bodyToPredM env se cenv sccSet (EApp name args)
 
@@ -6341,7 +6495,7 @@ collectCallSites (CallVC c args _ _ _ _ _ _ cont _ _) = (c, args) : collectCallS
 -- otherwise yields three rows differing only in an index literal, all asserting
 -- that `bytes-get` reflects to `Map_select`. What a reader needs is the SET of
 -- sealed builtins the evidence rests on, which 'sealedAxiomBuiltins' bounds at
--- six. The first occurrence supplies the representative predicate.
+-- thirteen. The first occurrence supplies the representative predicate.
 collectBuiltinAxioms :: Name -> BodyVC -> [BuiltinAxiom]
 collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
   where
@@ -6780,6 +6934,8 @@ measureArgVars e = case e of
   EApp "list-length"   [EVar v] -> Set.singleton v
   -- CHAR-CODE-1: the string argument of the `strCode` term and of its `strLen` pre.
   EApp "string-code-at" [EVar v, i] -> Set.insert v (measureArgVars i)
+  -- BYTES-UNSIZED-1: the string argument of the `strLen` lemma of bytes-from-string.
+  EApp "bytes-from-string" [EVar v] -> Set.singleton v
   EApp _ args   -> Set.unions (map measureArgVars args)
   EOp _ args    -> Set.unions (map measureArgVars args)
   EIf a b c     -> Set.unions (map measureArgVars [a, b, c])
@@ -6884,8 +7040,9 @@ injectRangeFactsLabeled bytesArrs c =
 -- | ARR-RANGE-NAME: extend a function's bytes evidence set (seeded with its
 -- bytes-typed params and result) over a translated body VC. A name joins the
 -- set from a type, never from its spelling: a 'CallVC' result joins when the
--- call is the bytes-set / bytes-zero builtin or a callee whose declared return
--- is bytes[n]; a let binder joins when its right-hand side roots (through any
+-- call is a builtin with a byte-array result (bytes-set, bytes-zero and, since
+-- BYTES-UNSIZED-1, the six step-3 array results) or a callee whose declared
+-- return is @bytes[n]@ or @bytes@; a let binder joins when its right-hand side roots (through any
 -- Map_store chain) in a name already in the set.
 bytesArrsOfVC :: AliasMap -> ContractEnv -> Set.Set Text -> BodyVC -> Set.Set Text
 bytesArrsOfVC aliases cenv = go
@@ -6896,9 +7053,12 @@ bytesArrsOfVC aliases cenv = go
       let s' = if bytesCall (cvCallee cv) then Set.insert (cvResultVar cv) s else s
       in go s' (cvContinuation cv)
     letStep s lb = if rootedIn s (lbRhs lb) then Set.insert (lbName lb) s else s
+    -- BYTES-UNSIZED-1: every builtin whose result is a byte array, and a
+    -- callee whose declared return is either byte type.
     bytesCall f
-      | f `elem` ["bytes-set", "bytes-zero"] = True
-      | Just (_, _, Just rt) <- Map.lookup f cenv = isJust (bytesLenOf aliases rt)
+      | f `elem` ["bytes-set", "bytes-zero", "bytes-make", "bytes-slice", "bytes-concat"
+                 , "bytes-concat-many", "bytes-from-string", "bytes-widen"] = True
+      | Just (_, _, Just rt) <- Map.lookup f cenv = isBytesTy aliases rt
       | otherwise = False
     rootedIn s (FQVar n) = n `Set.member` s
     rootedIn s (FQApp "Map_store" (a : _)) = rootedIn s a

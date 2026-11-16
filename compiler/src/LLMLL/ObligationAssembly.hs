@@ -77,10 +77,13 @@ import Data.Graph (stronglyConnComp, SCC(..))
 
 import LLMLL.Syntax
 import LLMLL.FixpointIR (FQSort(..))
+import LLMLL.TypeAdmissibility (isBytesTy)
 import LLMLL.FixpointEmit
   ( EmitResult(..), ContractEnv, SortEnv
   , buildAliasMap, buildSortEnv, buildContractEnv, isIntLike, AliasMap
   , pairParamSorts
+  -- BYTES-UNSIZED-1: a bytes-length path condition classifies as the verifier's guard
+  , bytesParamSorts
   -- MINMAX-GUARD-1: a hole guard is marked as the verifier marks the body
   , markIntBuiltins, exprBinders
   -- OBLIG-CH: the emitter's own ContractEnv recipe, so a call site the report
@@ -1345,7 +1348,7 @@ mkHoleObl stmts cache table mFqResult trustRpt faithful fallback tainted recName
       -- PAIR-GUARD-PROJ-1: a guard sees the pair params, as the verifier's does.
       body0    = fromMaybe (ELit (LitBool True)) mBody
       guards   = collectHoleGuardsWith (holeGuardMark stmts params body0) Map.empty
-                   (Map.union sortEnv (pairParamSorts aliases params)) body0
+                   (Map.unions [sortEnv, pairParamSorts aliases params, bytesParamSorts [ pt | pt@(_, t) <- params, isBytesTy aliases t ]]) body0
       -- F7 fix: holeName has "?" prefix, collectHoleGuards emits without
       hName    = T.dropWhile (== '?') (holeName he)
       myGuards = maybe [] snd $ lookup hName [(n, (n, gs)) | (n, gs) <- guards]
@@ -1678,7 +1681,7 @@ holeContractBrief stmts pointer holeNm =
           sortEnv  = buildSortEnv aliases params
           body0    = fromMaybe (ELit (LitBool True)) mBody
           guards   = collectHoleGuardsWith (holeGuardMark stmts params body0) Map.empty
-                       (Map.union sortEnv (pairParamSorts aliases params)) body0
+                       (Map.unions [sortEnv, pairParamSorts aliases params, bytesParamSorts [ pt | pt@(_, t) <- params, isBytesTy aliases t ]]) body0
           hName    = T.dropWhile (== '?') holeNm
           myGuards = fromMaybe [] (lookup hName guards)
       in ( fmap exprToSExpr (contractPre contract)

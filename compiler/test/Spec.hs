@@ -130,7 +130,7 @@ import LLMLL.HoleAnalysis (extractCallsScoped)
 import LLMLL.TrustReport (uncheckedCallPres)
 import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames, sigmaAutoPred)
 import LLMLL.FixpointEmit (addCongruence, congruenceFact, conjoinAll)
-import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText)
+import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText, bytesCallNames, bytesParamSorts)
 import LLMLL.Checkout (bitCharFuncEntries)
 import LLMLL.AbstractionVerdict (abstractionRepair)
 import LLMLL.Contracts (clauseGuardedOps)
@@ -11580,7 +11580,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"])
               -- CHAR-CODE-1: a clause refuses both (D4), so each lemma takes case (a).
               , ("string-code-at",   EApp "string-code-at"   [EVar "s", ELit (LitInt 0)])
-              , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)]) ]
+              , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)])
+              -- BYTES-UNSIZED-1: a clause refuses every step-3 name but the
+              -- three array operations, so each lemma takes case (a).
+              , ("bytes-make",        EApp "bytes-make"        [ELit (LitInt 3), ELit (LitInt 7)])
+              , ("bytes-widen",       EApp "bytes-widen"       [EVar "b"])
+              , ("bytes-slice",       EApp "bytes-slice"       [EVar "b", ELit (LitInt 0), ELit (LitInt 1)])
+              , ("bytes-concat",      EApp "bytes-concat"      [EVar "b", EVar "b"])
+              , ("bytes-concat-many", EApp "bytes-concat-many" [EVar "xs"])
+              , ("bytes-to-list",     EApp "bytes-to-list"     [EVar "b"])
+              , ("bytes-from-string", EApp "bytes-from-string" [EVar "s"]) ]
             se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
         Map.keysSet canon `shouldBe` sealedAxiomBuiltins
         forM_ (Map.toList canon) $ \(nm, call) ->
@@ -27612,7 +27621,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , ("bytes-zero", EApp "bytes-zero" [ELit (LitInt 4)])
             , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"])
             , ("string-code-at",   EApp "string-code-at"   [EVar "s", ELit (LitInt 0)])
-            , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)]) ]
+            , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)])
+            -- BYTES-UNSIZED-1: bytes-make and bytes-slice carry a pre; the other five do not.
+            , ("bytes-make",        EApp "bytes-make"        [ELit (LitInt 3), ELit (LitInt 7)])
+            , ("bytes-widen",       EApp "bytes-widen"       [EVar "b"])
+            , ("bytes-slice",       EApp "bytes-slice"       [EVar "b", ELit (LitInt 0), ELit (LitInt 1)])
+            , ("bytes-concat",      EApp "bytes-concat"      [EVar "b", EVar "b"])
+            , ("bytes-concat-many", EApp "bytes-concat-many" [EVar "xs"])
+            , ("bytes-to-list",     EApp "bytes-to-list"     [EVar "b"])
+            , ("bytes-from-string", EApp "bytes-from-string" [EVar "s"]) ]
           se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
           table nm as = case (nm, as) of
             ("map-get",   [h, _, k]) -> Just (PMapGet h k)
@@ -27620,6 +27637,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ("bytes-set", [b', i, v]) -> Just (PBytesSet b' i v)
             ("string-code-at", [s, i]) -> Just (PStringCodeAt s i)
             ("string-from-code", [c])  -> Just (PStringFromCode c)
+            ("bytes-make", [n, v])     -> Just (PBytesMake n v)
+            ("bytes-slice", [b', st, en]) -> Just (PBytesSlice b' st en)
             _                        -> Nothing
       Map.keysSet canon `shouldBe` sealedAxiomBuiltins
       forM_ (Map.toList canon) $ \(nm, call) ->
@@ -28949,6 +28968,197 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let cx = maybe "" id (pbtCounterexample (head (pbtResults r)))
       T.count "\"cons\"" cx `shouldBe` 3
       cx `shouldSatisfy` T.isPrefixOf "b = "
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S5 (BYTES-UNSIZED-1): the verifier. Sort sites, the D6
+  -- field sort, the step-3 body arms, the sealed and abstracted sets, the ANF
+  -- hoist set, the byte-range evidence set, and the Rev 2a bytes-length guard.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S5: the verifier for the bytes operations" $ do
+    let arr     = FQArr FQInt FQInt
+        lint    = ELit . LitInt :: Integer -> Expr
+        parseS src = case parseStatements GrammarCoreInversion "t" (T.pack src) of
+          Left e   -> error ("BYTE-IO S5 test source failed to parse: " ++ show e)
+          Right ss -> ss
+        emitS src =
+          let ss = parseS src
+              (_, retTypes) = typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv ss
+          in emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty retTypes ss
+        bodyOf se e = snd (bodyToPredFrom 0 (Map.fromList se) Map.empty Set.empty e)
+        solveS er = do
+          tmp <- getTemporaryDirectory
+          let fqPath = tmp <> "/byte-io-s5-spec.fq"
+          TIO.writeFile fqPath (erFQText er)
+          a <- findExecutable "liquid-fixpoint"
+          mLF <- maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pure Nothing
+            Just lf -> do
+              (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
+              pure (Just (T.pack out))
+        expectSolveS er want = do
+          m <- solveS er
+          case m of
+            Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just out -> out `shouldSatisfy` T.isInfixOf want
+        crcHead = unlines
+          [ "(def-shell crc-bits [c: int k: int] -> int"
+          , "  (pre (and (and (>= c 0) (<= c 4294967295)) (>= k 0)))"
+          , "  (post (and (>= result 0) (<= result 4294967295)))"
+          , "  (decreases k)"
+          , "  (if (= k 0) c (crc-bits (if (= (bit-and c 1) 1) (bit-xor (bit-shr c 1) 3988292384) (bit-shr c 1)) (- k 1))))"
+          , "(def-shell crc-byte [c: int b: int] -> int"
+          , "  (pre (and (and (>= c 0) (<= c 4294967295)) (and (>= b 0) (<= b 255))))"
+          , "  (post (and (>= result 0) (<= result 4294967295)))"
+          , "  (crc-bits (bit-xor c b) 8))" ]
+        crcLoop guard = crcHead ++ unlines
+          [ "(def-shell crc-loop [buf: bytes i: int c: int] -> int"
+          , "  (pre (and (and (>= i 0) (<= i (bytes-length buf))) (and (>= c 0) (<= c 4294967295))))"
+          , "  (post (and (>= result 0) (<= result 4294967295)))"
+          , "  (decreases (- (bytes-length buf) i))"
+          , "  (if " ++ guard ++ " c (crc-loop buf (+ i 1) (crc-byte c (bytes-get buf i)))))" ]
+        partsOf e = case bodyOf [] e of
+          Just cv@CallVC{} -> Just (cvCallee cv, cvResultSort cv, cvPreObligation cv, cvPostParts cv, cvResultVar cv)
+          _                -> Nothing
+    it "T-V1 typeToSort: both byte types are the byte array, directly and through typeToSortA" $ do
+      typeToSort (TBytes 4) `shouldBe` arr
+      typeToSort TBytesU `shouldBe` arr
+      typeToSortA Map.empty TBytesU `shouldBe` arr
+    it "T-V2 D6: a bytes[n] constructor field is declared at the array sort, and the program solves" $ do
+      fieldSort Map.empty (Set.fromList ["Pkt"]) (TSumType [("Raw", Just (TBytes 4)), ("Num", Just TInt)]) (TBytes 4)
+        `shouldBe` arr
+      er <- emitS (unlines [ "(type Pkt (| Raw bytes[4]) (| Num int))"
+                           , "(def-shell k [p: Pkt] -> int (post (>= result 0)) (match p ((Raw b) 0) ((Num n) 1)))" ])
+      [ l | l <- T.lines (erFQText er), "data Pkt" `T.isPrefixOf` l ]
+        `shouldSatisfy` all (T.isInfixOf "(Map_t int int)")
+      T.isInfixOf "data Pkt" (erFQText er) `shouldBe` True
+      expectSolveS er "Safe"
+    it "T-V3 an unsized bytes param binds at the array sort and the W-1 body is body-faithful" $ do
+      er <- emitS "(def-shell magic16 [b: bytes] -> int (pre (>= (bytes-length b) 2)) (post (and (>= result 0) (<= result 65535))) (+ (* (bytes-get b 0) 256) (bytes-get b 1)))"
+      erBodyFaithfulFns er `shouldBe` ["magic16"]
+      T.isInfixOf "bind 0 b : { v : (Map_t int int) | true }" (erFQText er) `shouldBe` True
+      expectSolveS er "Safe"
+    it "T-V4 bytes-make: the constant-array reflection, the exact length lemma, and the literal pre" $ do
+      case partsOf (EApp "bytes-make" [lint 3, lint 7]) of
+        Just (c, srt, pre, parts, r) -> do
+          c `shouldBe` "bytes-make"
+          srt `shouldBe` arr
+          pre `shouldBe` Just (partialPre (PBytesMake (FQLit 3) (FQLit 7)))
+          parts `shouldBe` [ ("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_default" [FQLit 7]))
+                           , ("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit 3)) ]
+        Nothing -> expectationFailure "no CallVC for bytes-make"
+      partialPre (PBytesMake (FQVar "n") (FQVar "v")) `shouldBe`
+        FQAnd [ FQBinPred FQGe (FQVar "n") (FQLit 0), FQBinPred FQGe (FQVar "v") (FQLit 0), FQBinPred FQLe (FQVar "v") (FQLit 255) ]
+    it "T-V5 bytes-widen: the identity on the array, no pre and no length lemma (P2)" $ do
+      case partsOf (EApp "bytes-widen" [EVar "k"]) of
+        Just (_, srt, pre, parts, r) -> do
+          srt `shouldBe` arr
+          pre `shouldBe` Nothing
+          parts `shouldBe` [("reflection", FQBinPred FQEq (FQVar r) (FQVar "k"))]
+        Nothing -> expectationFailure "no CallVC for bytes-widen"
+    it "T-V6 bytes-slice: the range pre and the length lemma e - s" $ do
+      case bodyOf [("s", FQInt), ("e", FQInt)] (EApp "bytes-slice" [EVar "b", EVar "s", EVar "e"]) of
+        Just cv@CallVC{} -> do
+          cvPreObligation cv `shouldBe` Just (FQAnd [ FQBinPred FQGe (FQVar "s") (FQLit 0)
+                                                     , FQBinPred FQLe (FQVar "s") (FQVar "e")
+                                                     , FQBinPred FQLe (FQVar "e") (FQApp "bytesLen" [FQVar "b"]) ])
+          cvPostParts cv `shouldBe` [("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar (cvResultVar cv)])
+                                                          (FQBinArith FQSub (FQVar "e") (FQVar "s")))]
+        other -> expectationFailure (show other)
+    it "T-V7 concat, concat-many, to-list and from-string: the partial length facts of Part 4" $ do
+      let lenOf x = FQApp "bytesLen" [x]
+      fmap (\(_, _, p, ps, r) -> (p, ps, r)) (partsOf (EApp "bytes-concat" [EVar "a", EVar "b"])) `shouldSatisfy`
+        maybe False (\(p, ps, r) -> isNothing p && ps == [("lemma", FQBinPred FQEq (lenOf (FQVar r)) (FQBinArith FQAdd (lenOf (FQVar "a")) (lenOf (FQVar "b"))))])
+      fmap (\(_, _, _, ps, r) -> ps == [("lemma", FQBinPred FQGe (lenOf (FQVar r)) (FQLit 0))]) (partsOf (EApp "bytes-concat-many" [EVar "xs"]))
+        `shouldBe` Just True
+      fmap (\(_, s, _, ps, r) -> (s, ps == [("lemma", FQBinPred FQEq (FQApp "listLen" [FQVar r]) (lenOf (FQVar "b")))])) (partsOf (EApp "bytes-to-list" [EVar "b"]))
+        `shouldBe` Just (FQList, True)
+      fmap (\(_, _, _, ps, r) -> ps == [ ("lemma", FQBinPred FQLe (FQApp "strLen" [FQVar "s"]) (lenOf (FQVar r)))
+                                       , ("lemma", FQBinPred FQLe (lenOf (FQVar r)) (FQBinArith FQMul (FQLit 4) (FQApp "strLen" [FQVar "s"]))) ])
+           (partsOf (EApp "bytes-from-string" [EVar "s"]))
+        `shouldBe` Just True
+      -- bytes-from-list and bytes-to-string have no arm: the caller falls back
+      isNothing (bodyOf [] (EApp "bytes-from-list" [EVar "xs"])) `shouldBe` True
+      isNothing (bodyOf [] (EApp "bytes-to-string" [EVar "b"])) `shouldBe` True
+    it "T-V8 a read of a step-3 result gets the byte-range fact (bytesArrsOfVC)" $ do
+      er <- emitS "(def-shell g [b: bytes] -> int (pre (>= (bytes-length b) 2)) (post (<= result 255)) (let [(s (bytes-slice b 0 2))] (bytes-get s 0)))"
+      T.isInfixOf "(Map_select _bv_call_bytes_slice_" (erFQText er) `shouldBe` True
+      any (\l -> T.isInfixOf "(Map_select _bv_call_bytes_slice_" l && T.isInfixOf "<= 255" l) (T.lines (erFQText er)) `shouldBe` True
+    it "T-V9 the sets: seven step-3 names are sealed axioms, five of them abstracted; bytes-make and bytes-widen are exact" $ do
+      let seven = ["bytes-make", "bytes-widen", "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-to-list", "bytes-from-string"]
+          five  = drop 2 seven
+      forM_ seven $ \n -> Set.member n sealedAxiomBuiltins `shouldBe` True
+      forM_ five $ \n -> Set.member n abstractedBuiltins `shouldBe` True
+      Set.member "bytes-make" abstractedBuiltins `shouldBe` False
+      Set.member "bytes-widen" abstractedBuiltins `shouldBe` False
+      forM_ ["bytes-from-list", "bytes-to-string"] $ \n ->
+        (Set.member n sealedAxiomBuiltins || Set.member n abstractedBuiltins) `shouldBe` False
+    it "T-V10 the ANF hoist set: nine step-3 names join; bytes-length does not (Rev 2a item 1)" $ do
+      Set.toList bytesCallNames `shouldBe` sort
+        [ "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-from-list"
+        , "bytes-to-list", "bytes-widen", "bytes-from-string", "bytes-to-string" ]
+      Set.member "bytes-length" bytesCallNames `shouldBe` False
+      -- a nested slice is hoisted, so bytes-length meets a variable and the body is faithful
+      er <- emitS "(def-shell t [b: bytes] -> int (post (= result (bytes-length b))) (bytes-length (bytes-slice b 0 (bytes-length b))))"
+      erBodyFaithfulFns er `shouldBe` ["t"]
+    it "T-V11 guard arm: (bytes-length x) is bytesLen(x) over an array-sorted x only; string-length stays out" $ do
+      let g se e = evalState (classifyGuardM Map.empty (Map.fromList se) e) 0
+      g [("buf", arr)] (EApp "bytes-length" [EVar "buf"]) `shouldBe` Just (FQApp "bytesLen" [FQVar "buf"])
+      g [("i", FQInt), ("buf", arr)] (EApp "=" [EVar "i", EApp "bytes-length" [EVar "buf"]])
+        `shouldBe` Just (FQBinPred FQEq (FQVar "i") (FQApp "bytesLen" [FQVar "buf"]))
+      g [("buf", FQInt)] (EApp "bytes-length" [EVar "buf"]) `shouldBe` Nothing
+      g [] (EApp "bytes-length" [EVar "buf"]) `shouldBe` Nothing
+      g [("s", FQStr)] (EApp "string-length" [EVar "s"]) `shouldBe` Nothing
+      -- a renamed (let-bound) binder is looked up under its emitted name
+      evalState (classifyGuardM (Map.fromList [("buf", "_bv_buf_0")]) (Map.fromList [("_bv_buf_0", arr)])
+                   (EApp "bytes-length" [EVar "buf"])) 0
+        `shouldBe` Just (FQApp "bytesLen" [FQVar "_bv_buf_0"])
+    it "T-V11b both consumers agree: the hole path condition and the verifier's guard read the same byte params" $ do
+      let params = [("buf", TBytesU), ("i", TInt)]
+          seOA   = Map.unions [buildSortEnv Map.empty params, pairParamSorts Map.empty params, bytesParamSorts [("buf", TBytesU)]]
+          body   = EIf (EApp "=" [EVar "i", EApp "bytes-length" [EVar "buf"]]) (EHole (HNamed "h")) (lint 0)
+      bytesParamSorts [("buf", TBytesU)] `shouldBe` Map.fromList [("buf", arr)]
+      map (map peKind . snd) (collectHoleGuards Map.empty seOA body) `shouldBe` [["qf_lia"]]
+      map (map peKind . snd) (collectHoleGuards Map.empty (buildSortEnv Map.empty params) body) `shouldBe` [["structural"]]
+      -- the verifier's consumer: crc-loop's guard translates, so the function is body-faithful
+      er <- emitS (crcLoop "(= i (bytes-length buf))")
+      erBodyFaithfulFns er `shouldSatisfy` elem "crc-loop"
+    it "T-V12 a constraint that holds a product and a slice result keeps the abstraction mark" $ do
+      er <- emitS "(def-shell f [b: bytes x: int y: int] -> int (pre (and (>= x 0) (>= y 0))) (post (>= result 1)) (+ (* x y) (bytes-length (bytes-slice b 0 (bytes-length b)))))"
+      let marked = Map.keys (erAbstracted er)
+      marked `shouldSatisfy` (not . null)
+      [ c | c <- marked, c `Set.member` erProductMarked er ] `shouldSatisfy` (not . null)
+      Map.elems (erAbstracted er) `shouldSatisfy` all (== "bytes-slice")
+    it "T-V13 a widened let-bound value gets no bytesLen(r) = n fact of its own (FACT-AG-LEN, P2)" $ do
+      er <- emitS "(def-shell w [k: bytes[8]] -> int (post (= result 8)) (let [(z (bytes-set k 0 1))] (bytes-length (bytes-widen z))))"
+      erBodyFaithfulFns er `shouldBe` ["w"]
+      -- every bytesLen term over the widen result: none is equated to 8
+      let afterWiden = map (T.drop 1 . T.dropWhile (/= ')') . snd)
+                         (T.breakOnAll "(bytesLen _bv_call_bytes_widen_" (erFQText er))
+      afterWiden `shouldSatisfy` (not . null)
+      afterWiden `shouldSatisfy` all (not . T.isPrefixOf " = 8")
+      expectSolveS er "Safe"
+    it "T-V14 Rev 2a W-8: crc-loop as written solves Safe; the guard (= i (+ (bytes-length buf) 1)) is Unsafe" $ do
+      erOk  <- emitS (crcLoop "(= i (bytes-length buf))")
+      erBad <- emitS (crcLoop "(= i (+ (bytes-length buf) 1))")
+      erBodyFaithfulFns erBad `shouldSatisfy` elem "crc-loop"
+      expectSolveS erOk "Safe"
+      expectSolveS erBad "Unsafe"
+    it "T-V15 W-6: the bytes-make value pre is a call-pre the solver refutes at 256" $ do
+      erOk  <- emitS "(def-shell mk-len [n: int] -> int (pre (>= n 0)) (post (= result n)) (bytes-length (bytes-make n 7)))"
+      erBad <- emitS "(def-shell mk-len [n: int] -> int (pre (>= n 0)) (post (= result n)) (bytes-length (bytes-make n 256)))"
+      erBodyFaithfulFns erOk `shouldBe` ["mk-len"]
+      expectSolveS erOk "Safe"
+      expectSolveS erBad "Unsafe"
+    it "T-V16 W-15: a slice passed to a callee with a length pre; the callee's index bug is Unsafe" $ do
+      let src k = unlines
+            [ "(def-shell get3 [s: bytes] -> int (pre (>= (bytes-length s) 3)) (post (>= result 0)) (bytes-get s " ++ show (k :: Int) ++ "))"
+            , "(def-shell use [b: bytes] -> int (pre (>= (bytes-length b) 8)) (post (>= result 0)) (get3 (bytes-slice b 0 3)))" ]
+      erOk  <- emitS (src 2)
+      erBad <- emitS (src 3)
+      sort (erBodyFaithfulFns erBad) `shouldBe` ["get3", "use"]
+      expectSolveS erOk "Safe"
+      expectSolveS erBad "Unsafe"
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)
