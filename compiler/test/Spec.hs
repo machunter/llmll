@@ -25287,16 +25287,29 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             (mode, T.isInfixOf "(llmll_exitStatus n)" txt) `shouldBe` (mode, True)
             (mode, T.isInfixOf "ExitFailure (fromIntegral n)" txt) `shouldBe` (mode, False)
 
-    it "IIW-11 D5: pbtGeneratorTag is gen3, so a gen2 witness is no longer live" $ do
+    -- BYTES-UNSIZED-1 moved the tag to gen4; a gen2 witness stays dead.
+    it "IIW-11 D5: a gen2 witness is not live under the current generator tag" $ do
       let body     = EOp ">=" [EVar "x", ELit (LitInt 0)]
           prop     = Property "p" [("x", TInt)] body []
           hexOf bs = concatMap (\b -> let h = GNNum.showHex b "" in if length h == 1 then '0':h else h) (BSS.unpack bs)
           tagged t = "sha256:" <> T.pack (hexOf (GNSHA.hash (TE.encodeUtf8 (t <> ":" <> canonicalExpr body))))
           live     = liveCheckHashes Map.empty [SCheck prop]
-      pbtGeneratorTag `shouldBe` "gen3"
-      canonicalPropBodyHash body `shouldBe` tagged "gen3"
+      canonicalPropBodyHash body `shouldBe` tagged pbtGeneratorTag
       Set.member (tagged "gen2") live `shouldBe` False
-      Set.member (tagged "gen3") live `shouldBe` True
+      Set.member (tagged pbtGeneratorTag) live `shouldBe` True
+
+    -- BYTES-UNSIZED-1 (step 3 S4 changed the bytes[n] sample distribution):
+    -- the tag is gen4, so a `tested` record judged under gen3 is not live.
+    it "T-E9 pbtGeneratorTag is gen4, so a gen3 witness is no longer live" $ do
+      let body     = EOp ">=" [EVar "x", ELit (LitInt 0)]
+          prop     = Property "p" [("x", TInt)] body []
+          hexOf bs = concatMap (\b -> let h = GNNum.showHex b "" in if length h == 1 then '0':h else h) (BSS.unpack bs)
+          tagged t = "sha256:" <> T.pack (hexOf (GNSHA.hash (TE.encodeUtf8 (t <> ":" <> canonicalExpr body))))
+          live     = liveCheckHashes Map.empty [SCheck prop]
+      pbtGeneratorTag `shouldBe` "gen4"
+      canonicalPropBodyHash body `shouldBe` tagged "gen4"
+      Set.member (tagged "gen3") live `shouldBe` False
+      Set.member (tagged "gen4") live `shouldBe` True
 
   -- -----------------------------------------------------------------------
   -- BYTES-SET-PBT-PRE-1 (int-index-wrap-1-proposal edge case 11): the test
@@ -28776,6 +28789,27 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       wildAssumeRejects Map.empty TBytesU `shouldBe` True
       wildAssumeRejects Map.empty (TBytes 4) `shouldBe` True
       wildAssumeRejects Map.empty (TList TBytesU) `shouldBe` False
+    -- The seam's message for bytes says the rejection is a policy (no length is
+    -- declared or asserted for an unsized value); the bytes[n] text is unchanged.
+    it "T-T19 the wildcard rejection at a bytes position names a policy, not an asserted fact" $ do
+      let msgsOf src = case parseStatements GrammarCoreInversion "<t-t19>" (T.pack (unlines src)) of
+            Left e  -> error (show e)
+            Right s -> map diagMessage (reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv s))
+          unsized = msgsOf [ "(def mkb [] -> bytes (bytes-make 2 0))"
+                           , "(def-shell mid [] (mkb))"
+                           , "(def-shell bad [] -> bytes (mid))" ]
+          sized   = msgsOf [ "(def mk32 [] -> bytes[32] (bytes-zero))"
+                           , "(def-shell mid2 [] (mk32))"
+                           , "(def-shell bad [] -> bytes[32] (mid2))" ]
+      unsized `shouldBe`
+        [ "type mismatch in 'bad': expected bytes, got ? (an unannotated return type). A bytes value"
+          <> " carries no length: none is declared or asserted, so this rejection is a policy for an"
+          <> " unsized byte value, kept so bytes and bytes[n] are refused alike here; annotate the"
+          <> " callee's return type." ]
+      sized `shouldBe`
+        [ "type mismatch in 'bad': expected bytes[32], got ? (an unannotated return type). A bytes[32]"
+          <> " value carries a length the verifier must prove at this position, and inference cannot"
+          <> " supply it; annotate the callee's return type." ]
 
   -- -----------------------------------------------------------------------
   -- BYTE-IO step 3, S3 (BYTES-UNSIZED-1): the runtime of the pure operations.

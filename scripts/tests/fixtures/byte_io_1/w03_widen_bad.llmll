@@ -1,0 +1,3 @@
+(def-shell w8 [k: bytes[8]] -> int
+  (post (= result 8))
+  (+ 1 (bytes-length (bytes-widen k))))

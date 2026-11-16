@@ -1,0 +1,8 @@
+(def-shell get2 [s: bytes] -> int
+  (pre (>= (bytes-length s) 3))
+  (post (>= result 0))
+  (bytes-get s 2))
+(def-shell use [b: bytes] -> int
+  (pre (>= (bytes-length b) 8))
+  (post (>= result 0))
+  (get2 (bytes-slice b 0 3)))

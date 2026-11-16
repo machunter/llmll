@@ -1,0 +1,4 @@
+(def bget0 [b: bytes] -> int
+  (pre (> (bytes-length b) 0))
+  (post (and (>= result 0) (<= result 255)))
+  (bytes-get b 1))

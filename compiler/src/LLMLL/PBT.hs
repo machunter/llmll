@@ -421,8 +421,12 @@ evalPropertyBodyWith ctors funcEnv env body =
 -- "gen3" (INT-INDEX-WRAP-1): an index outside Int64 no longer wraps, in the
 -- built program or in the evaluator, and genInt draws such indices, so a
 -- `tested` record judged under gen2 can be false for the program as built now.
+-- "gen4" (BYTES-UNSIZED-1, step 3 S4): a @bytes[n]@ sample is now n byte
+-- values (before, a string literal on which no property body reduced), and
+-- the unsized @bytes@ is drawn at length 0..32. A `tested` record judged under
+-- gen3 rests on the old distribution, so it no longer counts as live.
 pbtGeneratorTag :: Text
-pbtGeneratorTag = "gen3"
+pbtGeneratorTag = "gen4"
 
 -- | LLMLL.md §5.2: rejection sampling reports a generation failure after
 -- 10,000 attempts. An attempt is one base-type candidate tested against a

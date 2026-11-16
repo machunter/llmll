@@ -318,3 +318,54 @@ def test_a_bytes_free_program_assumes_no_ground_facts(arith_prog):
     """
     out = _verify(arith_prog.parent, arith_prog, "--strict-verify")
     assert "assumes ground facts" not in out, out[-3000:]
+
+
+# ---------------------------------------------------------------------------
+# BYTES-UNSIZED-1 (BYTE-IO step 3): two of the seven new sealed axioms.
+# `bytes-make` is the one exact constructor of an unsized value, so its row
+# must carry the LENGTH lemma beside the reflection: without the lemma the
+# length is not derivable, exactly as for `bytes-zero` (cell 1). `bytes-widen`
+# claims identity and nothing else, so its row is one reflection conjunct and
+# no lemma: a widened value has the length of its argument because it IS its
+# argument, not because a length fact was asserted for it.
+# ---------------------------------------------------------------------------
+
+def test_the_bytes_make_axiom_carries_its_length_lemma(tmp_path):
+    """Cell 12: the reflection and the length lemma, both disclosed as assumed."""
+    prog = tmp_path / "mk.llmll"
+    prog.write_text(
+        "(def mk-len [n: int] -> int\n"
+        "  (pre (>= n 0))\n"
+        "  (post (= result n))\n"
+        "  (bytes-length (bytes-make n 7)))\n",
+        encoding="utf-8")
+    out = _verify(tmp_path, prog, "--strict-verify")
+    assert ("≈ assumes bytes-make (result = (Map_default 7)) && ((bytesLen result) = n)"
+            " [codegen-determined; stamp: codegen_semantics_version]") in out, out[-3000:]
+    assert "_bv_call" not in out, out[-3000:]
+    out_json = _verify(tmp_path, prog, "--strict-verify", "--json")
+    doc = next(json.loads(ln) for ln in out_json.splitlines()
+               if ln.strip().startswith("{") and "trust_report_version" in ln)["trust_report"]
+    row, = [r for e in doc["entries"] if e["name"] == "mk-len" for r in e["builtin_axioms"]]
+    assert row["builtin"] == "bytes-make"
+    assert [c["tag"] for c in row["conjuncts"]] == ["reflection", "lemma"], row
+    assert row["conjuncts"][1]["predicate"] == "((bytesLen result) = n)", row
+
+
+def test_the_bytes_widen_row_is_an_identity_with_no_length_lemma(tmp_path):
+    """Cell 13: one reflection conjunct, `result = k`, and no lemma."""
+    prog = tmp_path / "widen.llmll"
+    prog.write_text(
+        "(def w8 [k: bytes[8]] -> int\n"
+        "  (post (= result 8))\n"
+        "  (bytes-length (bytes-widen k)))\n",
+        encoding="utf-8")
+    out = _verify(tmp_path, prog, "--strict-verify")
+    assert ("≈ assumes bytes-widen (result = k)"
+            " [codegen-determined; stamp: codegen_semantics_version]") in out, out[-3000:]
+    out_json = _verify(tmp_path, prog, "--strict-verify", "--json")
+    doc = next(json.loads(ln) for ln in out_json.splitlines()
+               if ln.strip().startswith("{") and "trust_report_version" in ln)["trust_report"]
+    row, = [r for e in doc["entries"] if e["name"] == "w8" for r in e["builtin_axioms"]
+            if r["builtin"] == "bytes-widen"]
+    assert row["conjuncts"] == [{"predicate": "(result = k)", "tag": "reflection"}], row

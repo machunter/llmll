@@ -1,0 +1,4 @@
+(def-shell magic16 [b: bytes] -> int
+  (pre (>= (bytes-length b) 2))
+  (post (and (>= result 0) (<= result 65535)))
+  (+ (* (bytes-get b 0) 256) (bytes-get b 1)))

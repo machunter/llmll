@@ -1,0 +1,5 @@
+(def-shell len-of [r: Response] -> int
+  (post (>= result 0))
+  (match r
+    ((RBytes b) (bytes-length b))
+    (_ 0)))

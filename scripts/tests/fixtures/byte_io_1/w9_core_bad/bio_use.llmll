@@ -1,0 +1,6 @@
+(import bio_core)
+(open bio_core)
+(def first-byte [b: bytes] -> int
+  (pre (> (bytes-length b) 0))
+  (post (and (>= result 0) (<= result 255)))
+  (bget0 b))

@@ -89,7 +89,7 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, noOrdWitness, noKeyWitness, procSpecTypeName)
+import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, isBytesTy, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, noOrdWitness, noKeyWitness, procSpecTypeName)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 -- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
@@ -938,12 +938,26 @@ isBareWildcard _        = False
 -- different routes: the bytes length is PROVED (an obligation on this position),
 -- the map range is ASSERTED (a premise from the declaration). One shared verb
 -- would have to be wrong about one of them.
+--
+-- BYTES-UNSIZED-1: the unsized @bytes@ arm. Such a value declares no length and
+-- none is asserted or proved for it ('bytesLenOf' is Nothing), so there is no
+-- fact to name: the seam rejects it as a POLICY, kept so the two byte types are
+-- refused alike (see 'LLMLL.TypeAdmissibility.wildAssumeRejects'). Before this
+-- arm it fell through to the generic "asserts from the declaration" noun, which
+-- is false for it. 'tcWildAssumeError' renders this arm with its own sentence,
+-- because "carries ..., and inference cannot supply it" would claim a fact.
 wildAssumeFactNoun :: AliasMap -> Type -> Text
 wildAssumeFactNoun am t
   | isJust (bytesLenOf am t) = "a length the verifier must prove at this position"
+  | isUnsizedBytes am t      = "no length: none is declared or asserted"
   | boolValuedMapTy am t     = "a per-key value range that the verifier asserts"
                                <> " from the declaration"
   | otherwise                = "a fact that the verifier asserts from the declaration"
+
+-- | BYTES-UNSIZED-1: alias-resolved test for the unsized @bytes@ (a byte array
+-- with no declared length).
+isUnsizedBytes :: AliasMap -> Type -> Bool
+isUnsizedBytes am t = isBytesTy am t && isNothing (bytesLenOf am t)
 
 -- | SAFE-ARG: structured rejection for WILD-ASSUME. Carries the same
 -- @diagKind@\/@diagExpected@\/@diagGot@ triple as 'tcTypeMismatch' so JSON
@@ -963,7 +977,16 @@ wildAssumeFactNoun am t
 tcWildAssumeError :: Text -> Type -> Type -> TC ()
 tcWildAssumeError ctx labelTy resolvedTy = do
   am <- gets tcAliasMap
-  let msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
+  let msg
+        | isUnsizedBytes am resolvedTy =
+            "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
+              <> ", got ? (an unannotated return type). A " <> typeLabel labelTy
+              <> " value carries " <> wildAssumeFactNoun am resolvedTy
+              <> ", so this rejection is a policy for an unsized byte value,"
+              <> " kept so bytes and bytes[n] are refused alike here; annotate the"
+              <> " callee's return type."
+        | otherwise =
+            "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
               <> ", got ? (an unannotated return type). A " <> typeLabel labelTy
               <> " value carries " <> wildAssumeFactNoun am resolvedTy
               <> ", and inference cannot supply it; annotate the"

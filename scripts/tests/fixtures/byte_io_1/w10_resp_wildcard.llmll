@@ -1,0 +1,6 @@
+(def-shell code-of [r: Response] -> int
+  (post (>= result 0))
+  (match r
+    ((RCode c) (if (>= c 0) c 0))
+    ((RText t) 1)
+    (_ 2)))

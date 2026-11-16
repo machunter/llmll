@@ -16,9 +16,13 @@ What a pass here means (step 3, S3: the runtime of the pure operations):
 * BIO-B8..B10: a built program stops with the operation's named pre-condition
   error: a transposed slice is not an empty result, an index of 2^64 + 1 is
   not index 1, and a byte value of 256 is not 0.
+
+S7 (the four commands) and S8 (the verifier witnesses and the trust report)
+state what their cells mean beside them, below.
 """
 
 import glob
+import json
 import os
 import shlex
 import shutil
@@ -506,3 +510,300 @@ def test_bio_c12_crc32_of_a_file_equals_zlib(cli_exe):
     import zlib
     want = zlib.crc32(TINY_Y4M.read_bytes())
     assert _cli(cli_exe, "crc", str(TINY_Y4M)).stdout == str(want).encode()
+
+
+
+# --- S8: the verifier witnesses (fixtures/byte_io_1) and the trust report ----
+#
+# What a pass here means:
+#
+# * BIO-V1..V12, V14, V15: each witness of the step-3 plan's contract plan gets
+#   its stated verdict through `llmll --json verify`: the correct body is
+#   SAFE and body-faithful; a refuting body whose constraint holds no
+#   abstracted result is `refuted`, exit 1, on the named obligation; a
+#   refuting body whose constraint holds a partial (abstracted) result falls
+#   back with `abstraction:app:<name>`, exit 0, and is not refuted (design
+#   risk 4, CALL-RESULT-MARK-1). W-8 is the design's crc-loop as written (the
+#   Rev 2a `bytes-length` guard arm) with its off-by-one guard control; W-15
+#   is the Rev 2a slice workaround: the index bug sits in a callee that takes
+#   the slice as a `bytes` parameter with a length pre, so it is refuted.
+#   W-13 (whole-value `=` on `bytes`, edge case 16) has no cell yet: the plan
+#   expects `guard:whole-structure-eq`, and the measured outcome is a fallback
+#   refused by `var`, so its expected verdict awaits a decision.
+# * BIO-T1..T4: `--trust-report --strict-verify` names each of the seven new
+#   sealed axioms; a bytes-free program names none of them; the obligation
+#   report's effect_summary carries the `stdin` label for
+#   `(wasi.io.stdin-bytes)`; `--strict-verified-core` refuses W-2's
+#   abstraction fallback and admits its correct body.
+
+FIXTURES = REPO / "scripts" / "tests" / "fixtures" / "byte_io_1"
+
+pytestmark_v = pytest.mark.skipif(
+    shutil.which("liquid-fixpoint") is None and shutil.which("fixpoint") is None,
+    reason="needs liquid-fixpoint on PATH",
+)
+
+
+def _llmll(args, cwd, timeout=300):
+    return _run([*shlex.split(os.environ["LLMLL_BIN"]), *args], cwd=cwd, timeout=timeout)
+
+
+def _json_line(text):
+    doc = None
+    for ln in text.splitlines():
+        ln = ln.strip()
+        if ln.startswith("{") and ln.endswith("}"):
+            try:
+                doc = json.loads(ln)
+            except ValueError:
+                pass
+    assert doc is not None, text[-3000:]
+    return doc
+
+
+def _verify_fixture(tmp_path, name, *extra):
+    """`llmll --json verify` on a private copy (verify writes a sidecar)."""
+    d = tmp_path / name
+    d.mkdir()
+    shutil.copyfile(FIXTURES / f"{name}.llmll", d / "t.llmll")
+    p = _llmll(["--json", "verify", *extra, "t.llmll", "-o", "t.fq"], d)
+    return p, _json_line(p.stdout)
+
+
+def _unsafe(doc):
+    return [d["message"] for d in doc["diagnostics"] if d.get("kind") == "lh-unsafe"]
+
+
+def _safe(tmp_path, name, fns):
+    p, doc = _verify_fixture(tmp_path, name)
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert doc["solver_verdict"] == "safe", doc
+    for fn in fns:
+        assert fn in doc["body_faithful"], doc
+    return doc
+
+
+def _refuted(tmp_path, name, fn, obligation):
+    p, doc = _verify_fixture(tmp_path, name)
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert doc["solver_verdict"] == "refuted", doc
+    assert fn in doc["body_faithful"], doc
+    assert any(obligation in m for m in _unsafe(doc)), _unsafe(doc)
+    return doc
+
+
+def _abstraction_fallback(tmp_path, name, fn, builtin):
+    p, doc = _verify_fixture(tmp_path, name)
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert doc["solver_verdict"] == "safe", doc
+    assert doc["body_fallback_causes"] == {fn: "abstraction-unsafe"}, doc
+    assert doc["body_fallback_constructs"] == {fn: [f"abstraction:app:{builtin}"]}, doc
+    assert doc["abstraction_fallback"] == {fn: f"abstraction:app:{builtin}"}, doc
+    assert _unsafe(doc) == [], doc
+    return doc
+
+
+def _call_pre(callee, caller):
+    return f"call-site precondition of '{callee}' not satisfied in '{caller}'"
+
+
+def _body(fn):
+    return f"body verification of '{fn}' failed"
+
+
+@pytestmark_v
+def test_bio_v1_magic16_verifies_and_an_index_past_the_pre_is_refuted(tmp_path):
+    _safe(tmp_path, "w01_magic16", ["magic16"])
+    _refuted(tmp_path, "w01_magic16_bad", "magic16", _call_pre("bytes-get", "magic16"))
+
+
+@pytestmark_v
+def test_bio_v2_slice_length_verifies_a_bad_slice_end_refutes_a_bad_start_falls_back(tmp_path):
+    _safe(tmp_path, "w02_tail_len", ["tail-len"])
+    # Body A: the slice call-pre fails before the slice result is in scope.
+    _refuted(tmp_path, "w02_tail_len_bad_a", "tail-len", _call_pre("bytes-slice", "tail-len"))
+    # Body B: the false post's constraint holds the slice result (risk 4).
+    _abstraction_fallback(tmp_path, "w02_tail_len_bad_b", "tail-len", "bytes-slice")
+
+
+@pytestmark_v
+def test_bio_v3_widen_keeps_a_parameter_length_exactly(tmp_path):
+    _safe(tmp_path, "w03_widen", ["w8"])
+    _refuted(tmp_path, "w03_widen_bad", "w8", _body("w8"))
+
+
+@pytestmark_v
+def test_bio_v4_widen_of_a_let_bound_bytes_set_keeps_the_parameter_length(tmp_path):
+    _safe(tmp_path, "w04_widen_let", ["w8-let"])
+
+
+@pytestmark_v
+def test_bio_v5_concat_length_verifies_and_a_wrong_operand_falls_back(tmp_path):
+    _safe(tmp_path, "w05_cat_len", ["cat-len"])
+    _abstraction_fallback(tmp_path, "w05_cat_len_bad", "cat-len", "bytes-concat")
+
+
+@pytestmark_v
+def test_bio_v6_make_length_is_exact_and_a_value_of_256_is_refuted(tmp_path):
+    _safe(tmp_path, "w06_make_len", ["mk-len"])
+    _refuted(tmp_path, "w06_make_len_bad", "mk-len", _call_pre("bytes-make", "mk-len"))
+
+
+@pytestmark_v
+def test_bio_v7_byte_loop_with_a_let_bound_guard_and_its_descent_control(tmp_path):
+    _safe(tmp_path, "w07_sum_bytes", ["sum-bytes"])
+    _refuted(tmp_path, "w07_sum_bytes_bad", "sum-bytes", "descent-condition of 'sum-bytes' not verified")
+
+
+@pytestmark_v
+def test_bio_v8_the_design_crc_loop_verifies_as_written_and_its_controls_refute(tmp_path):
+    doc = _safe(tmp_path, "w08_crc_loop", ["crc-loop"])
+    # crc-byte keeps its contract and falls back on bit-xor; crc-loop rests on it.
+    assert set(doc["body_fallback"]) == {"crc-bits", "crc-byte"}, doc
+    # Rev 2a control: guard (= i (+ (bytes-length buf) 1)) reads at i = len.
+    _refuted(tmp_path, "w08_crc_loop_bad_guard", "crc-loop", _call_pre("bytes-get", "crc-loop"))
+    _refuted(tmp_path, "w08_crc_loop_bad_index", "crc-loop", _call_pre("bytes-get", "crc-loop"))
+
+
+@pytestmark_v
+def test_bio_v9_strict_core_bytes_def_across_modules(tmp_path):
+    good = tmp_path / "good"
+    shutil.copytree(FIXTURES / "w9_core", good)
+    for m, fn in [("bio_core", "bget0"), ("bio_use", "first-byte")]:  # leaf first
+        p = _llmll(["--json", "verify", "--strict-verified-core", f"{m}.llmll", "-o", f"{m}.fq"], good)
+        assert p.returncode == 0, p.stdout + p.stderr
+        assert _json_line(p.stdout)["body_faithful"] == [fn]
+    bad = tmp_path / "bad"
+    shutil.copytree(FIXTURES / "w9_core_bad", bad)
+    p = _llmll(["--json", "verify", "--strict-verified-core", "bio_core.llmll", "-o", "c.fq"], bad)
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert any(_call_pre("bytes-get", "bget0") in m for m in _unsafe(_json_line(p.stdout)))
+    p = _llmll(["--json", "verify", "--strict-verified-core", "bio_use.llmll", "-o", "u.fq"], bad)
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert "callee 'bget0' is not body-faithful" in p.stdout, p.stdout
+
+
+@pytestmark_v
+def test_bio_v10_a_response_match_with_a_wildcard_stays_body_faithful(tmp_path):
+    doc = _safe(tmp_path, "w10_resp_wildcard", ["code-of"])
+    assert doc["body_fallback"] == [], doc
+
+
+@pytestmark_v
+def test_bio_v11_a_match_that_binds_the_rbytes_payload_falls_back(tmp_path):
+    p, doc = _verify_fixture(tmp_path, "w11_rbytes_arm")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert doc["body_fallback_causes"] == {"len-of": "body-outside-fragment"}, doc
+    assert doc["body_fallback_constructs"] == {"len-of": ["match-payload-sort"]}, doc
+
+
+@pytestmark_v
+def test_bio_v12_reading_at_the_length_refutes_on_a_parameter_and_falls_back_on_a_slice(tmp_path):
+    _refuted(tmp_path, "w12_at_len", "at-len", _call_pre("bytes-get", "at-len"))
+    _abstraction_fallback(tmp_path, "w12_at_len_slice", "at-len-slice", "bytes-slice")
+
+
+@pytestmark_v
+def test_bio_v14_bytes_from_list_in_a_body_falls_back(tmp_path):
+    p, doc = _verify_fixture(tmp_path, "w14_from_list")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert doc["body_fallback_causes"] == {"fl": "body-outside-fragment"}, doc
+    assert doc["body_fallback_constructs"] == {"fl": ["app:bytes-from-list"]}, doc
+    assert any("Refused by: app:bytes-from-list" in d["message"] for d in doc["diagnostics"]), doc
+
+
+@pytestmark_v
+def test_bio_v15_an_index_bug_behind_a_slice_is_refuted_in_the_callee(tmp_path):
+    """The documented workaround for CALL-RESULT-MARK-1 (Rev 2a item 6)."""
+    _safe(tmp_path, "w15_slice_callee", ["get2", "use"])
+    _refuted(tmp_path, "w15_slice_callee_bad", "get3", _call_pre("bytes-get", "get3"))
+
+
+SEVEN = """(def-shell mk-len [n: int] -> int
+  (pre (>= n 0))
+  (post (= result n))
+  (bytes-length (bytes-make n 7)))
+(def-shell w8 [k: bytes[8]] -> int
+  (post (= result 8))
+  (bytes-length (bytes-widen k)))
+(def-shell tail-len [b: bytes s: int] -> int
+  (pre (and (>= s 0) (<= s (bytes-length b))))
+  (post (= result (- (bytes-length b) s)))
+  (bytes-length (bytes-slice b s (bytes-length b))))
+(def-shell cat-len [a: bytes b: bytes] -> int
+  (post (= result (+ (bytes-length a) (bytes-length b))))
+  (bytes-length (bytes-concat a b)))
+(def-shell many-len [xs: list[bytes]] -> int
+  (post (>= result 0))
+  (bytes-length (bytes-concat-many xs)))
+(def-shell list-len [a: bytes] -> int
+  (post (= result (bytes-length a)))
+  (list-length (bytes-to-list a)))
+(def-shell str-len [s: string] -> int
+  (post (>= result (string-length s)))
+  (bytes-length (bytes-from-string s)))
+"""
+
+SEVEN_AXIOMS = {
+    "mk-len": ("bytes-make", "(result = (Map_default 7)) && ((bytesLen result) = n)"),
+    "w8": ("bytes-widen", "(result = k)"),
+    "tail-len": ("bytes-slice", "((bytesLen result) = ((bytesLen b) - s))"),
+    "cat-len": ("bytes-concat", "((bytesLen result) = ((bytesLen a) + (bytesLen b)))"),
+    "many-len": ("bytes-concat-many", "((bytesLen result) >= 0)"),
+    "list-len": ("bytes-to-list", "((listLen result) = (bytesLen a))"),
+    "str-len": ("bytes-from-string", "((strLen s) <= (bytesLen result)) && ((bytesLen result) <= (4 * (strLen s)))"),
+}
+
+
+def _trust_strict(tmp_path, src, json_out=False):
+    (tmp_path / "t.llmll").write_text(src, encoding="utf-8")
+    p = _llmll([*(["--json"] if json_out else []), "verify", "t.llmll", "--trust-report", "--strict-verify",
+                "-o", "t.fq"], tmp_path)
+    assert p.returncode == 0, p.stdout[-3000:] + p.stderr[-2000:]
+    return p.stdout
+
+
+@pytestmark_v
+def test_bio_t1_the_trust_report_names_each_of_the_seven_new_sealed_axioms(tmp_path):
+    out = _trust_strict(tmp_path, SEVEN)
+    for builtin, pred in SEVEN_AXIOMS.values():
+        assert f"≈ assumes {builtin} {pred} [codegen-determined; stamp: codegen_semantics_version]" in out, \
+            (builtin, out[-4000:])
+    doc = _json_line(_trust_strict(tmp_path, SEVEN, json_out=True))["trust_report"]
+    rows = {e["name"]: e.get("builtin_axioms") or [] for e in doc["entries"]}
+    for fn, (builtin, pred) in SEVEN_AXIOMS.items():
+        assert [(r["builtin"], r["predicate"], r["category"]) for r in rows[fn]] == \
+            [(builtin, pred, "codegen-determined")], (fn, rows[fn])
+
+
+@pytestmark_v
+def test_bio_t2_a_bytes_free_program_names_none_of_the_seven(tmp_path):
+    out = _trust_strict(tmp_path, "(def-shell add1 [n: int] -> int (post (> result n)) (+ n 1))\n")
+    for builtin, _ in SEVEN_AXIOMS.values():
+        assert f"assumes {builtin}" not in out, out[-3000:]
+    assert "codegen_semantics_version" not in out, out[-3000:]
+
+
+@pytestmark_v
+def test_bio_t3_effect_summary_reports_stdin_for_stdin_bytes(tmp_path):
+    (tmp_path / "t.llmll").write_text("(import wasi.io (capability stdin))\n"
+                                      "(def-shell read-in [] -> Command (wasi.io.stdin-bytes))\n", encoding="utf-8")
+    p = _llmll(["verify", "t.llmll", "--obligation-report", "-o", "t.fq"], tmp_path)
+    assert p.returncode == 0, p.stdout + p.stderr
+    rep = next(json.loads(ln) for ln in p.stdout.splitlines() if ln.startswith("{") and "effect_summary" in ln)
+    assert rep["effect_summary"] == [{"effects": ["stdin"], "function": "read-in"}], rep
+    assert rep["schema_version"] == "0.12.5", rep
+
+
+@pytestmark_v
+def test_bio_t4_strict_core_refuses_the_slice_fallback_and_admits_the_correct_body(tmp_path):
+    for name, rc in [("w02_tail_len", 0), ("w02_tail_len_bad_b", 1)]:
+        d = tmp_path / name
+        d.mkdir()
+        (d / "t.llmll").write_text((FIXTURES / f"{name}.llmll").read_text().replace("(def-shell ", "(def "),
+                                   encoding="utf-8")
+        p = _llmll(["verify", "--strict-verified-core", "t.llmll", "-o", "t.fq"], d)
+        assert p.returncode == rc, (name, p.stdout + p.stderr)
+        if rc:
+            assert ("--strict-verified-core: 1 function(s) fell back from body-faithful verification: "
+                    "tail-len (abstraction-unsafe, abstraction:app:bytes-slice)") in p.stdout + p.stderr, p.stdout + p.stderr

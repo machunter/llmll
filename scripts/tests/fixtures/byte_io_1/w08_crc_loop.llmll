@@ -1,0 +1,24 @@
+(def-shell crc-bits [c: int k: int] -> int
+  (pre (and (and (>= c 0) (<= c 4294967295)) (>= k 0)))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (decreases k)
+  (if (= k 0)
+      c
+      (crc-bits (if (= (bit-and c 1) 1)
+                    (bit-xor (bit-shr c 1) 3988292384)
+                    (bit-shr c 1))
+                (- k 1))))
+
+(def-shell crc-byte [c: int b: int] -> int
+  (pre (and (and (>= c 0) (<= c 4294967295)) (and (>= b 0) (<= b 255))))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (crc-bits (bit-xor c b) 8))
+
+(def-shell crc-loop [buf: bytes i: int c: int] -> int
+  (pre (and (and (>= i 0) (<= i (bytes-length buf)))
+            (and (>= c 0) (<= c 4294967295))))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (decreases (- (bytes-length buf) i))
+  (if (= i (bytes-length buf))
+      c
+      (crc-loop buf (+ i 1) (crc-byte c (bytes-get buf i)))))
