@@ -4,9 +4,9 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.39.0)
+## v0.40.0: byte I/O and a byte type of any length (2026-11-16)
 
-**Measured, v0.39.0 against this branch, over 796 sources (liquid-fixpoint 0.9.6.3.7):**
+**Measured, v0.39.0 against this release, over 796 sources (liquid-fixpoint 0.9.6.3.7):**
 
 - `.fq` text is identical on all 711 sources that emit one, except the 17 `Response` fixtures,
   which gain one `RBytes` tag disjunct per `Response` binder. No file changes verdict,
