@@ -178,10 +178,10 @@ Modeling questions:
 - The blind authors' isolation was by instruction, not enforced. Their reports state that they
   read only their folder.
 
-## 7. Open follow-ups (not filed)
+## 7. Open follow-ups
 
-- Roadmap rows for the four R errors in F-4. TFTP `sender-next-block` is a contract defect in a
-  shipped example.
+- The four R errors in F-4 are filed in `docs/compiler-team-roadmap.md` G8 as
+  `TFTP-BLOCK-BOUND-1` (DECIDE) and `RFC-SWARM-ERRATA-1` (DOC).
 - Fold the three extra templates and the house-style rules into the language-team clause-sheet
   draft.
 - Have a human answer the ARP five and the TFTP sixteen, to measure the cost of answering.
