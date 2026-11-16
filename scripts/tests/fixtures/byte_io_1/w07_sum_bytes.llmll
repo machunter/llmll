@@ -1,0 +1,9 @@
+(def-shell sum-bytes [b: bytes i: int acc: int] -> int
+  (pre (and (and (>= i 0) (<= i (bytes-length b))) (>= acc 0)))
+  (post (>= result 0))
+  (decreases (- (bytes-length b) i))
+  (let [(n (bytes-length b))]
+    (if (>= i n)
+        acc
+        (let [(x (bytes-get b i))]
+          (sum-bytes b (+ i 1) (+ acc x))))))

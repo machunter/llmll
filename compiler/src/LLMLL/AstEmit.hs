@@ -237,6 +237,8 @@ typeToJson TString           = object ["kind" .= ("primitive" :: Text), "name" .
 typeToJson TBool             = object ["kind" .= ("primitive" :: Text), "name" .= ("bool"   :: Text)]
 typeToJson TUnit             = object ["kind" .= ("primitive" :: Text), "name" .= ("unit"   :: Text)]
 typeToJson (TBytes n)        = object ["kind" .= ("bytes" :: Text),     "length" .= n]
+-- BYTES-UNSIZED-1 (schema 0.16.0): the unsized byte type has no other key.
+typeToJson TBytesU           = object ["kind" .= ("bytes-unsized" :: Text)]
 typeToJson (TList t)         = object ["kind" .= ("list" :: Text),      "elem_type" .= typeToJson t]
 typeToJson (TMap k v)        = object ["kind" .= ("map" :: Text),       "key_type" .= typeToJson k, "val_type" .= typeToJson v]
 -- FFI-CONV-1 (D10): the boundary types, valid only inside a haskell.* interface entry.

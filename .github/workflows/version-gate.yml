@@ -362,8 +362,8 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/schema-valid.log"; then
             echo "a SCHEMA-TRUTH-1 cell skipped; LLMLL_BIN and jsonschema must be present"; exit 1
           fi
-          grep -q ' 6 passed' "$RUNNER_TEMP/schema-valid.log" \
-            || { echo "SCHEMA-TRUTH-1: expected 6 passed cells"; exit 1; }
+          grep -q ' 7 passed' "$RUNNER_TEMP/schema-valid.log" \
+            || { echo "SCHEMA-TRUTH-1: expected 7 passed cells"; exit 1; }
 
       # The refute-crux gate parses EXPECTED_VERDICTS.json with jq. The runner
       # image ships it, but this job never asserted that; the script's own
@@ -624,6 +624,26 @@ jobs:
           grep -q ' 11 passed' "$RUNNER_TEMP/mul-var-1.log" \
             || { echo "MUL-VAR-1: expected 11 passed cells"; exit 1; }
 
+      # BYTE-IO step 3 (BYTES-UNSIZED-1, BYTES-READ-1, BYTES-WRITE-1): built
+      # programs check each pure bytes operation against a Python reference
+      # (B cells, GHC) and the four byte commands on real files, pipes and
+      # stdin (C cells); the verifier witnesses in fixtures/byte_io_1 get their
+      # stated verdicts (V cells, fixpoint) and the trust report names the
+      # seven new sealed axioms (T cells). Every cell fails on v0.39.0, which
+      # has no unsized bytes. Same skip and count guards as above: 11 B, 12 C,
+      # 14 V and 4 T cells.
+      - name: Run BYTE-IO step 3 cells (pytest, needs the toolchain and the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_byte_io_1.py -v -rs \
+            | tee "$RUNNER_TEMP/byte-io-1.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/byte-io-1.log"; then
+            echo "a BYTE-IO cell skipped; LLMLL_BIN, Stack and fixpoint must be present here"; exit 1
+          fi
+          grep -q ' 41 passed' "$RUNNER_TEMP/byte-io-1.log" \
+            || { echo "BYTE-IO: expected 41 passed cells"; exit 1; }
+
       # REGEX-CAPTURE-1 / REGEX-CASE-1's end-to-end cells. They build and run one
       # program with GHC (needs the toolchain), run `check` per agreement row,
       # and run `verify` once (needs fixpoint), so they sit after the solver is
@@ -683,7 +703,8 @@ jobs:
       # trust report names the axioms and lemmas a proof rests on. Both files
       # skip without LLMLL_BIN and no step ran them, so neither had run in CI
       # since it landed. Every cell calls `llmll verify`, so this follows the
-      # toolchain assert. Same skip and count guards as above.
+      # toolchain assert. Same skip and count guards as above. BYTES-UNSIZED-1
+      # added two TRUST-AXIOM-1 cells (bytes-make, bytes-widen), so 23.
       - name: Run HASH-PRE-ASYM and TRUST-AXIOM-1 cells (pytest, needs the solver)
         run: |
           set -euo pipefail
@@ -694,8 +715,8 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/hash-pre-asym.log"; then
             echo "a HASH-PRE-ASYM or TRUST-AXIOM-1 cell skipped; fixpoint must be on PATH here"; exit 1
           fi
-          grep -q ' 21 passed' "$RUNNER_TEMP/hash-pre-asym.log" \
-            || { echo "HASH-PRE-ASYM / TRUST-AXIOM-1: expected 21 passed cells"; exit 1; }
+          grep -q ' 23 passed' "$RUNNER_TEMP/hash-pre-asym.log" \
+            || { echo "HASH-PRE-ASYM / TRUST-AXIOM-1: expected 23 passed cells"; exit 1; }
 
       # EXAMPLE-BUILD-1, OBLIG-CONTRACT-CHANNEL-1 and OBLIG-TRUST-CHANNEL-1. Each
       # file's docstring says this job runs it, and until this step none did:

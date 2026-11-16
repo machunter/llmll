@@ -1,0 +1,5 @@
+(def-shell fl [xs: list[int]] -> int
+  (post (>= result 0))
+  (match (bytes-from-list xs)
+    ((Success b) (bytes-length b))
+    ((Error k) k)))

@@ -4,6 +4,91 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.39.0)
+
+**Measured, v0.39.0 against this branch, over 796 sources (liquid-fixpoint 0.9.6.3.7):**
+
+- `.fq` text is identical on all 711 sources that emit one, except the 17 `Response` fixtures,
+  which gain one `RBytes` tag disjunct per `Response` binder. No file changes verdict,
+  trust report or `--cdp` score. `scripts/fallback_census.py`: no per-file change.
+  `make refute-crux-gate`: 99 passed, 0 failed. `llmll test`: one printed seed moved (`gen4`).
+- **Witness table** (`scripts/tests/fixtures/byte_io_1/`, 28 programs: W-1 to W-12, W-14 and
+  W-15 with their refuting variants), driven by `scripts/tests/test_byte_io_1.py` (41 cells).
+
+### `BYTES-UNSIZED-1`, `BYTES-READ-1`, `BYTES-WRITE-1`: byte I/O and a byte type of any length
+
+Step 3 of [`docs/design/byte-io-proposal.md`](docs/design/byte-io-proposal.md) Rev 2, with
+Amendment Rev 2a (settled 2026-11-15). The three rows ship together, so the `Response` break
+happens once.
+
+- **`bytes`, a byte sequence of any length.** The bare word `bytes` in S-expressions, JSON-AST
+  kind `bytes-unsized`. It lowers to strict `Data.ByteString.ByteString`; `bytes[n]` keeps its
+  `[Word8]` lowering. The two are not compatible in either direction: `(bytes-widen b)` turns a
+  `bytes[n]` into a `bytes` (widening a `bytes` is a type error), and there is no narrowing
+  (`BYTES-NARROW-1`). `=` is admitted; `compare`, `list-sort` and a `map` key are refused
+  (`order-undefined`, `map-key-undefined`). `(type bytes …)` is `reserved-type-name`. A JSON
+  `{"kind":"named","name":"bytes"}` reads as the builtin. `bytes` at a Tier 1 `haskell.*`
+  boundary is refused: "bytes at the Tier 1 boundary needs FFI-BYTES-1".
+- **Operations.** `bytes-length`, `bytes-get` and `bytes-set` take `bytes` as well as
+  `bytes[n]` (the message is now "expects bytes[n] or bytes as argument N"). New:
+  `bytes-make n v` (pre `n >= 0`, `0 <= v <= 255`), `bytes-slice b s e` (half-open, pre
+  `0 <= s <= e <= (bytes-length b)`), `bytes-concat`, `bytes-concat-many`, `bytes-from-list`
+  (`Error i` at the first value outside `0..255`), `bytes-to-list`, `bytes-widen`,
+  `bytes-from-string` (UTF-8; U+DC80..U+DCFF map back to one byte, other lone surrogates to
+  U+FFFD) and `bytes-to-string` (strict; `Error k` at the offset of the first invalid
+  sequence). `bytes-make` above `maxBound :: Int` stops with "bytes-make: length N is too
+  large to represent".
+- **Verification.** `bytes` and `bytes[n]` binders sort as byte arrays. `bytes-make` reflects
+  exactly (a constant array with a length lemma); `bytes-widen` is the identity with no
+  assumed post. `bytes-slice`, `bytes-concat`, `bytes-concat-many`, `bytes-to-list` and
+  `bytes-from-string` give a fresh term with a length lemma only, so an UNSAFE answer resting
+  on one falls back with `abstraction:app:<name>`, exit 0. `bytes-from-list` and
+  `bytes-to-string` make the caller fall back with `app:<name>`. The sealed-builtin axiom set
+  grows from six to thirteen; the trust report discloses the seven new rows under
+  `codegen-determined`.
+- **A `(bytes-length x)` guard in an `if` is reflected** as `bytesLen(x)` when `x` has a byte
+  type (Rev 2a item 1). The design's `crc-loop`, guard `(if (= i (bytes-length buf)) …)`,
+  verifies as written; its off-by-one control is refuted. `string-length` and `list-length`
+  guards still fall back (`DECREASES-IF-GUARD-1`).
+- **A slice result in scope makes a later index bug fall back, exit 0** (design item 10;
+  `CALL-RESULT-MARK-1`). The run-time check still stops the program. Workaround: slice in the
+  caller and index in a callee that takes the slice as a `bytes` parameter with a length `pre`;
+  the callee's bug is then `refuted` (witness W-15).
+- **`Response` has a sixth arm, `RBytes bytes`.** An exhaustive five-arm match is now a `check`
+  error: `non-exhaustive match … has unmatched constructors: RBytes (…); add ((RBytes _) ...)
+  or a wildcard (_ ...)`. 68 match arms in the tree's `.llmll` sources were migrated. In
+  verified code prefer the wildcard: `((RBytes _) …)` falls back with
+  `match-wildcard-payload`, `(_ …)` keeps the match body-faithful.
+- **Four commands.** `wasi.fs.read-bytes path` (`RBytes`, never decoded; an empty file is
+  `RBytes` of length 0; `RErr` on failure). `wasi.fs.write-bytes path data` (path first,
+  overwrites; `RNone` or `RErr`). `wasi.io.stdin-bytes` (nullary; all of standard input, then
+  `RBytes` of length 0). `wasi.io.stdout-bytes data` (the same handle as `wasi.io.stdout`, so
+  text and byte writes keep command order). The two stdio commands run in `:mode cli` only:
+  in console mode they deliver `RErr`, and `check` reports `byte-stdio-console` when the entry
+  module names either one. An imported module is not checked; the run-time `RErr` is its
+  backstop.
+- **Capability `stdin`.** `(import wasi.io (capability stdin :deterministic true))`, the
+  `LLMLL.md` §8.1 example, checks clean (Rev 2a reversed F9).
+- **Effect label `stdin`.** `effect_summary` gains `stdin` for `wasi.io.stdin-bytes`;
+  `stdout-bytes`, `read-bytes` and `write-bytes` join `stdout`, `fs.read` and `fs.write`.
+  A bare nullary command value (`wasi.io.stdin-bytes`, `wasi.proc.args`,
+  `wasi.clock.monotonic`) still reports `[]`; the applied form reports the label
+  (`EFFECT-NULLARY-1`).
+- **Property tests.** A `bytes[n]` binder draws exactly `n` bytes; `bytes` draws 0 to 32 and
+  shrinks toward length 0. A sample that fails an operation's pre is discarded. All twelve
+  byte operations evaluate through `RuntimePure.hs`. The generator tag goes `gen3` → `gen4`, so
+  a `tested` record from an older tag reads back `asserted`, and default per-property seeds
+  change.
+- **JSON-AST schema 0.16.0** (adds `bytes-unsized`; `TypeBytes.length` minimum 1 → 0; 0.15.0 is
+  still read). **No other version changes:** `proof_artifact_version` 0.3.0,
+  `trust_report_version` 1.11.0, `verify_json_version` 1.2.0, obligation report 0.12.5 (gains
+  the value `stdin`), `checker_soundness_version` "8" (the reason is recorded beside it in
+  `VerifiedCache.hs`), `codegen_semantics_version`, `axiom_disclosure` "1".
+- **CI pins.** `SCHEMA-TRUTH-1` 6 → 7, `HASH-PRE-ASYM`/`TRUST-AXIOM-1` 21 → 23, and a new
+  `BYTE-IO step 3` step at 41.
+
+**Tests:** hspec 3246 → 3341, 0 failures; Python 853 → 897 passed, 10 skipped.
+
 ## v0.39.0: products of two variables in contracts (2026-11-15)
 
 **Measured, v0.38.1 against this release, over 800 sources (liquid-fixpoint 0.9.6.3.7):**

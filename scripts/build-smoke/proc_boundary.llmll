@@ -49,7 +49,8 @@
       ((RNone)    (pair (+ s 1) (wasi.io.stdout "tick")))
       ((RText t)  (pair (+ s 1) (wasi.io.stdout t)))
       ((RCode n)  (pair (+ s 1) (wasi.io.stdout (int-to-string n))))
-      ((RErr e)   (pair (+ s 1) (wasi.io.stderr e)))))
+      ((RErr e)   (pair (+ s 1) (wasi.io.stderr e)))
+      ((RBytes _) (pair (+ s 1) (wasi.io.stdout "bytes")))))
 
   (def pb-done? [s: int] -> bool
     (>= s 2))

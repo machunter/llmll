@@ -45,7 +45,8 @@
       ((RErr e)   e)
       ((RNone)    "")
       ((RCode n)  "")
-      ((RList xs) "")))
+      ((RList xs) "")
+      ((RBytes _) "")))
 
   (def-shell pm-report [tag: string t: string] -> string
     (string-concat-many

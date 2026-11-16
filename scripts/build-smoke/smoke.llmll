@@ -225,7 +225,8 @@
       ((RErr e)    (pair (+ s 1) (wasi.io.stderr e)))
       ;; Fifth arm. Its payload is a list[string], so this arm also pins that a
       ;; list-typed response payload survives codegen into the generated match.
-      ((RList ns)  (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length ns)))))))
+      ((RList ns)  (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length ns)))))
+      ((RBytes _)  (pair (+ s 1) (wasi.io.stdout "bytes")))))
 
   ;; JSON-1 (§13.13). Eighteen builtins over the sealed opaque carrier, each
   ;; called at least once, for the same reason the wasi.* names above are: an

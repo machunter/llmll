@@ -89,7 +89,7 @@ import LLMLL.Diagnostic
 -- makes CR-01's defect class — checker guarding a narrower set than the emitter
 -- asserts for — unrepresentable. Leaf module; no cycle with FixpointEmit, which
 -- this module does not import.
-import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, noOrdWitness, noKeyWitness, procSpecTypeName)
+import LLMLL.TypeAdmissibility (AliasMap, builtinAliases, sealedTypeNames, wildAssumeRejects, bytesLenOf, isBytesTy, boolValuedMapTy, jsonTypeName, mentionsJson, noEqWitness, noOrdWitness, noKeyWitness, procSpecTypeName)
 import LLMLL.HoleAnalysis (isNonLinear, buildCallGraph, extractCalls)
 -- DEF-ADMIT-XMOD-1: the module-qualified graph, shared with the verify headline.
 import LLMLL.CallGraph (qualifiedCallGraph, resolveIn, extractRefs, undischargedCycleMembers, callerClosure)
@@ -237,6 +237,21 @@ builtinEnv = Map.fromList $
   , ("wasi.http.get",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.read",       TFn [TString] (TCustom "Command"))
   , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
+  -- BYTES-READ-1 / BYTES-WRITE-1 (BYTE-IO step 3). The byte channel beside the
+  -- UTF-8 text pair above: read-bytes delivers RBytes (never decoded), RErr on
+  -- any IO failure; write-bytes overwrites and delivers RNone. The path comes
+  -- first, as in wasi.fs.write, and the payload types differ, so a reversed
+  -- call is a type error. Both land under the existing wasi.fs capability.
+  , ("wasi.fs.read-bytes",  TFn [TString] (TCustom "Command"))
+  , ("wasi.fs.write-bytes", TFn [TString, TBytesU] (TCustom "Command"))
+  -- Byte stdio, :mode cli only. stdin-bytes is nullary, so it binds as a VALUE
+  -- (the wasi.proc.args shape); it delivers all of standard input on RBytes,
+  -- and RBytes of length 0 once standard input is consumed. stdout-bytes
+  -- writes to the one stdout handle the text writer uses, so the two
+  -- interleave in command order. Outside :mode cli both publish RErr at run
+  -- time; 'checkByteStdioConsole' refuses the case check can see.
+  , ("wasi.io.stdin-bytes",  TCustom "Command")
+  , ("wasi.io.stdout-bytes", TFn [TBytesU] (TCustom "Command"))
   , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
   -- FS-RMDIR-1. Removes a directory, EMPTY ONLY. Recursive deletion is
   -- deliberately not implemented; see the runtime body in CodegenHs for why.
@@ -445,6 +460,9 @@ builtinEnv = Map.fromList $
   -- be persisted and re-read without inventing a delimiter, and a filename may
   -- contain a newline.
   , ("RList",              TFn [TList TString] (TCustom "Response"))
+  -- BYTES-READ-1: the sixth arm. Producers are wasi.fs.read-bytes and
+  -- wasi.io.stdin-bytes. The payload is the unsized bytes type.
+  , ("RBytes",             TFn [TBytesU] (TCustom "Response"))
   -- §13.11 Cryptographic operations (v0.6.1)
   -- Opaque primitives backed by real Haskell crypto in preamble.
   -- Correctness is outside the decidable fragment — classified as Asserted.
@@ -462,7 +480,26 @@ builtinEnv = Map.fromList $
   , ("bytes-get",    TFn [TVar "bs", TInt] TInt)
   , ("bytes-set",    TFn [TVar "bs", TInt, TInt] (TVar "bs"))
   , ("bytes-zero",   TFn [] (TVar "bs"))
-  , ("map-has",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] TBool)
+  -- BYTES-UNSIZED-1 (byte-io-proposal Rev 2, Part 4): the nine new operations.
+  -- bytes-length / bytes-get / bytes-set above also take the unsized `bytes`
+  -- (inferArrayOp). bytes-widen is typed in inferArrayOp too, because its
+  -- argument is `bytes[n]` for any n, which no signature here can say; its
+  -- entry serves name membership only. The other eight type through these
+  -- ordinary signatures: they take and give the unsized type only, so a
+  -- `bytes[n]` value reaches them through an explicit bytes-widen. bytes-make
+  -- takes the length first. bytes-from-list and bytes-to-string answer a
+  -- Result: Error carries the index of the first byte out of 0..255, or the
+  -- offset of the first invalid UTF-8 sequence.
+  , ("bytes-make",        TFn [TInt, TInt] TBytesU)
+  , ("bytes-slice",       TFn [TBytesU, TInt, TInt] TBytesU)
+  , ("bytes-concat",      TFn [TBytesU, TBytesU] TBytesU)
+  , ("bytes-concat-many", TFn [TList TBytesU] TBytesU)
+  , ("bytes-from-list",   TFn [TList TInt] (TResult TBytesU TInt))
+  , ("bytes-to-list",     TFn [TBytesU] (TList TInt))
+  , ("bytes-widen",       TFn [TVar "bs"] TBytesU)
+  , ("bytes-from-string", TFn [TString] TBytesU)
+  , ("bytes-to-string",   TFn [TBytesU] (TResult TString TInt))
+  , ("map-has",     TFn [TMap (TVar "k") (TVar "v"), TVar "k"] TBool)
   , ("map-get",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] (TVar "v"))
   , ("map-put",      TFn [TMap (TVar "k") (TVar "v"), TVar "k", TVar "v"] (TMap (TVar "k") (TVar "v")))
   , ("map-empty",    TFn [] (TMap (TVar "k") (TVar "v")))
@@ -901,12 +938,26 @@ isBareWildcard _        = False
 -- different routes: the bytes length is PROVED (an obligation on this position),
 -- the map range is ASSERTED (a premise from the declaration). One shared verb
 -- would have to be wrong about one of them.
+--
+-- BYTES-UNSIZED-1: the unsized @bytes@ arm. Such a value declares no length and
+-- none is asserted or proved for it ('bytesLenOf' is Nothing), so there is no
+-- fact to name: the seam rejects it as a POLICY, kept so the two byte types are
+-- refused alike (see 'LLMLL.TypeAdmissibility.wildAssumeRejects'). Before this
+-- arm it fell through to the generic "asserts from the declaration" noun, which
+-- is false for it. 'tcWildAssumeError' renders this arm with its own sentence,
+-- because "carries ..., and inference cannot supply it" would claim a fact.
 wildAssumeFactNoun :: AliasMap -> Type -> Text
 wildAssumeFactNoun am t
   | isJust (bytesLenOf am t) = "a length the verifier must prove at this position"
+  | isUnsizedBytes am t      = "no length: none is declared or asserted"
   | boolValuedMapTy am t     = "a per-key value range that the verifier asserts"
                                <> " from the declaration"
   | otherwise                = "a fact that the verifier asserts from the declaration"
+
+-- | BYTES-UNSIZED-1: alias-resolved test for the unsized @bytes@ (a byte array
+-- with no declared length).
+isUnsizedBytes :: AliasMap -> Type -> Bool
+isUnsizedBytes am t = isBytesTy am t && isNothing (bytesLenOf am t)
 
 -- | SAFE-ARG: structured rejection for WILD-ASSUME. Carries the same
 -- @diagKind@\/@diagExpected@\/@diagGot@ triple as 'tcTypeMismatch' so JSON
@@ -926,7 +977,16 @@ wildAssumeFactNoun am t
 tcWildAssumeError :: Text -> Type -> Type -> TC ()
 tcWildAssumeError ctx labelTy resolvedTy = do
   am <- gets tcAliasMap
-  let msg = "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
+  let msg
+        | isUnsizedBytes am resolvedTy =
+            "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
+              <> ", got ? (an unannotated return type). A " <> typeLabel labelTy
+              <> " value carries " <> wildAssumeFactNoun am resolvedTy
+              <> ", so this rejection is a policy for an unsized byte value,"
+              <> " kept so bytes and bytes[n] are refused alike here; annotate the"
+              <> " callee's return type."
+        | otherwise =
+            "type mismatch in '" <> ctx <> "': expected " <> typeLabel labelTy
               <> ", got ? (an unannotated return type). A " <> typeLabel labelTy
               <> " value carries " <> wildAssumeFactNoun am resolvedTy
               <> ", and inference cannot supply it; annotate the"
@@ -1592,6 +1652,13 @@ tcEmitNonExhaustive typeName missing covered = do
   modify $ \s -> s
     { tcErrors = tcErrors s ++ [mkNonExhaustiveMatch fn typeName missing covered] }
 
+-- | 'tcEmitNonExhaustive' with a repair appended to the message (BYTES-READ-1).
+tcEmitNonExhaustiveRepair :: Name -> [Name] -> [Name] -> Text -> TC ()
+tcEmitNonExhaustiveRepair typeName missing covered repair = do
+  fn <- gets (maybe "<top>" id . tcCurrentFn)
+  let d = mkNonExhaustiveMatch fn typeName missing covered
+  modify $ \s -> s { tcErrors = tcErrors s ++ [d { diagMessage = diagMessage d <> repair }] }
+
 -- | The initial 'TCState', shared by the three entry points below.
 --
 -- Factored out with ADMIT-SHARED for one reason: the alias map is no longer
@@ -2040,6 +2107,7 @@ checkStatements rawStmts = do
   -- An earlier comment here said a duplicate constructor still builds; it does
   -- not (GHC reports "Multiple declarations", measured as case t19).
   checkDuplicateTopLevel stmts
+  checkByteStdioConsole stmts
   withEnv topLevel $ do
     -- Register ADT constructors as callable functions (LLMLL.md §3.3).
     let ctorBindings = collectConstructors stmts
@@ -2079,7 +2147,7 @@ checkStatements rawStmts = do
             "constructor '" <> ctorName <> "' is reserved: True and False are "
             <> "the constructors of bool; rename it"
     -- RESERVED-NAME-1: a constructor may not take a builtin's name either
-    -- (the Response constructors RNone, RText, RCode, RErr, RList are builtin
+    -- (the Response constructors RNone, RText, RCode, RErr, RList, RBytes are builtin
     -- keys). Before this, plain check only warned (Phase 2 below) and the
     -- strict checker in `llmll build` then rejected the same program, so check
     -- and build disagreed. Same rule and kind as the top-level form in
@@ -2119,6 +2187,34 @@ checkStatements rawStmts = do
       case analyzeRespFacts am stmts of
         Left errs  -> forM_ errs (tcErrorK "resp-fact")
         Right plan -> forM_ (rpWarnings plan) tcWarn
+
+-- | BYTES-READ-1 / BYTES-WRITE-1, design edge case 6 (Rev 2a item 3): byte
+-- stdio needs :mode cli. In :mode console the harness owns standard input as
+-- its line source and captures standard output per step as UTF-8 text for the
+-- event log, so neither byte command can run there; at run time each publishes
+-- RErr. This is the case check can see: the entry module's def-main is
+-- :mode console and one of the entry module's own statements names
+-- wasi.io.stdin-bytes or wasi.io.stdout-bytes. A function in an imported
+-- module is NOT checked (U3); the runtime RErr is its backstop. A module with
+-- no def-main is a library and is not checked either.
+checkByteStdioConsole :: [Statement] -> TC ()
+checkByteStdioConsole stmts =
+  when (any isConsoleMain stmts) $
+    forM_ (filter (`elem` named) byteStdio) $ \n ->
+      tcErrorK "byte-stdio-console" $
+        n <> " needs :mode cli: in :mode console the harness reads standard "
+        <> "input line by line and captures standard output as UTF-8 text, so "
+        <> "byte stdio cannot run there (it would deliver RErr); use :mode cli, "
+        <> "or wasi.fs.read-bytes / wasi.fs.write-bytes on a file"
+  where
+    byteStdio = ["wasi.io.stdin-bytes", "wasi.io.stdout-bytes"] :: [Name]
+    isConsoleMain SDefMain{defMainMode = ModeConsole} = True
+    isConsoleMain _                                   = False
+    named = nub (concatMap (\e -> extractCalls e ++ extractRefs [] e) exprs)
+    exprs = [ b | s <- stmts, Just (_, _, _, _, b) <- [normalizeDefStmt s] ]
+         ++ concat [ maybe [] pure i ++ [st] ++ maybe [] pure d ++ maybe [] pure o ++ maybe [] pure x
+                   | SDefMain{ defMainInit = i, defMainStep = st, defMainDone = d
+                             , defMainOnDone = o, defMainStatus = x } <- stmts ]
 
 -- | DUP-DEF-1: reject a top-level name that one module binds more than once.
 --
@@ -2430,6 +2526,14 @@ checkStatement (STypeDef name body) = do
                 \functions (§13.9)"
            else "its constructors are sealed because the response alphabet is a \
                 \function of the command alphabet"
+  -- BYTES-UNSIZED-1: the bare word `bytes` is the unsized byte type, so a
+  -- user type of that name could never be referred to (every `bytes` in a type
+  -- position reads as the builtin). Refused, on the RESERVED-NAME-1 precedent.
+  -- Checked here, not in a parser, so both front ends refuse it alike.
+  when (name == "bytes") $
+    tcErrorK "reserved-type-name" $
+      "type 'bytes' is reserved: the bare word bytes is the builtin byte type "
+      <> "of any length; rename the type"
   -- Check that dependent type constraints are well-formed
   case body of
     TDependent bindName base constraint -> do
@@ -3611,7 +3715,10 @@ checkExhaustive scrutTy arms = do
         let allCtors  = map fst ctors
             missing   = filter (`notElem` covered) allCtors
         unless (null missing) $
-          tcEmitNonExhaustive (typeLabel scrutTy) missing covered
+          if isResponseSum && "RBytes" `elem` missing
+            then tcEmitNonExhaustiveRepair (typeLabel scrutTy) missing covered
+                   "; add ((RBytes _) ...) or a wildcard (_ ...)"
+            else tcEmitNonExhaustive (typeLabel scrutTy) missing covered
       TResult _ _ -> do
         -- Built-in: Success / Error must both be present
         -- NOTE: TPair is handled by the fallthrough `_ -> pure ()` case below;
@@ -3631,6 +3738,10 @@ checkExhaustive scrutTy arms = do
     isWild PWildcard = True
     isWild (PVar _)  = True
     isWild _         = False
+    -- BYTES-READ-1 (F11): the sixth Response arm breaks every exhaustive
+    -- five-arm match, so that one message carries its one-line repair. Every
+    -- other sum keeps its message byte for byte.
+    isResponseSum = Just scrutTy == Map.lookup "Response" builtinAliases
 
 -- ---------------------------------------------------------------------------
 -- Pattern Checking
@@ -3816,7 +3927,7 @@ freeTVarNames _                  = Set.empty  -- TInt, TString, TBool, TUnit, TB
 -- on purpose — TFn [] (TMap k v) types generically.
 arrayOpNames :: [Name]
 arrayOpNames =
-  [ "bytes-length", "bytes-get", "bytes-set", "bytes-zero"
+  [ "bytes-length", "bytes-get", "bytes-set", "bytes-zero", "bytes-widen"
   , "map-has", "map-get", "map-put", "map-keys", "map-entries" ]
 
 -- | LEVER-A0: dedicated typing for the array/map operation family (proposal
@@ -3853,6 +3964,18 @@ inferArrayOp func args = case func of
     intArg 1
     intArg 2
     pure bTy
+  -- BYTES-UNSIZED-1: bytes[n] -> bytes, for any n. The argument must be the
+  -- sized type: widening a value that is already `bytes` is refused, so the
+  -- operation keeps one meaning (byte-io-proposal Part 4, P2).
+  "bytes-widen" -> do
+    checkArity 1
+    t <- argAt 0
+    case t of
+      TBytes _ -> pure ()
+      TVar _   -> pure ()  -- unresolved (hole/unknown): lenient
+      other    -> tcError $ "function 'bytes-widen' expects bytes[n] as argument 1, got "
+                            <> typeLabel other
+    pure TBytesU
   "map-has" -> do
     checkArity 2
     _ <- mapArgAndKey
@@ -3897,9 +4020,12 @@ inferArrayOp func args = case func of
       t <- argAt j
       case t of
         TBytes _ -> pure t
+        -- BYTES-UNSIZED-1: bytes-length, bytes-get and bytes-set also take the
+        -- unsized type; bytes-set then keeps it (bytes in, bytes out).
+        TBytesU  -> pure t
         TVar _   -> pure t  -- unresolved (hole/unknown): lenient
         other    -> do
-          tcError $ "function '" <> func <> "' expects bytes[n] as argument "
+          tcError $ "function '" <> func <> "' expects bytes[n] or bytes as argument "
                     <> tshow (j + 1) <> ", got " <> typeLabel other
           pure (TVar "?")
     intArg j = do

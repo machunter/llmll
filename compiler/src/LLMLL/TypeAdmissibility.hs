@@ -210,6 +210,7 @@ module LLMLL.TypeAdmissibility
   , nullaryEnumArity
     -- * Fact-injection type gates
   , bytesLenOf
+  , isBytesTy
   , boolValuedMapTy
     -- * The shared admissibility predicate
   , admits
@@ -258,9 +259,15 @@ buildAliasMap stmts =
 -- hand; the constructor set here is the one the exhaustiveness check reads.
 --
 -- Payload classes are 'string' and 'int' only, both inside Σ_auto, which is why
--- this addition does not widen the verification fragment. There is deliberately
--- no RBytes arm: @bytes[n]@ needs a literal type-level length and a file read's
--- length is not statically known. Binary reads are a named residue.
+-- this addition does not widen the verification fragment.
+--
+-- BYTES-READ-1 (BYTE-IO step 3): the sixth arm, RBytes, carries the unsized
+-- @bytes@ type ('TBytesU'), which a file read needs because its length is not
+-- statically known. It sits LAST so tags 0 to 4 keep their numbers in the .fq
+-- tag domain. Its payload sorts as the byte array, which 'admissiblePayload'
+-- refuses, so a match that names RBytes falls back; a wildcard arm keeps its
+-- verdict. 'LLMLL.RespFact' gets no row for it: the one candidate fact,
+-- bytesLen(b) >= 0, is already given by the measure discipline.
 builtinAliases :: AliasMap
 builtinAliases = Map.fromList
   [ ("Response", TSumType
@@ -272,6 +279,8 @@ builtinAliases = Map.fromList
       -- carrier, so a body matching this arm falls back exactly as any
       -- list-mentioning body does. No fragment widening.
       , ("RList", Just (TList TString))
+      -- BYTES-READ-1: last, so the five existing tags keep their numbers.
+      , ("RBytes", Just TBytesU)
       ])
   ]
 
@@ -623,6 +632,16 @@ bytesLenOf am t = case resolveAliasTy am t of
   TBytes n -> Just n
   _        -> Nothing
 
+-- | BYTES-UNSIZED-1: alias-resolved byte-array type test, true for @bytes[n]@
+-- and for the unsized @bytes@. A site that only asks "is this a byte array"
+-- uses this; a site that EARNS a length ('bytesLenOf' above) must not, so an
+-- unsized value never gets an asserted length (FACT-AG-LEN).
+isBytesTy :: AliasMap -> Type -> Bool
+isBytesTy am t = case resolveAliasTy am t of
+  TBytes _ -> True
+  TBytesU  -> True
+  _        -> False
+
 -- | LEVER-A2.2: a map whose keys are int-or-string and values are bool (the
 -- 0\/1-bridged value class). Gates the value-range-fact scoping (@boolValArrs@),
 -- from which @injectBoolValRangeFacts@ asserts @0 <= select(m$val,k) <= 1@.
@@ -681,10 +700,20 @@ admits am t = boolValuedMapTy am t
 --     way (the call-site or body-VC length obligation is undischargeable against
 --     an unannotated callee, so the program is REFUTED), but a type error at the
 --     seam names the remedy (annotate the callee's return) where a refuted
---     obligation does not. Keeping the arm here costs nothing: every program it
---     rejects would have been refuted downstream.
+--     obligation does not. For @bytes[n]@, keeping the arm costs nothing: every
+--     such program it rejects would have been refuted downstream.
 --
 -- @'admits' am t ==> 'wildAssumeRejects' am t@ by construction, so the seams
 -- cannot become narrower than the soundness gate by accident.
+--
+-- BYTES-UNSIZED-1: the byte arm tests 'isBytesTy', so the unsized @bytes@ is
+-- rejected at the seams as @bytes[n]@ is (step-3 plan, S2). The "refuted
+-- downstream anyway" argument above does NOT carry over: an unsized value owes
+-- no length ('bytesLenOf' is Nothing, so 'FixpointEmit.bytesLenParamPre' and
+-- 'FixpointEmit.bytesLenRetPost' emit nothing for it) and no fact is asserted
+-- for it, so nothing downstream would refute the hop. For @bytes@ the arm is a
+-- policy, not a consequence: it rejects programs that would otherwise check,
+-- and its only value is that it keeps the two byte types alike at the seams
+-- and names the remedy (annotate the callee's return).
 wildAssumeRejects :: AliasMap -> Type -> Bool
-wildAssumeRejects am t = admits am t || isJust (bytesLenOf am t)
+wildAssumeRejects am t = admits am t || isBytesTy am t

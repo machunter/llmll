@@ -4,6 +4,7 @@ module Main (main) where
 import Test.Hspec
 import Control.Monad (forM_, when, unless)
 import Control.Exception (finally)
+import Data.Word (Word8)
 import System.Exit (ExitCode(..), exitWith, exitSuccess, exitFailure)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Maybe (fromJust, isJust, isNothing, listToMaybe, mapMaybe, fromMaybe)
@@ -115,7 +116,7 @@ import LLMLL.Specialize (specialize, specializeWithRet, GenericStats(..), emptyG
 import LLMLL.CodegenHs (typeParamContext, constraintHsClasses)  -- GENERICS-1 S6
 import LLMLL.TrustReport (genericNotInstantiatedLabel)  -- GENERICS-1 S5
 -- PBT-EVAL-PARITY-1
-import LLMLL.Contracts (evalExprStaticWithCtors, modeledBuiltins, builtinCtorNames)
+import LLMLL.Contracts (evalExprStaticWithCtors, modeledBuiltins, builtinCtorNames, bytesValE, bytesFlat)
 import LLMLL.PBT (unreducedReason, ctorNamesOf)
 import LLMLL.PBT (runPropertyTestsWithSeed, generateSamplesPure, propertySeed, pbtGeneratorTag, intBoundaries, maxRefineAttempts)
 import LLMLL.TrustReport (liveCheckHashes)
@@ -129,7 +130,7 @@ import LLMLL.HoleAnalysis (extractCallsScoped)
 import LLMLL.TrustReport (uncheckedCallPres)
 import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames, sigmaAutoPred)
 import LLMLL.FixpointEmit (addCongruence, congruenceFact, conjoinAll)
-import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText)
+import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText, bytesCallNames, bytesParamSorts)
 import LLMLL.Checkout (bitCharFuncEntries)
 import LLMLL.AbstractionVerdict (abstractionRepair)
 import LLMLL.Contracts (clauseGuardedOps)
@@ -2042,7 +2043,7 @@ main = hspec $ do
         Left err -> expectationFailure (show err)
         Right stmts -> Set.member "f" (trPartialFns (buildTrustReport Map.empty stmts Map.empty)) `shouldBe` True
 
-    it "RD1-5: emitted AST stamps schemaVersion 0.15.0; a 0.7.0 doc still parses (backward-compat)" $ do
+    it "RD1-5: emitted AST stamps schemaVersion 0.16.0; a 0.7.0 doc still parses (backward-compat)" $ do
       -- SRC-CONJ-1: stamp retargeted 0.8.0 -> 0.9.0 (pre_clauses/post_clauses).
       -- DISCARD-1: retargeted 0.9.0 -> 0.10.0 (do-step discard; def-main read removed).
       -- PROC-BOUNDARY-1: retargeted 0.10.0 -> 0.11.0 (optional def-main status).
@@ -2050,11 +2051,12 @@ main = hspec $ do
       -- AST-TYPE-ALIAS-1 + FFI-CONV-1: retargeted 0.12.0 -> 0.13.0 (alias bodies, boundary types).
       -- FLOAT-LIT-1: retargeted 0.13.0 -> 0.14.0 (literal_kind on literal patterns).
       -- GENERICS-1: retargeted 0.14.0 -> 0.15.0 (type_params, the type-var kind).
+      -- BYTES-UNSIZED-1: retargeted 0.15.0 -> 0.16.0 (the bytes-unsized kind).
       let src = T.pack "(def-shell f [x: int] -> int (decreases x) (f x))"
       case parseStatements GrammarCoreInversion "<test>" src of
         Left err -> expectationFailure (show err)
         Right stmts ->
-          T.isInfixOf "0.15.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
+          T.isInfixOf "0.16.0" (TE.decodeUtf8 (BL.toStrict (emitJsonAST stmts))) `shouldBe` True
       let doc07 = BLC.pack "{\"schemaVersion\":\"0.7.0\",\"statements\":[{\"kind\":\"def-shell\",\"name\":\"g\",\"params\":[{\"name\":\"x\",\"type\":\"int\"}],\"body\":{\"kind\":\"var\",\"name\":\"x\"}}]}"
       case parseJSONAST GrammarCoreInversion "<test>" doc07 of
         Left e  -> expectationFailure ("a 0.7.0 doc must still parse: " ++ show e)
@@ -9160,7 +9162,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     Left err -> error (show err)
                     Right stmts -> cgHsSource (generateHaskell "t" stmts)
         src `shouldSatisfy` T.isInfixOf "(bytes_zero 8)"
-        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "bytes_get :: [Word8] -> Integer -> Integer"
+        -- BYTES-UNSIZED-1: bytes_get dispatches on the byte type (LlmllBytes);
+        -- bytes[n] still lowers to [Word8], through the list instance.
+        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "bytes_get :: LlmllBytes b => b -> Integer -> Integer"
+        T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "instance Integral w => LlmllBytes [w] where"
         T.unlines runtimePreamble `shouldSatisfy` T.isInfixOf "map_get :: (Ord k, Show k) => Map.Map k v -> k -> v"
 
       it "A0-8 verification inertness: a body using array ops falls back (unreflected ops), never crashes emission" $ do
@@ -11575,7 +11580,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"])
               -- CHAR-CODE-1: a clause refuses both (D4), so each lemma takes case (a).
               , ("string-code-at",   EApp "string-code-at"   [EVar "s", ELit (LitInt 0)])
-              , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)]) ]
+              , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)])
+              -- BYTES-UNSIZED-1: a clause refuses every step-3 name but the
+              -- three array operations, so each lemma takes case (a).
+              , ("bytes-make",        EApp "bytes-make"        [ELit (LitInt 3), ELit (LitInt 7)])
+              , ("bytes-widen",       EApp "bytes-widen"       [EVar "b"])
+              , ("bytes-slice",       EApp "bytes-slice"       [EVar "b", ELit (LitInt 0), ELit (LitInt 1)])
+              , ("bytes-concat",      EApp "bytes-concat"      [EVar "b", EVar "b"])
+              , ("bytes-concat-many", EApp "bytes-concat-many" [EVar "xs"])
+              , ("bytes-to-list",     EApp "bytes-to-list"     [EVar "b"])
+              , ("bytes-from-string", EApp "bytes-from-string" [EVar "s"]) ]
             se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
         Map.keysSet canon `shouldBe` sealedAxiomBuiltins
         forM_ (Map.toList canon) $ \(nm, call) ->
@@ -14124,7 +14138,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- constructor, so the new label lands between "crypto" and "fs.read"
       -- rather than at the end where its constructor sits.
       encode (encodeEff (Caps (Set.fromList [minBound .. maxBound])))
-        `shouldBe` "[\"crypto\",\"env.read\",\"fs.read\",\"fs.write\",\"net.http\",\"nondet\",\"stdout\"]"
+        `shouldBe` "[\"crypto\",\"env.read\",\"fs.read\",\"fs.write\",\"net.http\",\"nondet\",\"stdin\",\"stdout\"]"
 
   -- F-B0-1 regression: a JSON-AST `module` form must flatten into its
   -- imports ++ body (single-file model), mirroring the S-expression parser's
@@ -15081,7 +15095,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , "proc-spec", "proc-cwd", "proc-stdin", "proc-stdout", "proc-stderr"
               , "proc-stderr-to-stdout", "proc-env", "seq-commands"
               -- Response constructors: values via builtinCtorNames, not builtins.
-              , "RText", "RCode", "RErr", "RList" ]
+              , "RText", "RCode", "RErr", "RList", "RBytes" ]
             fnNames = [ n | (n, TFn _ _) <- Map.toList builtinEnv, not ("wasi." `T.isPrefixOf` n) ]
         sort [ n | n <- fnNames, not (n `Set.member` modeledBuiltins) ] `shouldBe` sort excluded
 
@@ -18563,8 +18577,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- carries it: wasi.proc.run reports the lattice top and the CP-9 assertion
     -- above pins that. The WIDTH moved 6 to 7 for ENV-READ-1's env.read, which
     -- is a different name for a different reason.
-    it "CP-10: Sigma_eff is seven-wide (no EProc was added)" $
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
+    it "CP-10: Sigma_eff is eight-wide (no EProc was added)" $
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 8  -- BYTES-READ-1 added stdin
 
   describe "CAP-PROC: Phase 2 codegen and dependencies" $ do
 
@@ -18943,7 +18957,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         -- Prelude entries were confirmed to have zero preamble binding lines.
         resolvedElsewhere =
           [ "abs", "min", "max", "not"
-          , "RNone", "RText", "RCode", "RErr", "RList" ]
+          , "RNone", "RText", "RCode", "RErr", "RList", "RBytes" ]
 
         needsBinding =
           [ n | (n, ty) <- Map.toList builtinEnv
@@ -18973,8 +18987,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- below reads that list too) and PROC-ENV-1's wasi.proc.exec.
     -- 21 -> 22 with FS-SIZE-1's wasi.fs.size (its body lives in the same
     -- posixFsPreamble, which list-kinds' block was generalized into).
-    it "builtinEnv declares exactly the twenty-two wasi.* names this block covers" $
-      length wasiNames `shouldBe` 22
+    -- 22 -> 26 with BYTES-READ-1 / BYTES-WRITE-1's wasi.fs.read-bytes,
+    -- wasi.fs.write-bytes, wasi.io.stdin-bytes and wasi.io.stdout-bytes, all
+    -- four with runtimePreamble bodies.
+    it "builtinEnv declares exactly the twenty-six wasi.* names this block covers" $
+      length wasiNames `shouldBe` 26
 
     -- BUILTIN-BODY-1. Measured at f86585e. Each number moves only when a
     -- builtin is added, or when an existing one changes lowering class.
@@ -19014,9 +19031,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- 128 -> 135 with BITWISE-1's five and CHAR-CODE-1's two. All seven take
       -- Integer arguments, so each is a preamble body reached by the generic
       -- emission and lands in needsBinding: 96 -> 103.
-      Map.size builtinEnv      `shouldBe` 135
-      length needsBinding      `shouldBe` 103
-      length resolvedElsewhere `shouldBe` 9
+      -- 135 -> 144 with BYTES-UNSIZED-1's nine operations (bytes-make, -slice,
+      -- -concat, -concat-many, -from-list, -to-list, -widen, -from-string,
+      -- -to-string). All nine take the generic emission to a runtimePreamble
+      -- body, so all nine land in needsBinding: 103 -> 112.
+      -- 144 -> 145 with BYTES-READ-1's RBytes, a constructor of the data
+      -- Response block, so it lands in resolvedElsewhere: 9 -> 10.
+      -- 145 -> 149 with the four byte commands (wasi.fs.read-bytes,
+      -- wasi.fs.write-bytes, wasi.io.stdin-bytes, wasi.io.stdout-bytes). All
+      -- four are hand-written runtimePreamble bodies reached by the generic
+      -- emission, so all four land in needsBinding: 112 -> 116.
+      Map.size builtinEnv      `shouldBe` 149
+      length needsBinding      `shouldBe` 116
+      length resolvedElsewhere `shouldBe` 10
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
     -- equation is exempt from the preamble check below BY CONSTRUCTION: its
@@ -19922,6 +19949,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , "    ((RCode n) n)"
           , "    ((RErr e) 0)"
           , "    ((RList ns) (list-length ns))"
+          -- BYTES-READ-1: the sixth arm.
+          , "    ((RBytes b) (bytes-length b))"
           ]
 
     -- Exhaustiveness is what bounds the unchecked command-to-response pairing:
@@ -19937,7 +19966,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ]
       any (T.isInfixOf "RErr") (msgsOf (srcOf missing)) `shouldBe` True
 
-    it "a match on all five arms is accepted" $
+    it "a match on all six arms is accepted" $
       errsOf (srcOf allArms) `shouldBe` []
 
     -- The fifth arm's own migration diagnostic. A program written against the
@@ -19982,7 +20011,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "the value and type halves declare the same constructors" $ do
       let valueHalf = sort [ n | n <- Map.keys builtinEnv
-                               , n `elem` ["RNone", "RText", "RCode", "RErr", "RList"] ]
+                               , n `elem` ["RNone", "RText", "RCode", "RErr", "RList", "RBytes"] ]
           typeHalf  = sort $ case Map.lookup "Response" builtinAliases of
                         Just (TSumType ctors) -> map fst ctors
                         _                     -> []
@@ -20024,7 +20053,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- wasi.fs.list and not about the width.
     it "shares EFsRead with wasi.fs.read rather than taking its own label" $ do
       primEffect "wasi.fs.list" `shouldBe` primEffect "wasi.fs.read"
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 8  -- BYTES-READ-1 added stdin
 
     it "the preamble defines wasi_fs_list" $
       T.isInfixOf "wasi_fs_list :: String -> IO ()" preambleText `shouldBe` True
@@ -20117,9 +20146,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     -- It joins the EXISTING label rather than taking an eighth, so removing a
     -- directory grants no authority the write/delete pair already grants.
-    it "FR-4: it shares EFsWrite with wasi.fs.delete and Sigma_eff stays seven-wide" $ do
+    it "FR-4: it shares EFsWrite with wasi.fs.delete and Sigma_eff does not widen for it" $ do
       primEffect "wasi.fs.rmdir" `shouldBe` primEffect "wasi.fs.delete"
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 8  -- BYTES-READ-1 added stdin
 
     -- FR-5 guards the OTHER half of this change, which is a fix rather than an
     -- addition, and which shipped with no regression guard until this case.
@@ -20338,16 +20367,17 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- first line pins. The width line moved with the catalog.
     it "PB-3: shares ENonDet with the clock rather than taking its own label" $ do
       primEffect "wasi.proc.args" `shouldBe` primEffect "wasi.clock.monotonic"
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 8  -- BYTES-READ-1 added stdin
 
     -- The arm set does NOT move. CAP-PROC's rule is that needing a new arm is
     -- the signal EFFECT-RESP's arm set was wrong; a vector of strings is what
-    -- RList already carries. Response stays five-wide.
-    it "PB-4: rides the EXISTING RList arm; Response gains no sixth arm" $ do
+    -- RList already carries. PROC-BOUNDARY-1 added no arm; the sixth arm,
+    -- RBytes, is BYTES-READ-1's (a byte payload RList cannot carry).
+    it "PB-4: rides the EXISTING RList arm; PROC-BOUNDARY-1 adds no arm" $ do
       T.isInfixOf "return (RList as)" preambleText `shouldBe` True
       case Map.lookup "Response" builtinAliases of
         Just (TSumType ctors) -> map fst ctors
-                                   `shouldMatchList` ["RNone","RText","RCode","RErr","RList"]
+                                   `shouldMatchList` ["RNone","RText","RCode","RErr","RList","RBytes"]
         _ -> expectationFailure "Response has no TSumType body"
 
     it "PB-5: the preamble defines wasi_proc_args and publishes through llmll_publish_io" $ do
@@ -20419,10 +20449,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- PROC-BOUNDARY-1 stamp, must still be read. AST-TYPE-ALIAS-1 + FFI-CONV-1
     -- moved it to 0.13.0, and 0.12.0 must still be read. FLOAT-LIT-1 moved it
     -- to 0.14.0, and 0.13.0 must still be read. GENERICS-1 moved it to 0.15.0,
-    -- and 0.14.0 must still be read.
+    -- and 0.14.0 must still be read. BYTES-UNSIZED-1 moved it to 0.16.0, and
+    -- 0.15.0 must still be read.
     it "PB-11: the 0.11.0 stamp is in acceptedSchemaVersions, and 0.10.0 still is" $ do
-      expectedSchemaVersion `shouldBe` "0.15.0"
+      expectedSchemaVersion `shouldBe` "0.16.0"
       acceptedSchemaVersions `shouldContain` [expectedSchemaVersion]
+      acceptedSchemaVersions `shouldContain` ["0.15.0"]
       acceptedSchemaVersions `shouldContain` ["0.14.0"]
       acceptedSchemaVersions `shouldContain` ["0.13.0"]
       acceptedSchemaVersions `shouldContain` ["0.12.0"]
@@ -20724,7 +20756,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- EXHAUSTIVENESS, which is what bounds the pairing residue.
     it "buildAliasMap resolves Response even with no STypeDef in the module" $
       Map.lookup "Response" (buildAliasMap []) `shouldSatisfy` \m -> case m of
-        Just (TSumType ctors) -> length ctors == 5   -- Rev 5 added RList
+        Just (TSumType ctors) -> length ctors == 6   -- Rev 5 added RList, BYTES-READ-1 RBytes
         _                     -> False
 
     it "a module's own aliases still win the union" $ do
@@ -24328,10 +24360,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     it "where and sum bodies still read as before" $
       roundTrip ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"]
         `shouldBe` Right (parsed ["(type Pos (where [n: int] (>= n 0)))", "(type Color (| Red) (| Green))"])
-    it "a 0.12.0 document still reads, and the stamp is 0.15.0" $ do
+    it "a 0.12.0 document still reads, and the stamp is 0.16.0" $ do
       let doc12 = BLC.pack "{\"schemaVersion\":\"0.12.0\",\"statements\":[{\"kind\":\"type-decl\",\"name\":\"Name\",\"body\":{\"kind\":\"primitive\",\"name\":\"string\"}}]}"
       parseJSONAST GrammarCoreInversion "<test>" doc12 `shouldBe` Right [STypeDef "Name" TString]
-      BLC.unpack (emitJsonAST (parsed ["(type Name string)"])) `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.15.0\""
+      BLC.unpack (emitJsonAST (parsed ["(type Name string)"])) `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.16.0\""
 
   -- -----------------------------------------------------------------------
   -- FLOAT-LIT-1 (decimal-numbers-proposal Rev 1, R1-1..R1-4): signed float
@@ -25204,22 +25236,21 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       RP.string_char_at s (p64 + 41) `shouldBe` ""
       RP.string_slice s (p64 + 33) (p64 + 40) `shouldBe` ""
 
+    -- BYTES-UNSIZED-1: the [Word8] bodies moved into the LlmllBytes list
+    -- instance, which LLMLL.RuntimePure holds verbatim (PBT-EVAL-PARITY-1), so
+    -- the witness runs in process instead of through runghc on extracted
+    -- preamble blocks. The three expected lines are unchanged.
     it "IIW-8 bytes_get / bytes_set refuse an index outside the bytes (witness 6)" $ do
-      r <- runBlocks "bytes" ["import Data.Word (Word8)", "import Control.Exception (try, evaluate, ErrorCall(..))"]
-             ["bytes_get", "bytes_set"]
-             [ "  r1 <- try (evaluate (sum (bytes_set (replicate 4 0) (2 ^ (64 :: Int) + 1) 7)))"
-             , "  putStrLn (either (\\(ErrorCall m) -> m) show (r1 :: Either ErrorCall Word8))"
-             , "  r2 <- try (evaluate (bytes_get (replicate 4 0) (2 ^ (64 :: Int))))"
-             , "  putStrLn (either (\\(ErrorCall m) -> m) show (r2 :: Either ErrorCall Integer))"
-             , "  print (bytes_get (bytes_set (replicate 4 0) 1 7) 1)" ]
-      case r of
-        Nothing -> pendingWith "runghc not on PATH"
-        Just (code, out, err) -> do
-          (code, err) `shouldBe` (ExitSuccess, "")
-          lines out `shouldBe`
-            [ "bytes-set: pre-condition failed: index 18446744073709551617 out of bounds for bytes[4]"
-            , "bytes-get: pre-condition failed: index 18446744073709551616 out of bounds for bytes[4]"
-            , "7" ]
+      let z4  = replicate 4 0 :: [Word8]
+      r1 <- CE.try (CE.evaluate (sum (RP.bytes_set z4 (2 ^ (64 :: Int) + 1) 7)))
+      r2 <- CE.try (CE.evaluate (RP.bytes_get z4 (2 ^ (64 :: Int))))
+      [ either (\(CE.ErrorCall m) -> m) show (r1 :: Either CE.ErrorCall Word8)
+        , either (\(CE.ErrorCall m) -> m) show (r2 :: Either CE.ErrorCall Integer)
+        , show (RP.bytes_get (RP.bytes_set z4 1 7) 1) ]
+        `shouldBe`
+          [ "bytes-set: pre-condition failed: index 18446744073709551617 out of bounds for bytes[4]"
+          , "bytes-get: pre-condition failed: index 18446744073709551616 out of bounds for bytes[4]"
+          , "7" ]
 
     it "IIW-9 D2: the process timeout clamps into Int instead of wrapping" $ do
       any (T.isInfixOf "fromIntegral (secs * 1000000)") runtimePreamble `shouldBe` False
@@ -25256,16 +25287,29 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             (mode, T.isInfixOf "(llmll_exitStatus n)" txt) `shouldBe` (mode, True)
             (mode, T.isInfixOf "ExitFailure (fromIntegral n)" txt) `shouldBe` (mode, False)
 
-    it "IIW-11 D5: pbtGeneratorTag is gen3, so a gen2 witness is no longer live" $ do
+    -- BYTES-UNSIZED-1 moved the tag to gen4; a gen2 witness stays dead.
+    it "IIW-11 D5: a gen2 witness is not live under the current generator tag" $ do
       let body     = EOp ">=" [EVar "x", ELit (LitInt 0)]
           prop     = Property "p" [("x", TInt)] body []
           hexOf bs = concatMap (\b -> let h = GNNum.showHex b "" in if length h == 1 then '0':h else h) (BSS.unpack bs)
           tagged t = "sha256:" <> T.pack (hexOf (GNSHA.hash (TE.encodeUtf8 (t <> ":" <> canonicalExpr body))))
           live     = liveCheckHashes Map.empty [SCheck prop]
-      pbtGeneratorTag `shouldBe` "gen3"
-      canonicalPropBodyHash body `shouldBe` tagged "gen3"
+      canonicalPropBodyHash body `shouldBe` tagged pbtGeneratorTag
       Set.member (tagged "gen2") live `shouldBe` False
-      Set.member (tagged "gen3") live `shouldBe` True
+      Set.member (tagged pbtGeneratorTag) live `shouldBe` True
+
+    -- BYTES-UNSIZED-1 (step 3 S4 changed the bytes[n] sample distribution):
+    -- the tag is gen4, so a `tested` record judged under gen3 is not live.
+    it "T-E9 pbtGeneratorTag is gen4, so a gen3 witness is no longer live" $ do
+      let body     = EOp ">=" [EVar "x", ELit (LitInt 0)]
+          prop     = Property "p" [("x", TInt)] body []
+          hexOf bs = concatMap (\b -> let h = GNNum.showHex b "" in if length h == 1 then '0':h else h) (BSS.unpack bs)
+          tagged t = "sha256:" <> T.pack (hexOf (GNSHA.hash (TE.encodeUtf8 (t <> ":" <> canonicalExpr body))))
+          live     = liveCheckHashes Map.empty [SCheck prop]
+      pbtGeneratorTag `shouldBe` "gen4"
+      canonicalPropBodyHash body `shouldBe` tagged "gen4"
+      Set.member (tagged "gen3") live `shouldBe` False
+      Set.member (tagged "gen4") live `shouldBe` True
 
   -- -----------------------------------------------------------------------
   -- BYTES-SET-PBT-PRE-1 (int-index-wrap-1-proposal edge case 11): the test
@@ -26505,8 +26549,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       out `shouldNotSatisfy` isInfixOf "type_params"
       out `shouldNotSatisfy` isInfixOf "type-var"
       map bindTypeParams stmts `shouldBe` stmts
-    it "G1-S1-12 schema 0.15.0 is emitted and read, and a 0.14.0 document still reads" $ do
-      expectedSchemaVersion `shouldBe` "0.15.0"
+    -- BYTES-UNSIZED-1 moved the emitted stamp on to 0.16.0; 0.15.0 is still read.
+    it "G1-S1-12 schema 0.15.0 is read (the stamp is now 0.16.0), and a 0.14.0 document still reads" $ do
+      expectedSchemaVersion `shouldBe` "0.16.0"
       acceptedSchemaVersions `shouldContain` ["0.15.0", "0.14.0"]
       isRight (parseJSONAST GrammarCoreInversion "<g1>" (BLC.pack (doc "0.14.0"
         "{\"kind\":\"def-shell\",\"name\":\"f\",\"params\":[],\"body\":{\"kind\":\"lit-int\",\"value\":1}}")))
@@ -26884,7 +26929,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             -- reached through map-get's own argument, so map-get's gate.
             , ("llmll_cl_map_get", TCKey) ]
           -- Contexts no type parameter can reach: the argument is int-typed in builtinEnv.
-          notReached = ["wasi_http_response"]
+          -- BYTES-UNSIZED-1: the LlmllBytes context of the three byte operations
+          -- and their two clause helpers is not reachable either: inferArrayOp
+          -- refuses any first argument but bytes, bytes[n] or an unresolved hole,
+          -- so a rigid type parameter is a type error there (measured: "expects
+          -- bytes[n] or bytes as argument 1, got a"), whatever its constraint.
+          notReached = [ "wasi_http_response"
+                       , "bytes_length", "bytes_get", "bytes_set", "llmll_cl_bytes_get", "llmll_cl_bytes_set" ]
           sigs = [ (fn, ctx)
                  | l <- runtimePreamble
                  , let (fn, rest) = T.breakOn " :: " l
@@ -27595,7 +27646,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , ("bytes-zero", EApp "bytes-zero" [ELit (LitInt 4)])
             , ("map-get",    EApp "map-get"    [EVar "m", EVar "k"])
             , ("string-code-at",   EApp "string-code-at"   [EVar "s", ELit (LitInt 0)])
-            , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)]) ]
+            , ("string-from-code", EApp "string-from-code" [ELit (LitInt 97)])
+            -- BYTES-UNSIZED-1: bytes-make and bytes-slice carry a pre; the other five do not.
+            , ("bytes-make",        EApp "bytes-make"        [ELit (LitInt 3), ELit (LitInt 7)])
+            , ("bytes-widen",       EApp "bytes-widen"       [EVar "b"])
+            , ("bytes-slice",       EApp "bytes-slice"       [EVar "b", ELit (LitInt 0), ELit (LitInt 1)])
+            , ("bytes-concat",      EApp "bytes-concat"      [EVar "b", EVar "b"])
+            , ("bytes-concat-many", EApp "bytes-concat-many" [EVar "xs"])
+            , ("bytes-to-list",     EApp "bytes-to-list"     [EVar "b"])
+            , ("bytes-from-string", EApp "bytes-from-string" [EVar "s"]) ]
           se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
           table nm as = case (nm, as) of
             ("map-get",   [h, _, k]) -> Just (PMapGet h k)
@@ -27603,6 +27662,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ("bytes-set", [b', i, v]) -> Just (PBytesSet b' i v)
             ("string-code-at", [s, i]) -> Just (PStringCodeAt s i)
             ("string-from-code", [c])  -> Just (PStringFromCode c)
+            ("bytes-make", [n, v])     -> Just (PBytesMake n v)
+            ("bytes-slice", [b', st, en]) -> Just (PBytesSlice b' st en)
             _                        -> Nothing
       Map.keysSet canon `shouldBe` sealedAxiomBuiltins
       forM_ (Map.toList canon) $ \(nm, call) ->
@@ -28045,7 +28106,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       emitExpr (g "mod" "C" [EVar "a", EVar "d"]) `shouldSatisfy` T.isInfixOf "llmll_cl_mod"
       emitExpr (g "unwrap" "C" [EVar "r"]) `shouldSatisfy` T.isInfixOf "llmll_cl_unwrap"
       emitExpr (g "bytes-get" "C" [EVar "b", EVar "i"]) `shouldSatisfy` T.isInfixOf "llmll_cl_bytes_get"
-      emitExpr (g "bytes-set" "C" [EVar "b", EVar "i", EVar "v"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uS) (llmll_cl_bytes_set"
+      emitExpr (g "bytes-set" "C" [EVar "b", EVar "i", EVar "v"]) `shouldSatisfy` T.isInfixOf "(llmll_full (llmll_uB) (llmll_cl_bytes_set"
 
   -- -----------------------------------------------------------------------
   -- BITWISE-1 + CHAR-CODE-1 (docs/design/byte-io-proposal.md Parts 3 and 5).
@@ -28546,6 +28607,772 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.takeEnd 400 upToSite `shouldSatisfy` T.isInfixOf "liquid-fixpoint / z3 not found on PATH"
       srcs <- mapM TIO.readFile ["app/Main.hs", "src/LLMLL/PatchApply.hs", "src/LLMLL/RefineReuse.hs"]
       map (T.isInfixOf "runFQSolver") srcs `shouldBe` [False, False, False]
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S1 (BYTES-UNSIZED-1): the unsized `bytes` type, its two
+  -- front ends, the reserved type name, the FFI refusal and schema 0.16.0 + D1.
+  -- No operation is typed yet (S2), so these pin the parse and the AST only.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S1: the bytes type, the parsers and schema 0.16.0" $ do
+    let parsedB src = case parseStatements GrammarCoreInversion "<bio>" (T.unlines src) of
+          Left err -> error ("BYTE-IO S1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsB src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedB src))
+                    , diagSeverity d == SevError ]
+        sigOf ss = [ (map snd ps, r) | SDefShell { defShellParams = ps, defShellReturn = r } <- ss ]
+        roundTripB src = parseJSONAST GrammarCoreInversion "<bio-rt>" (emitJsonAST (parsedB src))
+        docB sv ty = BLC.pack ("{\"schemaVersion\":\"" ++ sv ++ "\",\"statements\":[{\"kind\":\"def-shell\","
+                     ++ "\"name\":\"f\",\"params\":[{\"name\":\"b\",\"param_type\":" ++ ty ++ "}],"
+                     ++ "\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}")
+    it "T-P1 bare bytes parses as TBytesU in a parameter and a return type, and checks" $ do
+      let src = ["(def-shell keep [b: bytes] -> bytes b)"]
+      sigOf (parsedB src) `shouldBe` [([TBytesU], Just TBytesU)]
+      errsB src `shouldBe` []
+    it "T-P2 bare bytes nests: list[bytes], Result[bytes, int], a pair, and before ] , )" $
+      sigOf (parsedB ["(def-shell g [xs: list[bytes] r: Result[bytes, int] p: (bytes, int)] -> int 0)"])
+        `shouldBe` [([TList TBytesU, TResult TBytesU TInt, TPair TBytesU TInt], Just TInt)]
+    it "T-P3 a user type whose name starts with bytes stays a user type (the word boundary)" $
+      sigOf (parsedB [ "(type bytes-buf int)", "(type bytes2 int)", "(type bytes? int)"
+                     , "(def-shell h [a: bytes-buf c: bytes2 d: bytes?] -> int 0)" ])
+        `shouldBe` [([TCustom "bytes-buf", TCustom "bytes2", TCustom "bytes?"], Just TInt)]
+    it "T-P4 bytes[n] keeps its meaning, with or without a space before the bracket, and bytes[0] reads" $
+      sigOf (parsedB ["(def-shell k [a: bytes[4] c: bytes [8] z: bytes[0]] -> bytes[4] a)"])
+        `shouldBe` [([TBytes 4, TBytes 8, TBytes 0], Just (TBytes 4))]
+    it "T-P5 (type bytes ...) is refused with kind reserved-type-name; a sibling name is not" $ do
+      map fst (errsB ["(type bytes int)", "(def-shell f [x: int] -> int x)"])
+        `shouldBe` [Just "reserved-type-name"]
+      errsB ["(type bytes-buf int)", "(def-shell f [x: bytes-buf] -> int 0)"] `shouldBe` []
+    it "T-P6 JSON-AST: bytes emits kind bytes-unsized with no other key and round-trips" $ do
+      let src = ["(def-shell keep [b: bytes xs: list[bytes]] -> bytes b)"]
+          out = BLC.unpack (emitJsonAST (parsedB src))
+      out `shouldSatisfy` isInfixOf "\"kind\": \"bytes-unsized\""
+      roundTripB src `shouldBe` Right (parsedB src)
+    it "T-P7 JSON-AST: bytes-unsized with a length key is refused (strict keys); bytes without length still is" $ do
+      case parseJSONAST GrammarCoreInversion "<bio>" (docB "0.16.0" "{\"kind\":\"bytes-unsized\",\"length\":4}") of
+        Left d  -> do diagKind d `shouldBe` Just "unexpected-key"
+                      diagMessage d `shouldSatisfy` T.isInfixOf "bytes-unsized"
+        Right _ -> expectationFailure "a bytes-unsized type with a length key must be refused"
+      isLeft (parseJSONAST GrammarCoreInversion "<bio>" (docB "0.16.0" "{\"kind\":\"bytes\"}")) `shouldBe` True
+      parseJSONAST GrammarCoreInversion "<bio>" (docB "0.16.0" "{\"kind\":\"bytes-unsized\"}")
+        `shouldBe` Right (parsedB ["(def-shell f [b: bytes] 0)"])
+    it "T-P8 a schema 0.15.0 document still reads" $
+      isRight (parseJSONAST GrammarCoreInversion "<bio>" (docB "0.15.0" "{\"kind\":\"bytes\",\"length\":4}"))
+        `shouldBe` True
+    it "T-P9 the emitted document stamps 0.16.0, and the reader accepts both 0.16.0 and 0.15.0" $ do
+      BLC.unpack (emitJsonAST (parsedB ["(def-shell keep [b: bytes] -> bytes b)"]))
+        `shouldSatisfy` isInfixOf "\"schemaVersion\": \"0.16.0\""
+      expectedSchemaVersion `shouldBe` "0.16.0"
+      acceptedSchemaVersions `shouldContain` ["0.16.0", "0.15.0"]
+    it "T-P10 the schema: TypeBytes.length minimum 0 (D1), kind bytes-unsized, TypeBytesUnsized closed; a bytes[0] document reads" $ do
+      raw <- BL.readFile (".." </> "docs" </> "llmll-ast.schema.json")
+      let look k (Just (Object m)) = KM.lookup (K.fromString k) m
+          look _ _                 = Nothing
+          at ks = foldl (flip look) (decode raw :: Maybe Value) ks
+      at ["$defs", "TypeBytes", "properties", "length", "minimum"] `shouldBe` Just (Number 0)
+      at ["$defs", "TypeBytesUnsized", "additionalProperties"] `shouldBe` Just (Bool False)
+      at ["$defs", "TypeBytesUnsized", "properties", "kind", "const"] `shouldBe` Just (String "bytes-unsized")
+      case at ["$defs", "Type", "properties", "kind", "enum"] of
+        Just (Array a) -> [ t | String t <- foldr (:) [] a ] `shouldContain` ["bytes-unsized"]
+        other          -> expectationFailure ("no Type kind enum: " ++ show other)
+      case at ["$defs", "Program", "properties", "schemaVersion", "enum"] of
+        Just (Array a) -> take 2 [ t | String t <- foldr (:) [] a ] `shouldBe` ["0.16.0", "0.15.0"]
+        other          -> expectationFailure ("no schemaVersion enum: " ++ show other)
+      parseJSONAST GrammarCoreInversion "<bio>" (docB "0.16.0" "{\"kind\":\"bytes\",\"length\":0}")
+        `shouldBe` Right (parsedB ["(def-shell f [b: bytes[0]] 0)"])
+    it "T-P11 bytes at a haskell.* boundary keeps the refusal, with the FFI-BYTES-1 text; bytes[n] as a parameter is still allowed" $ do
+      let iface ty = "(import haskell.filepath (interface [[take-extension (fn [p: " <> ty <> "] -> string)]]))"
+      errsB [iface "bytes"] `shouldSatisfy`
+        any (\(k, m) -> k == Just "ffi-type-unsupported" && "bytes at the Tier 1 boundary needs FFI-BYTES-1" `T.isInfixOf` m)
+      [ m | (_, m) <- errsB [iface "bytes[4]"], "FFI-BYTES-1" `T.isInfixOf` m ] `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S2 (BYTES-UNSIZED-1): typing of the operations. Each new
+  -- signature, the overloads of bytes-length/-get/-set, the two-way refusal
+  -- between bytes and bytes[n], equality, order and map-key. Typing only:
+  -- nothing here is verified or built (S3 to S5).
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S2: typing of the bytes operations" $ do
+    let parsedT src = case parseStatements GrammarCoreInversion "<bio2>" (T.unlines src) of
+          Left err -> error ("BYTE-IO S2 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsT src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedT src))
+                    , diagSeverity d == SevError ]
+        okT src  = errsT src `shouldBe` []
+        badT src = errsT src `shouldNotBe` []
+        kindsT src = map fst (errsT src)
+    it "T-T1 bytes-make: int int -> bytes, the length first" $ do
+      okT  ["(def-shell mk [n: int] -> bytes (bytes-make n 7))"]
+      badT ["(def-shell mk [s: string] -> bytes (bytes-make s 7))"]
+      badT ["(def-shell mk [n: int] -> int (bytes-make n 7))"]
+      badT ["(def-shell mk [n: int] -> bytes[4] (bytes-make n 7))"]
+    it "T-T2 bytes-slice: bytes int int -> bytes; a bytes[n] reaches it only through bytes-widen" $ do
+      okT  ["(def-shell sl [b: bytes s: int e: int] -> bytes (bytes-slice b s e))"]
+      badT ["(def-shell sl [b: bytes[8]] -> bytes (bytes-slice b 0 1))"]
+      okT  ["(def-shell sl [b: bytes[8]] -> bytes (bytes-slice (bytes-widen b) 0 1))"]
+      badT ["(def-shell sl [b: bytes s: string] -> bytes (bytes-slice b s 1))"]
+    it "T-T3 bytes-concat: bytes bytes -> bytes" $ do
+      okT  ["(def-shell cat [a: bytes b: bytes] -> bytes (bytes-concat a b))"]
+      badT ["(def-shell cat [a: bytes b: bytes[4]] -> bytes (bytes-concat a b))"]
+    it "T-T4 bytes-concat-many: list[bytes] -> bytes" $ do
+      okT  ["(def-shell cm [xs: list[bytes]] -> bytes (bytes-concat-many xs))"]
+      badT ["(def-shell cm [xs: list[int]] -> bytes (bytes-concat-many xs))"]
+      badT ["(def-shell cm [xs: list[bytes[4]]] -> bytes (bytes-concat-many xs))"]
+    it "T-T5 bytes-from-list: list[int] -> Result[bytes, int]" $ do
+      okT  ["(def-shell fl [xs: list[int]] -> Result[bytes, int] (bytes-from-list xs))"]
+      okT  [ "(def-shell fl [xs: list[int]] -> int"
+           , "  (match (bytes-from-list xs) ((Success b) (bytes-length b)) ((Error i) i)))" ]
+      badT ["(def-shell fl [xs: list[int]] -> bytes (bytes-from-list xs))"]
+    it "T-T6 bytes-to-list: bytes -> list[int]" $ do
+      okT  ["(def-shell tl [b: bytes] -> list[int] (bytes-to-list b))"]
+      badT ["(def-shell tl [b: bytes[4]] -> list[int] (bytes-to-list b))"]
+    it "T-T7 bytes-widen: bytes[n] -> bytes, for any n" $ do
+      okT  ["(def-shell w [k: bytes[8]] -> bytes (bytes-widen k))"]
+      okT  ["(def-shell w [k: bytes[0]] -> int (bytes-length (bytes-widen k)))"]
+      badT ["(def-shell w [k: bytes[8]] -> bytes[8] (bytes-widen k))"]
+      Map.lookup "bytes-widen" builtinEnv `shouldBe` Just (TFn [TVar "bs"] TBytesU)
+    it "T-T8 bytes-from-string: string -> bytes" $ do
+      okT  ["(def-shell fs [s: string] -> bytes (bytes-from-string s))"]
+      badT ["(def-shell fs [n: int] -> bytes (bytes-from-string n))"]
+    it "T-T9 bytes-to-string: bytes -> Result[string, int]" $ do
+      okT  ["(def-shell ts [b: bytes] -> Result[string, int] (bytes-to-string b))"]
+      badT ["(def-shell ts [b: bytes] -> string (bytes-to-string b))"]
+    it "T-T10 bytes-length and bytes-get take the unsized bytes, and still take bytes[n]" $ do
+      okT  ["(def-shell lg [b: bytes] -> int (+ (bytes-length b) (bytes-get b 0)))"]
+      okT  ["(def-shell lg [b: bytes[4]] -> int (+ (bytes-length b) (bytes-get b 0)))"]
+      [ m | (_, m) <- errsT ["(def-shell lg [s: string] -> int (bytes-length s))"] ]
+        `shouldSatisfy` any (T.isInfixOf "expects bytes[n] or bytes as argument 1")
+    it "T-T11 bytes-set on bytes returns bytes; on bytes[4] it still returns bytes[4]" $ do
+      okT  ["(def-shell st [b: bytes] -> bytes (bytes-set b 0 1))"]
+      badT ["(def-shell st [b: bytes] -> bytes[4] (bytes-set b 0 1))"]
+      okT  ["(def-shell st [b: bytes[4]] -> bytes[4] (bytes-set b 0 1))"]
+      badT ["(def-shell st [b: bytes[4]] -> bytes (bytes-set b 0 1))"]
+    it "T-T12 bytes and bytes[4] are not compatible, in either direction (argument and return)" $ do
+      badT ["(def-shell u [b: bytes] -> int 0)", "(def-shell c [k: bytes[4]] -> int (u k))"]
+      badT ["(def-shell s4 [k: bytes[4]] -> int 0)", "(def-shell c [b: bytes] -> int (s4 b))"]
+      badT ["(def-shell r [k: bytes[4]] -> bytes k)"]
+      badT ["(def-shell r [b: bytes] -> bytes[4] b)"]
+      okT  ["(def-shell u [b: bytes] -> int 0)", "(def-shell c [b: bytes] -> int (u b))"]
+    it "T-T13 bytes-widen refuses an argument that is already bytes, and a non-byte one" $ do
+      [ m | (_, m) <- errsT ["(def-shell w [b: bytes] -> bytes (bytes-widen b))"] ]
+        `shouldSatisfy` any (T.isInfixOf "'bytes-widen' expects bytes[n] as argument 1, got bytes")
+      badT ["(def-shell w [s: string] -> bytes (bytes-widen s))"]
+      badT ["(def-shell w [k: bytes[4] j: bytes[4]] -> bytes (bytes-widen k j))"]
+    it "T-T14 bytes-zero stays sized: a -> bytes body has no determining length" $ do
+      [ m | (_, m) <- errsT ["(def-shell z [] -> bytes (bytes-zero))"] ]
+        `shouldSatisfy` any (T.isInfixOf "determines bytes[n]")
+      okT ["(def-shell z [] -> bytes[4] (bytes-zero))"]
+    it "T-T15 = and != on bytes check (byte-wise equality at run time)" $ do
+      okT ["(def-shell eq [a: bytes b: bytes] -> bool (= a b))"]
+      okT ["(def-shell ne [a: bytes b: bytes] -> bool (!= a b))"]
+      noEqWitness Map.empty TBytesU `shouldBe` Nothing
+    it "T-T16 bytes is not ordered and not a map key: compare, list-sort and a map[bytes, int] operation are refused" $ do
+      kindsT ["(def-shell co [a: bytes b: bytes] -> int (compare a b))"] `shouldBe` [Just "order-undefined"]
+      kindsT ["(def-shell so [xs: list[bytes]] -> list[bytes] (list-sort xs))"] `shouldBe` [Just "order-undefined"]
+      -- The map gate's kinded refusal comes first; the key argument's own
+      -- mismatch follows it, as for any other refused key sort.
+      take 1 (kindsT ["(def-shell mg [m: map[bytes, int] b: bytes] -> int (map-get m b))"]) `shouldBe` [Just "map-key-undefined"]
+      okT ["(def-shell mt [m: map[bytes, int]] -> int 1)"]
+      noOrdWitness Map.empty TBytesU `shouldBe` Just TBytesU
+      noKeyWitness Map.empty TBytesU `shouldBe` Just TBytesU
+    -- Ruling on S1 open question 7: JSON {"kind":"named","name":"bytes"} is the
+    -- builtin, as resolveNamedType already maps "DelegationError"; it never
+    -- becomes a user type named bytes.
+    it "T-T17 JSON-AST: a named type spelled bytes reads as the builtin unsized bytes, not a user type" $ do
+      let docN = BLC.pack ("{\"schemaVersion\":\"0.16.0\",\"statements\":[{\"kind\":\"def-shell\","
+                 ++ "\"name\":\"f\",\"params\":[{\"name\":\"b\",\"param_type\":{\"kind\":\"named\",\"name\":\"bytes\"}}],"
+                 ++ "\"body\":{\"kind\":\"lit-int\",\"value\":0}}]}")
+      parseJSONAST GrammarCoreInversion "<bio2>" docN
+        `shouldBe` Right (parsedT ["(def-shell f [b: bytes] 0)"])
+    it "T-T18 an unannotated callee's wildcard is rejected at a bytes position, as at bytes[n]" $ do
+      wildAssumeRejects Map.empty TBytesU `shouldBe` True
+      wildAssumeRejects Map.empty (TBytes 4) `shouldBe` True
+      wildAssumeRejects Map.empty (TList TBytesU) `shouldBe` False
+    -- The seam's message for bytes says the rejection is a policy (no length is
+    -- declared or asserted for an unsized value); the bytes[n] text is unchanged.
+    it "T-T19 the wildcard rejection at a bytes position names a policy, not an asserted fact" $ do
+      let msgsOf src = case parseStatements GrammarCoreInversion "<t-t19>" (T.pack (unlines src)) of
+            Left e  -> error (show e)
+            Right s -> map diagMessage (reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv s))
+          unsized = msgsOf [ "(def mkb [] -> bytes (bytes-make 2 0))"
+                           , "(def-shell mid [] (mkb))"
+                           , "(def-shell bad [] -> bytes (mid))" ]
+          sized   = msgsOf [ "(def mk32 [] -> bytes[32] (bytes-zero))"
+                           , "(def-shell mid2 [] (mk32))"
+                           , "(def-shell bad [] -> bytes[32] (mid2))" ]
+      unsized `shouldBe`
+        [ "type mismatch in 'bad': expected bytes, got ? (an unannotated return type). A bytes value"
+          <> " carries no length: none is declared or asserted, so this rejection is a policy for an"
+          <> " unsized byte value, kept so bytes and bytes[n] are refused alike here; annotate the"
+          <> " callee's return type." ]
+      sized `shouldBe`
+        [ "type mismatch in 'bad': expected bytes[32], got ? (an unannotated return type). A bytes[32]"
+          <> " value carries a length the verifier must prove at this position, and inference cannot"
+          <> " supply it; annotate the callee's return type." ]
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S3 (BYTES-UNSIZED-1): the runtime of the pure operations.
+  -- The LlmllBytes class with the v0.39.0 [Word8] bodies in its list instance
+  -- and a strict ByteString instance, and the nine new bodies, all in
+  -- LLMLL.RuntimePure and copied verbatim into the preamble. The vectors are
+  -- the refuting-body table of the step-3 plan's contract plan.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S3: the runtime of the pure bytes operations" $ do
+    let bs        = BSS.pack
+        errOf x   = do r <- CE.try (CE.evaluate x)
+                       pure (either (\(CE.ErrorCall m) -> Just m) (const Nothing) r)
+        preLines  = T.lines (T.unlines runtimePreamble)
+        p64       = 2 ^ (64 :: Int) :: Integer
+        noSurr    = filter (\c -> fromEnum c < 0xD800 || fromEnum c > 0xDFFF)
+    it "T-R1 the preamble carries the class, both instances, the dispatching names and the nine bodies" $ do
+      let heads = [ "class LlmllBytes b where", "instance Integral w => LlmllBytes [w] where"
+                  , "instance LlmllBytes BS.ByteString where"
+                  , "bytes_length :: LlmllBytes b => b -> Int", "bytes_get :: LlmllBytes b => b -> Integer -> Integer"
+                  , "bytes_set :: LlmllBytes b => b -> Integer -> Integer -> b"
+                  , "bytes_make :: Integer -> Integer -> BS.ByteString"
+                  , "bytes_slice :: BS.ByteString -> Integer -> Integer -> BS.ByteString"
+                  , "bytes_concat :: BS.ByteString -> BS.ByteString -> BS.ByteString"
+                  , "bytes_concat_many :: [BS.ByteString] -> BS.ByteString"
+                  , "bytes_to_list :: BS.ByteString -> [Integer]", "bytes_widen :: [Word8] -> BS.ByteString"
+                  , "bytes_from_list :: [Integer] -> Either Integer BS.ByteString"
+                  , "bytes_from_string :: String -> BS.ByteString"
+                  , "bytes_to_string :: BS.ByteString -> Either Integer String"
+                  , "llmll_uEI :: (a -> ()) -> Either Integer a -> ()" ]
+      [ h | h <- heads, h `notElem` preLines ] `shouldBe` []
+      -- the old monomorphic [Word8] signatures are gone (one definition each)
+      length (filter ("bytes_get ::" `T.isPrefixOf`) preLines) `shouldBe` 1
+    it "T-R2 the list instance holds the v0.39.0 [Word8] bodies byte for byte; make, concat, concat-many, to-list and widen vectors" $ do
+      let v039 = [ "bytes_length = length"
+                 , "bytes_get b i"
+                 , "  | i < 0 || i >= toInteger (length b) = error (\"bytes-get: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+                 , "  | otherwise                          = fromIntegral (b !! fromInteger i)"
+                 , "bytes_set b i v"
+                 , "  | i < 0 || i >= toInteger (length b) = error (\"bytes-set: pre-condition failed: index \" ++ show i ++ \" out of bounds for bytes[\" ++ show (length b) ++ \"]\")"
+                 , "  | v < 0 || v > 255                   = error (\"bytes-set: pre-condition failed: value \" ++ show v ++ \" outside byte range 0..255\")"
+                 , "  | otherwise                          = let k = fromInteger i in take k b ++ [fromIntegral v] ++ drop (k + 1) b" ]
+          inst = takeWhile (not . T.null) (drop 1 (dropWhile (/= "instance Integral w => LlmllBytes [w] where") preLines))
+          rename = T.replace "llmll_bytesLength" "bytes_length" . T.replace "llmll_bytesGet" "bytes_get"
+                   . T.replace "llmll_bytesSet" "bytes_set"
+      take 8 (map (rename . T.drop 2) inst) `shouldBe` v039
+      RP.bytes_make 3 7 `shouldBe` bs [7, 7, 7]
+      RP.bytes_make 0 9 `shouldBe` BSS.empty
+      RP.bytes_concat (bs [0x61, 0x62]) (bs [0x63]) `shouldBe` bs [0x61, 0x62, 0x63]
+      RP.bytes_concat_many [bs [1], bs [2, 3], BSS.empty, bs [4]] `shouldBe` bs [1, 2, 3, 4]
+      RP.bytes_to_list (bs [0, 128, 255]) `shouldBe` [0, 128, 255]
+      RP.bytes_widen [0, 0, 9, 0] `shouldBe` bs [0, 0, 9, 0]
+      RP.bytes_set (bs [0x61, 0x62, 0x63]) 1 255 `shouldBe` bs [0x61, 255, 0x63]
+      RP.bytes_get (bs [0x61, 0x62, 0x63]) 2 `shouldBe` 0x63
+      RP.bytes_length (bs [1, 2, 3]) `shouldBe` 3
+      errOf (RP.bytes_make 2 256) >>= (`shouldSatisfy` maybe False ("bytes-make: pre-condition failed: value 256" `isPrefixOf`))
+      errOf (RP.bytes_make (-1) 0) >>= (`shouldSatisfy` maybe False ("bytes-make: pre-condition failed: length -1" `isPrefixOf`))
+      errOf (RP.bytes_make (p64 * p64) 0) >>= (`shouldSatisfy` maybe False ("bytes-make: length" `isPrefixOf`))
+    it "T-R3 bytes-slice is the half-open [s, e), and a transposed or outside range stops instead of clamping" $ do
+      let h = bs [0x68, 0x65, 0x6C, 0x6C, 0x6F]
+      RP.bytes_slice h 1 4 `shouldBe` bs [0x65, 0x6C, 0x6C]
+      RP.bytes_slice h 2 2 `shouldBe` BSS.empty
+      RP.bytes_slice h 0 5 `shouldBe` h
+      forM_ [(3, 2), (-1, 1), (0, 6), (p64, p64 + 1)] $ \(s0, e0) ->
+        errOf (RP.bytes_slice h s0 e0) >>= (`shouldSatisfy` maybe False ("bytes-slice: pre-condition failed" `isPrefixOf`))
+    it "T-R4 bytes-from-string is UTF-8; U+DC80..U+DCFF give one byte, any other lone surrogate U+FFFD; 1 to 4 bytes per code point" $ do
+      RP.bytes_from_string "\233" `shouldBe` bs [0xC3, 0xA9]
+      RP.bytes_from_string "\56575" `shouldBe` bs [0xFF]
+      RP.bytes_from_string "\56448" `shouldBe` bs [0x80]
+      RP.bytes_from_string "\55296" `shouldBe` bs [0xEF, 0xBF, 0xBD]
+      RP.bytes_from_string "\56447" `shouldBe` bs [0xEF, 0xBF, 0xBD]
+      RP.bytes_from_string "\128512" `shouldBe` bs [0xF0, 0x9F, 0x98, 0x80]
+      RP.bytes_from_string "\1114111" `shouldBe` bs [0xF4, 0x8F, 0xBF, 0xBF]
+    it "T-R4p bytes-from-string agrees with Data.Text's UTF-8 off the surrogates, and gives 1 to 4 bytes per code point (P10)" $
+      property $ \s0 ->
+        let s = noSurr s0
+            n = BSS.length (RP.bytes_from_string s0)
+        in RP.bytes_from_string s == TE.encodeUtf8 (T.pack s) && length s0 <= n && n <= 4 * length s0
+    it "T-R5 an index of 2^64 + 1 is out of bounds on bytes (not index 1), for get and set" $ do
+      let b = bs [10, 20, 30]
+      errOf (RP.bytes_get b (p64 + 1)) >>= (`shouldBe` Just "bytes-get: pre-condition failed: index 18446744073709551617 out of bounds for bytes of length 3")
+      errOf (RP.bytes_set b (p64 + 1) 7) >>= (`shouldBe` Just "bytes-set: pre-condition failed: index 18446744073709551617 out of bounds for bytes of length 3")
+      errOf (RP.bytes_set b 0 256) >>= (`shouldBe` Just "bytes-set: pre-condition failed: value 256 outside byte range 0..255")
+      errOf (RP.bytes_get b (-1)) >>= (`shouldSatisfy` maybe False ("bytes-get: pre-condition failed" `isPrefixOf`))
+      RP.llmll_bytesLabel b `shouldBe` "bytes of length 3"
+      RP.llmll_bytesLabel ([1, 2] :: [Word8]) `shouldBe` "bytes[2]"
+    it "T-R6 bytes-to-string is strict (Error at the first invalid sequence); bytes-from-list names the first byte out of range" $ do
+      RP.bytes_to_string (bs [0xC3]) `shouldBe` Left 0
+      map (RP.bytes_to_string . bs)
+          [ [0x61, 0xC3, 0x28], [0xC0, 0x80], [0xED, 0xA0, 0x80], [0xF4, 0x90, 0x80, 0x80]
+          , [0xE0, 0x80, 0x80], [0xF0, 0x80, 0x80, 0x80], [0x61, 0x62, 0xFF], [0xF0, 0x9F, 0x98] ]
+        `shouldBe` map Left [1, 0, 0, 0, 0, 0, 2, 0]
+      RP.bytes_to_string (bs [0xE2, 0x82, 0xAC, 0x61]) `shouldBe` Right "\8364a"
+      RP.bytes_to_string (bs [0xED, 0x9F, 0xBF]) `shouldBe` Right "\55295"
+      RP.bytes_from_list [256] `shouldBe` Left 0
+      RP.bytes_from_list [1, -1] `shouldBe` Left 1
+      RP.bytes_from_list [0, 255, 128] `shouldBe` Right (bs [0, 255, 128])
+      RP.bytes_from_list [] `shouldBe` Right BSS.empty
+    -- An independent oracle: the source reader's Unicode table 3-7 check
+    -- (Diagnostic.firstInvalidUtf8Offset) and Data.Text's decoder.
+    it "T-R6p bytes-to-string agrees with an independent UTF-8 check on any bytes, and inverts bytes-from-string off the surrogates" $
+      property $ \ws s0 ->
+        let b = BSS.pack ws
+            s = noSurr s0
+        in RP.bytes_to_string b
+             == maybe (either (const (Left (-1))) (Right . T.unpack) (TE.decodeUtf8' b))
+                      (Left . toInteger) (firstInvalidUtf8Offset b)
+           && RP.bytes_to_string (RP.bytes_from_string s) == Right s
+    it "T-R7 codegen: the forcers, the two new clause helpers, and one name per operation" $ do
+      lookup "bytes-set" esResultForcers `shouldBe` Just "llmll_uB"
+      lookup "bytes-to-list" esResultForcers `shouldBe` Just "llmll_uL llmll_uW"
+      lookup "bytes-from-list" esResultForcers `shouldBe` Just "llmll_uEI llmll_uW"
+      lookup "bytes-to-string" esResultForcers `shouldBe` Just "llmll_uEI llmll_uS"
+      emitExpr (EApp "clause%bytes-make" [ELit (LitString "C"), EVar "n", EVar "v"]) `shouldSatisfy` T.isInfixOf "llmll_cl_bytes_make"
+      emitExpr (EApp "clause%bytes-slice" [ELit (LitString "C"), EVar "b", EVar "s", EVar "e"]) `shouldSatisfy` T.isInfixOf "llmll_cl_bytes_slice"
+      clauseGuardedOps `shouldContain` ["bytes-make", "bytes-slice"]
+      emitApp "bytes-widen" [EVar "k"] `shouldBe` "(bytes_widen (k))"
+      [ h | h <- ["llmll_cl_bytes_get :: LlmllBytes b => String -> b -> Integer -> Integer"
+                 , "llmll_cl_bytes_make :: String -> Integer -> Integer -> BS.ByteString"
+                 , "llmll_cl_bytes_slice :: String -> BS.ByteString -> Integer -> Integer -> BS.ByteString"]
+          , h `notElem` preLines ] `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S4 (BYTES-UNSIZED-1): the evaluator and the generator.
+  -- The canonical byte value (bytesValE) serves bytes and bytes[n]; every
+  -- operation reduces on it through its LLMLL.RuntimePure body, a failed pre
+  -- discards, and one generator draws both types.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S4: the evaluator and generator for the bytes operations" $ do
+    let ev      = evalExprStatic Map.empty
+        lint    = ELit . LitInt
+        lstr    = ELit . LitString . T.pack
+        bv      = bytesValE . BSS.pack
+        consOf  = foldr (\e acc -> EApp "cons" [e, acc]) (EApp "nil" [])
+        ws8 xs  = map (fromIntegral :: Int -> Word8) xs
+        runSrc src = case parseStatements GrammarCoreInversion "<bio4>" (T.pack src) of
+          Left e      -> error ("BYTE-IO S4 test source failed to parse: " ++ show e)
+          Right stmts -> runPropertyTests stmts
+    it "T-E1 bytes-make, bytes-length, bytes-get and bytes-set reduce on the canonical value as the runtime does" $ do
+      ev (EApp "bytes-make" [lint 3, lint 7]) `shouldBe` Just (bytesValE (RP.bytes_make 3 7))
+      ev (EApp "bytes-length" [EApp "bytes-make" [lint 3, lint 7]]) `shouldBe` Just (lint 3)
+      ev (EApp "bytes-get" [bv [1, 2, 255], lint 2]) `shouldBe` Just (lint 255)
+      ev (EApp "bytes-set" [bv [1, 2, 3], lint 0, lint 9]) `shouldBe` Just (bv [9, 2, 3])
+      -- bytes[n] keeps its override chain: the v0.39.0 reductions are unchanged
+      ev (EApp "bytes-get" [EApp "bytes-set" [EApp "bytes-zero" [lint 4], lint 1, lint 5], lint 1]) `shouldBe` Just (lint 5)
+    it "T-E2 slice, concat, concat-many and to-list match the runtime on any bytes" $ property $ \xs0 ys0 s0 e0 ->
+      let xs = ws8 xs0; ys = ws8 ys0
+          bx = BSS.pack xs; by = BSS.pack ys
+          n  = toInteger (length xs)
+          s  = toInteger (abs (s0 :: Int)) `mod` (n + 1)
+          e  = s + toInteger (abs (e0 :: Int)) `mod` (n - s + 1)
+      in ev (EApp "bytes-slice" [bytesValE bx, lint s, lint e]) == Just (bytesValE (RP.bytes_slice bx s e))
+         && ev (EApp "bytes-concat" [bytesValE bx, bytesValE by]) == Just (bytesValE (RP.bytes_concat bx by))
+         && ev (EApp "bytes-concat-many" [consOf [bytesValE by, bytesValE bx]]) == Just (bytesValE (RP.bytes_concat_many [by, bx]))
+         && ev (EApp "bytes-to-list" [bytesValE bx]) == Just (consOf (map lint (RP.bytes_to_list bx)))
+    it "T-E3 from-string, to-string and from-list give the runtime's value and its Error offset" $ do
+      ev (EApp "bytes-from-string" [lstr "\233"]) `shouldBe` Just (bv [0xC3, 0xA9])
+      ev (EApp "bytes-to-string" [bv [0xC3, 0xA9]]) `shouldBe` Just (EApp "Success" [lstr "\233"])
+      ev (EApp "bytes-to-string" [bv [0x61, 0xC3]]) `shouldBe` Just (EApp "Error" [lint 1])
+      ev (EApp "bytes-from-list" [consOf [lint 1, lint 256, lint 2]]) `shouldBe` Just (EApp "Error" [lint 1])
+      ev (EApp "bytes-from-list" [consOf [lint 0, lint 255]]) `shouldBe` Just (EApp "Success" [bv [0, 255]])
+    it "T-E3p from-string then to-string is the identity on any string the evaluator holds" $ property $ \s0 ->
+      let s = T.unpack (T.pack s0)   -- the evaluator's strings are Text: no lone surrogate
+      in ev (EApp "bytes-to-string" [EApp "bytes-from-string" [lstr s]]) == Just (EApp "Success" [lstr s])
+         && ev (EApp "bytes-from-string" [lstr s]) == Just (bytesValE (RP.bytes_from_string s))
+    it "T-E4 bytes-widen reads a sized value of either form; the canonical value is a value; = decides on it" $ do
+      ev (EApp "bytes-widen" [EApp "bytes-set" [EApp "bytes-zero" [lint 3], lint 2, lint 8]]) `shouldBe` Just (bv [0, 0, 8])
+      ev (EApp "bytes-widen" [bv [4, 5]]) `shouldBe` Just (bv [4, 5])
+      ev (bv [1, 2]) `shouldBe` Just (bv [1, 2])
+      ev (EOp "=" [bv [1, 2], EApp "bytes-make" [lint 2, lint 1]]) `shouldBe` Just (ELit (LitBool False))
+      ev (EOp "=" [bv [1, 1], EApp "bytes-make" [lint 2, lint 1]]) `shouldBe` Just (ELit (LitBool True))
+      -- the override chain is not canonical, so = against it still declines
+      ev (EOp "=" [bv [0], EApp "bytes-zero" [lint 1]]) `shouldBe` Nothing
+    it "T-E5 a failed builtin pre discards the sample (Nothing), never the runtime's error" $ do
+      ev (EApp "bytes-make" [lint (-1), lint 0]) `shouldBe` Nothing
+      ev (EApp "bytes-make" [lint 2, lint 256]) `shouldBe` Nothing
+      ev (EApp "bytes-make" [lint 100000, lint 0]) `shouldBe` Nothing   -- past rangeCap
+      ev (EApp "bytes-slice" [bv [1, 2, 3, 4, 5], lint 3, lint 2]) `shouldBe` Nothing
+      ev (EApp "bytes-slice" [bv [1, 2], lint 0, lint 3]) `shouldBe` Nothing
+      ev (EApp "bytes-get" [bv [1, 2], lint (2 ^ (64 :: Int) + 1)]) `shouldBe` Nothing
+      ev (EApp "bytes-get" [bv [1, 2], lint (-1)]) `shouldBe` Nothing
+      ev (EApp "bytes-set" [bv [1, 2], lint 2, lint 0]) `shouldBe` Nothing
+      ev (EApp "bytes-set" [bv [1, 2], lint 0, lint 256]) `shouldBe` Nothing
+    it "T-E6 the generator draws exactly n bytes for bytes[n] and 0..32 bytes for bytes, both canonical" $ do
+      let (envS, _) = generateSamplesPure 7 [] [("b", TBytes 4)] 100
+          (envU, _) = generateSamplesPure 7 [] [("b", TBytesU)] 100
+          lenOf env = BSS.length <$> (bytesFlat =<< Map.lookup "b" env)
+          lensU     = map lenOf envU
+      map lenOf envS `shouldBe` replicate 100 (Just 4)
+      all (\l -> maybe False (\k -> k >= 0 && k <= 32) l) lensU `shouldBe` True
+      length (nub lensU) `shouldSatisfy` (> 5)
+    it "T-E7 a property over bytes[4] passes (F10), and one over bytes reduces through the new operations" $ do
+      r1 <- runSrc (unlines [ "(def-shell blen [b: bytes[4]] -> int (bytes-length b))"
+                            , "(check \"len is 4\" (for-all [b: bytes[4]] (= (blen b) 4)))" ])
+      map pbtStatus (pbtResults r1) `shouldBe` [PBTPassed]
+      r2 <- runSrc (unlines [ "(check \"cat len\" (for-all [a: bytes c: bytes]"
+                            , "  (= (bytes-length (bytes-concat a c)) (+ (bytes-length a) (bytes-length c)))))"
+                            , "(check \"widen\" (for-all [k: bytes[3]] (= (bytes-to-list (bytes-widen k)) (bytes-to-list (bytes-widen k)))))" ])
+      map pbtStatus (pbtResults r2) `shouldBe` [PBTPassed, PBTPassed]
+    it "T-E8 a failing bytes sample shrinks toward length 0: the reported value is the shortest that still fails" $ do
+      r <- runSrc "(check \"short\" (for-all [b: bytes] (< (bytes-length b) 3)))"
+      map pbtStatus (pbtResults r) `shouldBe` [PBTFailed]
+      let cx = maybe "" id (pbtCounterexample (head (pbtResults r)))
+      T.count "\"cons\"" cx `shouldBe` 3
+      cx `shouldSatisfy` T.isPrefixOf "b = "
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S5 (BYTES-UNSIZED-1): the verifier. Sort sites, the D6
+  -- field sort, the step-3 body arms, the sealed and abstracted sets, the ANF
+  -- hoist set, the byte-range evidence set, and the Rev 2a bytes-length guard.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S5: the verifier for the bytes operations" $ do
+    let arr     = FQArr FQInt FQInt
+        lint    = ELit . LitInt :: Integer -> Expr
+        parseS src = case parseStatements GrammarCoreInversion "t" (T.pack src) of
+          Left e   -> error ("BYTE-IO S5 test source failed to parse: " ++ show e)
+          Right ss -> ss
+        emitS src =
+          let ss = parseS src
+              (_, retTypes) = typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv ss
+          in emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty retTypes ss
+        bodyOf se e = snd (bodyToPredFrom 0 (Map.fromList se) Map.empty Set.empty e)
+        solveS er = do
+          tmp <- getTemporaryDirectory
+          let fqPath = tmp <> "/byte-io-s5-spec.fq"
+          TIO.writeFile fqPath (erFQText er)
+          a <- findExecutable "liquid-fixpoint"
+          mLF <- maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pure Nothing
+            Just lf -> do
+              (_, out, _) <- solverRun lf ["-q", "--json", fqPath]
+              pure (Just (T.pack out))
+        expectSolveS er want = do
+          m <- solveS er
+          case m of
+            Nothing  -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just out -> out `shouldSatisfy` T.isInfixOf want
+        crcHead = unlines
+          [ "(def-shell crc-bits [c: int k: int] -> int"
+          , "  (pre (and (and (>= c 0) (<= c 4294967295)) (>= k 0)))"
+          , "  (post (and (>= result 0) (<= result 4294967295)))"
+          , "  (decreases k)"
+          , "  (if (= k 0) c (crc-bits (if (= (bit-and c 1) 1) (bit-xor (bit-shr c 1) 3988292384) (bit-shr c 1)) (- k 1))))"
+          , "(def-shell crc-byte [c: int b: int] -> int"
+          , "  (pre (and (and (>= c 0) (<= c 4294967295)) (and (>= b 0) (<= b 255))))"
+          , "  (post (and (>= result 0) (<= result 4294967295)))"
+          , "  (crc-bits (bit-xor c b) 8))" ]
+        crcLoop guard = crcHead ++ unlines
+          [ "(def-shell crc-loop [buf: bytes i: int c: int] -> int"
+          , "  (pre (and (and (>= i 0) (<= i (bytes-length buf))) (and (>= c 0) (<= c 4294967295))))"
+          , "  (post (and (>= result 0) (<= result 4294967295)))"
+          , "  (decreases (- (bytes-length buf) i))"
+          , "  (if " ++ guard ++ " c (crc-loop buf (+ i 1) (crc-byte c (bytes-get buf i)))))" ]
+        partsOf e = case bodyOf [] e of
+          Just cv@CallVC{} -> Just (cvCallee cv, cvResultSort cv, cvPreObligation cv, cvPostParts cv, cvResultVar cv)
+          _                -> Nothing
+    it "T-V1 typeToSort: both byte types are the byte array, directly and through typeToSortA" $ do
+      typeToSort (TBytes 4) `shouldBe` arr
+      typeToSort TBytesU `shouldBe` arr
+      typeToSortA Map.empty TBytesU `shouldBe` arr
+    it "T-V2 D6: a bytes[n] constructor field is declared at the array sort, and the program solves" $ do
+      fieldSort Map.empty (Set.fromList ["Pkt"]) (TSumType [("Raw", Just (TBytes 4)), ("Num", Just TInt)]) (TBytes 4)
+        `shouldBe` arr
+      er <- emitS (unlines [ "(type Pkt (| Raw bytes[4]) (| Num int))"
+                           , "(def-shell k [p: Pkt] -> int (post (>= result 0)) (match p ((Raw b) 0) ((Num n) 1)))" ])
+      [ l | l <- T.lines (erFQText er), "data Pkt" `T.isPrefixOf` l ]
+        `shouldSatisfy` all (T.isInfixOf "(Map_t int int)")
+      T.isInfixOf "data Pkt" (erFQText er) `shouldBe` True
+      expectSolveS er "Safe"
+    it "T-V3 an unsized bytes param binds at the array sort and the W-1 body is body-faithful" $ do
+      er <- emitS "(def-shell magic16 [b: bytes] -> int (pre (>= (bytes-length b) 2)) (post (and (>= result 0) (<= result 65535))) (+ (* (bytes-get b 0) 256) (bytes-get b 1)))"
+      erBodyFaithfulFns er `shouldBe` ["magic16"]
+      T.isInfixOf "bind 0 b : { v : (Map_t int int) | true }" (erFQText er) `shouldBe` True
+      expectSolveS er "Safe"
+    it "T-V4 bytes-make: the constant-array reflection, the exact length lemma, and the literal pre" $ do
+      case partsOf (EApp "bytes-make" [lint 3, lint 7]) of
+        Just (c, srt, pre, parts, r) -> do
+          c `shouldBe` "bytes-make"
+          srt `shouldBe` arr
+          pre `shouldBe` Just (partialPre (PBytesMake (FQLit 3) (FQLit 7)))
+          parts `shouldBe` [ ("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_default" [FQLit 7]))
+                           , ("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit 3)) ]
+        Nothing -> expectationFailure "no CallVC for bytes-make"
+      partialPre (PBytesMake (FQVar "n") (FQVar "v")) `shouldBe`
+        FQAnd [ FQBinPred FQGe (FQVar "n") (FQLit 0), FQBinPred FQGe (FQVar "v") (FQLit 0), FQBinPred FQLe (FQVar "v") (FQLit 255) ]
+    it "T-V5 bytes-widen: the identity on the array, no pre and no length lemma (P2)" $ do
+      case partsOf (EApp "bytes-widen" [EVar "k"]) of
+        Just (_, srt, pre, parts, r) -> do
+          srt `shouldBe` arr
+          pre `shouldBe` Nothing
+          parts `shouldBe` [("reflection", FQBinPred FQEq (FQVar r) (FQVar "k"))]
+        Nothing -> expectationFailure "no CallVC for bytes-widen"
+    it "T-V6 bytes-slice: the range pre and the length lemma e - s" $ do
+      case bodyOf [("s", FQInt), ("e", FQInt)] (EApp "bytes-slice" [EVar "b", EVar "s", EVar "e"]) of
+        Just cv@CallVC{} -> do
+          cvPreObligation cv `shouldBe` Just (FQAnd [ FQBinPred FQGe (FQVar "s") (FQLit 0)
+                                                     , FQBinPred FQLe (FQVar "s") (FQVar "e")
+                                                     , FQBinPred FQLe (FQVar "e") (FQApp "bytesLen" [FQVar "b"]) ])
+          cvPostParts cv `shouldBe` [("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar (cvResultVar cv)])
+                                                          (FQBinArith FQSub (FQVar "e") (FQVar "s")))]
+        other -> expectationFailure (show other)
+    it "T-V7 concat, concat-many, to-list and from-string: the partial length facts of Part 4" $ do
+      let lenOf x = FQApp "bytesLen" [x]
+      fmap (\(_, _, p, ps, r) -> (p, ps, r)) (partsOf (EApp "bytes-concat" [EVar "a", EVar "b"])) `shouldSatisfy`
+        maybe False (\(p, ps, r) -> isNothing p && ps == [("lemma", FQBinPred FQEq (lenOf (FQVar r)) (FQBinArith FQAdd (lenOf (FQVar "a")) (lenOf (FQVar "b"))))])
+      fmap (\(_, _, _, ps, r) -> ps == [("lemma", FQBinPred FQGe (lenOf (FQVar r)) (FQLit 0))]) (partsOf (EApp "bytes-concat-many" [EVar "xs"]))
+        `shouldBe` Just True
+      fmap (\(_, s, _, ps, r) -> (s, ps == [("lemma", FQBinPred FQEq (FQApp "listLen" [FQVar r]) (lenOf (FQVar "b")))])) (partsOf (EApp "bytes-to-list" [EVar "b"]))
+        `shouldBe` Just (FQList, True)
+      fmap (\(_, _, _, ps, r) -> ps == [ ("lemma", FQBinPred FQLe (FQApp "strLen" [FQVar "s"]) (lenOf (FQVar r)))
+                                       , ("lemma", FQBinPred FQLe (lenOf (FQVar r)) (FQBinArith FQMul (FQLit 4) (FQApp "strLen" [FQVar "s"]))) ])
+           (partsOf (EApp "bytes-from-string" [EVar "s"]))
+        `shouldBe` Just True
+      -- bytes-from-list and bytes-to-string have no arm: the caller falls back
+      isNothing (bodyOf [] (EApp "bytes-from-list" [EVar "xs"])) `shouldBe` True
+      isNothing (bodyOf [] (EApp "bytes-to-string" [EVar "b"])) `shouldBe` True
+    it "T-V8 a read of a step-3 result gets the byte-range fact (bytesArrsOfVC)" $ do
+      er <- emitS "(def-shell g [b: bytes] -> int (pre (>= (bytes-length b) 2)) (post (<= result 255)) (let [(s (bytes-slice b 0 2))] (bytes-get s 0)))"
+      T.isInfixOf "(Map_select _bv_call_bytes_slice_" (erFQText er) `shouldBe` True
+      any (\l -> T.isInfixOf "(Map_select _bv_call_bytes_slice_" l && T.isInfixOf "<= 255" l) (T.lines (erFQText er)) `shouldBe` True
+    it "T-V9 the sets: seven step-3 names are sealed axioms, five of them abstracted; bytes-make and bytes-widen are exact" $ do
+      let seven = ["bytes-make", "bytes-widen", "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-to-list", "bytes-from-string"]
+          five  = drop 2 seven
+      forM_ seven $ \n -> Set.member n sealedAxiomBuiltins `shouldBe` True
+      forM_ five $ \n -> Set.member n abstractedBuiltins `shouldBe` True
+      Set.member "bytes-make" abstractedBuiltins `shouldBe` False
+      Set.member "bytes-widen" abstractedBuiltins `shouldBe` False
+      forM_ ["bytes-from-list", "bytes-to-string"] $ \n ->
+        (Set.member n sealedAxiomBuiltins || Set.member n abstractedBuiltins) `shouldBe` False
+    it "T-V10 the ANF hoist set: nine step-3 names join; bytes-length does not (Rev 2a item 1)" $ do
+      Set.toList bytesCallNames `shouldBe` sort
+        [ "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-from-list"
+        , "bytes-to-list", "bytes-widen", "bytes-from-string", "bytes-to-string" ]
+      Set.member "bytes-length" bytesCallNames `shouldBe` False
+      -- a nested slice is hoisted, so bytes-length meets a variable and the body is faithful
+      er <- emitS "(def-shell t [b: bytes] -> int (post (= result (bytes-length b))) (bytes-length (bytes-slice b 0 (bytes-length b))))"
+      erBodyFaithfulFns er `shouldBe` ["t"]
+    it "T-V11 guard arm: (bytes-length x) is bytesLen(x) over an array-sorted x only; string-length stays out" $ do
+      let g se e = evalState (classifyGuardM Map.empty (Map.fromList se) e) 0
+      g [("buf", arr)] (EApp "bytes-length" [EVar "buf"]) `shouldBe` Just (FQApp "bytesLen" [FQVar "buf"])
+      g [("i", FQInt), ("buf", arr)] (EApp "=" [EVar "i", EApp "bytes-length" [EVar "buf"]])
+        `shouldBe` Just (FQBinPred FQEq (FQVar "i") (FQApp "bytesLen" [FQVar "buf"]))
+      g [("buf", FQInt)] (EApp "bytes-length" [EVar "buf"]) `shouldBe` Nothing
+      g [] (EApp "bytes-length" [EVar "buf"]) `shouldBe` Nothing
+      g [("s", FQStr)] (EApp "string-length" [EVar "s"]) `shouldBe` Nothing
+      -- a renamed (let-bound) binder is looked up under its emitted name
+      evalState (classifyGuardM (Map.fromList [("buf", "_bv_buf_0")]) (Map.fromList [("_bv_buf_0", arr)])
+                   (EApp "bytes-length" [EVar "buf"])) 0
+        `shouldBe` Just (FQApp "bytesLen" [FQVar "_bv_buf_0"])
+    it "T-V11b both consumers agree: the hole path condition and the verifier's guard read the same byte params" $ do
+      let params = [("buf", TBytesU), ("i", TInt)]
+          seOA   = Map.unions [buildSortEnv Map.empty params, pairParamSorts Map.empty params, bytesParamSorts [("buf", TBytesU)]]
+          body   = EIf (EApp "=" [EVar "i", EApp "bytes-length" [EVar "buf"]]) (EHole (HNamed "h")) (lint 0)
+      bytesParamSorts [("buf", TBytesU)] `shouldBe` Map.fromList [("buf", arr)]
+      map (map peKind . snd) (collectHoleGuards Map.empty seOA body) `shouldBe` [["qf_lia"]]
+      map (map peKind . snd) (collectHoleGuards Map.empty (buildSortEnv Map.empty params) body) `shouldBe` [["structural"]]
+      -- the verifier's consumer: crc-loop's guard translates, so the function is body-faithful
+      er <- emitS (crcLoop "(= i (bytes-length buf))")
+      erBodyFaithfulFns er `shouldSatisfy` elem "crc-loop"
+    it "T-V12 a constraint that holds a product and a slice result keeps the abstraction mark" $ do
+      er <- emitS "(def-shell f [b: bytes x: int y: int] -> int (pre (and (>= x 0) (>= y 0))) (post (>= result 1)) (+ (* x y) (bytes-length (bytes-slice b 0 (bytes-length b)))))"
+      let marked = Map.keys (erAbstracted er)
+      marked `shouldSatisfy` (not . null)
+      [ c | c <- marked, c `Set.member` erProductMarked er ] `shouldSatisfy` (not . null)
+      Map.elems (erAbstracted er) `shouldSatisfy` all (== "bytes-slice")
+    it "T-V13 a widened let-bound value gets no bytesLen(r) = n fact of its own (FACT-AG-LEN, P2)" $ do
+      er <- emitS "(def-shell w [k: bytes[8]] -> int (post (= result 8)) (let [(z (bytes-set k 0 1))] (bytes-length (bytes-widen z))))"
+      erBodyFaithfulFns er `shouldBe` ["w"]
+      -- every bytesLen term over the widen result: none is equated to 8
+      let afterWiden = map (T.drop 1 . T.dropWhile (/= ')') . snd)
+                         (T.breakOnAll "(bytesLen _bv_call_bytes_widen_" (erFQText er))
+      afterWiden `shouldSatisfy` (not . null)
+      afterWiden `shouldSatisfy` all (not . T.isPrefixOf " = 8")
+      expectSolveS er "Safe"
+    it "T-V14 Rev 2a W-8: crc-loop as written solves Safe; the guard (= i (+ (bytes-length buf) 1)) is Unsafe" $ do
+      erOk  <- emitS (crcLoop "(= i (bytes-length buf))")
+      erBad <- emitS (crcLoop "(= i (+ (bytes-length buf) 1))")
+      erBodyFaithfulFns erBad `shouldSatisfy` elem "crc-loop"
+      expectSolveS erOk "Safe"
+      expectSolveS erBad "Unsafe"
+    it "T-V15 W-6: the bytes-make value pre is a call-pre the solver refutes at 256" $ do
+      erOk  <- emitS "(def-shell mk-len [n: int] -> int (pre (>= n 0)) (post (= result n)) (bytes-length (bytes-make n 7)))"
+      erBad <- emitS "(def-shell mk-len [n: int] -> int (pre (>= n 0)) (post (= result n)) (bytes-length (bytes-make n 256)))"
+      erBodyFaithfulFns erOk `shouldBe` ["mk-len"]
+      expectSolveS erOk "Safe"
+      expectSolveS erBad "Unsafe"
+    it "T-V16 W-15: a slice passed to a callee with a length pre; the callee's index bug is Unsafe" $ do
+      let src k = unlines
+            [ "(def-shell get3 [s: bytes] -> int (pre (>= (bytes-length s) 3)) (post (>= result 0)) (bytes-get s " ++ show (k :: Int) ++ "))"
+            , "(def-shell use [b: bytes] -> int (pre (>= (bytes-length b) 8)) (post (>= result 0)) (get3 (bytes-slice b 0 3)))" ]
+      erOk  <- emitS (src 2)
+      erBad <- emitS (src 3)
+      sort (erBodyFaithfulFns erBad) `shouldBe` ["get3", "use"]
+      expectSolveS erOk "Safe"
+      expectSolveS erBad "Unsafe"
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S6 (BYTES-READ-1): the sixth Response arm, RBytes. It sits
+  -- last, so tags 0 to 4 keep their numbers; a five-arm exhaustive match now
+  -- fails check, and that one message carries its repair (F11).
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S6: the RBytes arm" $ do
+    let parsedA src = case parseStatements GrammarCoreInversion "<bio6>" (T.unlines src) of
+          Left err -> error ("BYTE-IO S6 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsA src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedA src))
+                    , diagSeverity d == SevError ]
+        emitA src =
+          let ss = parsedA src
+              (_, retTypes) = typeCheckWithCacheRet GrammarCoreInversion Map.empty emptyEnv ss
+          in emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty retTypes ss
+        fiveArms = [ "(def-shell k [r: Response] -> int"
+                   , "  (match r ((RNone) 0) ((RText t) 1) ((RCode c) 2) ((RErr e) 3) ((RList l) 4)))" ]
+        repair = "; add ((RBytes _) ...) or a wildcard (_ ...)"
+    it "T-A1 RBytes is the sixth and last arm, with payload bytes" $ do
+      case Map.lookup "Response" builtinAliases of
+        Just (TSumType ctors) -> do
+          map fst ctors `shouldBe` ["RNone", "RText", "RCode", "RErr", "RList", "RBytes"]
+          lookup "RBytes" ctors `shouldBe` Just (Just TBytesU)
+        _ -> expectationFailure "Response has no TSumType body"
+      Map.lookup "RBytes" builtinEnv `shouldBe` Just (TFn [TBytesU] (TCustom "Response"))
+    it "T-A2 a five-arm exhaustive match fails, naming RBytes, with the one-line repair" $ do
+      let es = errsA fiveArms
+      map fst es `shouldBe` [Just "non-exhaustive-match"]
+      map snd es `shouldBe`
+        [ "non-exhaustive match in 'k': type 'RNone | RText | RCode | RErr | RList | RBytes' "
+          <> "has unmatched constructors: RBytes (covered: RNone, RText, RCode, RErr, RList)" <> repair ]
+      -- Another missing arm with RBytes covered: no repair text, since it
+      -- would name the wrong arm.
+      let noList = [ "(def-shell k [r: Response] -> int"
+                   , "  (match r ((RNone) 0) ((RText t) 1) ((RCode c) 2) ((RErr e) 3) ((RBytes b) 5)))" ]
+      map snd (errsA noList) `shouldSatisfy` all (not . T.isInfixOf "add ((RBytes")
+      -- A user sum keeps its message byte for byte.
+      map snd (errsA [ "(type T (| A int) (| B int))"
+                     , "(def-shell u [t: T] -> int (match t ((A x) x)))" ])
+        `shouldBe` ["non-exhaustive match in 'u': type 'A | B' has unmatched constructors: B (covered: A)"]
+    it "T-A3 a wildcard match and a six-arm match both check" $ do
+      errsA [ "(def-shell k [r: Response] -> int"
+            , "  (match r ((RCode c) c) (_ 0)))" ] `shouldBe` []
+      errsA [ "(def-shell k [r: Response] -> int"
+            , "  (match r ((RNone) 0) ((RText t) 1) ((RCode c) 2) ((RErr e) 3) ((RList l) 4)"
+            , "    ((RBytes b) (bytes-length b))))" ] `shouldBe` []
+    it "T-A4 RBytes is a builtin constructor of the evaluator, the preamble and the reserved names" $ do
+      Set.member "RBytes" builtinCtorNames `shouldBe` True
+      isReservedHsName "RBytes" `shouldBe` True
+      let pre = T.lines (T.unlines runtimePreamble)
+          resp = takeWhile (not . T.isInfixOf "deriving") (dropWhile (/= "data Response") pre)
+      resp `shouldBe` [ "data Response", "  = RNone", "  | RText String", "  | RCode Integer"
+                      , "  | RErr String", "  | RList [String]", "  | RBytes BS.ByteString" ]
+    it "T-A5 the .fq tag domain of a Response binder gains exactly one disjunct, tag 5" $ do
+      er <- emitA [ "(def-shell code-of [r: Response] -> int"
+                  , "  (post (>= result 0))"
+                  , "  (match r ((RCode c) (if (>= c 0) c 0)) ((RText t) 1) (_ 2)))" ]
+      let tagLines = [ l | l <- T.lines (erFQText er), "r_tag :" `T.isInfixOf` l ]
+      tagLines `shouldBe`
+        [ "bind 0 r_tag : { v : int | r_tag = 0 || r_tag = 1 || r_tag = 2 || r_tag = 3 || r_tag = 4 || r_tag = 5 }" ]
+      erBodyFaithfulFns er `shouldBe` ["code-of"]
+    it "T-A6 an RBytes construction checks at bytes only" $ do
+      errsA [ "(def-shell wrap [b: bytes] -> Response (RBytes b))" ] `shouldBe` []
+      errsA [ "(def-shell wrap [s: string] -> Response (RBytes s))" ] `shouldNotBe` []
+      errsA [ "(def-shell wrap [b: bytes[8]] -> Response (RBytes b))" ] `shouldNotBe` []
+      errsA [ "(def-shell wrap [b: bytes[8]] -> Response (RBytes (bytes-widen b)))" ] `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S7 (BYTES-READ-1, BYTES-WRITE-1): the four byte commands,
+  -- the eighth effect label `stdin`, the byte-stdio-console check (entry
+  -- module only, U3) and the runtime bodies with the cli flag. Rev 2a item 4:
+  -- `:deterministic true` on wasi.io is NOT refused.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S7: the byte read and write commands" $ do
+    let parsedC src = case parseStatements GrammarCoreInversion "<bio7>" (T.unlines src) of
+          Left err -> error ("BYTE-IO S7 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsC src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedC src))
+                    , diagSeverity d == SevError ]
+        kindsC = map fst . errsC
+        ioImports = [ "(import wasi.io (capability stdin))"
+                    , "(import wasi.io (capability stdout :deterministic false))" ]
+        mainOf mode stepSig stepBody =
+          ioImports ++
+          [ "(def-shell step " <> stepSig <> " -> (int, Command)"
+          , "  (pair 1 " <> stepBody <> "))"
+          , "(def-shell done? [s: int] -> bool (>= s 1))"
+          , "(def-main :mode " <> mode <> " :init (pair 0 (wasi.io.stdout \"\")) :step step :done? done?)" ]
+        consoleSig = "[s: int input: string r: Response]"
+        cliSig     = "[s: int r: Response]"
+        preC = T.lines (T.unlines runtimePreamble)
+        bodyOf name = takeWhile (not . T.null) (dropWhile (not . ((name <> " ::") `T.isPrefixOf`)) preC)
+    it "T-C1 the four signatures" $ do
+      Map.lookup "wasi.fs.read-bytes" builtinEnv   `shouldBe` Just (TFn [TString] (TCustom "Command"))
+      Map.lookup "wasi.fs.write-bytes" builtinEnv  `shouldBe` Just (TFn [TString, TBytesU] (TCustom "Command"))
+      Map.lookup "wasi.io.stdin-bytes" builtinEnv  `shouldBe` Just (TCustom "Command")
+      Map.lookup "wasi.io.stdout-bytes" builtinEnv `shouldBe` Just (TFn [TBytesU] (TCustom "Command"))
+      -- a reversed write and a sized payload are type errors
+      errsC [ "(import wasi.fs (capability write \"/\"))"
+            , "(def-shell w [p: string b: bytes] -> Command (wasi.fs.write-bytes b p))" ] `shouldNotBe` []
+      errsC (ioImports ++ [ "(def-shell w [b: bytes[4]] -> Command (wasi.io.stdout-bytes b))" ]) `shouldNotBe` []
+      errsC (ioImports ++ [ "(def-shell w [b: bytes[4]] -> Command (wasi.io.stdout-bytes (bytes-widen b)))" ]) `shouldBe` []
+    it "T-C2 primEffect: each command has a bounded label above the wasi. fallthrough" $ do
+      primEffect "wasi.fs.read-bytes"   `shouldBe` Just (Caps (Set.singleton EFsRead))
+      primEffect "wasi.fs.write-bytes"  `shouldBe` Just (Caps (Set.singleton EFsWrite))
+      primEffect "wasi.io.stdout-bytes" `shouldBe` Just (Caps (Set.singleton EStdout))
+      primEffect "wasi.io.stdin-bytes"  `shouldBe` Just (Caps (Set.singleton EStdin))
+      [ n | n <- ["wasi.fs.read-bytes", "wasi.fs.write-bytes", "wasi.io.stdin-bytes", "wasi.io.stdout-bytes"]
+          , primEffect n == Just Unbounded ] `shouldBe` []
+    it "T-C3 the stdin label renders as stdin and is not the clock's label" $ do
+      effectLabelText EStdin `shouldBe` "stdin"
+      primEffect "wasi.io.stdin-bytes" `shouldNotBe` primEffect "wasi.clock.monotonic"
+      (maxBound :: EffectLabel) `shouldBe` EStdin
+    it "T-C4 byte-stdio-console: stdin-bytes or stdout-bytes named in a console entry is a check error (edge case 6)" $ do
+      kindsC (mainOf "console" consoleSig "wasi.io.stdin-bytes") `shouldBe` [Just "byte-stdio-console"]
+      kindsC (mainOf "console" consoleSig "(wasi.io.stdout-bytes (bytes-make 1 65))") `shouldBe` [Just "byte-stdio-console"]
+      map snd (errsC (mainOf "console" consoleSig "wasi.io.stdin-bytes"))
+        `shouldSatisfy` all ("wasi.io.stdin-bytes needs :mode cli" `T.isPrefixOf`)
+      -- in :init too, and named once per command however often it is named
+      kindsC (ioImports ++
+        [ "(def-shell step [s: int input: string r: Response] -> (int, Command) (pair 1 wasi.io.stdin-bytes))"
+        , "(def-shell other [] -> Command wasi.io.stdin-bytes)"
+        , "(def-main :mode console :init (pair 0 wasi.io.stdin-bytes) :step step)" ])
+        `shouldBe` [Just "byte-stdio-console"]
+    it "T-C5 the same program in :mode cli checks" $ do
+      errsC (mainOf "cli" cliSig "wasi.io.stdin-bytes") `shouldBe` []
+      errsC (mainOf "cli" cliSig "(wasi.io.stdout-bytes (bytes-make 1 65))") `shouldBe` []
+      -- the text commands stay legal in console
+      errsC (mainOf "console" consoleSig "(wasi.io.stdout \"x\")") `shouldBe` []
+    it "T-C6 a module with no def-main is not checked (U3: the entry module only)" $
+      errsC (ioImports ++ [ "(def-shell read-in [] -> Command wasi.io.stdin-bytes)"
+                          , "(def-shell write-out [b: bytes] -> Command (wasi.io.stdout-bytes b))" ])
+        `shouldBe` []
+    it "T-C7 the LLMLL.md 8.1 stdin grant with :deterministic true checks clean (Rev 2a item 4)" $
+      errsC [ "(import wasi.io (capability stdin :deterministic true))"
+            , "(def-shell r [] -> Command wasi.io.stdin-bytes)" ] `shouldBe` []
+    it "T-C8 the runtime bodies: publish_io for the file pair, the closed-stdin test, one stdout handle" $ do
+      bodyOf "wasi_fs_read_bytes" `shouldBe`
+        [ "wasi_fs_read_bytes :: String -> IO ()"
+        , "wasi_fs_read_bytes path = llmll_publish_io (RBytes <$> BS.readFile path)" ]
+      bodyOf "wasi_fs_write_bytes" `shouldBe`
+        [ "wasi_fs_write_bytes :: String -> BS.ByteString -> IO ()"
+        , "wasi_fs_write_bytes path b = llmll_publish_io (BS.writeFile path b >> return RNone)" ]
+      let sin = bodyOf "wasi_io_stdin_bytes"
+      sin `shouldSatisfy` any (T.isInfixOf "readIORef llmll_cli_mode")
+      sin `shouldSatisfy` any (T.isInfixOf "if closed then return (RBytes BS.empty) else RBytes <$> BS.hGetContents LIO.stdin")
+      let sout = bodyOf "wasi_io_stdout_bytes"
+      sout `shouldSatisfy` any (T.isInfixOf "else BS.hPut LIO.stdout b >> llmll_publish RNone")
+      -- no binary mode and no file-descriptor write anywhere in the preamble
+      preC `shouldSatisfy` all (\l -> not ("hSetBinaryMode" `T.isInfixOf` l) && not ("fdWrite" `T.isInfixOf` l))
+    it "T-C9 the cli main sets the cli flag before :init; the console main does not" $ do
+      let mainSrc mode = cgMainHs (generateHaskell "m" (parsedC (mainOf mode (if mode == "cli" then cliSig else consoleSig) "(wasi.io.stdout \"x\")")))
+      case (mainSrc "cli", mainSrc "console") of
+        (Just cli, Just con) -> do
+          let ls = T.lines cli
+              idx p = length (takeWhile (not . T.isInfixOf p) ls)
+          idx "llmll_set_cli_mode" `shouldSatisfy` (< idx "llmll_perform initCmd")
+          idx "llmll_set_cli_mode" `shouldSatisfy` (< length ls)
+          con `shouldNotSatisfy` T.isInfixOf "llmll_set_cli_mode"
+        _ -> expectationFailure "expected a Main.hs for both modes"
+    it "T-C10 the runtime names are reserved and the commands emit them" $ do
+      [ n | n <- ["wasi_fs_read_bytes", "wasi_fs_write_bytes", "wasi_io_stdin_bytes", "wasi_io_stdout_bytes", "RBytes"]
+          , not (isReservedHsName n) ] `shouldBe` []
+      emitExpr (EApp "wasi.fs.write-bytes" [EVar "p", EVar "b"]) `shouldSatisfy` T.isInfixOf "wasi_fs_write_bytes"
+      emitExpr (EVar "wasi.io.stdin-bytes") `shouldSatisfy` T.isInfixOf "wasi_io_stdin_bytes"
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

@@ -29,7 +29,8 @@
       ((RErr e)   (string-concat "err:" e))
       ((RNone)    "none")
       ((RCode n)  (string-concat "code:" (int-to-string n)))
-      ((RList xs) "list")))
+      ((RList xs) "list")
+      ((RBytes _) "bytes")))
 
   (def-shell d3-say [tag: string r: Response] -> Command
     (wasi.io.stdout (string-concat-many ["D3|" tag "=" (d3-text r)])))

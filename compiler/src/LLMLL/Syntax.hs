@@ -160,6 +160,11 @@ data Type
   | TBool                         -- ^ Boolean
   | TUnit                         -- ^ No value (void)
   | TBytes Int                    -- ^ Fixed-length byte array, e.g. bytes[64]
+  -- | BYTES-UNSIZED-1: a byte sequence of any length, the bare word @bytes@
+  -- (JSON-AST kind @bytes-unsized@). A separate constructor from 'TBytes': it
+  -- carries no length, so no site that reads a length from 'TBytes' can earn
+  -- one from it. There is no implicit conversion in either direction.
+  | TBytesU
   | TList Type                    -- ^ Homogeneous list
   | TMap Type Type                -- ^ Key-value dictionary
   | TResult Type Type             -- ^ Sum type: Success(t) | Error(e)
@@ -249,6 +254,7 @@ typeLabel TString         = "string"
 typeLabel TBool           = "bool"
 typeLabel TUnit           = "unit"
 typeLabel (TBytes n)      = "bytes[" <> tshow n <> "]"
+typeLabel TBytesU         = "bytes"
 typeLabel (TList t)       = "list[" <> typeLabel t <> "]"
 typeLabel (TMap k v)      = "map[" <> typeLabel k <> "," <> typeLabel v <> "]"
 typeLabel (TResult t (TCustom "hs-maybe")) = "hs-maybe[" <> typeLabel t <> "]"  -- FFI-CONV-1: its source spelling
@@ -273,6 +279,7 @@ typeConstructorName TString            = "built-in"
 typeConstructorName TBool              = "built-in"
 typeConstructorName TUnit              = "built-in"
 typeConstructorName TBytes{}           = "built-in"
+typeConstructorName TBytesU            = "built-in"
 typeConstructorName TList{}            = "built-in"
 typeConstructorName TMap{}             = "built-in"
 typeConstructorName TResult{}          = "built-in"

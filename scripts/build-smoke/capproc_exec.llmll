@@ -34,7 +34,8 @@
       ((RText t)  t)
       ((RCode n)  (int-to-string n))
       ((RErr e)   (string-concat "ERR:" e))
-      ((RList ns) (int-to-string (list-length ns)))))
+      ((RList ns) (int-to-string (list-length ns)))
+      ((RBytes _) "bytes")))
 
   ;; JSON-1 (§13.13). A round trip computed against an answer written HERE, not
   ;; against whatever the implementation happens to produce: construct an object

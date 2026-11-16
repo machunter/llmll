@@ -443,7 +443,8 @@
       ((RErr _)  "")
       ((RNone)   "")
       ((RCode _) "")
-      ((RList _) "")))
+      ((RList _) "")
+      ((RBytes _) "")))
 
   (def-shell clamp0 [n: int] -> int (if (< n 0) 0 n))
 

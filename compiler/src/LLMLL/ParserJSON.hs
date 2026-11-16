@@ -85,8 +85,11 @@ import Data.Int (Int64)
 -- 0.13.0 document is a valid 0.14.0 one, so the older versions stay accepted.
 -- GENERICS-1: bumped 0.14.0 → 0.15.0 for the optional `type_params` key on a
 -- def-shell and the `type-var` Type kind. Additive, so 0.14.0 stays accepted.
+-- BYTES-UNSIZED-1 (byte-io-proposal Rev 2, Part 4): bumped 0.15.0 → 0.16.0 for
+-- the `bytes-unsized` Type kind, and `TypeBytes.length` minimum 0 (drift D1:
+-- the reader always accepted bytes[0]). Additive, so 0.15.0 stays accepted.
 expectedSchemaVersion :: Text
-expectedSchemaVersion = "0.15.0"
+expectedSchemaVersion = "0.16.0"
 
 -- | Versions the reader accepts. REC-DESCENT's decreases and DEF-RET's return_type are
 -- additive-optional, so a 0.7.0 / 0.6.0 document (those fields absent) is a valid 0.8.0
@@ -106,7 +109,7 @@ expectedSchemaVersion = "0.15.0"
 -- 0.10.0 fails, which is the intended split — the schema is the authority on
 -- what may be WRITTEN, this list on what can still be READ.
 acceptedSchemaVersions :: [Text]
-acceptedSchemaVersions = ["0.15.0", "0.14.0", "0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
+acceptedSchemaVersions = ["0.16.0", "0.15.0", "0.14.0", "0.13.0", "0.12.0", "0.11.0", "0.10.0", "0.9.0", "0.8.0", "0.7.0", "0.6.0"]
 
 -- | Parse a JSON-AST byte string into a list of top-level statements.
 -- Returns @Left Diagnostic@ on any structural or version error.
@@ -720,6 +723,12 @@ parseType = withObject "Type" $ \o -> do
         else case Sci.toBoundedInteger n :: Maybe Int of
           Just i | bytesLengthInRange (toInteger i) -> pure (TBytes i)
           _ -> fail (T.unpack (bytesLengthRangeMessage (T.pack spelled)))
+    -- BYTES-UNSIZED-1 (schema 0.16.0): the unsized byte type. A separate kind,
+    -- not an optional `length` on kind bytes, so a dropped `length` stays an
+    -- error; and no other key, so a `length` here is refused too.
+    "bytes-unsized" -> do
+      rejectUnknownKeys "unexpected-key: bytes-unsized type" ["kind"] o
+      pure TBytesU
     "fn-type"   -> do
       params <- o .: "params" >>= mapM (fmap snd . parseTypedParam)
       ret    <- o .: "return_type" >>= parseType
@@ -755,6 +764,11 @@ parseType = withObject "Type" $ \o -> do
 -- typeLabel that could collide with TCustom, extend this function.
 resolveNamedType :: Text -> Type
 resolveNamedType "DelegationError" = TDelegationError
+-- BYTES-UNSIZED-1: `bytes` is the builtin unsized byte type (its typeLabel),
+-- and `(type bytes ...)` is refused as reserved-type-name, so a named `bytes`
+-- can only mean the builtin. Without this arm it became a user type named
+-- bytes, which the S-expression front end cannot spell.
+resolveNamedType "bytes"           = TBytesU
 resolveNamedType n                 = TCustom n
 
 -- ---------------------------------------------------------------------------

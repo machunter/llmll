@@ -18,7 +18,8 @@
     ((RText t)  (string-concat "RText " t))
     ((RCode n)  (string-concat "RCode " (int-to-string n)))
     ((RErr e)   (string-concat "RErr " e))
-    ((RList es) "RList")))
+    ((RList es) "RList")
+    ((RBytes _) "RBytes")))
 
 ;; The harness does not perform the command of the step that reaches done?, so
 ;; the print happens one step BEFORE the halting step: the test feeds three lines.

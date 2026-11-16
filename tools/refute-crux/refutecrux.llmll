@@ -360,7 +360,8 @@
       ((RErr _)  "")
       ((RNone)   "")
       ((RCode _) "")
-      ((RList _) "")))
+      ((RList _) "")
+      ((RBytes _) "")))
 
   ;; A read that failed is "" and a read that succeeded on an empty file is also
   ;; "", which is right here: both mean the manifest carries nothing usable, and
@@ -371,7 +372,8 @@
       ((RNone)    (list-empty))
       ((RText _)  (list-empty))
       ((RCode _)  (list-empty))
-      ((RErr _)   (list-empty))))
+      ((RErr _)   (list-empty))
+      ((RBytes _) (list-empty))))
 
   ;; RCode carries the child's exit status, and a NONZERO exit is a value rather
   ;; than an error (CodegenHs.hs:731-732). That is what makes this port possible
@@ -385,7 +387,8 @@
       ((RErr _)  127)
       ((RNone)   127)
       ((RText _) 127)
-      ((RList _) 127)))
+      ((RList _) 127)
+      ((RBytes _) 127)))
 
   (def-shell argv-of [x: Response] -> list[string]
     (match x
@@ -393,7 +396,8 @@
       ((RNone)    (list-empty))
       ((RText _)  (list-empty))
       ((RCode _)  (list-empty))
-      ((RErr _)   (list-empty))))
+      ((RErr _)   (list-empty))
+      ((RBytes _) (list-empty))))
 
   (def-shell flag-value [as: list[string] f: string] -> string
     (first (list-fold as (pair "" false)

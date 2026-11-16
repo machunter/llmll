@@ -1,0 +1,3 @@
+(def-shell cat-len [a: bytes b: bytes] -> int
+  (post (= result (+ (bytes-length a) (bytes-length b))))
+  (bytes-length (bytes-concat a b)))

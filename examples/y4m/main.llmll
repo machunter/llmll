@@ -188,7 +188,8 @@
                     (proc-spec 600)))
             (fail args "y4m: unexpected empty response\n")))
       ((RErr e)
-        (fail args (string-concat-many ["y4m: " e "\n"]))))))
+        (fail args (string-concat-many ["y4m: " e "\n"])))
+      ((RBytes _) (fail args "y4m: unexpected bytes response\n")))))
 
 (def-shell report [s: State] -> Command
   (if (= (st-phase s) 5)

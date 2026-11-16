@@ -37,7 +37,8 @@
       ((RText t)  t)
       ((RCode n)  (int-to-string n))
       ((RErr e)   (string-concat "ERR:" e))
-      ((RList ns) (int-to-string (list-length ns)))))
+      ((RList ns) (int-to-string (list-length ns)))
+      ((RBytes _) "bytes")))
 
   (def-shell fsenc-init [] -> (int, Command)
     (pair 0 (wasi.fs.mkdir "/tmp/llmll-fsenc")))

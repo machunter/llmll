@@ -9,7 +9,8 @@
     ((RErr e)  (pair 3 (wasi.io.stderr e)))
     ((RNone)   (pair 4 (wasi.io.stdout "")))
     ((RText t) (pair 4 (wasi.io.stdout "")))
-    ((RList l) (pair 4 (wasi.io.stdout "")))))
+    ((RList l) (pair 4 (wasi.io.stdout "")))
+    ((RBytes _) (pair 4 (wasi.io.stdout "")))))
 (def-shell fin [s: int] -> bool true)
 (def-shell code [s: int] -> int s)
 (def-main :mode cli

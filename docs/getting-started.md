@@ -643,7 +643,7 @@ The replay command:
 ```json
 // if_hole.ast.json
 {
-  "schemaVersion": "0.15.0",
+  "schemaVersion": "0.16.0",
   "statements": [
     { "kind": "def", "name": "greet",
       "params": [{ "name": "formal", "param_type": { "kind": "primitive", "name": "bool" } }],
@@ -839,13 +839,13 @@ Every `.ast.json` file must include `schemaVersion` at the top level:
 
 ```json
 {
-  "schemaVersion": "0.15.0",
+  "schemaVersion": "0.16.0",
   "llmll_version": "0.14.65",
   "statements": [ ... ]
 }
 ```
 
-The compiler rejects files with an unrecognised `schemaVersion` immediately; it reads `0.12.0`, `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility (the newer fields are additive-optional).
+The compiler rejects files with an unrecognised `schemaVersion` immediately; it reads `0.15.0`, `0.14.0`, `0.13.0`, `0.12.0`, `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility (the newer fields are additive-optional).
 
 | Field | Meaning |
 |-------|---------|
@@ -1676,7 +1676,7 @@ A **refinement-aliased return** (`-> PositiveInt`) discharges: the body-VC prove
 
 **Known restrictions:**
 - `def-shell` has no body restriction. Violations of the strict-core grammar inside `def-shell` are silently allowed by design — they are only errors inside `def`.
-- Schema `schemaVersion` is `0.15.0` (`def-shell` may carry `"type_params"`, an array of `{"name": "a"}` or `{"name": "k", "constraint": "ord"}` with `constraint` one of `eq`, `ord` or `key`, and `Type` has the kind `{"kind": "type-var", "name": "a"}`, GENERICS-1; `0.14.0` let a literal pattern carry `"literal_kind": "int"` or `"float"`, FLOAT-LIT-1: a JSON number does not keep the difference between `2` and `2.0`, so a float pattern must say `"float"`, and a kind that disagrees with the number, such as `"int"` on `-0.5`, is the parse error `literal-kind-mismatch`; `0.13.0` let a `type-decl` body be a plain alias, AST-TYPE-ALIAS-1, and gave `Type` the interface-only boundary kinds `hs-text`, `hs-int` and `hs-maybe`, FFI-CONV-1; `0.12.0` made `def-main` `mode` `"console"` or `"cli"`, MODE-HTTP-1; the reader also accepts `0.14.0`, `0.13.0`, `0.12.0`, `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility). New `.ast.json` files should carry `"schemaVersion": "0.15.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
+- Schema `schemaVersion` is `0.16.0` (`Type` has the kind `{"kind": "bytes-unsized"}`, the byte type of any length, and a `bytes` kind's `length` may be `0`, BYTES-UNSIZED-1; `0.15.0` let a `def-shell` carry `"type_params"`, an array of `{"name": "a"}` or `{"name": "k", "constraint": "ord"}` with `constraint` one of `eq`, `ord` or `key`, and gave `Type` the kind `{"kind": "type-var", "name": "a"}`, GENERICS-1; `0.14.0` let a literal pattern carry `"literal_kind": "int"` or `"float"`, FLOAT-LIT-1: a JSON number does not keep the difference between `2` and `2.0`, so a float pattern must say `"float"`, and a kind that disagrees with the number, such as `"int"` on `-0.5`, is the parse error `literal-kind-mismatch`; `0.13.0` let a `type-decl` body be a plain alias, AST-TYPE-ALIAS-1, and gave `Type` the interface-only boundary kinds `hs-text`, `hs-int` and `hs-maybe`, FFI-CONV-1; `0.12.0` made `def-main` `mode` `"console"` or `"cli"`, MODE-HTTP-1; the reader also accepts `0.15.0`, `0.14.0`, `0.13.0`, `0.12.0`, `0.11.0`, `0.10.0`, `0.9.0`, `0.8.0`, `0.7.0` and `0.6.0` for backward compatibility). New `.ast.json` files should carry `"schemaVersion": "0.16.0"`. `kind:"def"` / `kind:"def-shell"` are the standard forms under the default `GrammarCoreInversion` mode.
 
 ### §4.26 Bytes and Map Patterns (Array Class)
 
@@ -1856,7 +1856,7 @@ The restriction exists because the verifier asserts a `bytes[n]` binder's length
 
 ### §4.30 A Nullary Command Constructor Is a Value, Not a Call
 
-`wasi.clock.monotonic` is the only command constructor that takes no arguments. Write it bare:
+`wasi.clock.monotonic`, `wasi.proc.args` and `wasi.io.stdin-bytes` are the command constructors that take no arguments. Write them bare:
 
 ```lisp
 (def-shell now [] -> Command
@@ -1866,7 +1866,8 @@ The restriction exists because the verifier asserts a `bytes[n]` binder's length
 The parenthesised form `(wasi.clock.monotonic)` is **also accepted** and emits the same code, so
 neither spelling is an error. Prefer the bare one: it matches how the nullary `Response` constructor
 `RNone` binds, and it does not read as an application of a zero-argument function, which LLMLL does
-not have.
+not have. One difference is visible today: `verify --obligation-report` gives a function whose body
+is only the bare value an empty `effect_summary`, and the applied form its label (`EFFECT-NULLARY-1`).
 
 The reading arrives on the response channel as `RCode`, in nanoseconds:
 
@@ -1877,7 +1878,8 @@ The reading arrives on the response channel as `RCode`, in nanoseconds:
     ((RNone)    (pair (+ s 1) wasi.clock.monotonic))
     ((RText t)  (pair (+ s 1) (wasi.io.stdout t)))
     ((RErr e)   (pair (+ s 1) (wasi.io.stderr e)))
-    ((RList xs) (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length xs)))))))
+    ((RList xs) (pair (+ s 1) (wasi.io.stdout (int-to-string (list-length xs)))))
+    ((RBytes b) (pair (+ s 1) (wasi.io.stdout (int-to-string (bytes-length b)))))))
 ```
 
 > [!IMPORTANT]
@@ -1951,7 +1953,8 @@ decodes, so the file's digest is the server's digest, which is what a provenance
       ((RErr e) (pair (+ s 1) (wasi.io.stdout (string-concat "fetch failed: " e))))
       ((RText digest) (pair (+ s 1) (wasi.io.stdout digest)))
       ((RList _) (pair (+ s 1) (wasi.io.stdout "unexpected")))
-      ((RCode _) (pair (+ s 1) (wasi.io.stdout "unexpected"))))))
+      ((RCode _) (pair (+ s 1) (wasi.io.stdout "unexpected")))
+      ((RBytes _) (pair (+ s 1) (wasi.io.stdout "unexpected"))))))
 ```
 
 Three things to know before writing one:
@@ -1975,6 +1978,92 @@ Three things to know before writing one:
 
 The capability check matches the namespace, not the verb, so any `wasi.http` import grants the call
 today (`CAP-1-REAL`); write `(capability get URL)` anyway, because the header is what a reader audits.
+
+---
+
+### §4.33 Reading and Writing Bytes (`wasi.fs.read-bytes`, `bytes`)
+
+A file whose bytes are not UTF-8 cannot be read with `wasi.fs.read`. Read it with
+`wasi.fs.read-bytes`, which delivers the sixth `Response` arm, `RBytes`, with a value of the byte
+type of any length, `bytes` (`LLMLL.md` §3.2, §13.9, §13.12). This program prints a file's CRC-32
+and writes a byte-for-byte copy of it:
+
+```lisp
+(import wasi.proc (capability exec :deterministic false))
+(import wasi.fs (capability read-write "."))
+(import wasi.io (capability stdout :deterministic false))
+
+(def-shell crc-bits [c: int k: int] -> int
+  (pre (and (and (>= c 0) (<= c 4294967295)) (>= k 0)))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (decreases k)
+  (if (= k 0)
+      c
+      (crc-bits (if (= (bit-and c 1) 1)
+                    (bit-xor (bit-shr c 1) 3988292384)
+                    (bit-shr c 1))
+                (- k 1))))
+
+(def-shell crc-byte [c: int b: int] -> int
+  (pre (and (and (>= c 0) (<= c 4294967295)) (and (>= b 0) (<= b 255))))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (crc-bits (bit-xor c b) 8))
+
+(def-shell crc-loop [buf: bytes i: int c: int] -> int
+  (pre (and (and (>= i 0) (<= i (bytes-length buf)))
+            (and (>= c 0) (<= c 4294967295))))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (decreases (- (bytes-length buf) i))
+  (if (= i (bytes-length buf))
+      c
+      (crc-loop buf (+ i 1) (crc-byte c (bytes-get buf i)))))
+
+(def-shell crc32 [buf: bytes] -> int
+  (bit-xor (crc-loop buf 0 4294967295) 4294967295))
+
+;; Turn 1: argv. Turn 2: the file's bytes. Turn 3: the write's RNone ends the run.
+(def-shell step [s: int r: Response] -> (int, Command)
+  (match r
+    ((RList xs) (pair 1 (wasi.fs.read-bytes (unwrap-or (list-nth xs 0) ""))))
+    ((RBytes b) (pair 2 (seq-commands
+                          (wasi.io.stdout (string-concat (int-to-string (crc32 b)) "\n"))
+                          (wasi.fs.write-bytes "copy.bin" b))))
+    ((RErr e)   (pair 2 (wasi.io.stdout (string-concat e "\n"))))
+    (_          (pair 3 (wasi.io.stdout "")))))
+(def-shell done? [s: int] -> bool (>= s 3))
+(def-main :mode cli :init (pair 0 wasi.proc.args) :step step :done? done?)
+```
+
+```text
+$ printf 'hello\377\000world' > in.bin
+$ ./crcfile in.bin
+1647079124
+$ cmp in.bin copy.bin && echo same
+same
+$ llmll verify crcfile.llmll
+⚠️  crcfile.llmll — SAFE (liquid-fixpoint), partial: 1 of 3 contracted functions proved; 2 assumed, not proved: crc-bits, crc-byte; 1 proved only if it terminates: crc-loop (via crc-bits)
+```
+
+The printed value equals Python's `zlib.crc32` of the same file. `crc-loop` is proved: its
+`bytes-get` index is in bounds and its measure `(- (bytes-length buf) i)` discharges, because the
+guard `(= i (bytes-length buf))` is reflected. Change the guard to `(= i (+ (bytes-length buf) 1))`
+and `verify` refutes the `bytes-get` call. `crc-bits` and `crc-byte` stay asserted, because
+`bit-xor` has no exact form (`LLMLL.md` §13.7a).
+
+Five things to know:
+
+- **`bytes` and `bytes[n]` are different types.** A `bytes[n]` value reaches a `bytes` parameter
+  only through `(bytes-widen b)`. Nothing converts the other way.
+- **A five-arm `Response` match no longer checks.** `check` names the repair: add
+  `((RBytes _) ...)` or a wildcard `(_ ...)`. In verified code use the wildcard; `((RBytes _) ...)`
+  makes the match fall back with `match-wildcard-payload`.
+- **Byte stdio is `:mode cli` only.** `wasi.io.stdin-bytes` and `wasi.io.stdout-bytes` deliver
+  `RErr` in console mode, and `check` reports `byte-stdio-console` when the entry module names
+  either one. `wasi.fs.read-bytes` and `wasi.fs.write-bytes` work in both modes.
+- **Index a slice in a callee.** An index bug in the same function as a `bytes-slice` falls back
+  with exit 0 instead of being refuted. Pass the slice to a callee that takes a `bytes` parameter
+  with a length `pre` (`LLMLL.md` §13.12).
+- **`(= a b)` on two byte values is contract-only** in a `post`, as it is for `bytes[n]`.
 
 ---
 

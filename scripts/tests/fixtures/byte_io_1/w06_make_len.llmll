@@ -1,0 +1,4 @@
+(def-shell mk-len [n: int] -> int
+  (pre (>= n 0))
+  (post (= result n))
+  (bytes-length (bytes-make n 7)))

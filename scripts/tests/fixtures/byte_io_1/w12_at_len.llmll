@@ -1,0 +1,3 @@
+(def-shell at-len [b: bytes] -> int
+  (post (>= result 0))
+  (bytes-get b (bytes-length b)))

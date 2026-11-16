@@ -177,7 +177,8 @@
       ((RNone)    (list-empty))
       ((RText _)  (list-empty))
       ((RCode _)  (list-empty))
-      ((RErr _)   (list-empty))))
+      ((RErr _)   (list-empty))
+      ((RBytes _) (list-empty))))
 
   (def-shell flag-value [as: list[string] f: string] -> string
     (first (list-fold as (pair "" false)
@@ -399,7 +400,8 @@
       ((RErr e)   e)
       ((RNone)    "")
       ((RCode n)  (string-concat "code:" (int-to-string n)))
-      ((RList xs) "")))
+      ((RList xs) "")
+      ((RBytes _) "")))
 
   ;; PROBED 2026-08-12 by scripts/build-smoke/d3_probe.llmll, against llmll
   ;; 0.14.99, and recorded in TOOL-RFC-006 D3. A failed exec answers RErr and
@@ -431,7 +433,8 @@
       ((RText _)  false)
       ((RErr _)   false)
       ((RNone)    false)
-      ((RList _)  false)))
+      ((RList _)  false)
+      ((RBytes _) false)))
 
   ;; ---------------------------------------------------------------- report --
   ;; The subject's two verdict spellings, at scripts/build_smoke.sh:57 for FAIL
@@ -512,7 +515,8 @@
       ((RErr _)  "")
       ((RNone)   "")
       ((RCode _) "")
-      ((RList _) "")))
+      ((RList _) "")
+      ((RBytes _) "")))
 
   (def-shell home-unset? [r: Response] -> bool
     (match r
@@ -520,7 +524,8 @@
       ((RErr _)  true)
       ((RNone)   true)
       ((RCode _) true)
-      ((RList _) true)))
+      ((RList _) true)
+      ((RBytes _) true)))
 
   ;; The third source's own failure line. It is NOT comp-fail: that one names
   ;; the subject the caller passed, and by this point the subject is a path
@@ -718,7 +723,8 @@
       ((RText _)  true)
       ((RNone)    true)
       ((RCode _)  false)
-      ((RErr _)   false)))
+      ((RErr _)   false)
+      ((RBytes _) true)))
 
   ;; Does a directory hold an entry of this name? The second half of the
   ;; subject's `exe_path`, which asks `[ ! -x "$p" ]` and this cannot.
@@ -749,7 +755,8 @@
       ((RText _)  false)
       ((RNone)    false)
       ((RCode _)  false)
-      ((RErr _)   false)))
+      ((RErr _)   false)
+      ((RBytes _) false)))
 
   ;; --------------------------------------- stage 5b, FS-ENCODING-1 --
   ;; scripts/build_smoke.sh:368-499. Two properties that only a RUNNING program
@@ -1220,7 +1227,8 @@
       ((RNone)    true)
       ((RCode _)  true)
       ((RText _)  true)
-      ((RList _)  true)))
+      ((RList _)  true)
+      ((RBytes _) true)))
 
   ;; ---------------------------------------------------------------------
   ;; Stage 7, PROC-BOUNDARY-1. build_smoke.sh:849-969.
@@ -1240,7 +1248,8 @@
       ((RText _)  false)
       ((RList _)  false)
       ((RNone)    false)
-      ((RErr _)   false)))
+      ((RErr _)   false)
+      ((RBytes _) false)))
 
   (def-shell pb-out-of  [work: string] -> string (string-concat work "/procboundary"))
   (def-shell pb-log-of  [work: string] -> string (string-concat work "/.pb-build.log"))

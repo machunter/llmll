@@ -1,0 +1,5 @@
+(def-shell at-len-slice [b: bytes] -> int
+  (pre (>= (bytes-length b) 2))
+  (post (>= result 0))
+  (let [(s (bytes-slice b 0 2))]
+    (bytes-get s (bytes-length s))))

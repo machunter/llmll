@@ -1,0 +1,4 @@
+(def-shell tail-len [b: bytes s: int] -> int
+  (pre (and (>= s 0) (<= s (bytes-length b))))
+  (post (= result (- (bytes-length b) s)))
+  (bytes-length (bytes-slice b s (bytes-length b))))

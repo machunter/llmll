@@ -605,7 +605,8 @@
       ((RNone)    [])
       ((RText t)  [])
       ((RCode n)  [])
-      ((RErr e)   [])))
+      ((RErr e)   [])
+      ((RBytes _) [])))
 
   (def-shell text-of [x: Response] -> string
     (match x
@@ -613,7 +614,8 @@
       ((RList xs) "")
       ((RNone)    "")
       ((RCode n)  "")
-      ((RErr e)   "")))
+      ((RErr e)   "")
+      ((RBytes _) "")))
 
   ;; Paths for the two `git ls-files` captures. wasi.proc.run writes the child's
   ;; stdout to a FILE, so each listing is a run followed by a read.

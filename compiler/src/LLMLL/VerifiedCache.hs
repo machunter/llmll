@@ -417,6 +417,14 @@ reservedCallerObligationsKey = "caller_obligations"
 -- constraints and answer Safe. A stamp of "8" also means the solver read a
 -- private temp file and reported checking exactly the emitted constraint
 -- count. If this fix is ever reverted while "8" stays, raise the epoch to "9".
+--
+-- "8" stays across BYTES-UNSIZED-1 / BYTES-READ-1 / BYTES-WRITE-1 (BYTE-IO
+-- step 3, user decision U4), which add a sixth Response arm, RBytes. No stored
+-- `verified` record becomes false. A sidecar proof over a five-arm exhaustive
+-- Response match stops passing `check`, so it is not re-admitted. A wildcard
+-- arm binds no payload, so a sixth tag reaches it without a new fact. The D6
+-- sort change (a byte payload sorts as the byte array) touches only matches
+-- that fell back before. If any of these three stops holding, raise to "9".
 checkerSoundnessVersion :: Text
 checkerSoundnessVersion = "8"
 
