@@ -14138,7 +14138,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- constructor, so the new label lands between "crypto" and "fs.read"
       -- rather than at the end where its constructor sits.
       encode (encodeEff (Caps (Set.fromList [minBound .. maxBound])))
-        `shouldBe` "[\"crypto\",\"env.read\",\"fs.read\",\"fs.write\",\"net.http\",\"nondet\",\"stdout\"]"
+        `shouldBe` "[\"crypto\",\"env.read\",\"fs.read\",\"fs.write\",\"net.http\",\"nondet\",\"stdin\",\"stdout\"]"
 
   -- F-B0-1 regression: a JSON-AST `module` form must flatten into its
   -- imports ++ body (single-file model), mirroring the S-expression parser's
@@ -18577,8 +18577,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- carries it: wasi.proc.run reports the lattice top and the CP-9 assertion
     -- above pins that. The WIDTH moved 6 to 7 for ENV-READ-1's env.read, which
     -- is a different name for a different reason.
-    it "CP-10: Sigma_eff is seven-wide (no EProc was added)" $
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
+    it "CP-10: Sigma_eff is eight-wide (no EProc was added)" $
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 8  -- BYTES-READ-1 added stdin
 
   describe "CAP-PROC: Phase 2 codegen and dependencies" $ do
 
@@ -18987,8 +18987,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- below reads that list too) and PROC-ENV-1's wasi.proc.exec.
     -- 21 -> 22 with FS-SIZE-1's wasi.fs.size (its body lives in the same
     -- posixFsPreamble, which list-kinds' block was generalized into).
-    it "builtinEnv declares exactly the twenty-two wasi.* names this block covers" $
-      length wasiNames `shouldBe` 22
+    -- 22 -> 26 with BYTES-READ-1 / BYTES-WRITE-1's wasi.fs.read-bytes,
+    -- wasi.fs.write-bytes, wasi.io.stdin-bytes and wasi.io.stdout-bytes, all
+    -- four with runtimePreamble bodies.
+    it "builtinEnv declares exactly the twenty-six wasi.* names this block covers" $
+      length wasiNames `shouldBe` 26
 
     -- BUILTIN-BODY-1. Measured at f86585e. Each number moves only when a
     -- builtin is added, or when an existing one changes lowering class.
@@ -19034,8 +19037,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- body, so all nine land in needsBinding: 103 -> 112.
       -- 144 -> 145 with BYTES-READ-1's RBytes, a constructor of the data
       -- Response block, so it lands in resolvedElsewhere: 9 -> 10.
-      Map.size builtinEnv      `shouldBe` 145
-      length needsBinding      `shouldBe` 112
+      -- 145 -> 149 with the four byte commands (wasi.fs.read-bytes,
+      -- wasi.fs.write-bytes, wasi.io.stdin-bytes, wasi.io.stdout-bytes). All
+      -- four are hand-written runtimePreamble bodies reached by the generic
+      -- emission, so all four land in needsBinding: 112 -> 116.
+      Map.size builtinEnv      `shouldBe` 149
+      length needsBinding      `shouldBe` 116
       length resolvedElsewhere `shouldBe` 10
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -20046,7 +20053,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- wasi.fs.list and not about the width.
     it "shares EFsRead with wasi.fs.read rather than taking its own label" $ do
       primEffect "wasi.fs.list" `shouldBe` primEffect "wasi.fs.read"
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 8  -- BYTES-READ-1 added stdin
 
     it "the preamble defines wasi_fs_list" $
       T.isInfixOf "wasi_fs_list :: String -> IO ()" preambleText `shouldBe` True
@@ -20139,9 +20146,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     -- It joins the EXISTING label rather than taking an eighth, so removing a
     -- directory grants no authority the write/delete pair already grants.
-    it "FR-4: it shares EFsWrite with wasi.fs.delete and Sigma_eff stays seven-wide" $ do
+    it "FR-4: it shares EFsWrite with wasi.fs.delete and Sigma_eff does not widen for it" $ do
       primEffect "wasi.fs.rmdir" `shouldBe` primEffect "wasi.fs.delete"
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 8  -- BYTES-READ-1 added stdin
 
     -- FR-5 guards the OTHER half of this change, which is a fix rather than an
     -- addition, and which shipped with no regression guard until this case.
@@ -20360,7 +20367,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- first line pins. The width line moved with the catalog.
     it "PB-3: shares ENonDet with the clock rather than taking its own label" $ do
       primEffect "wasi.proc.args" `shouldBe` primEffect "wasi.clock.monotonic"
-      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 7
+      length ([minBound .. maxBound] :: [EffectLabel]) `shouldBe` 8  -- BYTES-READ-1 added stdin
 
     -- The arm set does NOT move. CAP-PROC's rule is that needing a new arm is
     -- the signal EFFECT-RESP's arm set was wrong; a vector of strings is what
@@ -29232,6 +29239,106 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       errsA [ "(def-shell wrap [s: string] -> Response (RBytes s))" ] `shouldNotBe` []
       errsA [ "(def-shell wrap [b: bytes[8]] -> Response (RBytes b))" ] `shouldNotBe` []
       errsA [ "(def-shell wrap [b: bytes[8]] -> Response (RBytes (bytes-widen b)))" ] `shouldBe` []
+
+  -- -----------------------------------------------------------------------
+  -- BYTE-IO step 3, S7 (BYTES-READ-1, BYTES-WRITE-1): the four byte commands,
+  -- the eighth effect label `stdin`, the byte-stdio-console check (entry
+  -- module only, U3) and the runtime bodies with the cli flag. Rev 2a item 4:
+  -- `:deterministic true` on wasi.io is NOT refused.
+  -- -----------------------------------------------------------------------
+  describe "BYTE-IO step 3 S7: the byte read and write commands" $ do
+    let parsedC src = case parseStatements GrammarCoreInversion "<bio7>" (T.unlines src) of
+          Left err -> error ("BYTE-IO S7 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsC src = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv (parsedC src))
+                    , diagSeverity d == SevError ]
+        kindsC = map fst . errsC
+        ioImports = [ "(import wasi.io (capability stdin))"
+                    , "(import wasi.io (capability stdout :deterministic false))" ]
+        mainOf mode stepSig stepBody =
+          ioImports ++
+          [ "(def-shell step " <> stepSig <> " -> (int, Command)"
+          , "  (pair 1 " <> stepBody <> "))"
+          , "(def-shell done? [s: int] -> bool (>= s 1))"
+          , "(def-main :mode " <> mode <> " :init (pair 0 (wasi.io.stdout \"\")) :step step :done? done?)" ]
+        consoleSig = "[s: int input: string r: Response]"
+        cliSig     = "[s: int r: Response]"
+        preC = T.lines (T.unlines runtimePreamble)
+        bodyOf name = takeWhile (not . T.null) (dropWhile (not . ((name <> " ::") `T.isPrefixOf`)) preC)
+    it "T-C1 the four signatures" $ do
+      Map.lookup "wasi.fs.read-bytes" builtinEnv   `shouldBe` Just (TFn [TString] (TCustom "Command"))
+      Map.lookup "wasi.fs.write-bytes" builtinEnv  `shouldBe` Just (TFn [TString, TBytesU] (TCustom "Command"))
+      Map.lookup "wasi.io.stdin-bytes" builtinEnv  `shouldBe` Just (TCustom "Command")
+      Map.lookup "wasi.io.stdout-bytes" builtinEnv `shouldBe` Just (TFn [TBytesU] (TCustom "Command"))
+      -- a reversed write and a sized payload are type errors
+      errsC [ "(import wasi.fs (capability write \"/\"))"
+            , "(def-shell w [p: string b: bytes] -> Command (wasi.fs.write-bytes b p))" ] `shouldNotBe` []
+      errsC (ioImports ++ [ "(def-shell w [b: bytes[4]] -> Command (wasi.io.stdout-bytes b))" ]) `shouldNotBe` []
+      errsC (ioImports ++ [ "(def-shell w [b: bytes[4]] -> Command (wasi.io.stdout-bytes (bytes-widen b)))" ]) `shouldBe` []
+    it "T-C2 primEffect: each command has a bounded label above the wasi. fallthrough" $ do
+      primEffect "wasi.fs.read-bytes"   `shouldBe` Just (Caps (Set.singleton EFsRead))
+      primEffect "wasi.fs.write-bytes"  `shouldBe` Just (Caps (Set.singleton EFsWrite))
+      primEffect "wasi.io.stdout-bytes" `shouldBe` Just (Caps (Set.singleton EStdout))
+      primEffect "wasi.io.stdin-bytes"  `shouldBe` Just (Caps (Set.singleton EStdin))
+      [ n | n <- ["wasi.fs.read-bytes", "wasi.fs.write-bytes", "wasi.io.stdin-bytes", "wasi.io.stdout-bytes"]
+          , primEffect n == Just Unbounded ] `shouldBe` []
+    it "T-C3 the stdin label renders as stdin and is not the clock's label" $ do
+      effectLabelText EStdin `shouldBe` "stdin"
+      primEffect "wasi.io.stdin-bytes" `shouldNotBe` primEffect "wasi.clock.monotonic"
+      (maxBound :: EffectLabel) `shouldBe` EStdin
+    it "T-C4 byte-stdio-console: stdin-bytes or stdout-bytes named in a console entry is a check error (edge case 6)" $ do
+      kindsC (mainOf "console" consoleSig "wasi.io.stdin-bytes") `shouldBe` [Just "byte-stdio-console"]
+      kindsC (mainOf "console" consoleSig "(wasi.io.stdout-bytes (bytes-make 1 65))") `shouldBe` [Just "byte-stdio-console"]
+      map snd (errsC (mainOf "console" consoleSig "wasi.io.stdin-bytes"))
+        `shouldSatisfy` all ("wasi.io.stdin-bytes needs :mode cli" `T.isPrefixOf`)
+      -- in :init too, and named once per command however often it is named
+      kindsC (ioImports ++
+        [ "(def-shell step [s: int input: string r: Response] -> (int, Command) (pair 1 wasi.io.stdin-bytes))"
+        , "(def-shell other [] -> Command wasi.io.stdin-bytes)"
+        , "(def-main :mode console :init (pair 0 wasi.io.stdin-bytes) :step step)" ])
+        `shouldBe` [Just "byte-stdio-console"]
+    it "T-C5 the same program in :mode cli checks" $ do
+      errsC (mainOf "cli" cliSig "wasi.io.stdin-bytes") `shouldBe` []
+      errsC (mainOf "cli" cliSig "(wasi.io.stdout-bytes (bytes-make 1 65))") `shouldBe` []
+      -- the text commands stay legal in console
+      errsC (mainOf "console" consoleSig "(wasi.io.stdout \"x\")") `shouldBe` []
+    it "T-C6 a module with no def-main is not checked (U3: the entry module only)" $
+      errsC (ioImports ++ [ "(def-shell read-in [] -> Command wasi.io.stdin-bytes)"
+                          , "(def-shell write-out [b: bytes] -> Command (wasi.io.stdout-bytes b))" ])
+        `shouldBe` []
+    it "T-C7 the LLMLL.md 8.1 stdin grant with :deterministic true checks clean (Rev 2a item 4)" $
+      errsC [ "(import wasi.io (capability stdin :deterministic true))"
+            , "(def-shell r [] -> Command wasi.io.stdin-bytes)" ] `shouldBe` []
+    it "T-C8 the runtime bodies: publish_io for the file pair, the closed-stdin test, one stdout handle" $ do
+      bodyOf "wasi_fs_read_bytes" `shouldBe`
+        [ "wasi_fs_read_bytes :: String -> IO ()"
+        , "wasi_fs_read_bytes path = llmll_publish_io (RBytes <$> BS.readFile path)" ]
+      bodyOf "wasi_fs_write_bytes" `shouldBe`
+        [ "wasi_fs_write_bytes :: String -> BS.ByteString -> IO ()"
+        , "wasi_fs_write_bytes path b = llmll_publish_io (BS.writeFile path b >> return RNone)" ]
+      let sin = bodyOf "wasi_io_stdin_bytes"
+      sin `shouldSatisfy` any (T.isInfixOf "readIORef llmll_cli_mode")
+      sin `shouldSatisfy` any (T.isInfixOf "if closed then return (RBytes BS.empty) else RBytes <$> BS.hGetContents LIO.stdin")
+      let sout = bodyOf "wasi_io_stdout_bytes"
+      sout `shouldSatisfy` any (T.isInfixOf "else BS.hPut LIO.stdout b >> llmll_publish RNone")
+      -- no binary mode and no file-descriptor write anywhere in the preamble
+      preC `shouldSatisfy` all (\l -> not ("hSetBinaryMode" `T.isInfixOf` l) && not ("fdWrite" `T.isInfixOf` l))
+    it "T-C9 the cli main sets the cli flag before :init; the console main does not" $ do
+      let mainSrc mode = cgMainHs (generateHaskell "m" (parsedC (mainOf mode (if mode == "cli" then cliSig else consoleSig) "(wasi.io.stdout \"x\")")))
+      case (mainSrc "cli", mainSrc "console") of
+        (Just cli, Just con) -> do
+          let ls = T.lines cli
+              idx p = length (takeWhile (not . T.isInfixOf p) ls)
+          idx "llmll_set_cli_mode" `shouldSatisfy` (< idx "llmll_perform initCmd")
+          idx "llmll_set_cli_mode" `shouldSatisfy` (< length ls)
+          con `shouldNotSatisfy` T.isInfixOf "llmll_set_cli_mode"
+        _ -> expectationFailure "expected a Main.hs for both modes"
+    it "T-C10 the runtime names are reserved and the commands emit them" $ do
+      [ n | n <- ["wasi_fs_read_bytes", "wasi_fs_write_bytes", "wasi_io_stdin_bytes", "wasi_io_stdout_bytes", "RBytes"]
+          , not (isReservedHsName n) ] `shouldBe` []
+      emitExpr (EApp "wasi.fs.write-bytes" [EVar "p", EVar "b"]) `shouldSatisfy` T.isInfixOf "wasi_fs_write_bytes"
+      emitExpr (EVar "wasi.io.stdin-bytes") `shouldSatisfy` T.isInfixOf "wasi_io_stdin_bytes"
 
   -- -----------------------------------------------------------------------
   -- Module System (M-01 through M-07)

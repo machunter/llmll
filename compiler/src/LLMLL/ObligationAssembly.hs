@@ -461,7 +461,15 @@ descentDischargedFns stmts measured bodyFaithful isSafe
 -- known limits recorded at the wasi.fs.list and wasi.fs.copy clauses below
 -- (this catalog cannot express authority amplification or payload shape) are
 -- unchanged by the widening.
-data EffectLabel = EStdout | EFsRead | EFsWrite | ENetHttp | ENonDet | ECrypto | EEnvRead
+--
+-- BYTES-READ-1 (BYTE-IO Rev 2a item 2, user decision U2): EStdin, the eighth
+-- label, text "stdin", for wasi.io.stdin-bytes. Its own label rather than a
+-- share of ENonDet, on the EEnvRead precedent: a summary reporting "nondet"
+-- cannot separate a clock read from a read that consumes the program's whole
+-- input. The PROC-BOUNDARY-1 argv precedent does not apply, because argv can
+-- be read any number of times and a stdin read consumes the stream. Last, so
+-- the seven existing constructors keep their Enum positions.
+data EffectLabel = EStdout | EFsRead | EFsWrite | ENetHttp | ENonDet | ECrypto | EEnvRead | EStdin
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 effectLabelText :: EffectLabel -> Text
@@ -472,6 +480,7 @@ effectLabelText ENetHttp = "net.http"
 effectLabelText ENonDet  = "nondet"
 effectLabelText ECrypto  = "crypto"
 effectLabelText EEnvRead = "env.read"
+effectLabelText EStdin   = "stdin"
 
 -- | Authority summary. 'Unbounded' (⊤) is distinct from the full 6-set.
 data EffectSummary = Caps (Set EffectLabel) | Unbounded
@@ -494,7 +503,10 @@ joinEffs = foldl' joinEff bottomEff
 -- (builtinEnv, TypeCheck.hs:132-144,342); FFI / unrecognized wasi.* → ⊤.
 primEffect :: Name -> Maybe EffectSummary
 primEffect n
-  | n == "wasi.io.stdout"   || n == "wasi.io.stderr"   = one EStdout
+  -- BYTES-WRITE-1: wasi.io.stdout-bytes joins the stdout label; it writes to
+  -- the same handle as wasi.io.stdout.
+  | n == "wasi.io.stdout"   || n == "wasi.io.stderr"
+    || n == "wasi.io.stdout-bytes"                     = one EStdout
   | n == "wasi.http.response" || n == "wasi.http.post" = one ENetHttp
   -- HTTP-GET-1. Contacts the network AND writes one file (the fetched body,
   -- renamed onto dest), so it carries both labels on the sha256/copy precedent
@@ -529,9 +541,11 @@ primEffect n
   -- FS-SIZE-1 joins it as well: a size is one stat of a path, the same read the
   -- probe makes. EFsRead ALONE, as for exists: a size does not change with the
   -- clock.
+  -- BYTES-READ-1: wasi.fs.read-bytes joins it as well; it is the same read
+  -- as wasi.fs.read, without the decode.
   | n == "wasi.fs.read"     || n == "wasi.fs.list"
     || n == "wasi.fs.exists" || n == "wasi.fs.list-kinds"
-    || n == "wasi.fs.size"                              = one EFsRead
+    || n == "wasi.fs.size"   || n == "wasi.fs.read-bytes" = one EFsRead
   -- FS-RMDIR-1 joins this EXISTING clause rather than taking an eighth label.
   -- Removing a directory is a filesystem mutation and grants no authority the
   -- write/delete pair does not already grant, so the catalog stays SEVEN-wide.
@@ -541,8 +555,11 @@ primEffect n
   -- effect_summary goes vacuous. The same trap is recorded twice more in this
   -- function, for wasi.proc.args and wasi.env.get; a test pins the negative
   -- (NOT Just Unbounded) rather than the positive alone.
+  -- BYTES-WRITE-1: wasi.fs.write-bytes joins it; the same write as
+  -- wasi.fs.write, without the encode.
   | n == "wasi.fs.write"    || n == "wasi.fs.delete"
-    || n == "wasi.fs.mkdir" || n == "wasi.fs.rmdir"    = one EFsWrite
+    || n == "wasi.fs.mkdir" || n == "wasi.fs.rmdir"
+    || n == "wasi.fs.write-bytes"                      = one EFsWrite
   -- Reads the file AND hashes it, so it carries both labels. Set.union rather
   -- than a choice: coarsening upward on a join-semilattice is sound, dropping
   -- either label is not.
@@ -604,6 +621,10 @@ primEffect n
   -- vacuous. PROC-BOUNDARY-1 records the same trap for wasi.proc.args, and a
   -- test pins the negative (NOT Just Unbounded) rather than the positive alone.
   | n == "wasi.env.get"                                = one EEnvRead
+  -- BYTES-READ-1: its own label (the EffectLabel note above). THIS CLAUSE
+  -- MUST STAY ABOVE THE `wasi.` FALLTHROUGH below, for the reason recorded at
+  -- wasi.env.get; a test pins the negative (NOT Just Unbounded).
+  | n == "wasi.io.stdin-bytes"                         = one EStdin
   | "haskell." `T.isPrefixOf` n                        = Just Unbounded
   | "c." `T.isPrefixOf` n                              = Just Unbounded
   -- wasi.proc.run REACHES THIS LINE BY DESIGN and must keep reaching it.

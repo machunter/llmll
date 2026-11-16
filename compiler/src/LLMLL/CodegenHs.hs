@@ -327,6 +327,9 @@ emitLibHs _modName hackagePkgs httpGet posixFs srcOf noEq ffiLines stmts = T.unl
   , "import System.Timeout (timeout)"
   , "import GHC.Clock (getMonotonicTimeNSec)"
   , "import qualified Data.ByteString as BS"
+  -- BYTES-READ-1 / BYTES-WRITE-1: hIsClosed and the stdin/stdout handles for
+  -- the byte stdio bodies. Qualified, so the import reserves no user name.
+  , "import qualified System.IO as LIO"
   , "import qualified Crypto.Hash.SHA256 as SHA256"
   , "import Numeric (showHex)"
   ] ++
@@ -1280,6 +1283,58 @@ runtimePreamble =
   -- rather than introducing a second convention.
   , "wasi_fs_copy :: String -> String -> IO ()"
   , "wasi_fs_copy src dst = llmll_publish_io (copyFile src dst >> return RNone)"
+  , ""
+  -- BYTES-READ-1 / BYTES-WRITE-1 (BYTE-IO step 3). The byte channel. Strict
+  -- ByteString throughout: BS.readFile and BS.hGetContents read the whole
+  -- input before they return, so no lazy thunk escapes llmll_publish_io's try
+  -- (an IO failure arrives as RErr, never as an exception in a logic
+  -- function). Nothing here decodes or encodes; the UTF-8 pins of the text
+  -- bodies above are untouched.
+  --
+  -- The cli flag. The cli main sets it before :init, so a command issued from
+  -- an imported module reads the ENTRY's mode. It stays False under the
+  -- console harness, which owns stdin as its line source and captures stdout
+  -- per step as UTF-8 text: there the two stdio bodies publish RErr and touch
+  -- neither handle (check refuses the case it can see, byte-stdio-console).
+  -- SINGLE-THREADED, like llmll_response_slot: a future :mode http must set
+  -- it per request.
+  , "{-# NOINLINE llmll_cli_mode #-}"
+  , "llmll_cli_mode :: IORef Bool"
+  , "llmll_cli_mode = unsafePerformIO (newIORef False)"
+  , ""
+  , "llmll_set_cli_mode :: IO ()"
+  , "llmll_set_cli_mode = writeIORef llmll_cli_mode True"
+  , ""
+  -- An empty file is RBytes of length 0, not RNone (the wasi_fs_list rule).
+  , "wasi_fs_read_bytes :: String -> IO ()"
+  , "wasi_fs_read_bytes path = llmll_publish_io (RBytes <$> BS.readFile path)"
+  , ""
+  -- Overwrites, as wasi_fs_write does.
+  , "wasi_fs_write_bytes :: String -> BS.ByteString -> IO ()"
+  , "wasi_fs_write_bytes path b = llmll_publish_io (BS.writeFile path b >> return RNone)"
+  , ""
+  -- BS.hGetContents closes stdin when it finishes, and a second read of a
+  -- closed handle raises. hIsClosed first, so a second read delivers RBytes of
+  -- length 0, as an empty file does (P13, edge case 21).
+  , "wasi_io_stdin_bytes :: IO ()"
+  , "wasi_io_stdin_bytes = do"
+  , "  cli <- readIORef llmll_cli_mode"
+  , "  if not cli"
+  , "    then llmll_publish (RErr \"wasi.io.stdin-bytes: byte stdin needs :mode cli\")"
+  , "    else llmll_publish_io $ do"
+  , "      closed <- LIO.hIsClosed LIO.stdin"
+  , "      if closed then return (RBytes BS.empty) else RBytes <$> BS.hGetContents LIO.stdin"
+  , ""
+  -- The SAME stdout handle wasi_io_stdout writes, never binary mode and never
+  -- the file descriptor, so text and byte writes keep command order (P13).
+  -- No catch in :mode cli: the wasi_io_stdout rule for the program's own
+  -- output channel.
+  , "wasi_io_stdout_bytes :: BS.ByteString -> IO ()"
+  , "wasi_io_stdout_bytes b = do"
+  , "  cli <- readIORef llmll_cli_mode"
+  , "  if not cli"
+  , "    then llmll_publish (RErr \"wasi.io.stdout-bytes: byte stdout needs :mode cli\")"
+  , "    else BS.hPut LIO.stdout b >> llmll_publish RNone"
   , ""
   -- Idempotent by design. removeFile on a missing path throws, and an uncaught
   -- exception inside a Command breaks the no-crash property LLMLL.md:1747
@@ -3374,6 +3429,9 @@ emitMainBody _ SDefMain{defMainMode = ModeCli, defMainStep = step, defMainInit =
   , "  hSetEncoding stdout utf8"
   , "  hSetEncoding stderr utf8"
   , "  hSetBuffering stdout NoBuffering"
+  -- BYTES-READ-1 / BYTES-WRITE-1: before :init, so :init's command already
+  -- sees cli mode. The console clause does not set it.
+  , "  llmll_set_cli_mode"
   ] ++ harnessInitBlock mInit ++
   [ "  outcome <- loop state0 r0"
   , "  llmll_terminate outcome"
@@ -3812,7 +3870,9 @@ hsPreambleNames =
   , "wasi_fs_exists", "wasi_fs_list", "wasi_fs_list_kinds", "wasi_fs_mkdir", "wasi_fs_read"
   , "wasi_fs_rmdir", "wasi_fs_sha256", "wasi_fs_size", "wasi_fs_stat", "wasi_fs_write"
   , "wasi_http_get", "wasi_http_post", "wasi_http_response", "wasi_io_stderr"
-  , "wasi_io_stdout", "wasi_proc_args", "wasi_proc_exec", "wasi_proc_run" ]
+  , "wasi_io_stdout", "wasi_proc_args", "wasi_proc_exec", "wasi_proc_run"
+  -- BYTES-READ-1 / BYTES-WRITE-1
+  , "wasi_fs_read_bytes", "wasi_fs_write_bytes", "wasi_io_stdin_bytes", "wasi_io_stdout_bytes" ]
 
 -- | Every top-level name the Main.hs harness defines ('emitEventLogPreamble'
 -- and 'emitMainBody'), plus the two functions its @main@ binds in a @where@

@@ -237,6 +237,21 @@ builtinEnv = Map.fromList $
   , ("wasi.http.get",      TFn [TString, TString] (TCustom "Command"))
   , ("wasi.fs.read",       TFn [TString] (TCustom "Command"))
   , ("wasi.fs.write",      TFn [TString, TString] (TCustom "Command"))
+  -- BYTES-READ-1 / BYTES-WRITE-1 (BYTE-IO step 3). The byte channel beside the
+  -- UTF-8 text pair above: read-bytes delivers RBytes (never decoded), RErr on
+  -- any IO failure; write-bytes overwrites and delivers RNone. The path comes
+  -- first, as in wasi.fs.write, and the payload types differ, so a reversed
+  -- call is a type error. Both land under the existing wasi.fs capability.
+  , ("wasi.fs.read-bytes",  TFn [TString] (TCustom "Command"))
+  , ("wasi.fs.write-bytes", TFn [TString, TBytesU] (TCustom "Command"))
+  -- Byte stdio, :mode cli only. stdin-bytes is nullary, so it binds as a VALUE
+  -- (the wasi.proc.args shape); it delivers all of standard input on RBytes,
+  -- and RBytes of length 0 once standard input is consumed. stdout-bytes
+  -- writes to the one stdout handle the text writer uses, so the two
+  -- interleave in command order. Outside :mode cli both publish RErr at run
+  -- time; 'checkByteStdioConsole' refuses the case check can see.
+  , ("wasi.io.stdin-bytes",  TCustom "Command")
+  , ("wasi.io.stdout-bytes", TFn [TBytesU] (TCustom "Command"))
   , ("wasi.fs.delete",     TFn [TString] (TCustom "Command"))
   -- FS-RMDIR-1. Removes a directory, EMPTY ONLY. Recursive deletion is
   -- deliberately not implemented; see the runtime body in CodegenHs for why.
@@ -2069,6 +2084,7 @@ checkStatements rawStmts = do
   -- An earlier comment here said a duplicate constructor still builds; it does
   -- not (GHC reports "Multiple declarations", measured as case t19).
   checkDuplicateTopLevel stmts
+  checkByteStdioConsole stmts
   withEnv topLevel $ do
     -- Register ADT constructors as callable functions (LLMLL.md §3.3).
     let ctorBindings = collectConstructors stmts
@@ -2148,6 +2164,34 @@ checkStatements rawStmts = do
       case analyzeRespFacts am stmts of
         Left errs  -> forM_ errs (tcErrorK "resp-fact")
         Right plan -> forM_ (rpWarnings plan) tcWarn
+
+-- | BYTES-READ-1 / BYTES-WRITE-1, design edge case 6 (Rev 2a item 3): byte
+-- stdio needs :mode cli. In :mode console the harness owns standard input as
+-- its line source and captures standard output per step as UTF-8 text for the
+-- event log, so neither byte command can run there; at run time each publishes
+-- RErr. This is the case check can see: the entry module's def-main is
+-- :mode console and one of the entry module's own statements names
+-- wasi.io.stdin-bytes or wasi.io.stdout-bytes. A function in an imported
+-- module is NOT checked (U3); the runtime RErr is its backstop. A module with
+-- no def-main is a library and is not checked either.
+checkByteStdioConsole :: [Statement] -> TC ()
+checkByteStdioConsole stmts =
+  when (any isConsoleMain stmts) $
+    forM_ (filter (`elem` named) byteStdio) $ \n ->
+      tcErrorK "byte-stdio-console" $
+        n <> " needs :mode cli: in :mode console the harness reads standard "
+        <> "input line by line and captures standard output as UTF-8 text, so "
+        <> "byte stdio cannot run there (it would deliver RErr); use :mode cli, "
+        <> "or wasi.fs.read-bytes / wasi.fs.write-bytes on a file"
+  where
+    byteStdio = ["wasi.io.stdin-bytes", "wasi.io.stdout-bytes"] :: [Name]
+    isConsoleMain SDefMain{defMainMode = ModeConsole} = True
+    isConsoleMain _                                   = False
+    named = nub (concatMap (\e -> extractCalls e ++ extractRefs [] e) exprs)
+    exprs = [ b | s <- stmts, Just (_, _, _, _, b) <- [normalizeDefStmt s] ]
+         ++ concat [ maybe [] pure i ++ [st] ++ maybe [] pure d ++ maybe [] pure o ++ maybe [] pure x
+                   | SDefMain{ defMainInit = i, defMainStep = st, defMainDone = d
+                             , defMainOnDone = o, defMainStatus = x } <- stmts ]
 
 -- | DUP-DEF-1: reject a top-level name that one module binds more than once.
 --

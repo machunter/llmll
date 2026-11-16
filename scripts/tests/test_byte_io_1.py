@@ -262,3 +262,247 @@ def test_bio_b5b_argv_lone_surrogates_convert_back_to_their_bytes(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     got = [ln[len("arg="):] for ln in r.stdout.split("\n") if ln.startswith("arg=")]
     assert got == [_show(a) for a in ARGV]
+
+
+# --- S7: the four byte commands (BYTES-READ-1, BYTES-WRITE-1) ----------------
+#
+# What a pass here means:
+#
+# * BIO-C1..C5: wasi.fs.read-bytes delivers every byte of a file on RBytes
+#   (byte 0xFF included, edge case 2), an empty file as RBytes of length 0, not
+#   RNone (edge case 1), and RErr for a directory and for a missing path (edge
+#   case 3); wasi.fs.write-bytes writes all 256 byte values and they read back.
+# * BIO-C6..C8: wasi.io.stdout-bytes with an empty value writes nothing and
+#   delivers RNone (edge case 17); text and byte writes interleave in command
+#   order, 61 FF 63, to a file and to a pipe (edge case 22, P13).
+# * BIO-C9, C10: two wasi.io.stdin-bytes reads deliver all of standard input,
+#   then RBytes of length 0 (edge case 21); a piped 0xFF arrives unchanged.
+# * BIO-C11: check refuses byte stdio named by the entry module of a console
+#   program (byte-stdio-console, edge case 6); the same commands issued from an
+#   imported module pass check and publish RErr at run time (Rev 2a item 3).
+# * BIO-C12: the CRC-32 of a file read with wasi.fs.read-bytes equals
+#   Python's zlib.crc32 (the design's worked example, end to end).
+
+REPO = Path(__file__).resolve().parents[2]
+TINY_Y4M = REPO / "examples" / "y4m" / "samples" / "tiny.y4m"
+
+
+def _build(work, files, entry="p.llmll"):
+    """Write files (name -> source) into work, build entry, return the executable."""
+    work.mkdir(parents=True, exist_ok=True)
+    for name, src in files.items():
+        (work / name).write_text(src, encoding="utf-8")
+    b = _run([*shlex.split(os.environ["LLMLL_BIN"]), "build", entry, "-o", str(work / "out")],
+             cwd=work, timeout=BUILD_TIMEOUT_S)
+    assert b.returncode == 0, b.stdout[-2000:] + b.stderr[-2000:]
+    exes = glob.glob(str(work / "out" / ".stack-work" / "install" / "*" / "*" / "*" / "bin" / "*"))
+    assert len(exes) == 1, exes
+    return exes[0]
+
+
+def _run_bytes(cmd, cwd, stdin=b"", stdout=subprocess.PIPE, timeout=60):
+    """Run with byte-exact standard streams."""
+    p = subprocess.run(cmd, cwd=str(cwd), input=stdin, stdout=stdout, stderr=subprocess.PIPE,
+                       timeout=timeout)
+    return p
+
+
+CRC_DEFS = """(def-shell crc-bits [c: int k: int] -> int
+  (pre (and (and (>= c 0) (<= c 4294967295)) (>= k 0)))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (decreases k)
+  (if (= k 0)
+      c
+      (crc-bits (if (= (bit-and c 1) 1)
+                    (bit-xor (bit-shr c 1) 3988292384)
+                    (bit-shr c 1))
+                (- k 1))))
+(def-shell crc-byte [c: int b: int] -> int
+  (pre (and (and (>= c 0) (<= c 4294967295)) (and (>= b 0) (<= b 255))))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (crc-bits (bit-xor c b) 8))
+(def-shell crc-loop [buf: bytes i: int c: int] -> int
+  (pre (and (and (>= i 0) (<= i (bytes-length buf)))
+            (and (>= c 0) (<= c 4294967295))))
+  (post (and (>= result 0) (<= result 4294967295)))
+  (decreases (- (bytes-length buf) i))
+  (if (= i (bytes-length buf))
+      c
+      (crc-loop buf (+ i 1) (crc-byte c (bytes-get buf i)))))
+(def-shell crc32 [buf: bytes] -> int
+  (bit-xor (crc-loop buf 0 4294967295) 4294967295))
+"""
+
+# One cli program, one build; argv[0] picks the scenario.
+CLI = """(import wasi.io (capability stdin))
+(import wasi.io (capability stdout :deterministic false))
+(import wasi.fs (capability read-write "/"))
+(import wasi.proc (capability exec :deterministic false))
+""" + DEFS + CRC_DEFS + """(def-shell arg [xs: list[string] i: int] -> string (unwrap-or (list-nth xs i) ""))
+(def-shell all256 [] -> bytes (mk (range 0 256)))
+(def-shell desc [r: Response] -> string
+  (match r
+    ((RBytes b) (string-concat-many ["RBytes " (int-to-string (bytes-length b)) ": " (show-bytes b)]))
+    ((RErr e) "RErr")
+    ((RNone) "RNone")
+    (_ "other")))
+(def-shell crcdesc [r: Response] -> string
+  (match r ((RBytes b) (int-to-string (crc32 b))) (_ "RErr")))
+(def-shell start [xs: list[string]] -> ((int, string), Command)
+  (let [(mode (arg xs 0)) (p (arg xs 1))]
+    (if (= mode "read") (pair (pair 10 p) (wasi.fs.read-bytes p))
+    (if (= mode "write") (pair (pair 20 p) (wasi.fs.write-bytes p (all256)))
+    (if (= mode "stdin") (pair (pair 10 p) wasi.io.stdin-bytes)
+    (if (= mode "stdin2") (pair (pair 40 p) wasi.io.stdin-bytes)
+    (if (= mode "inter") (pair (pair 50 p) (wasi.io.stdout "a"))
+    (if (= mode "empty") (pair (pair 60 p) (wasi.io.stdout-bytes (bytes-make 0 0)))
+    (if (= mode "crc") (pair (pair 70 p) (wasi.fs.read-bytes p))
+      (pair (pair 99 p) (wasi.io.stdout "bad mode")))))))))))
+(def-shell step [s: (int, string) r: Response] -> ((int, string), Command)
+  (let [(ph (first s)) (acc (second s))]
+    (if (= ph 0)
+      (match r ((RList xs) (start xs)) (_ (pair (pair 99 "") (wasi.io.stdout "no argv"))))
+    (if (= ph 10) (pair (pair 99 acc) (wasi.io.stdout (desc r)))
+    (if (= ph 20)
+      (match r
+        ((RNone) (pair (pair 10 acc) (wasi.fs.read-bytes acc)))
+        (_ (pair (pair 99 acc) (wasi.io.stdout (string-concat "write: " (desc r))))))
+    (if (= ph 40) (pair (pair 41 (desc r)) wasi.io.stdin-bytes)
+    (if (= ph 41) (pair (pair 99 acc) (wasi.io.stdout (string-concat-many [acc "|" (desc r)])))
+    (if (= ph 50) (pair (pair 51 acc) (wasi.io.stdout-bytes (bytes-make 1 255)))
+    (if (= ph 51) (pair (pair 99 acc) (wasi.io.stdout "c"))
+    (if (= ph 60) (pair (pair 99 acc) (wasi.io.stdout (desc r)))
+    (if (= ph 70) (pair (pair 99 acc) (wasi.io.stdout (crcdesc r)))
+      (pair (pair 100 acc) (wasi.io.stdout "")))))))))))))
+(def-shell done? [s: (int, string)] -> bool (>= (first s) 100))
+(def-main :mode cli
+  :init (pair (pair 0 "") wasi.proc.args)
+  :step step
+  :done? done?)
+"""
+
+
+@pytest.fixture(scope="module")
+def cli_exe(tmp_path_factory):
+    work = tmp_path_factory.mktemp("bio_cli")
+    return work, _build(work, {"p.llmll": CLI})
+
+
+def _cli(cli_exe, *args, stdin=b"", stdout=subprocess.PIPE):
+    work, exe = cli_exe
+    r = _run_bytes([exe, *args], work, stdin=stdin, stdout=stdout)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    return r
+
+
+def test_bio_c1_read_bytes_delivers_every_byte_ff_included(cli_exe, tmp_path):
+    f = tmp_path / "bin.dat"
+    data = b"\x00\xff\xc3\x28\x0a\x80"
+    f.write_bytes(data)
+    assert _cli(cli_exe, "read", str(f)).stdout == f"RBytes {len(data)}: {_show(data)}".encode()
+
+
+def test_bio_c2_an_empty_file_is_rbytes_of_length_0_not_rnone(cli_exe, tmp_path):
+    f = tmp_path / "empty.dat"
+    f.write_bytes(b"")
+    assert _cli(cli_exe, "read", str(f)).stdout == b"RBytes 0: "
+
+
+def test_bio_c3_a_directory_is_rerr(cli_exe, tmp_path):
+    assert _cli(cli_exe, "read", str(tmp_path)).stdout == b"RErr"
+
+
+def test_bio_c4_a_missing_path_is_rerr(cli_exe, tmp_path):
+    assert _cli(cli_exe, "read", str(tmp_path / "absent.dat")).stdout == b"RErr"
+
+
+def test_bio_c5_write_bytes_writes_all_256_values_and_they_read_back(cli_exe, tmp_path):
+    f = tmp_path / "out.dat"
+    f.write_bytes(b"old contents that must be overwritten, longer than nothing" * 10)
+    r = _cli(cli_exe, "write", str(f))
+    assert f.read_bytes() == bytes(range(256))
+    assert r.stdout == f"RBytes 256: {_show(bytes(range(256)))}".encode()
+
+
+def test_bio_c6_stdout_bytes_with_an_empty_value_writes_nothing_and_delivers_rnone(cli_exe):
+    assert _cli(cli_exe, "empty").stdout == b"RNone"
+
+
+def test_bio_c7_text_and_byte_writes_interleave_in_order_to_a_file(cli_exe, tmp_path):
+    out = tmp_path / "inter.out"
+    with open(out, "wb") as fo:
+        _cli(cli_exe, "inter", stdout=fo)
+    assert out.read_bytes() == b"a\xffc"
+
+
+def test_bio_c8_text_and_byte_writes_interleave_in_order_to_a_pipe(cli_exe):
+    assert _cli(cli_exe, "inter").stdout == b"a\xffc"
+
+
+def test_bio_c9_a_second_stdin_read_delivers_length_0(cli_exe):
+    data = b"first\nsecond\x00\xff"
+    r = _cli(cli_exe, "stdin2", stdin=data)
+    assert r.stdout == f"RBytes {len(data)}: {_show(data)}|RBytes 0: ".encode()
+
+
+def test_bio_c10_piped_stdin_delivers_ff_unchanged(cli_exe):
+    data = bytes([0xFF, 0x00, 0x0A, 0xC3])
+    assert _cli(cli_exe, "stdin", stdin=data).stdout == f"RBytes 4: {_show(data)}".encode()
+
+
+LIB = """(module bylib)
+(import wasi.io (capability stdin))
+(import wasi.io (capability stdout :deterministic false))
+(def-shell read-in [] -> Command wasi.io.stdin-bytes)
+(def-shell write-out [] -> Command (wasi.io.stdout-bytes (bytes-make 1 65)))
+"""
+
+CONSOLE_VIA_LIB = """(module p)
+(import bylib)
+(open bylib)
+(import wasi.io (capability stdout :deterministic false))
+(def-shell desc [r: Response] -> string
+  (match r ((RBytes b) "RBytes") ((RErr e) (string-concat "RErr " e)) ((RNone) "RNone") (_ "other")))
+(def-main :mode console
+  :init (pair 0 (read-in))
+  :step (fn [s: int line: string r: Response]
+    (if (= s 0)
+        (pair 1 (wasi.io.stdout (string-concat-many ["init=" (desc r) "\\n"])))
+        (if (= s 1)
+            (pair 2 (write-out))
+            (pair 3 (wasi.io.stdout (string-concat-many ["write=" (desc r) "\\n"])))))))
+"""
+
+CONSOLE_DIRECT = """(import wasi.io (capability stdin))
+(import wasi.io (capability stdout :deterministic false))
+(def-shell step [s: int input: string r: Response] -> (int, Command)
+  (pair 1 wasi.io.stdin-bytes))
+(def-shell done? [s: int] -> bool (>= s 1))
+(def-main :mode console :init (pair 0 (wasi.io.stdout "")) :step step :done? done?)
+"""
+
+
+def test_bio_c11_console_byte_stdio_is_a_check_error_in_the_entry_and_rerr_from_a_library(tmp_path):
+    direct = tmp_path / "direct"
+    direct.mkdir()
+    (direct / "p.llmll").write_text(CONSOLE_DIRECT, encoding="utf-8")
+    c = _run([*shlex.split(os.environ["LLMLL_BIN"]), "--json", "check", "p.llmll"], cwd=direct)
+    assert c.returncode == 1, c.stdout + c.stderr
+    assert '"kind":"byte-stdio-console"' in c.stdout, c.stdout
+    # The same commands from an imported module: check passes (U3, entry
+    # module only), and the runtime backstop publishes RErr for both.
+    work = tmp_path / "lib"
+    exe = _build(work, {"bylib.llmll": LIB, "p.llmll": CONSOLE_VIA_LIB})
+    r = _run_bytes([exe], work, stdin=b"a\nb\nc\n")
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    lines = [ln for ln in r.stdout.split(b"\n") if ln.startswith((b"init=", b"write="))]
+    # The read consumed nothing: the harness still saw lines b and c.
+    assert [ln.split(b" ")[0] for ln in lines] == [b"init=RErr", b"write=RErr"], r.stdout
+    assert b"wasi.io.stdin-bytes" in lines[0] and b"wasi.io.stdout-bytes" in lines[1], lines
+    assert b"A" not in r.stdout, r.stdout
+
+
+def test_bio_c12_crc32_of_a_file_equals_zlib(cli_exe):
+    import zlib
+    want = zlib.crc32(TINY_Y4M.read_bytes())
+    assert _cli(cli_exe, "crc", str(TINY_Y4M)).stdout == str(want).encode()
