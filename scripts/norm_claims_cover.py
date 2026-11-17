@@ -155,8 +155,8 @@ def c12(t):  # row target absent from the Active Items table
     edit_registry(t, lambda r: row(r, "NC-031").__setitem__("target", "NO-SUCH-ROW-1"))
 
 def n1(t):  # an informative sentence with a marker and a row (case 6)
-    edit(t, SPEC, 'See §7 for the sandbox implementation and the enforcement gap.<a id="nc-033"></a>',
-         'See §7 for the sandbox implementation and the enforcement gap.<a id="nc-033"></a> This item ends here.<a id="nc-099"></a>')
+    edit(t, SPEC, 'See §7 for the enforcement gap; no sandbox confines a built program (`SAFE-HASKELL-CLAIM-1`).<a id="nc-033"></a>',
+         'See §7 for the enforcement gap; no sandbox confines a built program (`SAFE-HASKELL-CLAIM-1`).<a id="nc-033"></a> This item ends here.<a id="nc-099"></a>')
     edit_registry(t, lambda r: r["claims"].append({"id": "NC-099", "section": "1.6", "text": "This item ends here.", "disposition": "informative"}))
 
 def n2(t):  # a marker inside a fenced block in scope (case 7)

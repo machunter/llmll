@@ -1,8 +1,8 @@
 # LLMLL — v0.40.0
 
-**An experiment in letting AI write the code: the compiler proves each function against its contract, and refutes a type-correct but wrong body before it merges.**
+**An experiment in letting AI write the code: the compiler checks each function against its contract, proves it when the body is in the decidable fragment, and refutes a type-correct but wrong body before it merges.**
 
-LLMLL (Large Language Model Logical Language) is a programming language and verification pipeline built for experiments in which AI agents write code under formal contracts. Its primary author is an LLM agent, not a human: contracts state what a function must do, agents fill typed holes, and the compiler proves each body against its contract with Z3 before the patch is applied. Agents coordinate through those contracts, not through conversation. An agent can *hallucinate* an implementation and that's fine, as long as it satisfies the contract: verification turns hallucination from a failure mode into a search strategy (generate a candidate, check it against the spec, accept or reject).
+LLMLL (Large Language Model Logical Language) is a programming language and verification pipeline built for experiments in which AI agents write code under formal contracts. Its primary author is an LLM agent, not a human: contracts state what a function must do, agents fill typed holes, and the compiler checks each body against its contract with Z3 before the patch is applied. A body outside the decidable fragment passes with its postcondition assumed and labelled as such; `patch --require-proof` refuses it. Agents coordinate through those contracts, not through conversation. An agent can *hallucinate* an implementation and that's fine, as long as it satisfies the contract: verification turns hallucination from a failure mode into a search strategy (generate a candidate, check it against the spec, accept or reject).
 
 > **Current version:** see [`CHANGELOG.md § Latest`](CHANGELOG.md#Latest). Full release notes per version live in CHANGELOG; this README does not duplicate them.
 
@@ -41,7 +41,7 @@ Those tools prove the same kind of property, and LLMLL's proof path (liquid-fixp
 - **A hole is a contract.** `llmll checkout` gives an agent a typed `?hole` with its precondition, the postcondition it must meet and the names in scope, and not the answer. `llmll patch` applies the fill only if the program still type-checks and the solver does not refute it.
 - **Weak contracts are flagged.** `--weakness-check` reports a contract so weak that a trivial body satisfies it; `--cdp` scores how sharply a contract rules out wrong bodies.
 - **Every function carries a trust level.** The trust report marks each function `verified`, `asserted` and so on, and a `verified` claim never silently rests on an unproven callee.
-- **Agents edit structure, not text.** Every program also has a JSON-AST form, and patches are RFC 6902 JSON-Patch against it, so there are no text merge conflicts.
+- **Agents edit structure, not text.** Every program also has a JSON-AST form, and a fill is an RFC 6902 JSON-Patch against one locked hole in it, re-verified before it lands. Concurrent fills are serialized by hole locks; there is no AST merge yet.
 - **Decomposition is checked.** `llmll refine` fills a hole and spawns contracted sub-holes in one step, and rejects a sub-contract that no body can meet or that says nothing.
 
 **What the experiments show.** In [`experiments/minimal-agent/`](experiments/minimal-agent/SUMMARY.md), three frontier models wrote verified-correct bodies 30 of 30 times on fixtures built to trip them, with 0 wrong fills in 54 attempts. The evidence is for assurance: agent-written code, proved against a contract the agent did not write. The refutation demos in this README and on the blog use scripted wrong versions to show that the check works; the agents in these experiments did not produce them. Every experiment, with its result: [`experiments/README.md`](experiments/README.md).
@@ -50,7 +50,7 @@ Those tools prove the same kind of property, and LLMLL's proof path (liquid-fixp
 
 ## Prove what the solver can't — kernel-checked
 
-Not every property is decidable by SMT. `square(n) = n⁸` claims `result ≥ 0`. The SMT verifier proves a product such as `n*n ≥ 0` from a fixed set of facts about multiplication, but `n⁸` has degree 8, over the limit of 6, so it can only mark the postcondition `asserted` (an explicit "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks that proof with the Lean kernel + Mathlib** — recording a `verified-lean` tier with an independently re-checkable `.lean` certificate.
+Nonlinear integer arithmetic is undecidable in general, and LLMLL's SMT path stops at a degree limit. `square(n) = n⁸` claims `result ≥ 0`. The SMT verifier proves a product such as `n*n ≥ 0` from a fixed set of facts about multiplication, but `n⁸` has degree 8, over the limit of 6, so it can only mark the postcondition `asserted` (an explicit "not proven"). With **`--leanstral`**, LLMLL states the obligation as a Lean theorem, has Leanstral prove it, and **checks the returned file with the Lean kernel + Mathlib** — recording a `verified-lean` tier with a re-checkable `.lean` certificate. The check does not yet confirm that the file proves the theorem LLMLL emitted ([`LEAN-STMT-BIND-1`](docs/compiler-team-roadmap.md), open).
 
 <p align="center"><img src="docs/assets/leanstral.gif" width="760" alt="LLMLL experimental verified-lean demo"></p>
 <p align="center"><sub>Experimental. Recorded live on v0.26.3 against the Leanstral API; regenerate with <code>examples/leanstral-demo/demo.sh</code> (needs an API key and a Lean 4 + Mathlib project).</sub></p>
@@ -65,7 +65,7 @@ $ LLMLL_LEANSTRAL_API_KEY=… llmll verify examples/leanstral-demo/square.llmll 
   square:  post: verified-lean   (certificate: square.verified.lean)
 ```
 
-The certificate is a Lean proof term the kernel accepted, checkable by anyone with Lean without trusting Leanstral. What you still trust is LLMLL's translation of the contract into the Lean theorem statement. **An AI proved what the SMT solver couldn't, and you don't have to take its word for it.**
+The certificate is a Lean file the kernel accepted, checkable by anyone with Lean without trusting Leanstral. What you still trust is LLMLL's translation of the contract into the Lean theorem statement and, until `LEAN-STMT-BIND-1` closes, that the accepted file proves that statement and uses no axiom beyond Mathlib's: today LLMLL checks neither, and screens axioms by substring only.
 
 > **Experimental.** Opt-in demo; needs a Leanstral API key (`LLMLL_LEANSTRAL_API_KEY`) and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is the deferred `LEAN-GA` rebuild. Reproduce: [`examples/leanstral-demo/`](examples/leanstral-demo/) (`demo.sh`) · design: [`docs/archive/shipped-design-specs/leanstral-demo-spec.md`](docs/archive/shipped-design-specs/leanstral-demo-spec.md).
 
@@ -103,15 +103,15 @@ Requires GHC ≥ 9.4 + Stack ≥ 2.9. The proof step also needs `z3` + `liquid-f
 
 ## What it is
 
-LLMLL treats **verification as the coordination protocol**. A lead agent defines types and contracts (the *what*); specialist agents fill typed holes with the *how*; the compiler verifies each fill against its contract before merging. Agents trust each other's *contracts*, not each other's *code*. Merges are structured JSON-AST patches, not text diffs — so there are no structural merge conflicts, and every patch is re-verified before it lands.
+LLMLL treats **verification as the coordination protocol**. A lead agent defines types and contracts (the *what*); specialist agents fill typed holes with the *how*; the compiler verifies each fill against its contract before it lands. Agents trust each other's *contracts*, not each other's *code*. A fill is an RFC 6902 JSON-Patch scoped to one checked-out, locked hole, and every patch is re-verified before it lands. There is no general merge of concurrent edits: the hole lock serializes them, and AST-level merging is designed, not built ([`LLMLL.md §11.3`](LLMLL.md)).
 
-**It does not claim program correctness.** It guarantees that all code is *consistent with its declared specifications*, and it tracks how strong each guarantee is: a `verified` contract was proven by the SMT solver; an `asserted` one was not. Trust propagates — no `verified` claim silently rests on an unproven dependency. The weakness checker (`--weakness-check`) even flags a contract so weak that a trivial implementation satisfies it. Its discriminative-power sibling (`--cdp`) scores how sharply a contract rules out wrong bodies. Both checks measure *non-vacuity, not spec fidelity*: a contract that is discriminative yet captures the wrong behavior still passes, and the code still verifies against it.
+**It does not claim program correctness.** It checks code against its declared specifications and labels how strong each check is: a `verified` contract was proven by the SMT solver; an `asserted` one was not. Trust propagates — no `verified` claim silently rests on an unproven dependency. The weakness checker (`--weakness-check`) even flags a contract so weak that a trivial implementation satisfies it. Its discriminative-power sibling (`--cdp`) scores how sharply a contract rules out wrong bodies. Both checks measure *non-vacuity, not spec fidelity*: a contract that is discriminative yet captures the wrong behavior still passes, and the code still verifies against it.
 
 ---
 
 ## What's proven vs. not — read this before believing the headline
 
-The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a non-recursive **QF-LIA core** — integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and n-arm matches on admissible (non-recursive) sums (`Result` and user ADTs, nested and sequential) — **extended with three decidable theories**: the array class (`bytes[n]` memory safety, and `map[{int,string},{int,bool,string}]` get-after-put / key-presence / construction / read-modify-write), admissible datatype construction, and string **literals** (equality, distinctness, and code-point length). That covers numeric bounds, conservation invariants, length preservation, array/map bounds-and-presence safety, and string-tag discrimination. A product of two variables, such as a frame size `w*h`, is proved from a fixed set of facts about integer multiplication: sound but not complete, and a false claim is refuted only with a counterexample that native z3 finds and LLMLL checks. Everything else — string **structure** (concatenation, substring, regex), recursive-payload ADTs, division or `mod` by a variable, a product the multiplication facts cannot prove, IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix in [`LLMLL.md §5.3.5`](LLMLL.md)). Recursion is inside the fragment: with a `(decreases e)` measure the solver discharges, the proof is total; without one, it holds only if the recursion terminates, and the `verify` headline drops the `✅` and names the function.
+The **shipped** proof path is SMT (Z3 via liquid-fixpoint) over a **QF-LIA core** (recursion included, see the end of this paragraph) — integer linear arithmetic, let-bindings, conditionals, calls to contracted functions (assume-guarantee), and n-arm matches on admissible (non-recursive) sums (`Result` and user ADTs, nested and sequential) — **extended with three decidable theories**: the array class (`bytes[n]` memory safety, and `map[{int,string},{int,bool,string}]` get-after-put / key-presence / construction / read-modify-write), admissible datatype construction, and string **literals** (equality, distinctness, and code-point length). That covers numeric bounds, conservation invariants, length preservation, array/map bounds-and-presence safety, and string-tag discrimination. A product of two variables, such as a frame size `w*h`, is proved from a fixed set of facts about integer multiplication: sound but not complete, and a false claim is refuted only with a counterexample that native z3 finds and LLMLL checks. Everything else — string **structure** (concatenation, substring, regex), recursive-payload ADTs, division or `mod` by a variable, a product the multiplication facts cannot prove, IO — **falls back** to contract-only checking, property tests, or runtime assertions, each carrying an explicit trust label (full matrix in [`LLMLL.md §5.3.5`](LLMLL.md)). Recursion is inside the fragment: with a `(decreases e)` measure the solver discharges, the proof is total; without one, it holds only if the recursion terminates, and the `verify` headline drops the `✅` and names the function.
 
 Nonlinear obligations have an **experimental** Lean 4 path: the opt-in `--leanstral` flag shown above, which needs a Leanstral API key and a local Lean 4 + Mathlib project. Production Lean verification across all obligation classes is deferred. `--leanstral-mock` runs the same pipeline against a mock prover, for testing.
 
@@ -152,7 +152,7 @@ The active compiler is a **Haskell stack project** in `compiler/`. It is the onl
 | `llmll hub fetch --from-file <tarball>` | Install a local `.tar.gz` package into the hub cache (`~/.llmll/modules/`). Local tarballs only; there is no registry-by-name fetch. |
 | `llmll hub scaffold <template> [--output DIR]` | Generate a project from a `llmll-hub` skeleton template (`~/.llmll/templates/`). |
 | `llmll hub query --signature <sig>` | Search hub cache for functions matching a type signature (e.g. `"int -> int -> int"`). |
-| `llmll replay <source> <log>` | Rebuild program, replay event log inputs, compare outputs for determinism verification. |
+| `llmll replay <source> <log>` | Rebuild the program, feed it the logged inputs, and report where its output diverges from the log. A divergence check: commands run again for real, and no value is replayed from the log. |
 | `llmll spec [--json]` | Emit agent prompt specification from compiler builtins. Text (default) or JSON output. |
 | `llmll version` | Print compiler version and exit. Supports `--json` for `{"version":"…"}` output. Also available as `llmll --version`. |
 | `llmll repl` | Start an interactive LLMLL REPL |
@@ -164,7 +164,7 @@ Both source formats compile to identical AST nodes:
 | Format | Extension | Best for |
 |--------|-----------|----------|
 | S-expressions | `.llmll` | Human editing, concise iteration |
-| JSON-AST | `.ast.json` | AI agents — schema-constrained, structurally valid by construction |
+| JSON-AST | `.ast.json` | AI agents — schema-constrained; structurally valid by construction under schema-constrained generation (the compiler does not validate against the schema) |
 
 The JSON-AST schema is at `docs/llmll-ast.schema.json`.
 
@@ -204,7 +204,7 @@ cd ../generated/hangman_json && stack build && stack exec hangman
 
 ## Verification Boundary
 
-LLMLL provides body-faithful SMT verification for a **non-recursive QF-LIA core** with **compositional call-chain reasoning**: integer and `bool` values, linear arithmetic and comparisons, products of two variables (sound, not complete), let-bindings, conditionals, calls to contracted functions (assume-guarantee, same-file or imported), n-arm matches on non-recursive sums, pairs, non-recursive datatype construction, the array class (`bytes[n]`, `bytes` and `map` operations) and string literals. Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions, each with an explicit trust label.
+LLMLL provides body-faithful SMT verification for a **QF-LIA core** with **compositional call-chain reasoning** (recursion at partial correctness, total with a discharged `(decreases e)`): integer and `bool` values, linear arithmetic and comparisons, products of two variables (sound, not complete), let-bindings, conditionals, calls to contracted functions (assume-guarantee, same-file or imported), n-arm matches on non-recursive sums, pairs, non-recursive datatype construction, the array class (`bytes[n]`, `bytes` and `map` operations) and string literals. Programs outside that fragment fall back to contract-only verification, property-based testing, or runtime assertions, each with an explicit trust label.
 
 | Construct | SMT body-faithful | Fallback |
 |---|---|---|
@@ -274,7 +274,7 @@ Start here: [`examples/README.md`](examples/README.md) is the tiered index to ev
 | `examples/hangman_json_verifier/` | JSON-AST | Hangman with `apply-guess` contracts (`llmll verify`; asserted, not solver-proven) |
 | `examples/tictactoe_json_verifier/` | JSON-AST | Tic-Tac-Toe with `set-cell` contracts (asserted, not solver-proven) |
 | `examples/conways_life_json_verifier/` | JSON-AST | Conway's Life — `next-cell`/`count-neighbors` contracts (see its `VERIFICATION_SCOPE.md`) |
-| `examples/replay-demo/` | S-expression | The `llmll replay` demo: codegen + deterministic event-log replay (used by `docs/getting-started.md`) |
+| `examples/replay-demo/` | S-expression | The `llmll replay` demo: codegen + event-log divergence check (used by `docs/getting-started.md`) |
 | `examples/proof_required_test/` | S-expression | Leanstral proof pipeline validation |
 | `examples/erc20_token/` | JSON-AST | ERC-20 benchmark — frozen ground truth with verification-scope matrix |
 | `examples/totp_rfc6238/` | JSON-AST | TOTP RFC 6238 benchmark — crypto builtins, RFC `:source` provenance |
