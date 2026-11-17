@@ -132,6 +132,13 @@
       ]
     },
     {
+      "id": "NC-044",
+      "section": "1.1",
+      "text": "Inside a `pre` or `post` clause a shadowing parameter is not yet seen: the verifier and the run-time check both read the builtin there (`CLAUSE-SHADOW-BUILTIN-1`).",
+      "disposition": "row",
+      "target": "CLAUSE-SHADOW-BUILTIN-1"
+    },
+    {
       "id": "NC-043",
       "section": "1.1",
       "text": "Names are otherwise not constrained by the target language: where an LLMLL name collides with a name in the generated Haskell, the compiler renames it, and the renaming is not observable in the program's behaviour.",
@@ -188,6 +195,13 @@
       ]
     },
     {
+      "id": "NC-045",
+      "section": "1.3",
+      "text": "Some mismatches still reach GHC before `check` reports them: a constructor pattern whose type differs from the scrutinee's (`MATCH-PAT-TYPE-1`), an unknown type name (`UNKNOWN-TYPE-1`), and a position typed through the `?` wildcard (§3.4.6).",
+      "disposition": "row",
+      "target": "MATCH-PAT-TYPE-1"
+    },
+    {
       "id": "NC-018",
       "section": "1.4a",
       "text": "**Design by Contract with Stratified Verification:** Logic functions declare `pre` and `post` conditions as formal specifications.",
@@ -219,6 +233,13 @@
       "reason": "LEAN-GA sits in the Upcoming Releases table, outside the row check's population, and the --leanstral demo needs a network API, so no offline fixture exists"
     },
     {
+      "id": "NC-046",
+      "section": "1.4a",
+      "text": "The demo does not yet check that the Lean file it accepts proves the theorem LLMLL emitted, and it screens axioms by substring only, so `verified-lean` records that a Lean file type-checked, not that this obligation was proved (`LEAN-STMT-BIND-1`).",
+      "disposition": "row",
+      "target": "LEAN-STMT-BIND-1"
+    },
+    {
       "id": "NC-022",
       "section": "1.4a",
       "text": "Each contract clause carries a *display level* — `verified`, `tested`, or `asserted` — so a caller can inspect trust without reading the implementation.",
@@ -237,9 +258,16 @@
       ]
     },
     {
+      "id": "NC-047",
+      "section": "1.4b",
+      "text": "A `verified-lean` callee counts as a peer of `verified` in this propagation, so until `LEAN-STMT-BIND-1` closes a `verified` caller can rest on an unbound Lean result.",
+      "disposition": "row",
+      "target": "LEAN-STMT-BIND-1"
+    },
+    {
       "id": "NC-024",
       "section": "1.4b",
-      "text": "A function's effective display level is the lattice meet of its own `post` level and the `post` levels of all transitively reachable callees; a callee's `pre` level does not lower it (§4.4.4, TRUST-PRE).",
+      "text": "A function's effective display level is the meet, in the preorder chain of §4.4.1, of its own `post` level and the `post` levels of all transitively reachable callees; a callee's `pre` level does not lower it (§4.4.4, TRUST-PRE).",
       "disposition": "fixture",
       "target": [
         "scripts/doc-claims/effective-level-post-meet.llmll"
@@ -311,7 +339,7 @@
     {
       "id": "NC-033",
       "section": "1.6",
-      "text": "See §7 for the sandbox implementation and the enforcement gap.",
+      "text": "See §7 for the enforcement gap; no sandbox confines a built program (`SAFE-HASKELL-CLAIM-1`).",
       "disposition": "informative"
     },
     {

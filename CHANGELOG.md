@@ -45,6 +45,57 @@
 
 **Tests:** hspec 3341 → 3345, 0 failures; Python 897 → 900 passed, 10 skipped.
 
+### Documentation: claims a PL reviewer would reject, corrected to the v0.40.0 code
+
+No compiler change. A review of an external "LLMLL vs. prior art" comparison found that several of
+its errors came from `LLMLL.md` and `README.md` themselves. A sweep of both, and of
+`docs/getting-started.md`, found about sixty statements that describe behaviour the compiler does
+not have, or use a PL term for an object it does not name. Each was checked against the code; the
+behavioural ones were measured on a stack build of `f0aef79c`.
+
+- **Unbuilt behaviour, now stated as unbuilt.**
+  - Sandbox (§7, §10 steps 4 and 7): no built program runs under Docker, `seccomp-bpf` or
+    `{-# LANGUAGE Safe #-}` (`SAFE-HASKELL-CLAIM-1`).
+  - Delegation (§11.2): nothing dispatches `?delegate` or `?delegate-async` to an agent; the
+    outcome table now separates the shipped behaviour from the design (new row `DELEGATE-RUN-1`).
+  - `def-interface` conformance (§8.8, §11.1): `checkInterfaceMismatch` is not called by `check`,
+    `verify` or `build` (`IFACE-CONFORM`).
+  - `:laws` (§8.8.1): `test` skips every law, the emitted `prop_` does not compile, and
+    `--spec-coverage` counts every law as tested (new row `IFACE-LAWS-1`).
+  - Alias well-formedness W-Catalog (§3.4.4) is not run (new row `ALIAS-WF-1`); a constructor
+    pattern of the wrong type passes `check` (new row `MATCH-PAT-TYPE-1`, NC-045).
+  - `verified-lean` (§1 NC-046 and NC-047, §4.4.1, §5.3.3, README): the kernel-checked file is not
+    bound to the emitted theorem (`LEAN-STMT-BIND-1`).
+  - Proof-artifact replay (§5.4, getting-started): no VC re-derivation (`REPLAY-VC-BIND-1`) and no
+    `codegen_semantics_version` check (`REPLAY-CODEGEN-VERSION-1`).
+  - Hub modules carry no proof metadata; the pipeline does not intercept sensitive effects;
+    `def-invariant` is not enforced over other code.
+- **Stale text.** Recursive bodies are verified (§5.3.4 said they were excluded); a holed program
+  builds (§6); `:trust tested` assigns no evidence (§4.4.1); retired `DLContractChecked` and two
+  wrong section references removed; source is UTF-8, not ASCII-only (§12); README's
+  "non-recursive QF-LIA core" and "no merge conflicts"; `replay` is a divergence check, not
+  determinism verification.
+- **Open rows cited where the spec stated the opposite.** `PRE-FAIL-EXIT-1`, `CONTRACTS-NONE-1`,
+  `CONTRACTS-ENTRY-STRIP-1`, `PBT-NOREDUCE-PASS-1`, `EFFECT-NULLARY-1`,
+  `CLAUSE-SHADOW-BUILTIN-1` (NC-044), and the emitter defects that end a `Σ_auto` run with no
+  verdict.
+- **Terminology.** The display levels are a preorder chain, not a lattice or partial order; the
+  level table gains `verified-lean` and `tested-joint`. `verified` is partial correctness unless a
+  `decreases` clause discharges, relative to callee contracts and builtin axioms. `refuted` is a
+  counterexample to the VC, not necessarily to the program. The type checker is not Damas–Milner
+  (no let-generalization), and `τ ≡ τ'` is compatibility, not equality. `do` is not monadic.
+  `match` exhaustiveness is checked for sums, `Result` and `bool` only. `Σ_auto` has one
+  definition of record (§5.3.3), and its inclusion in `Σ_ref` is restricted to alias predicates.
+  Qualifiers do not affect a verdict (no κ-variables).
+- **Citations.** *Refinement Types for Haskell* is ICFP 2014; termination-via-refinement is not
+  ESOP 2013; Liquid Haskell has no graded evidence display; Dafny verification caching is
+  Leino–Wüstholz, CAV 2015; Harper–Mitchell–Moggi's title; Barrett–Shikanian–Tinelli (JSAT 2007)
+  and Reynolds–Blanchette (JAR 2017).
+- **Not changed.** Two `LLMLL.md` examples that use undefined names (`old`, `total-supply`) gain an
+  "Illustrative, not runnable" note; their code is unchanged.
+- **Gates.** `scripts/norm-claims/registry.json` re-affirms NC-024 and NC-033 and adds NC-044 to
+  NC-047; `scripts/norm_claims_cover.py` follows the NC-033 text.
+
 ## v0.40.0: byte I/O and a byte type of any length (2026-11-16)
 
 **Measured, v0.39.0 against this release, over 796 sources (liquid-fixpoint 0.9.6.3.7):**

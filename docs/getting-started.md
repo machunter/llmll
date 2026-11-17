@@ -357,7 +357,7 @@ $ stack exec llmll -- verify file.llmll --cdp
    cache-lookup: [identity-satisfies-post, const-satisfies-post] score=0.000 (14/14 candidates satisfy)
    increment: score=1.000 (1/12 candidates satisfy)
 
-# CDP combined with trust-report JSON — pairs DP with the diamond-lattice evidence axis
+# CDP combined with trust-report JSON — pairs DP with the evidence axis (a preorder chain, LLMLL.md §4.4.1)
 # (discriminative_axis sits on each .trust_report.entries[] element):
 $ stack exec llmll -- --json verify file.llmll --cdp --trust-report
 
@@ -538,7 +538,7 @@ The `.fq` file is still written and can be checked manually or in CI once the to
 
 #### Proof artifact
 
-`--proof-artifact FILE` writes a single, self-contained, replayable verification record — the trust/obligation/`.fq`/sidecar surfaces plus determinism pins (solver version, codegen semantics version) — to `FILE`. `replay-artifact FILE` re-derives it: recomputes the source hash, re-runs the recorded VC under the pinned solver, and **fails closed** on any source/solver-determinism mismatch.
+`--proof-artifact FILE` writes a single, self-contained, replayable verification record — the trust/obligation/`.fq`/sidecar surfaces plus determinism pins (solver version, codegen semantics version) — to `FILE`. `replay-artifact FILE` recomputes the source hash, re-runs the recorded VC under the pinned solver, and **fails closed** on a source-hash or solver mismatch. It does not re-derive the VC from the source (`REPLAY-VC-BIND-1`) or compare `codegen_semantics_version` (`REPLAY-CODEGEN-VERSION-1`).
 
 ```console
 $ stack exec llmll -- verify file.llmll --proof-artifact ./file.proof.json
@@ -559,7 +559,7 @@ Top-level artifact fields: `proof_artifact_version`, `source_path`, `source_hash
 P ∧ (result = ⟦B⟧) ⟹ Q
 ```
 
-This means `DLVerified` with `body_faithful = true` guarantees the implementation satisfies the contract, not just that the contract is self-consistent.
+This means `DLVerified` with `body_faithful = true` guarantees the implementation satisfies the contract, not just that the contract is self-consistent. The guarantee is partial correctness (total with a discharged `decreases`), relative to the callee contracts and the builtin axioms it assumes.
 
 **Coverage:** `ELet` (alpha-renamed), `EIf` (path-sensitive; a call in a later operand of `and`, `or` or `=>` is checked only on the path that evaluates it), `EApp` to a contracted callee (assume-guarantee — same-file **or imported**), an **n-arm sum `EMatch`** (`Result` or a user ADT of any arity, mixed nullary/payload arms, nested at any depth, including sequential matches) with scrutinee-constructor postconditions, `bool` values, admissible (non-recursive) datatype construction, and QF-LIA operators. A recursive `def-shell` cycle verifies by assume-guarantee — partial correctness by default (`termination_unverified`), **total** with a discharging `(decreases …)` measure. Falls back to contract-only verification: a payload the fragment cannot admit (anything other than `int`, `bool` or `string` — a recursive sum and a non-recursive user sum alike), a match arm that discards its payload with `_` instead of binding it, non-linear expressions (`*`, `/`, `mod`), and functions with >4096 execution paths.
 
@@ -606,7 +606,7 @@ not wired back yet. See the roadmap rows `VERIFY-MEMORY-1` (closed) and `FALLBAC
 - `spec_coverage` — contracted / total (excludes suppressions)
 - `suppression_debt` — suppressed / total
 
-### `replay` — deterministic event log replay
+### `replay` — event-log divergence check
 
 ```console
 # Run a console program — produces .event-log.jsonl automatically:
