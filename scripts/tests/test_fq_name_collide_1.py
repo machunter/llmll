@@ -17,9 +17,10 @@ What a pass here means:
 * The companions (a hyphen alone, a parameter `v` with no binder) still verify,
   and the controls with distinct names are still refuted.
 * `--strict-verified-core` refuses `collide`; its sidecar records `asserted`
-  under stamp "8"; a stamp "7" sidecar that claims `verified` is discarded; a
-  0.37.0 proof artifact fails closed on replay; a clash in one function keeps
-  the proof of another function in the same file.
+  under the current stamp ("8" then, "9" since BYTES-MAKE-ALIAS-1); a stamp
+  "7" sidecar that claims `verified` is discarded; a 0.37.0 proof artifact
+  fails closed on replay; a clash in one function keeps the proof of another
+  function in the same file.
 """
 
 import json
@@ -162,10 +163,11 @@ def test_strict_verified_core_refuses_collide(tmp_path):
     assert doc["body_fallback_causes"]["collide"] == "fq-name-collision"
 
 
-def test_collide_sidecar_is_asserted_under_stamp_8(tmp_path):
+def test_collide_sidecar_is_asserted_under_current_stamp(tmp_path):
     _verify(tmp_path, "collide.llmll")
     side = _sidecar(tmp_path, "collide.llmll")
-    assert side["checker_soundness_version"] == "8"
+    # "8" when written; BYTES-MAKE-ALIAS-1 moved it to "9".
+    assert side["checker_soundness_version"] == "9"
     assert _level(side, "collide") == "asserted"
 
 

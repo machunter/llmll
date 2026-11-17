@@ -22575,9 +22575,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
       -- FN-SHADOW-1 moved the stamp to "4", LET-CALL-CONT-1 to "5" (LCC-6),
       -- AND-GUARD-PRE-1 to "6", CLAUSE-WELLDEF-1 to "7", FQ-NAME-COLLIDE-1 to
-      -- "8" (pinned by AGP-9); FS-13 pins "3" as discarded.
-      it "RF-P4 checker_soundness_version is \"8\" (FQ-NAME-COLLIDE-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
-        checkerSoundnessVersion `shouldBe` "8"
+      -- "8" (AGP-9), BYTES-MAKE-ALIAS-1 to "9" (pinned by T-V20); FS-13 pins "3"
+      -- as discarded.
+      it "RF-P4 checker_soundness_version is \"9\" (BYTES-MAKE-ALIAS-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "9"
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "2")]) `shouldBe` True
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
 
@@ -27506,12 +27507,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       r <- emitG [ sigM "giff" <> "(if (<=> (map-has r i) (>= (map-get r i) 0)) 1 0))" ]
       callPreLhs (erFQText r) `shouldBe` ["  lhs { v : int | true }"]
     -- CLAUSE-WELLDEF-1 moved the stamp past "6" (CW-S1 pins "6" as discarded);
-    -- FQ-NAME-COLLIDE-1 moved it past "7".
-    it "AGP-9 checker_soundness_version is \"8\": a sidecar stamped \"5\" or \"7\" is discarded" $ do
-      checkerSoundnessVersion `shouldBe` "8"
+    -- FQ-NAME-COLLIDE-1 moved it past "7", BYTES-MAKE-ALIAS-1 past "8" (T-V20
+    -- pins "9").
+    it "AGP-9 a sidecar stamped \"5\" or \"7\" is discarded" $ do
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "5")]) `shouldBe` True
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "7")]) `shouldBe` True
-      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "8")]) `shouldBe` False
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String checkerSoundnessVersion)]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- VERIFY-BUDGET-1: the solver guard
@@ -27992,7 +27993,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "A4 the writer emits the epoch member" $ do
       let js = BLC.unpack (encode liveComposedVersions)
-      js `shouldSatisfy` isInfixOf "\"checker_soundness_version\":\"8\""
+      js `shouldSatisfy` isInfixOf "\"checker_soundness_version\":\"9\""
 
     it "A5 proof_artifact_version is 0.3.0 (FQ-NAME-COLLIDE-1)" $
       proofArtifactVersion `shouldBe` "0.3.0"
@@ -29241,6 +29242,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       sort (erBodyFaithfulFns er) `shouldBe` ["use", "z3", "z5"]
       Map.elems (erAbstracted er) `shouldNotSatisfy` elem "bytes-make"
       expectSolveS er "Unsafe"
+    it "T-V20 checker_soundness_version is \"9\": a sidecar stamped \"8\" (v0.40.0) is discarded" $ do
+      checkerSoundnessVersion `shouldBe` "9"
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "8")]) `shouldBe` True
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "9")]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- BYTE-IO step 3, S6 (BYTES-READ-1): the sixth Response arm, RBytes. It sits

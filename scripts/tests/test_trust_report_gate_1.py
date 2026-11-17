@@ -57,9 +57,10 @@ FORGED_SRC = """(module sq
 """
 
 FORGED = {
-    # The current stamp (FQ-NAME-COLLIDE-1 moved it to "8"): a forged record must
-    # be refused by the evidence checks, not merely discarded for an old stamp.
-    "checker_soundness_version": "8",
+    # The current stamp (BYTES-MAKE-ALIAS-1 moved it to "9"): a forged record
+    # must be refused by the evidence checks, not merely discarded for an old
+    # stamp.
+    "checker_soundness_version": "9",
     "sq3": {
         "post": {"display_level": {"level": "verified", "prover": "liquid-fixpoint"}},
         "pre": {"display_level": {"level": "asserted"}},
