@@ -22575,9 +22575,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         formatTrustReportJson report `shouldNotSatisfy` T.isInfixOf "assumed_facts"
       -- FN-SHADOW-1 moved the stamp to "4", LET-CALL-CONT-1 to "5" (LCC-6),
       -- AND-GUARD-PRE-1 to "6", CLAUSE-WELLDEF-1 to "7", FQ-NAME-COLLIDE-1 to
-      -- "8" (pinned by AGP-9); FS-13 pins "3" as discarded.
-      it "RF-P4 checker_soundness_version is \"8\" (FQ-NAME-COLLIDE-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
-        checkerSoundnessVersion `shouldBe` "8"
+      -- "8" (AGP-9), BYTES-MAKE-ALIAS-1 to "9" (pinned by T-V20); FS-13 pins "3"
+      -- as discarded.
+      it "RF-P4 checker_soundness_version is \"9\" (BYTES-MAKE-ALIAS-1): a sidecar stamped \"1\" or \"2\" is discarded" $ do
+        checkerSoundnessVersion `shouldBe` "9"
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "2")]) `shouldBe` True
         sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "1")]) `shouldBe` True
 
@@ -27506,12 +27507,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       r <- emitG [ sigM "giff" <> "(if (<=> (map-has r i) (>= (map-get r i) 0)) 1 0))" ]
       callPreLhs (erFQText r) `shouldBe` ["  lhs { v : int | true }"]
     -- CLAUSE-WELLDEF-1 moved the stamp past "6" (CW-S1 pins "6" as discarded);
-    -- FQ-NAME-COLLIDE-1 moved it past "7".
-    it "AGP-9 checker_soundness_version is \"8\": a sidecar stamped \"5\" or \"7\" is discarded" $ do
-      checkerSoundnessVersion `shouldBe` "8"
+    -- FQ-NAME-COLLIDE-1 moved it past "7", BYTES-MAKE-ALIAS-1 past "8" (T-V20
+    -- pins "9").
+    it "AGP-9 a sidecar stamped \"5\" or \"7\" is discarded" $ do
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "5")]) `shouldBe` True
       sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "7")]) `shouldBe` True
-      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "8")]) `shouldBe` False
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String checkerSoundnessVersion)]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- VERIFY-BUDGET-1: the solver guard
@@ -27992,7 +27993,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     it "A4 the writer emits the epoch member" $ do
       let js = BLC.unpack (encode liveComposedVersions)
-      js `shouldSatisfy` isInfixOf "\"checker_soundness_version\":\"8\""
+      js `shouldSatisfy` isInfixOf "\"checker_soundness_version\":\"9\""
 
     it "A5 proof_artifact_version is 0.3.0 (FQ-NAME-COLLIDE-1)" $
       proofArtifactVersion `shouldBe` "0.3.0"
@@ -29084,14 +29085,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       erBodyFaithfulFns er `shouldBe` ["magic16"]
       T.isInfixOf "bind 0 b : { v : (Map_t int int) | true }" (erFQText er) `shouldBe` True
       expectSolveS er "Safe"
-    it "T-V4 bytes-make: the constant-array reflection, the exact length lemma, and the literal pre" $ do
+    it "T-V4 bytes-make: the exact length lemma and the literal pre, and no content reflection (BYTES-MAKE-ALIAS-1)" $ do
       case partsOf (EApp "bytes-make" [lint 3, lint 7]) of
         Just (c, srt, pre, parts, r) -> do
           c `shouldBe` "bytes-make"
           srt `shouldBe` arr
           pre `shouldBe` Just (partialPre (PBytesMake (FQLit 3) (FQLit 7)))
-          parts `shouldBe` [ ("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_default" [FQLit 7]))
-                           , ("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit 3)) ]
+          parts `shouldBe` [ ("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit 3)) ]
         Nothing -> expectationFailure "no CallVC for bytes-make"
       partialPre (PBytesMake (FQVar "n") (FQVar "v")) `shouldBe`
         FQAnd [ FQBinPred FQGe (FQVar "n") (FQLit 0), FQBinPred FQGe (FQVar "v") (FQLit 0), FQBinPred FQLe (FQVar "v") (FQLit 255) ]
@@ -29130,12 +29130,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       er <- emitS "(def-shell g [b: bytes] -> int (pre (>= (bytes-length b) 2)) (post (<= result 255)) (let [(s (bytes-slice b 0 2))] (bytes-get s 0)))"
       T.isInfixOf "(Map_select _bv_call_bytes_slice_" (erFQText er) `shouldBe` True
       any (\l -> T.isInfixOf "(Map_select _bv_call_bytes_slice_" l && T.isInfixOf "<= 255" l) (T.lines (erFQText er)) `shouldBe` True
-    it "T-V9 the sets: seven step-3 names are sealed axioms, five of them abstracted; bytes-make and bytes-widen are exact" $ do
+    it "T-V9 the sets: seven step-3 names are sealed axioms, six of them abstracted; bytes-widen is exact" $ do
       let seven = ["bytes-make", "bytes-widen", "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-to-list", "bytes-from-string"]
-          five  = drop 2 seven
+          six   = filter (/= "bytes-widen") seven
       forM_ seven $ \n -> Set.member n sealedAxiomBuiltins `shouldBe` True
-      forM_ five $ \n -> Set.member n abstractedBuiltins `shouldBe` True
-      Set.member "bytes-make" abstractedBuiltins `shouldBe` False
+      forM_ six $ \n -> Set.member n abstractedBuiltins `shouldBe` True
+      -- BYTES-MAKE-ALIAS-1: bytes-make states a length only, so it is abstracted
+      Set.member "bytes-make" abstractedBuiltins `shouldBe` True
       Set.member "bytes-widen" abstractedBuiltins `shouldBe` False
       forM_ ["bytes-from-list", "bytes-to-string"] $ \n ->
         (Set.member n sealedAxiomBuiltins || Set.member n abstractedBuiltins) `shouldBe` False
@@ -29205,6 +29206,46 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       sort (erBodyFaithfulFns erBad) `shouldBe` ["get3", "use"]
       expectSolveS erOk "Safe"
       expectSolveS erBad "Unsafe"
+    -- BYTES-MAKE-ALIAS-1 (v0.40.1 hotfix). v0.40.0 reflected (bytes-make n v) as
+    -- r = Map_default(v): two makes with one fill were one SMT term, congruence on
+    -- bytesLen forced both lengths on it, and any post was proved (the witness
+    -- returns 8, and (= result 1) solved Safe). Each make is now a fresh term with
+    -- its length lemma, and the constraint is marked abstracted, so the UNSAFE
+    -- answer falls back (abstraction:app:bytes-make) rather than refuting.
+    it "T-V17 two makes with one fill are two terms: no Map_default in the .fq, and the wrong post is Unsafe" $ do
+      let src p v = "(def-shell two-makes [n: int] -> int (pre (>= n 0)) (post (= result " ++ show (p :: Int)
+                    ++ ")) (let [(a (bytes-make 3 0)) (c (bytes-make 5 " ++ show (v :: Int)
+                    ++ "))] (+ (bytes-length a) (bytes-length c))))"
+      er  <- emitS (src 1 0)
+      er2 <- emitS (src 1 1)
+      erOk <- emitS (src 8 0)
+      erBodyFaithfulFns er `shouldBe` ["two-makes"]
+      T.isInfixOf "Map_default" (erFQText er) `shouldBe` False
+      T.isInfixOf "(bytesLen _bv_call_bytes_make_0) = 3" (erFQText er) `shouldBe` True
+      T.isInfixOf "(bytesLen _bv_call_bytes_make_1) = 5" (erFQText er) `shouldBe` True
+      Map.elems (erAbstracted er) `shouldSatisfy` (\cs -> not (null cs) && all (== "bytes-make") cs)
+      Map.elems (erAbstracted er2) `shouldSatisfy` (\cs -> not (null cs) && all (== "bytes-make") cs)
+      expectSolveS er "Unsafe"
+      expectSolveS er2 "Unsafe"
+      expectSolveS erOk "Safe"
+    it "T-V18 the same cause through a variable length and a bytes-set chain: each wrong post is Unsafe" $ do
+      erV <- emitS "(def-shell v [n: int] -> int (pre (>= n 0)) (post (= result 0)) (let [(a (bytes-make n 9)) (c (bytes-make (+ n 1) 9))] (- (bytes-length c) (bytes-length a))))"
+      erS <- emitS "(def-shell s [n: int] -> int (pre (>= n 0)) (post (= result 1)) (let [(a (bytes-make 3 0)) (c (bytes-make 5 0))] (let [(a2 (bytes-set a 0 7)) (c2 (bytes-set c 0 7))] (+ (bytes-length a2) (bytes-length c2)))))"
+      erBodyFaithfulFns erV `shouldBe` ["v"]
+      erBodyFaithfulFns erS `shouldBe` ["s"]
+      expectSolveS erV "Unsafe"
+      expectSolveS erS "Unsafe"
+    it "T-V19 audit control: two bytes-zero callees of lengths 3 and 5 stay Unsafe (one Map_default per constraint)" $ do
+      er <- emitS (unlines [ "(def-shell z3 [] -> bytes[3] (bytes-zero))"
+                           , "(def-shell z5 [] -> bytes[5] (bytes-zero))"
+                           , "(def-shell use [n: int] -> int (post (= result 1)) (let [(x (z3)) (y (z5))] (+ (bytes-length x) (bytes-length y))))" ])
+      sort (erBodyFaithfulFns er) `shouldBe` ["use", "z3", "z5"]
+      Map.elems (erAbstracted er) `shouldNotSatisfy` elem "bytes-make"
+      expectSolveS er "Unsafe"
+    it "T-V20 checker_soundness_version is \"9\": a sidecar stamped \"8\" (v0.40.0) is discarded" $ do
+      checkerSoundnessVersion `shouldBe` "9"
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "8")]) `shouldBe` True
+      sidecarNeedsRevalidation (KM.fromList [("checker_soundness_version", String "9")]) `shouldBe` False
 
   -- -----------------------------------------------------------------------
   -- BYTE-IO step 3, S6 (BYTES-READ-1): the sixth Response arm, RBytes. It sits

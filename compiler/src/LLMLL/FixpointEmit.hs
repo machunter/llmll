@@ -429,8 +429,9 @@ sealedAxiomBuiltins :: Set.Set Name
 sealedAxiomBuiltins = Set.fromList
   [ "bytes-get", "bytes-set", "bytes-zero", "map-get"
   , "string-code-at", "string-from-code"
-  -- BYTES-UNSIZED-1 (byte-io-proposal Part 4): the step-3 arms. bytes-make and
-  -- bytes-widen are exact; the other five are partial ('abstractedBuiltins').
+  -- BYTES-UNSIZED-1 (byte-io-proposal Part 4): the step-3 arms. bytes-widen is
+  -- exact; the other six, bytes-make among them since BYTES-MAKE-ALIAS-1, are
+  -- partial ('abstractedBuiltins').
   , "bytes-make", "bytes-widen", "bytes-slice", "bytes-concat", "bytes-concat-many"
   , "bytes-to-list", "bytes-from-string" ]
 
@@ -445,6 +446,11 @@ abstractedBuiltins :: Set.Set Name
 abstractedBuiltins = Set.fromList
   [ "string-code-at", "string-from-code"
   -- BYTES-UNSIZED-1: a length fact only; the content is unknown.
+  -- BYTES-MAKE-ALIAS-1: bytes-make joins. Its content reflection
+  -- @r = Map_default(v)@ named one term for every make with fill v, whatever
+  -- its length, so two makes of different lengths forced @bytesLen@ to two
+  -- values and every post was proved (v0.40.0). It now states the length only.
+  , "bytes-make"
   , "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-to-list", "bytes-from-string" ]
 
 -- | BITWISE-1: the names whose 'CallVC' arm reflects an exact form. Two such
@@ -5697,11 +5703,19 @@ bodyToPredM env se cenv sccSet (EApp "string-from-code" [cE])
 -- pre where the operation is partial (tag "call-pre:<name>"), and an assumed
 -- post split into reflection and lemma parts. After ANF every byte argument
 -- is a variable. Each arm is a sealed axiom ('sealedAxiomBuiltins');
--- bytes-make and bytes-widen are exact, the other five state a length only
--- and are 'abstractedBuiltins', so an UNSAFE answer resting on one falls back
+-- bytes-widen is exact, the other six state a length only and are
+-- 'abstractedBuiltins', so an UNSAFE answer resting on one falls back
 -- (`abstraction:app:<name>`). bytes-from-list and bytes-to-string have no arm.
 
--- `bytes-make n v`: the constant array, and its length (exact).
+-- `bytes-make n v`: a fresh array with its length (partial). BYTES-MAKE-ALIAS-1:
+-- NO content reflection. The byte sort is the array with the separate UF
+-- `bytesLen`, so the array alone does not determine the length. The v0.40.0
+-- reflection `r = Map_default(v)` made every make with fill v the SAME term, and
+-- congruence on `bytesLen` then forced `bytesLen = 3` and `bytesLen = 5` at once
+-- for `(bytes-make 3 0)` and `(bytes-make 5 0)`: inconsistent hypotheses, so
+-- any post was proved. A fresh result per call never shares a term with another
+-- make, so the length lemma stays consistent; the content is unknown, which is
+-- why the name is in 'abstractedBuiltins'.
 bodyToPredM env se cenv sccSet (EApp "bytes-make" [nE, vE])
   | Map.notMember "bytes-make" env = do
       mN <- bodyToPredM env se cenv sccSet nE
@@ -5710,8 +5724,7 @@ bodyToPredM env se cenv sccSet (EApp "bytes-make" [nE, vE])
         (Just (SimpleVC [] nP), Just (SimpleVC [] vP)) -> do
           r <- freshName "call_bytes_make"
           let pre   = partialPre (PBytesMake nP vP)
-              parts = [ ("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_default" [vP]))
-                      , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) nP) ]
+              parts = [ ("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) nP) ]
               post  = conjoinAll (map snd parts)
           return . Just $ CallVC "bytes-make" [nP, vP] [] (Just pre) (Just post) parts
                                  r byteArraySort (SimpleVC [] (FQVar r)) Nothing False

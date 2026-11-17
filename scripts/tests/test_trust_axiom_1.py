@@ -322,16 +322,18 @@ def test_a_bytes_free_program_assumes_no_ground_facts(arith_prog):
 
 # ---------------------------------------------------------------------------
 # BYTES-UNSIZED-1 (BYTE-IO step 3): two of the seven new sealed axioms.
-# `bytes-make` is the one exact constructor of an unsized value, so its row
-# must carry the LENGTH lemma beside the reflection: without the lemma the
-# length is not derivable, exactly as for `bytes-zero` (cell 1). `bytes-widen`
+# `bytes-make`'s row is the LENGTH lemma alone. Since BYTES-MAKE-ALIAS-1
+# (v0.40.1) it carries no reflection: v0.40.0's `result = (Map_default v)` made
+# two makes with one fill a single term whatever their lengths, which forced
+# two lengths on it and proved any post. The row discloses what is assumed and
+# nothing more. `bytes-widen`
 # claims identity and nothing else, so its row is one reflection conjunct and
 # no lemma: a widened value has the length of its argument because it IS its
 # argument, not because a length fact was asserted for it.
 # ---------------------------------------------------------------------------
 
 def test_the_bytes_make_axiom_carries_its_length_lemma(tmp_path):
-    """Cell 12: the reflection and the length lemma, both disclosed as assumed."""
+    """Cell 12: the length lemma, disclosed as assumed, and no reflection."""
     prog = tmp_path / "mk.llmll"
     prog.write_text(
         "(def mk-len [n: int] -> int\n"
@@ -340,7 +342,7 @@ def test_the_bytes_make_axiom_carries_its_length_lemma(tmp_path):
         "  (bytes-length (bytes-make n 7)))\n",
         encoding="utf-8")
     out = _verify(tmp_path, prog, "--strict-verify")
-    assert ("≈ assumes bytes-make (result = (Map_default 7)) && ((bytesLen result) = n)"
+    assert ("≈ assumes bytes-make ((bytesLen result) = n)"
             " [codegen-determined; stamp: codegen_semantics_version]") in out, out[-3000:]
     assert "_bv_call" not in out, out[-3000:]
     out_json = _verify(tmp_path, prog, "--strict-verify", "--json")
@@ -348,8 +350,9 @@ def test_the_bytes_make_axiom_carries_its_length_lemma(tmp_path):
                if ln.strip().startswith("{") and "trust_report_version" in ln)["trust_report"]
     row, = [r for e in doc["entries"] if e["name"] == "mk-len" for r in e["builtin_axioms"]]
     assert row["builtin"] == "bytes-make"
-    assert [c["tag"] for c in row["conjuncts"]] == ["reflection", "lemma"], row
-    assert row["conjuncts"][1]["predicate"] == "((bytesLen result) = n)", row
+    assert [c["tag"] for c in row["conjuncts"]] == ["lemma"], row
+    assert row["conjuncts"][0]["predicate"] == "((bytesLen result) = n)", row
+    assert "Map_default" not in out, out[-3000:]
 
 
 def test_the_bytes_widen_row_is_an_identity_with_no_length_lemma(tmp_path):

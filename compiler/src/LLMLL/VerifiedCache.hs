@@ -425,8 +425,15 @@ reservedCallerObligationsKey = "caller_obligations"
 -- arm binds no payload, so a sixth tag reaches it without a new fact. The D6
 -- sort change (a byte payload sorts as the byte array) touches only matches
 -- that fell back before. If any of these three stops holding, raise to "9".
+--
+-- "9" (BYTES-MAKE-ALIAS-1): @(bytes-make n v)@ was reflected as
+-- @result = Map_default(v)@ with @bytesLen(result) = n@, so two makes with one
+-- fill and different lengths were one solver term, @bytesLen@ took two values,
+-- the hypotheses were inconsistent and any post was proved; a v0.40.0 sidecar
+-- can hold a false `verified`. A stamp of "9" means @bytes-make@ states only
+-- its length. Every older sidecar is discarded once.
 checkerSoundnessVersion :: Text
-checkerSoundnessVersion = "8"
+checkerSoundnessVersion = "9"
 
 -- | SAFE-ARG: reserved top-level sidecar key carrying 'checkerSoundnessVersion'.
 reservedCheckerSoundnessKey :: Text

@@ -6,6 +6,45 @@
 
 ## Unreleased (on `main` after v0.40.0)
 
+**Measured, v0.40.0 against this branch, over 824 sources (liquid-fixpoint 0.9.6.3.7):**
+
+- No file changes verdict. `.fq` text changes only in the two `bytes-make` fixtures.
+  `scripts/fallback_census.py`: no per-file change. `make refute-crux-gate`: 99 passed,
+  0 failed.
+- **Witnesses** (`scripts/tests/fixtures/byte_io_1/`, `w16_*` to `w18_*`, 6 programs), driven
+  by `scripts/tests/test_byte_io_1.py` cells BIO-V16 to BIO-V18 (41 → 44 cells).
+
+### Fixed: false verified — `BYTES-MAKE-ALIAS-1`, two `bytes-make` calls with one fill were one solver term
+
+- **`(let [(a (bytes-make 3 0)) (c (bytes-make 5 0))] (+ (bytes-length a) (bytes-length c)))`
+  returns 8, and v0.40.0 verified `(post (= result 1))`**, SAFE and body-faithful. v0.40.0
+  reflected `(bytes-make n v)` as `result = Map_default(v)` with `bytesLen(result) = n`. The
+  byte sort is an array with a separate `bytesLen` symbol, so two makes with one fill and
+  different lengths were one term, `bytesLen` took two values, the hypotheses were
+  inconsistent and any post was proved. The same cause gave a false SAFE for a `bytes-set`
+  chain rooted at two makes, for makes of `n` and `n+1` with one fill, and for the concat of
+  two makes.
+- **`bytes-make` now states only `bytesLen(result) = n`** and is an abstracted builtin, like
+  `bytes-slice`. An UNSAFE answer on a constraint that holds a make result falls back with
+  `Refused by: abstraction:app:bytes-make`, exit 0; a true post such as `(= result 8)` above
+  still verifies on the length lemmas. The trust report's `bytes-make` row is now the `lemma`
+  conjunct alone (`≈ assumes bytes-make ((bytesLen result) = n)`). The sealed-builtin axiom
+  set stays at thirteen.
+- **Cost:** a wrong post that rests on a make result, for example two makes with different
+  fills, now falls back instead of being refuted.
+- **Audit.** `bytes-zero` also reflects as a constant array, but it is legal only as the whole
+  body of a `-> bytes[n]` definition, so one constraint holds at most one; two callees of
+  lengths 3 and 5 are refuted, as before (BIO-V18). If that restriction is relaxed,
+  `bytes-zero` needs the same change. `bytes-widen`, whole-array `=` and the rest of the
+  sealed set are sound. `LLMLL.md` §5.3.3, §5.3.5 and §13.12 and the README verification
+  table move `bytes-make` to the length-lemma-only group.
+- **CI pins.** `BYTE-IO step 3` 41 → 44.
+- **`checker_soundness_version` "8" → "9"**: every older `.verified.json` is discarded once and
+  re-verified, and a v0.40.0 proof artifact fails closed on replay ("written under a
+  different soundness epoch; re-verify").
+
+**Tests:** hspec 3341 → 3345, 0 failures; Python 897 → 900 passed, 10 skipped.
+
 ### Documentation: claims a PL reviewer would reject, corrected to the v0.40.0 code
 
 No compiler change. A review of an external "LLMLL vs. prior art" comparison found that several of

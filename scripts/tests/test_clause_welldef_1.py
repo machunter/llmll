@@ -162,9 +162,10 @@ def test_proof_artifact_carries_epoch_and_ill_defined(tmp_path):
     p = _verify(tmp_path, "e1.llmll", "--proof-artifact", "e1.pa.json", json_mode=False)
     assert p.returncode == 1, p.stdout + p.stderr
     art = json.loads((tmp_path / "e1.pa.json").read_text())
-    # FQ-NAME-COLLIDE-1 moved both: artifact 0.3.0, soundness epoch "8".
+    # FQ-NAME-COLLIDE-1 moved both: artifact 0.3.0, soundness epoch "8";
+    # BYTES-MAKE-ALIAS-1 moved the epoch alone, to "9".
     assert art["proof_artifact_version"] == "0.3.0"
-    assert art["composed_versions"]["checker_soundness_version"] == "8"
+    assert art["composed_versions"]["checker_soundness_version"] == "9"
     mk = next(f for f in art["functions"] if f["name"] == "mk")
     assert mk["ill_defined"] is True
     assert mk["evidence_level"] != "verified"
