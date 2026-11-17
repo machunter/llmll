@@ -60,7 +60,7 @@ import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, 
 import LLMLL.ObligationAssembly (exprToSExpr)
 import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause, abstractedBuiltins)
 import LLMLL.FixpointIR (FQFile(..))
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoReportCtx, nonlinearConstruct)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoReportCtx, aoCitedResult, nonlinearConstruct)
 import LLMLL.ProductRecheck (recheckVerdict)
 import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
@@ -707,7 +707,9 @@ reVerify fp cache retTypes stmts bodyTargets
               fqReport = fqResultToReportWD fp table (aoReportCtx av) fqResult
           case fqResult of
             FQSafe          -> pure (Right (Right (patchedOutcomes bodyTargets (aoEmit av))))  -- SAFE → proceed with write
-            FQUnsafe failed -> pure (Right (Left (fqReport, calleePreUnmet stmts table failed)))
+            -- CALL-RESULT-MARK-1 (H4): point at a cited (unmarked) failing id.
+            FQUnsafe failed -> pure (Right (Left (fqReport, calleePreUnmet stmts table
+                                 (case aoCitedResult av of { FQUnsafe cited -> cited; _ -> failed }))))
             FQError e       -> pure (Left (SolverFailed e))  -- no verdict: do not write
             FQResourceLimit s -> pure (Left (SolverFailed (resourceStopText s)))  -- VERIFY-BUDGET-1: stopped, no verdict
 

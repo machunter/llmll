@@ -70,7 +70,7 @@ import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache
 import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, resourceStopValue, fqPathFor, runDirFor, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, getSolverLimits, renderLimits, parseLimits, installSolverSignalHandlers)
 -- ABSTRACTION-VERDICT-1: every solver consumer that turns UNSAFE into a claim
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoFallbackFns, aoReportCtx, postUnassumedConstruct)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoFallbackFns, aoReportCtx, aoCitedResult, postUnassumedConstruct)
 import LLMLL.ProductRecheck (recheckVerdict, recheckCandidates, counterexampleLine, RecheckAnswer(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
@@ -1887,7 +1887,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           when obligationReport $ do
             (oblSidecar, _stale, oblContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
             let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReport _cache trStmts oblSidecar))))))))
-                reportText = assembleReport fp stmts _cache emitR (Just fqResult) trustRpt
+                -- CALL-RESULT-MARK-1 (H4): the report cites only the
+                -- failing ids that carry no mark.
+                reportText = assembleReport fp stmts _cache emitR (Just (aoCitedResult avOut)) trustRpt
             if json then nest "obligation_report" reportText else TIO.putStrLn reportText
             -- VERIFY-RPT-1 (Commit 4): exit on the solver verdict, not
             -- unconditionally — a refuted file must fail closed even via the
@@ -1949,7 +1951,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                 when obligations $ do
                   oblSidecar <- loadVerified fp
                   let trustRpt = buildTrustReport _cache trStmts oblSidecar
-                      oblSugs  = mineObligations table fqResult trustRpt stmts
+                      oblSugs  = mineObligations table (aoCitedResult avOut) trustRpt stmts  -- CALL-RESULT-MARK-1 (H4)
                   TIO.putStr (formatObligations oblSugs)
               FQError e ->
                 TIO.putStrLn $ "ERROR: liquid-fixpoint: " <> e

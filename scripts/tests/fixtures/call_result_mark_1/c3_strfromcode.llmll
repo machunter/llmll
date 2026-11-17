@@ -1,0 +1,6 @@
+;; CALL-RESULT-MARK-1 witness C3: t may be empty; the string-from-code result is unused; refuted.
+(def-shell one-char [c: int t: string] -> int
+  (pre (and (>= c 65) (<= c 90)))
+  (post (>= result 0))
+  (let [(u (string-from-code c))]
+    (string-code-at t 0)))

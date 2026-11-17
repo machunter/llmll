@@ -78,10 +78,25 @@
 --
 -- A function whose failing ids are all marked, and some only by the product
 -- mark, falls back with the construct @abstraction:nonlinear:*@.
+--
+-- CALL-RESULT-MARK-1 (byte-io-proposal Rev 2b items 2 and 8). Clause 1 of the
+-- abstraction mark is now the cone of influence ('LLMLL.AbstractionCone'), so
+-- a constraint whose failure does not depend on a partially known result is
+-- unmarked and refutes. What a refuted function CITES changes too (H4): rule
+-- 1 still keeps every id of a function with a complete failing id, but a kept
+-- id that carries a mark ('aoMarkedIds') is shown as "may fail" (diagnostic
+-- kind @lh-may-fail@, a warning), with the construct of the mark that hit it
+-- ('aoMarkCause'). The obligation report and @patch@ read 'aoCitedResult',
+-- the kept ids without the marked ones. Exit codes, the solver verdict and
+-- the per-function sets do not change. Every function in 'aoRefuted',
+-- 'aoIllDefined' or 'aoMeasureBad' keeps at least one cited id: it is kept
+-- only through a non-candidate id (rule 2), and the hard sets read only
+-- non-candidate ids.
 
 module LLMLL.AbstractionVerdict
   ( AbstractionOutcome(..)
   , applyAbstractionVerdict
+  , aoCitedResult
   , aoFallbackFns
   , aoReportCtx
   , abstractionConstruct
@@ -143,7 +158,22 @@ data AbstractionOutcome = AbstractionOutcome
     -- ^ each function with a failing WD id, complete or marked only (N5)
   , aoMarkedIds    :: Set FQConstraintId
     -- ^ the kept failing ids that carry a mark
+  , aoMarkCause    :: Map FQConstraintId Text
+    -- ^ CALL-RESULT-MARK-1 (H4): for each id in 'aoMarkedIds', the construct
+    -- of the mark that hit it: @abstraction:app:<g>@, else
+    -- @post-unassumed:app:<g>@, else @abstraction:nonlinear:*@
   } deriving (Show)
+
+-- | CALL-RESULT-MARK-1 (H4): the failing ids a refuted function cites. The
+-- kept ids that carry no mark; the effective result unchanged when it is not
+-- 'FQUnsafe'. Never an empty 'FQUnsafe' for a kept function (see the module
+-- header), but a defensive fallback returns the effective result when every
+-- kept id is marked.
+aoCitedResult :: AbstractionOutcome -> FQVerifyResult
+aoCitedResult ao = case aoResult ao of
+  FQUnsafe kept
+    | cited@(_ : _) <- [ i | i <- kept, not (i `Set.member` aoMarkedIds ao) ] -> FQUnsafe cited
+  r -> r
 
 -- | Every function the rule moved to the fallback outcome, under any cause.
 -- A reader that must not count a reclassified function as proved (or as a
@@ -154,7 +184,7 @@ aoFallbackFns ao = map fst (aoReclassified ao) ++ map fst (aoUnassumed ao)
 
 -- | CLAUSE-WELLDEF-1: what the diagnostics renderer needs from the verdict.
 aoReportCtx :: AbstractionOutcome -> WdReportCtx
-aoReportCtx ao = WdReportCtx (aoMarkedIds ao) (aoWdFailing ao)
+aoReportCtx ao = WdReportCtx (aoMarkedIds ao) (aoWdFailing ao) (aoMarkCause ao)
 
 -- | CALLEE-POST-UNASSUMED-1: the attribution string of a function reclassified
 -- because a callee post was not assumed at a call.
@@ -252,6 +282,7 @@ applyAbstractionVerdict cleared er r = case r of
                            [ (coFunction o, if isNothing (candidate i) then WdComplete else WdMarkedOnly)
                            | i <- ids, Just o <- [Map.lookup i table], isWdClause (coClause o) ]
       , aoMarkedIds    = Set.fromList [ i | i <- kept, isJust (candidate i) ]
+      , aoMarkCause    = Map.fromList [ (i, k) | i <- kept, isJust (candidate i), Just k <- [markCause i] ]
       }
     where
       table    = erConstraintTable er
@@ -272,6 +303,12 @@ applyAbstractionVerdict cleared er r = case r of
                , isJust (absMark i) || isJust (cpuMark i) -> Just (coFunction o)
                | prodMark i                               -> Just (coFunction o)
         _                                                 -> Nothing
+      -- CALL-RESULT-MARK-1 (H4): the construct of the mark that hit an id.
+      markCause i
+        | Just g <- absMark i = Just (abstractionConstruct g)
+        | Just g <- cpuMark i = Just (postUnassumedConstruct g)
+        | prodMark i          = Just nonlinearConstruct
+        | otherwise           = Nothing
       -- Rule 2: one non-candidate id keeps the whole function.
       blocked  = Set.fromList [ f | i <- ids, isNothing (candidate i), Just f <- [fnOf i] ]
       candIds  = [ (f, i) | i <- ids, Just f <- [candidate i], not (f `Set.member` blocked) ]
@@ -313,7 +350,7 @@ applyAbstractionVerdict cleared er r = case r of
   _ -> AbstractionOutcome { aoResult = r, aoEmit = er, aoReclassified = [], aoAbstractionConstructs = [], aoUnassumed = []
                           , aoWelldefUnproved = [], aoIllDefined = Set.empty
                           , aoMeasureBad = Set.empty, aoRefuted = Set.empty
-                          , aoWdFailing = Map.empty, aoMarkedIds = Set.empty }
+                          , aoWdFailing = Map.empty, aoMarkedIds = Set.empty, aoMarkCause = Map.empty }
 
 -- | The construct a reclassified function carries.
 constructOf :: Reclass -> Text

@@ -43,6 +43,7 @@ library
       LLMLL.DiagnosticFQ
       LLMLL.SolverGuard
       LLMLL.AbstractionVerdict
+      LLMLL.AbstractionCone
       LLMLL.ProductNF
       LLMLL.ProductFacts
       LLMLL.ProductRecheck

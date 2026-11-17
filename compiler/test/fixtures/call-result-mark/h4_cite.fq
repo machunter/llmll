@@ -1,0 +1,57 @@
+constant strCode : (func(0 , [Str; int; int]))
+constant strLen : (func(0 , [Str; int]))
+qualif True(v : int) { (true) }
+qualif GEZ(v : int) { (v >= 0) }
+qualif GTZ(v : int) { (v > 0) }
+qualif EqZ(v : int) { (v = 0) }
+qualif Eq(v : int, w : int) { (v = w) }
+qualif GE(v : int, w : int) { (v >= w) }
+qualif GT(v : int, w : int) { (v > w) }
+qualif Q_cite_pre_53(v : int, s : Str) { ((strLen s) > 0) }
+qualif Q_cite_post_41(v : int, result : int) { (result >= 0) }
+bind 0 s : { v : Str | true }
+bind 1 _bv_call_string_code_at_0 : { v : int | v = _bv_call_string_code_at_0 }
+bind 2 _bv_call_string_code_at_1 : { v : int | v = _bv_call_string_code_at_1 }
+bind 3 _bv_call_string_code_at_2 : { v : int | v = _bv_call_string_code_at_2 }
+bind 4 result : { v : int | true }
+bind 5 _bv_call_string_code_at_0 : { v : int | v = _bv_call_string_code_at_0 }
+bind 6 _bv_call_string_code_at_1 : { v : int | v = _bv_call_string_code_at_1 }
+bind 7 result : { v : int | true }
+bind 8 _bv_call_string_code_at_0 : { v : int | true }
+bind 9 _bv_call_string_code_at_0 : { v : int | true }
+bind 10 _bv_call_string_code_at_1 : { v : int | true }
+constraint:
+  env [0; 1; 2; 3; 4]
+  lhs { result : int | (strLen s) >= 0 && _bv_call_string_code_at_0 > 64 && _bv_call_string_code_at_2 = (strCode s 7) && _bv_call_string_code_at_2 >= 0 && _bv_call_string_code_at_2 <= 1114111 && _bv_call_string_code_at_1 = (strCode s 5) && _bv_call_string_code_at_1 >= 0 && _bv_call_string_code_at_1 <= 1114111 && _bv_call_string_code_at_0 = (strCode s 0) && _bv_call_string_code_at_0 >= 0 && _bv_call_string_code_at_0 <= 1114111 && (strLen s) > 0 && result = _bv_call_string_code_at_2 }
+  rhs { result : int | result >= 0 }
+  id 0
+  tag [0]
+
+constraint:
+  env [0; 5; 6; 7]
+  lhs { result : int | (strLen s) >= 0 && (not (_bv_call_string_code_at_0 > 64)) && _bv_call_string_code_at_1 = (strCode s 5) && _bv_call_string_code_at_1 >= 0 && _bv_call_string_code_at_1 <= 1114111 && _bv_call_string_code_at_0 = (strCode s 0) && _bv_call_string_code_at_0 >= 0 && _bv_call_string_code_at_0 <= 1114111 && (strLen s) > 0 && result = _bv_call_string_code_at_1 }
+  rhs { result : int | result >= 0 }
+  id 1
+  tag [1]
+
+constraint:
+  env [0]
+  lhs { v : int | (strLen s) >= 0 && (strLen s) > 0 }
+  rhs { v : int | 0 >= 0 && 0 < (strLen s) }
+  id 2
+  tag [2]
+
+constraint:
+  env [0; 8]
+  lhs { v : int | (strLen s) >= 0 && (strLen s) > 0 && _bv_call_string_code_at_0 = (strCode s 0) && _bv_call_string_code_at_0 >= 0 && _bv_call_string_code_at_0 <= 1114111 }
+  rhs { v : int | 5 >= 0 && 5 < (strLen s) }
+  id 3
+  tag [3]
+
+constraint:
+  env [0; 9; 10]
+  lhs { v : int | (strLen s) >= 0 && _bv_call_string_code_at_0 > 64 && (strLen s) > 0 && _bv_call_string_code_at_0 = (strCode s 0) && _bv_call_string_code_at_0 >= 0 && _bv_call_string_code_at_0 <= 1114111 && _bv_call_string_code_at_1 = (strCode s 5) && _bv_call_string_code_at_1 >= 0 && _bv_call_string_code_at_1 <= 1114111 }
+  rhs { v : int | 7 >= 0 && 7 < (strLen s) }
+  id 4
+  tag [4]
+

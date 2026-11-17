@@ -1,0 +1,6 @@
+;; CALL-RESULT-MARK-1 witness C2: a real bug behind a guard over a strCode result; stays a fallback (stated cost).
+(def-shell guarded [s: string] -> int
+  (pre (> (string-length s) 0))
+  (post (>= result 0))
+  (let [(c (string-code-at s 0))]
+    (if (> c 64) (string-code-at s 5) c)))

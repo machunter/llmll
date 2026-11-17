@@ -49,6 +49,7 @@ module LLMLL.FixpointEmit
   , BuiltinAxiom(..)              -- TRUST-AXIOM: one sealed-builtin axiom a function's evidence rests on
   , sealedAxiomBuiltins           -- TRUST-AXIOM: the builtins whose assumed post is an axiom
   , abstractedBuiltins            -- ABSTRACTION-VERDICT-1 clause 1: partially reflected builtins
+  , exactSealedBuiltins           -- CALL-RESULT-MARK-1 (C6): the sealed builtins with an exact reflection
   , bytesCallNames                -- BYTES-UNSIZED-1: the step-3 byte operations the ANF pass hoists
   , exactBitBuiltins              -- BITWISE-1: the names with an exact reflection
   , BitExact(..), bitExact, bitExactTerm  -- BITWISE-1: the exact-form recognizer (unit tests)
@@ -95,6 +96,7 @@ module LLMLL.FixpointEmit
   , bodyToPredFrom
   , bodyToPredFromR
   , flattenBodyVC
+  , flattenBodyVCTagged          -- CALL-RESULT-MARK-1: the same paths, with guard and post atoms apart
   , pathBranchSides              -- COMP-3b-general: structural branch provenance (localization)
   , collectBranchBinders         -- COMP-3b-general: match-binder tree-walk
   , collectCallSites             -- COMP-4 (b): call sites for payload-subtyping
@@ -182,6 +184,7 @@ import qualified LLMLL.ProductNF as PNF
 import qualified LLMLL.ProductFacts as PF
 import LLMLL.ProductFacts (hasProduct)
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, isWdClause)
+import LLMLL.AbstractionCone (ConeRec(..), emptyConeRec, coneHits, atomsOf)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkError, mkBodyFallbackWarning, mkDecreasesUndischarged, mkBodyFallbackProduct, ProductWhy(..))
 import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare, reflectMinMaxAbs)
@@ -344,10 +347,19 @@ data EmitResult = EmitResult
   , erBuiltinAxioms      :: [(Text, [BuiltinAxiom])] -- ^ TRUST-AXIOM: per function, the sealed-builtin axioms its body VC assumed
   , erGroundFactFamilies :: [(Text, [Text])]  -- ^ TRUST-AXIOM family C: per function, the ground-fact families its constraints assumed
   , erAbstracted         :: Map FQConstraintId Name
-    -- ^ ABSTRACTION-VERDICT-1: each emitted constraint whose environment holds
-    -- two or more distinct call results of one callee, mapped to that callee
-    -- (the first such callee by name). Metadata only: the .fq does not change.
+    -- ^ ABSTRACTION-VERDICT-1: each kept constraint that carries the
+    -- abstraction mark, mapped to the first qualifying callee by name. Clause
+    -- 2: the environment holds two or more distinct call results of one
+    -- callee. Clause 1 (CALL-RESULT-MARK-1, byte-io-proposal Rev 2b): the
+    -- environment holds a result of an 'abstractedBuiltins' callee AND the
+    -- cone of influence of the partial results reaches the goal or a path atom
+    -- ('LLMLL.AbstractionCone'). Metadata only: the .fq does not change.
     -- 'LLMLL.AbstractionVerdict' reads it after the solver ran.
+  , erConeRecs           :: Map FQConstraintId ConeRec
+    -- ^ CALL-RESULT-MARK-1 (condition C1): what each body-post, call-pre and
+    -- descent site recorded about the constraint it built (call-post atoms,
+    -- guard and pre atoms, let binders, injected atoms, parameters). A
+    -- constraint with no entry keeps the whole-environment clause-1 mark.
   , erPostUnassumed      :: Map FQConstraintId Name
     -- ^ CALLEE-POST-UNASSUMED-1: each emitted constraint whose environment
     -- holds the result of a call whose callee post exists and was not assumed
@@ -452,6 +464,17 @@ abstractedBuiltins = Set.fromList
   -- values and every post was proved (v0.40.0). It now states the length only.
   , "bytes-make"
   , "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-to-list", "bytes-from-string" ]
+
+-- | CALL-RESULT-MARK-1 (byte-io-proposal Rev 2b item 10, condition C6): the
+-- sealed builtins whose result an exact reflection pins: a read (@bytes-get@,
+-- @map-get@), a store (@bytes-set@), the constant array (@bytes-zero@) and the
+-- identity (@bytes-widen@). 'sealedAxiomBuiltins' is the disjoint union of this
+-- set and 'abstractedBuiltins'; an hspec test (CR-C1) holds that, so a new
+-- sealed arm fails CI until someone classifies it. The audit is in the header
+-- of 'LLMLL.AbstractionCone'.
+exactSealedBuiltins :: Set.Set Name
+exactSealedBuiltins = Set.fromList
+  [ "bytes-get", "map-get", "bytes-set", "bytes-zero", "bytes-widen" ]
 
 -- | BITWISE-1: the names whose 'CallVC' arm reflects an exact form. Two such
 -- calls in one constraint are two arithmetic terms, so clause 2 of the verdict
@@ -951,6 +974,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   groundFactsRef <- newIORef ([] :: [(Text, [Text])])  -- TRUST-AXIOM family C: per-fn ground-fact families
   bytesArrsRef <- newIORef (Map.empty :: Map Text (Set.Set Text))  -- ARR-RANGE-NAME: per-fn bytes evidence set
   callBindersRef <- newIORef (Map.empty :: Map Text (Map Name CallBinder))  -- ABSTRACTION-VERDICT-1, CALLEE-POST-UNASSUMED-1: per-fn binder → call
+  coneRecsRef <- newIORef (Map.empty :: Map FQConstraintId ConeRec)  -- CALL-RESULT-MARK-1: per-constraint cone records
 
   let freshCid = do
         n <- readIORef ctrRef
@@ -983,9 +1007,16 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
         bam <- readIORef bytesArrsRef
         let bytesArrs = Map.findWithDefault Set.empty (fnTagOf c) bam
         let (c', labels) = injectRangeFactsLabeled bytesArrs c
+            cFinal = injectStrLitLen (injectStrLitDistinct c')
         unless (null labels) $
           modifyIORef' groundFactsRef (++ [(fnTagOf c, labels)])
-        modifyIORef' constsRef (++ [injectStrLitLen (injectStrLitDistinct c')])
+        -- CALL-RESULT-MARK-1 (Rev 2b item 2.3): a ground fact counts as a
+        -- recorded fact only when it was injected HERE, after all three
+        -- injectors ran. Only a constraint whose site wrote a record gets it.
+        let before   = atomsOf (reftPred (conLhs c))
+            injected = [ a | a <- atomsOf (reftPred (conLhs cFinal)), a `notElem` before ]
+        modifyIORef' coneRecsRef (Map.adjust (\r -> r { crInjected = injected }) (conId c))
+        modifyIORef' constsRef (++ [cFinal])
   let addQuals qs = modifyIORef' qualsRef (++ qs)
   let addData  d  = modifyIORef' dataRef  (++ [d])
   let addSkip  n  = modifyIORef' skippedRef (++ [n])
@@ -1016,6 +1047,10 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   -- ARR-RANGE-NAME: the per-function set of array names whose bytes-ness comes
   -- from a declared or resolved type ('bytesArrsOfVC'). 'addConst' reads it.
   let addBytesArrs n s = modifyIORef' bytesArrsRef (Map.insertWith Set.union n s)
+  -- CALL-RESULT-MARK-1 (condition C1): the site that builds a constraint
+  -- records, by position, what it put there. Written BEFORE 'addConst', which
+  -- adds the injected atoms to the same entry.
+  let addConeRec cid r = modifyIORef' coneRecsRef (Map.insert cid r)
 
   -- PAIR-RET: emit the polymorphic product datatype `data Pair2 2 = [ | pair2 {...} ]`
   -- exactly once, only when the module actually uses pairs — so a pair-free module's
@@ -1048,20 +1083,20 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       SDefLogic name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs addConeRec bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       SLetrec name params mRet contract dec body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs addConeRec bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract Nothing (Just dec) idx
 
       -- LT-INV (v0.11): SDef and SDefShell emit constraints identically to SDefLogic.
       SDef name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs addConeRec bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- REC-DESCENT (v0.14.25): a def-shell's k=1 measure is threaded as 'mDec'
@@ -1086,14 +1121,14 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
             <> "' declares a decreases measure but is not self-recursive; no descent obligation is emitted."
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs addConeRec bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       -- v0.12.1: def-invariant emits constraints identically to SDefLogic.
       SDefInvariant name params mRet contract body ->
         emitFnConstraints opts srcFile freshCid freshBid addBind addConst
           addQuals addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
+          addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs addConeRec bodyCounterRef aliases localSums cenv recursiveNames measureMap respRefs
           name params (effRet retTypes name mRet) contract (Just body) Nothing idx
 
       _ -> pure ()
@@ -1152,6 +1187,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
   ovTainted <- readIORef overflowTaintedRef
   builtinAxioms <- readIORef builtinAxiomsRef  -- TRUST-AXIOM
   callBinders <- readIORef callBindersRef      -- ABSTRACTION-VERDICT-1
+  coneRecs    <- readIORef coneRecsRef         -- CALL-RESULT-MARK-1
   groundFacts0 <- readIORef groundFactsRef     -- TRUST-AXIOM family C
   nextBid   <- readIORef bindRef
   -- MUL-VAR-1: the product pass, over the whole file, before the FREEVAR and
@@ -1331,14 +1367,20 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       -- no congruence, so an UNSAFE answer on such a constraint may be a model
       -- no pure function realizes. Computed over the KEPT constraints, after
       -- the FREEVAR routing above. The environment is already path-precise
-      -- (each flattened path binds exactly the calls on it), so the whole env
-      -- is the coarse form the design allows, not the cone of influence.
+      -- (each flattened path binds exactly the calls on it), so for clause 2
+      -- the whole env is the coarse form the design allows.
       -- Binders map to callees through the emitted BodyVC
       -- ('collectCallBinders'), never by parsing names; a map-returning call's
       -- $has/$val components count as the one call they belong to.
-      -- Clause 1 (CHAR-CODE-1): one result of an 'abstractedBuiltins' callee
-      -- marks the constraint, with no call count. Such a callee is a sealed
+      -- Clause 1 (CHAR-CODE-1; CALL-RESULT-MARK-1, Rev 2b item 2): an
+      -- environment that holds a result of an 'abstractedBuiltins' callee
+      -- runs the cone of influence ('LLMLL.AbstractionCone'). The seeds are
+      -- every such result in the environment; the constraint is marked when
+      -- the cone reaches its goal or a path atom, or when its site wrote no
+      -- record ('erConeRecs'; fail-closed). Then each clause-1 callee in the
+      -- environment qualifies, with no call count. Such a callee is a sealed
       -- builtin, so it enters through its name and not through 'cbAbstractable'.
+      -- The attribution stays the first qualifying callee by name.
       bindNames = Map.fromList [ (bindId b, bindName b) | b <- binds ]
       bindById  = Map.fromList [ (bindId b, b) | b <- binds ]
       keptIds   = Set.fromList (map conId keptCons)
@@ -1354,8 +1396,19 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
                 , Just b <- [Map.lookup nm bmap]
                 , cbAbstractable b || Set.member (cbCallee b) abstractedBuiltins
                 , let (cal, root) = (cbCallee b, cbRoot b) ]
+              -- the seed binders: every clause-1 result in this environment
+              seeds = Set.fromList
+                [ nm
+                | bid <- conEnv c
+                , Just nm <- [Map.lookup bid bindNames]
+                , Just b <- [Map.lookup nm bmap]
+                , Set.member (cbCallee b) abstractedBuiltins ]
+              coneHit = coneHits bindById (Map.lookup (conId c) coneRecs) seeds c
+              qualifies cal roots
+                | Set.member cal abstractedBuiltins = coneHit
+                | otherwise                         = Set.size roots >= 2
         , (callee, _) : _ <- [ [ x | x@(cal, roots) <- Map.toAscList perCallee
-                                   , Set.size roots >= 2 || Set.member cal abstractedBuiltins ] ] ]
+                                   , qualifies cal roots ] ] ]
       -- CALLEE-POST-UNASSUMED-1 (post-conj-split professor review P1, P8). A
       -- constraint is marked when its environment holds the result of a call
       -- whose callee post exists and was not assumed at that call
@@ -1407,6 +1460,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
         , not (T.null n), not (n `Set.member` routed)
         , let fams = nub (concat [ fs | (m, fs) <- groundFacts, m == n ]) ]
     , erAbstracted         = abstracted
+    , erConeRecs           = Map.restrictKeys coneRecs keptIds
     , erPostUnassumed      = postUnassumed
     , erProductMarked      = Set.fromList
         [ conId c
@@ -1446,6 +1500,7 @@ emitFnConstraints
   -> (Text -> [(Name, CallBinder)] -> IO ())  -- ABSTRACTION-VERDICT-1: record the call-result binders
   -> (Text -> [Text] -> IO ())          -- TRUST-AXIOM family C: record the ground-fact families
   -> (Text -> Set.Set Text -> IO ())   -- ARR-RANGE-NAME: record the bytes-typed array names
+  -> (FQConstraintId -> ConeRec -> IO ())  -- CALL-RESULT-MARK-1: record a constraint's cone data
   -> IORef Int             -- body-VC alpha-renaming counter
   -> AliasMap              -- v0.8.0: type alias map for isIntLike
   -> Set.Set Name          -- CTOR-FIELD-SORT-1: the sums this file declares ('fieldSort')
@@ -1463,7 +1518,7 @@ emitFnConstraints
   -> IO ()
 emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
     addSkip addOrigin addBodyFaithful addBodyFallback addDiag
-    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs bodyCounterRef aliases localSums cenvAll sccSet measureMap respRefs
+    addEmittedPre addEmittedPost addCallPre addOverflowTainted addBuiltinAxioms addCallBinders addGroundFacts addBytesArrs addConeRec bodyCounterRef aliases localSums cenvAll sccSet measureMap respRefs
     name params mRet contract0 mBody mDec stmtIdx = do
 
   -- FN-SHADOW-1 (fn-param-uf-1-proposal R1): a parameter or local binder
@@ -1720,6 +1775,10 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
       addBind b
       return b
     let envIds = map bindId paramBinds ++ map bindId mapCompBinds ++ map bindId sumValBinds
+    -- CALL-RESULT-MARK-1 (Rev 2b item 2.5): the parameters are frozen in the
+    -- clause-1 cone, in emitted form.
+        coneParams = Set.unions (map (predSymbols . FQVar)
+                       (map fst params ++ map bindName (paramBinds ++ mapCompBinds ++ sumValBinds)))
 
     -- Emit qualifiers extracted from pre/post
     -- BOOL-FRAG (v0.14.15): qualifier params must carry their REAL sort. A bool
@@ -2248,7 +2307,10 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                         "body VC for '" <> name <> "' has "
                         <> T.pack (show pathCount) <> " paths (high path count may slow solver)"
                     -- Flatten and emit constraints
-                    let paths = flattenBodyVC bvc
+                    -- CALL-RESULT-MARK-1: the tagged walk gives the same paths
+                    -- ('flattenBodyVC' is its projection) and, per path, the
+                    -- guard atoms and the call-post atoms, kept apart (C1).
+                    let taggedPaths = flattenBodyVCTagged bvc
                         provs = pathBranchSides bvc  -- structural then/else provenance, positionally aligned with paths
                         retSort = maybe FQInt sortA1 mRet
                         -- FACT-AG-LEN (Stage 3): the family-1 fact for a gated
@@ -2306,7 +2368,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     -- back keeps the post on the assumption channel at tier
                     -- `asserted`, which is what the adjacent shapes already do.
                     let unboundMapResult = not mapRetMode && mentionsResultComponents postPred
-                    unless unboundMapResult $ forM_ (zip provs paths) $ \(prov, (guard, lbs, resultPred)) -> do
+                    unless unboundMapResult $ forM_ (zip provs taggedPaths) $ \(prov, ((guard, lbs, resultPred), guardAtoms, postAtoms)) -> do
                       -- Emit binders for each let-binding in this path
                       lbBindIds <- mapM (\lb -> do
                         bid <- freshBid
@@ -2357,6 +2419,14 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                       cid <- freshCid
                       let allEnvIds = envIds ++ extraBindIds ++ lbBindIds ++ resultBindIds
                           c = FQConstraint cid allEnvIds lhs rhs [name, tag]
+                      -- CALL-RESULT-MARK-1 (C1): this constraint's facts are the
+                      -- call posts on its path and its own let binders; the
+                      -- branch guards and the pre are path atoms.
+                      addConeRec cid emptyConeRec
+                        { crFacts    = postAtoms
+                        , crGuards   = guardAtoms ++ maybe [] atomsOf mPre
+                        , crLetBinds = Set.fromList lbBindIds
+                        , crParams   = coneParams }
                       -- POST-TRUE-1: a post that is closed and true, `(post true)`
                       -- or `(post (>= 0 0))`, has nothing to prove, and
                       -- liquid-fixpoint's sanitizer rejects a `true` RHS ("RHS
@@ -2450,6 +2520,13 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                             -- RHS: callee's precondition (PROVE polarity — caller must prove this)
                             rhs = FQReft "v" FQInt prePred
                             c = FQConstraint cid (envIds ++ ctxBindIds ++ lbCtxBindIds) lhs rhs [name, cpTag]
+                        -- CALL-RESULT-MARK-1 (C1): the walk already keeps the
+                        -- path guard apart from the prior calls' posts.
+                        addConeRec cid emptyConeRec
+                          { crFacts    = concatMap atomsOf ctxPosts
+                          , crGuards   = atomsOf pathGuard ++ maybe [] atomsOf mPre
+                          , crLetBinds = Set.fromList lbCtxBindIds
+                          , crParams   = coneParams }
                         addConst c
                         -- OBLIG-D4: the pointer stays on the enclosing BODY —
                         -- oblig-0-spec §3.2 treats `origin` as separate mutable
@@ -2535,6 +2612,12 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                         -- callee tuple <_lex caller tuple (k=1 → bare '<')
                                         rhs = FQReft "v" FQInt (lexLess gMeasSubsts fMeasPreds)
                                         dc  = FQConstraint dcid (envIds ++ ctxBindIds ++ lbCtxBindIds) lhs rhs [name, "descent"]
+                                    -- CALL-RESULT-MARK-1 (C1): as at the call-pre site.
+                                    addConeRec dcid emptyConeRec
+                                      { crFacts    = concatMap atomsOf ctxPosts
+                                      , crGuards   = atomsOf pathGuard ++ maybe [] atomsOf mPre
+                                      , crLetBinds = Set.fromList lbCtxBindIds
+                                      , crParams   = coneParams }
                                     addConst dc
                                     let dptr = "/statements/" <> T.pack (show stmtIdx) <> "/decreases"
                                     addOrigin dcid (ConstraintOrigin name "descent" dptr srcFile Nothing)
@@ -6394,17 +6477,28 @@ guardToPredM = classifyGuardM
 -- For SimpleVC, the guard is FQTrue (unconditional).
 -- For BranchVC, each branch produces paths with guard conjunction.
 flattenBodyVC :: BodyVC -> [FlatPath]
-flattenBodyVC (SimpleVC lbs result) = [(FQTrue, lbs, result)]
-flattenBodyVC (BranchVC guard _ thenVC elseVC) =
-  let thenPaths = [(conjoin guard g, lbs, r) | (g, lbs, r) <- flattenBodyVC thenVC]
-      elsePaths = [(conjoin (FQNot guard) g, lbs, r) | (g, lbs, r) <- flattenBodyVC elseVC]
+flattenBodyVC = map (\(p, _, _) -> p) . flattenBodyVCTagged
+
+-- | CALL-RESULT-MARK-1 (byte-io-proposal Rev 2b item 2.3, condition C1): the
+-- same paths as 'flattenBodyVC', which is its projection, so the two cannot
+-- disagree and the .fq text cannot change. Each path also carries, apart, the
+-- atoms of its branch guards and the atoms of the call posts on it.
+-- 'flattenBodyVC' merges the two into one path guard, and the clause-1 cone
+-- must tell a recorded fact (a post) from a path atom (a guard).
+flattenBodyVCTagged :: BodyVC -> [(FlatPath, [FQPred], [FQPred])]
+flattenBodyVCTagged (SimpleVC lbs result) = [((FQTrue, lbs, result), [], [])]
+flattenBodyVCTagged (BranchVC guard _ thenVC elseVC) =
+  let thenPaths = [ ((conjoin guard g, lbs, r), atomsOf guard ++ gs, ps)
+                  | ((g, lbs, r), gs, ps) <- flattenBodyVCTagged thenVC ]
+      elsePaths = [ ((conjoin (FQNot guard) g, lbs, r), atomsOf (FQNot guard) ++ gs, ps)
+                  | ((g, lbs, r), gs, ps) <- flattenBodyVCTagged elseVC ]
   in thenPaths ++ elsePaths
 -- v0.9.0: Flatten a CallVC by threading postcondition as guard and
 -- result variable as let-binding into the continuation paths.
 -- The precondition obligation is emitted separately during constraint
 -- emission — it is NOT folded into the body-post constraint.
-flattenBodyVC (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultSort cont _ _) =
-  let contPaths = flattenBodyVC cont
+flattenBodyVCTagged (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultSort cont _ _) =
+  let contPaths = flattenBodyVCTagged cont
       -- Add result variable as a let-binding and postcondition as guard
       resultLB = LetBinding resultVar resultSort (FQVar resultVar)
       -- LEVER-A2.1: a map-returning callee's result is a SPLIT component pair;
@@ -6415,10 +6509,12 @@ flattenBodyVC (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultS
                 | isMapArrRetSort resultSort
                 , (sfx, srt) <- [ ("$has", markerHasSort resultSort)
                                 , ("$val", markerValSort resultSort) ] ]
-  in [ ( conjoinAll [guard, fromMaybe FQTrue mPost]
-       , resultLB : compLBs ++ lbs
-       , resultPred )
-     | (guard, lbs, resultPred) <- contPaths
+  in [ ( ( conjoinAll [guard, fromMaybe FQTrue mPost]
+         , resultLB : compLBs ++ lbs
+         , resultPred )
+       , gs
+       , maybe [] atomsOf mPost ++ ps )
+     | ((guard, lbs, resultPred), gs, ps) <- contPaths
      ]
 
 -- | LEVER-A2.1: does any flattened path RETURN an array-sorted let-bound var

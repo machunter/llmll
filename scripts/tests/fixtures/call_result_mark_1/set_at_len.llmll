@@ -1,0 +1,6 @@
+;; ABSTRACTION-LEN-EXACT-1 witness set_at_len (crm plan Rev 2); a fallback after CALL-RESULT-MARK-1.
+(def-shell set-at [n: int] -> int
+  (pre (>= n 1))
+  (post (>= result 0))
+  (let [(m (bytes-make n 0)) (m2 (bytes-set m 0 7))]
+    (bytes-get m2 n)))

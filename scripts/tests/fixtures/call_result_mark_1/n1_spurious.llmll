@@ -1,0 +1,6 @@
+;; CALL-RESULT-MARK-1 witness N1 (must not refute): correct; only a guard over the slice reaches the else branch.
+(def-shell first-agrees [b: bytes] -> int
+  (pre (>= (bytes-length b) 1))
+  (post (>= result 0))
+  (let [(h (bytes-slice b 0 1))]
+    (if (= (bytes-get h 0) (bytes-get b 0)) 0 (bytes-get b 99))))

@@ -1,0 +1,6 @@
+;; CALL-RESULT-MARK-1 witness H4-S: refuted at the (s 5) site; the (s 7) site under a guard on c is lh-may-fail.
+(def-shell cite [s: string] -> int
+  (pre (> (string-length s) 0))
+  (post (>= result 0))
+  (let [(c (string-code-at s 0)) (d (string-code-at s 5))]
+    (if (> c 64) (string-code-at s 7) d)))

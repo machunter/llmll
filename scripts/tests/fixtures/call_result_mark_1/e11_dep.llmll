@@ -1,0 +1,9 @@
+;; ABSTRACTION-LEN-EXACT-1 witness e11_dep (crm plan Rev 2); a fallback after CALL-RESULT-MARK-1.
+(def-shell cat-dep [b: bytes] -> int
+  (pre (and (>= (bytes-length b) 1) (= (bytes-get b 0) 0)))
+  (post (>= result 0))
+  (let [(h (bytes-slice b 0 1))
+        (k (bytes-get h 0))
+        (x (bytes-slice b 0 k))
+        (z (bytes-concat b x))]
+    (bytes-get b (- (bytes-length z) (bytes-length b)))))

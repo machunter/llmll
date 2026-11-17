@@ -1,0 +1,37 @@
+constant strCode : (func(0 , [Str; int; int]))
+constant strLen : (func(0 , [Str; int]))
+qualif True(v : int) { (true) }
+qualif GEZ(v : int) { (v >= 0) }
+qualif GTZ(v : int) { (v > 0) }
+qualif EqZ(v : int) { (v = 0) }
+qualif Eq(v : int, w : int) { (v = w) }
+qualif GE(v : int, w : int) { (v >= w) }
+qualif GT(v : int, w : int) { (v > w) }
+qualif Q_two_codes_pre_53(v : int, s : Str) { ((strLen s) > 0) }
+qualif Q_two_codes_post_41(v : int, result : int) { (result >= 0) }
+bind 0 s : { v : Str | true }
+bind 1 _bv_call_string_code_at_2 : { v : int | v = _bv_call_string_code_at_2 }
+bind 2 _bv_call_string_code_at_3 : { v : int | v = _bv_call_string_code_at_3 }
+bind 3 result : { v : int | true }
+bind 4 _bv_call_string_code_at_2 : { v : int | true }
+constraint:
+  env [0; 1; 2; 3]
+  lhs { result : int | (strLen s) >= 0 && _bv_call_string_code_at_3 = (strCode s 5) && _bv_call_string_code_at_3 >= 0 && _bv_call_string_code_at_3 <= 1114111 && _bv_call_string_code_at_2 = (strCode s 0) && _bv_call_string_code_at_2 >= 0 && _bv_call_string_code_at_2 <= 1114111 && (strLen s) > 0 && result = (_bv_call_string_code_at_2 + _bv_call_string_code_at_3) }
+  rhs { result : int | result >= 0 }
+  id 0
+  tag [0]
+
+constraint:
+  env [0]
+  lhs { v : int | (strLen s) >= 0 && (strLen s) > 0 }
+  rhs { v : int | 0 >= 0 && 0 < (strLen s) }
+  id 1
+  tag [1]
+
+constraint:
+  env [0; 4]
+  lhs { v : int | (strLen s) >= 0 && (strLen s) > 0 && _bv_call_string_code_at_2 = (strCode s 0) && _bv_call_string_code_at_2 >= 0 && _bv_call_string_code_at_2 <= 1114111 }
+  rhs { v : int | 5 >= 0 && 5 < (strLen s) }
+  id 2
+  tag [2]
+

@@ -1,0 +1,11 @@
+;; CALL-RESULT-MARK-1: the original H1 shape. g's post says nothing about its result, so the then-branch is a real modular refutation (exit 1); the else-else H1 sites stay lh-may-fail.
+(def-shell g [x: int] -> int
+  (pre (= x 0))
+  (post (= x 0))
+  0)
+
+(def-shell h1 [b: bytes] -> int
+  (pre (>= (bytes-length b) 1))
+  (post (>= result 0))
+  (let [(h (bytes-slice b 0 1)) (c (bytes-get h 0))]
+    (if (= (bytes-get b 0) 0) (g c) (if (= c 0) (bytes-get b 99) 0))))
