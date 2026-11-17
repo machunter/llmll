@@ -4,9 +4,9 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.40.0)
+## v0.40.1: a false `verified` from `bytes-make` fixed, and spec claims corrected (2026-11-17)
 
-**Measured, v0.40.0 against this branch, over 824 sources (liquid-fixpoint 0.9.6.3.7):**
+**Measured, v0.40.0 against this release, over 824 sources (liquid-fixpoint 0.9.6.3.7):**
 
 - No file changes verdict. `.fq` text changes only in the two `bytes-make` fixtures.
   `scripts/fallback_census.py`: no per-file change. `make refute-crux-gate`: 99 passed,
