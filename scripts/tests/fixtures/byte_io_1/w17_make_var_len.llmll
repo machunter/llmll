@@ -1,0 +1,4 @@
+(def-shell v [n: int] -> int
+  (pre (>= n 0)) (post (= result 0))
+  (let [(a (bytes-make n 9)) (c (bytes-make (+ n 1) 9))]
+    (- (bytes-length c) (bytes-length a))))

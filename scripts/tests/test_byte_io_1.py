@@ -517,10 +517,11 @@ def test_bio_c12_crc32_of_a_file_equals_zlib(cli_exe):
 #
 # What a pass here means:
 #
-# * BIO-V1..V12, V14, V15: each witness of the step-3 plan's contract plan gets
-#   its stated verdict through `llmll --json verify`: the correct body is
-#   SAFE and body-faithful; a refuting body whose constraint holds no
-#   abstracted result is `refuted`, exit 1, on the named obligation; a
+# * BIO-V1..V12, V14, V15 (and V16..V18, BYTES-MAKE-ALIAS-1, below): each
+#   witness of the step-3 plan's contract plan gets its stated verdict
+#   through `llmll --json verify`: the correct body is SAFE and body-faithful;
+#   a refuting body whose constraint holds no abstracted result is `refuted`,
+#   exit 1, on the named obligation; a
 #   refuting body whose constraint holds a partial (abstracted) result falls
 #   back with `abstraction:app:<name>`, exit 0, and is not refuted (design
 #   risk 4, CALL-RESULT-MARK-1). W-8 is the design's crc-loop as written (the
@@ -649,6 +650,40 @@ def test_bio_v6_make_length_is_exact_and_a_value_of_256_is_refuted(tmp_path):
     _refuted(tmp_path, "w06_make_len_bad", "mk-len", _call_pre("bytes-make", "mk-len"))
 
 
+# BYTES-MAKE-ALIAS-1 (v0.40.1 hotfix). v0.40.0 reflected `(bytes-make n v)` as
+# `result = Map_default(v)`, so two makes with one fill were one SMT term and
+# congruence on `bytesLen` forced two lengths on it: the hypotheses were
+# inconsistent and any post was proved. W-16 is the professor's witness (it
+# returns 8; v0.40.0 called `(= result 1)` SAFE and body-faithful). bytes-make now
+# states its length only and is abstracted, so each wrong post falls back with
+# `abstraction:app:bytes-make`, exit 0, and the true post `(= result 8)` still
+# verifies on the length lemmas. The fill-1 control was refuted on v0.40.0
+# (different terms); it now falls back too, because the verdict rule does not
+# refute on a constraint holding an abstracted result.
+@pytestmark_v
+def test_bio_v16_two_makes_of_different_lengths_are_not_one_term(tmp_path):
+    _safe(tmp_path, "w16_make_two_len_ok", ["two-makes"])
+    _abstraction_fallback(tmp_path, "w16_make_two_len", "two-makes", "bytes-make")
+    _abstraction_fallback(tmp_path, "w16_make_two_len_fill1", "two-makes", "bytes-make")
+
+
+# The same cause through a variable length and through a bytes-set chain rooted
+# at each make (v0.40.0: both SAFE, both false).
+@pytestmark_v
+def test_bio_v17_a_variable_length_make_and_a_set_chain_are_not_one_term(tmp_path):
+    _abstraction_fallback(tmp_path, "w17_make_var_len", "v", "bytes-make")
+    _abstraction_fallback(tmp_path, "w17_make_set_chain", "s", "bytes-make")
+
+
+# Audit control: `(bytes-zero)` also reflects as `Map_default(0)`, but only as
+# the whole body of a `-> bytes[n]` def, so one constraint holds at most one; a
+# caller sees each callee result as a fresh term with its declared length.
+# Two such callees of lengths 3 and 5 are refuted, on v0.39.0, v0.40.0 and now.
+@pytestmark_v
+def test_bio_v18_two_bytes_zero_callees_of_different_lengths_are_refuted(tmp_path):
+    _refuted(tmp_path, "w18_zero_two_callees", "use", _body("use"))
+
+
 @pytestmark_v
 def test_bio_v7_byte_loop_with_a_let_bound_guard_and_its_descent_control(tmp_path):
     _safe(tmp_path, "w07_sum_bytes", ["sum-bytes"])
@@ -745,7 +780,9 @@ SEVEN = """(def-shell mk-len [n: int] -> int
 """
 
 SEVEN_AXIOMS = {
-    "mk-len": ("bytes-make", "(result = (Map_default 7)) && ((bytesLen result) = n)"),
+    # BYTES-MAKE-ALIAS-1: the length only. The v0.40.0 content reflection
+    # `result = (Map_default 7)` is gone (see BIO-V16).
+    "mk-len": ("bytes-make", "((bytesLen result) = n)"),
     "w8": ("bytes-widen", "(result = k)"),
     "tail-len": ("bytes-slice", "((bytesLen result) = ((bytesLen b) - s))"),
     "cat-len": ("bytes-concat", "((bytesLen result) = ((bytesLen a) + (bytesLen b)))"),

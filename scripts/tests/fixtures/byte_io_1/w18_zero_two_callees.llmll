@@ -1,0 +1,6 @@
+(def-shell z3 [] -> bytes[3] (bytes-zero))
+(def-shell z5 [] -> bytes[5] (bytes-zero))
+(def-shell use [n: int] -> int
+  (post (= result 1))
+  (let [(x (z3)) (y (z5))]
+    (+ (bytes-length x) (bytes-length y))))

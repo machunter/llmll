@@ -1,0 +1,5 @@
+(def-shell two-makes [n: int] -> int
+  (pre (>= n 0))
+  (post (= result 1))
+  (let [(a (bytes-make 3 0)) (c (bytes-make 5 1))]
+    (+ (bytes-length a) (bytes-length c))))

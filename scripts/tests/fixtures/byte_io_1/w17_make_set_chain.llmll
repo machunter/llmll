@@ -1,0 +1,5 @@
+(def-shell s [n: int] -> int
+  (pre (>= n 0)) (post (= result 1))
+  (let [(a (bytes-make 3 0)) (c (bytes-make 5 0))]
+    (let [(a2 (bytes-set a 0 7)) (c2 (bytes-set c 0 7))]
+      (+ (bytes-length a2) (bytes-length c2)))))

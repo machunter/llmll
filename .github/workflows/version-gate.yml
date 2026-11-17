@@ -631,7 +631,7 @@ jobs:
       # stated verdicts (V cells, fixpoint) and the trust report names the
       # seven new sealed axioms (T cells). Every cell fails on v0.39.0, which
       # has no unsized bytes. Same skip and count guards as above: 11 B, 12 C,
-      # 14 V and 4 T cells.
+      # 17 V and 4 T cells (V16..V18: BYTES-MAKE-ALIAS-1).
       - name: Run BYTE-IO step 3 cells (pytest, needs the toolchain and the solver)
         run: |
           set -euo pipefail
@@ -641,8 +641,8 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/byte-io-1.log"; then
             echo "a BYTE-IO cell skipped; LLMLL_BIN, Stack and fixpoint must be present here"; exit 1
           fi
-          grep -q ' 41 passed' "$RUNNER_TEMP/byte-io-1.log" \
-            || { echo "BYTE-IO: expected 41 passed cells"; exit 1; }
+          grep -q ' 44 passed' "$RUNNER_TEMP/byte-io-1.log" \
+            || { echo "BYTE-IO: expected 44 passed cells"; exit 1; }
 
       # REGEX-CAPTURE-1 / REGEX-CASE-1's end-to-end cells. They build and run one
       # program with GHC (needs the toolchain), run `check` per agreement row,
