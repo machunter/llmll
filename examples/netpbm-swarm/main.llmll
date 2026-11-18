@@ -9,9 +9,12 @@
 ;;
 ;; A three-turn `cli` loop over the Command/Response model:
 ;;   :init  asks for the argument vector              -> RList args
-;;   turn 1 checks the argument count, reads IN       -> RText text | RErr
+;;   turn 1 checks the argument count, reads IN       -> RBytes buf | RErr
 ;;   turn 2 decodes, transforms, encodes, writes OUT  -> RNone | RErr
 ;;   turn 3 records success; :on-done reports, :status sets the exit code.
+;;
+;; IN is read and OUT written as bytes (wasi.fs.read-bytes / write-bytes).
+;; A P5/P6 input gives a P5/P6 output, a P2/P3 input a P2/P3 output.
 ;;
 ;; State = (phase, (args, message))
 ;;   phase 0 = want args, 1 = reading, 2 = writing, 3 = done, 4 = failed
@@ -156,18 +159,19 @@
                                                 " is not inside the " (int-to-string w) "x"
                                                 (int-to-string h) " image"])))))))))))))))
 
-;; Turn 2: the pure pipeline, text in, text out.
-(def-shell process [args: list[string] text: string] -> Result[string, string]
+;; Turn 2: the pure pipeline, bytes in, bytes out. The binary flag of the
+;; decoded input picks the output format.
+(def-shell process [args: list[string] buf: bytes] -> Result[bytes, string]
   (post (match result ((Success out) true) ((Error e) (not (= e "")))))
-  (match (decode text)
+  (match (decode-bytes buf)
     ((Error e) (err (string-concat-many [(arg args 0) ": " e])))
-    ((Success img)
+    ((Success dec)
       (match (int-args args)
         ((Error e) (err e))
         ((Success ns)
-          (match (apply-op (arg args 1) ns img)
+          (match (apply-op (arg args 1) ns (second dec))
             ((Error e) (err e))
-            ((Success out) (ok (encode out)))))))))
+            ((Success out) (ok (encode-bytes (first dec) out)))))))))
 
 (def-shell step [s: State r: Response] -> (State, Command)
   (post (and (>= (st-phase (first result)) 1) (<= (st-phase (first result)) 4)))
@@ -176,11 +180,11 @@
       ((RList xs)
         (if (< (list-length xs) 3)
             (pair (mk 4 xs (usage)) (wasi.io.stdout ""))
-            (pair (mk 1 xs "") (wasi.fs.read (arg xs 0)))))
-      ((RText text)
-        (match (process args text)
+            (pair (mk 1 xs "") (wasi.fs.read-bytes (arg xs 0)))))
+      ((RBytes buf)
+        (match (process args buf)
           ((Error e) (pair (mk 4 args (string-concat e "\n")) (wasi.io.stdout "")))
-          ((Success out) (pair (mk 2 args "") (wasi.fs.write (arg args 2) out)))))
+          ((Success out) (pair (mk 2 args "") (wasi.fs.write-bytes (arg args 2) out)))))
       ((RNone)
         (if (= (st-phase s) 2)
             (pair (mk 3 args (string-concat-many ["netpbm: " (arg args 1) " " (arg args 0)
@@ -191,7 +195,7 @@
         (pair (mk 4 args (string-concat-many ["netpbm: " e "\n"])) (wasi.io.stdout "")))
       ((RCode n)
         (pair (mk 4 args "netpbm: unexpected status response\n") (wasi.io.stdout "")))
-      ((RBytes _) (pair (mk 4 args "netpbm: unexpected bytes response\n") (wasi.io.stdout ""))))))
+      ((RText _) (pair (mk 4 args "netpbm: unexpected text response\n") (wasi.io.stdout ""))))))
 
 (def-shell report [s: State] -> Command
   (if (= (st-phase s) 3)

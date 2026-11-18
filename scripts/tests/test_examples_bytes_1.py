@@ -22,8 +22,13 @@ written into the tree. The mutants are spelled out here rather than read
 from examples/y4m/tools/mutants.py, so a change there cannot change what
 these cells check.
 
-The netpbm-swarm and netpbm `binfmt` cells (commits 2 and 3) go below the
-y4m ones.
+* SWARM-V: examples/netpbm-swarm/binfmt.llmll verifies after types: exit 0,
+  4 of 4 contracted functions proved, no `abstraction:app:bytes-*` fallback,
+  and header-end (a def-shell with a decreases clause) is total.
+* SWARM-B1 .. B4: a wrong body of byte-class, header-end, raster-len and
+  bin-sample is refuted, naming the function.
+
+The netpbm `binfmt` cells (commit 3) go below the netpbm-swarm ones.
 """
 
 import json
@@ -37,6 +42,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 Y4M = REPO / "examples" / "y4m"
+SWARM = REPO / "examples" / "netpbm-swarm"
 
 pytestmark = [
     pytest.mark.skipif(not os.environ.get("LLMLL_BIN"), reason="set LLMLL_BIN to a built llmll"),
@@ -116,8 +122,8 @@ def test_y4m_v_ybuf_verifies(tmp_path, y4m_imports):
     assert _bytes_fallbacks(doc) == [], doc
 
 
-def _mutate(d, old, new):
-    f = d / "ybuf.llmll"
+def _mutate(d, old, new, module="ybuf"):
+    f = d / f"{module}.llmll"
     src = f.read_text()
     assert old in src, old
     k = src.rindex(old)  # the body comes after the contract
@@ -177,3 +183,62 @@ def test_y4m_mutant_result_length_falls_back(tmp_path, y4m_imports, cell, fn, ol
     assert doc["solver_verdict"] == "safe", doc
     assert doc["body_fallback_constructs"] == {fn: ["abstraction:app:bytes-slice"]}, doc
     assert [x for x in doc["diagnostics"] if x.get("kind") == "lh-unsafe"] == [], doc["diagnostics"]
+
+
+# ─── netpbm-swarm ────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def swarm_imports(tmp_path_factory):
+    """types, copied and verified once (build.sh verifies binfmt after it)."""
+    d = tmp_path_factory.mktemp("swarm-imports")
+    for m in ("types", "binfmt"):
+        shutil.copyfile(SWARM / f"{m}.llmll", d / f"{m}.llmll")
+    p, doc = _verify(d, "types")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert doc["solver_verdict"] == "safe", doc
+    return d
+
+
+def _swarm_copy(tmp_path, imports):
+    d = tmp_path / "swarm"
+    shutil.copytree(imports, d)
+    return d
+
+
+def test_swarm_v_binfmt_verifies(tmp_path, swarm_imports):
+    d = _swarm_copy(tmp_path, swarm_imports)
+    p, doc = _verify(d, "binfmt")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert doc["exit_code"] == 0, doc
+    assert doc["solver_verdict"] == "safe", doc
+    assert doc["contracted_count"] == 4, doc
+    assert doc["proved_count"] == 4, doc
+    assert sorted(doc["body_faithful"]) == sorted(
+        ["byte-class", "header-end", "raster-len", "bin-sample"]), doc
+    assert doc["body_fallback"] == [], doc
+    assert doc["termination_assumed_fns"] == [], doc
+    assert _bytes_fallbacks(doc) == [], doc
+
+
+SWARM_WS = "(or (= b 9) (or (= b 10) (or (= b 11) (or (= b 12) (or (= b 13) (= b 32))))))"
+SWARM_REFUTED = [
+    ("B1", "byte-class", SWARM_WS + " 0",
+     "(or (= b 9) (or (= b 10) (or (= b 11) (or (= b 12) (= b 32))))) 0"),
+    ("B2", "header-end", "(if (>= (+ nt 1) 4) (+ i 1)", "(if (>= (+ nt 1) 4) i"),
+    ("B3", "raster-len", "(* b (* k n))", "(* k n)"),
+    ("B4", "bin-sample", "(bytes-get buf (+ (+ off (+ i i)) 1))",
+     "(bytes-get buf (+ (+ off (+ i i)) 2))"),
+]
+
+
+@pytest.mark.parametrize("cell,fn,old,new", SWARM_REFUTED, ids=[c[0] for c in SWARM_REFUTED])
+def test_swarm_mutant_refuted(tmp_path, swarm_imports, cell, fn, old, new):
+    d = _swarm_copy(tmp_path, swarm_imports)
+    _mutate(d, old, new, module="binfmt")
+    p, doc = _verify(d, "binfmt")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert doc["exit_code"] == 1, doc
+    assert doc["solver_verdict"] == "refuted", doc
+    unsafe = [x["message"] for x in doc["diagnostics"] if x.get("kind") == "lh-unsafe"]
+    assert any(f"'{fn}'" in m for m in unsafe), doc["diagnostics"]
+    assert fn not in doc.get("body_fallback_constructs", {}), doc

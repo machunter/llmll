@@ -1,5 +1,6 @@
-;; codec — SHELL layer (level 2): decode and encode plain PGM (P2) / PPM (P3).
-;; Depends on: types, lex, rules. Verify those first.
+;; codec — SHELL layer (level 2): decode and encode plain PGM (P2) / PPM (P3)
+;; and binary PGM (P5) / PPM (P6).
+;; Depends on: types, lex, rules, binfmt. Verify those first.
 ;;
 ;; Everything here walks a string or a list, which the verifier cannot reason
 ;; about, so it is def-shell. Every decision is delegated to the verified core:
@@ -8,6 +9,7 @@
 ;;   samples      rules.sample-problem, the (r, k) counter next-k / next-r,
 ;;                and count-problem at the end
 ;;   line layout  rules.sep-after
+;;   binary       binfmt.header-end / raster-len / bin-sample
 ;; The few defs below are not shell: they are compositions of verified
 ;; accessors in types, and verify body-faithful.
 ;;
@@ -21,6 +23,8 @@
 (open lex)
 (import rules)
 (open rules)
+(import binfmt)
+(open binfmt)
 
 ;; ─── Verified header accessors (compositions of one-level projections) ──
 
@@ -258,6 +262,96 @@
                              (int-to-string (img-width img)) " " (int-to-string (img-height img)) "\n"
                              (int-to-string (img-maxval img)) "\n"])
         (list-map (img-rows img) (fn [row: list[int]] (encode-row len row)))))))
+
+;; ─── Binary P5 / P6 ─────────────────────────────────────────────────────
+;; A file arrives as one `bytes` buffer. The magic P5 or P6 takes the binary
+;; path: binfmt.header-end finds the end of the ASCII header, whose text goes
+;; through the same scanner and header rules as P2/P3; the raster is read
+;; with binfmt.bin-sample into the same sample list decode-samples takes, so
+;; the image and its messages are those of the text path. Bytes after the
+;; raster are ignored; a short raster is a sample-count error. Any other file
+;; is decoded as text, by decode, unchanged.
+
+;; 1 for a buffer that starts "P5", 3 for "P6", 0 otherwise.
+(def-shell bin-channels [buf: bytes] -> int
+  (if (< (bytes-length buf) 2) 0
+    (if (not (= (bytes-get buf 0) 80)) 0
+      (if (= (bytes-get buf 1) 53) 1
+        (if (= (bytes-get buf 1) 54) 3 0)))))
+
+;; Samples 0 .. n-1 of the raster at offset off, b bytes a sample.
+(def-shell raster-samples [buf: bytes off: int b: int n: int] -> list[int]
+  (list-map (range 0 n) (fn [i: int] (bin-sample buf off b i))))
+
+(def-shell decode-raster [c: int w: int h: int m: int buf: bytes off: int] -> Result[Image, string]
+  (pre  (and (header-ok? c w h m) (and (>= off 0) (<= off (bytes-length buf)))))
+  (let [(b     (if (< m 256) 1 2))
+        (avail (- (bytes-length buf) off))]
+    (if (< avail (raster-len c w h m))
+        (err (count-message c w h (/ avail b)))
+        (decode-samples c w h m (raster-samples buf off b (* (* w h) c))))))
+
+(def-shell decode-binary [c: int buf: bytes] -> Result[Image, string]
+  (pre (or (= c 1) (= c 3)))
+  (let [(he   (header-end buf 0 0 0 0))
+        (hlen (if (= he -1) (bytes-length buf) he))]
+    (match (bytes-to-string (bytes-slice buf 0 hlen))
+      ((Error k) (err (string-concat-many ["unexpected byte " (int-to-string (bytes-get buf k))
+                                           " at offset " (int-to-string k) " in the header"])))
+      ((Success text)
+        (let [(rest (string-slice text 2 (string-length text)))
+              (sep  (or (= rest "") (sep-ok? (char-class (string-slice rest 0 1)))))]
+          (match (scan rest)
+            ((Error e) (err e))
+            ((Success toks)
+              (let [(w (nth-or-0 toks 0))
+                    (h (nth-or-0 toks 1))
+                    (m (nth-or-0 toks 2))]
+                (match (header-problem c sep (list-length toks) w h m)
+                  ((NoProblem) (decode-raster c w h m buf hlen))
+                  ((BadMagic)
+                    (err (string-concat-many ["bad magic number '" (string-slice text 0 3)
+                                              "' (expected P5 or P6 followed by whitespace)"])))
+                  (p (err (problem-message p c w h m 0))))))))))))
+
+;; The bytes of a P2/P3/P5/P6 file -> (binary?, image), or an error naming
+;; the problem.
+(def-shell decode-bytes [buf: bytes] -> Result[(bool, Image), string]
+  (let [(c (bin-channels buf))]
+    (if (> c 0)
+        (match (decode-binary c buf)
+          ((Error e) (err e))
+          ((Success img) (ok (pair true img))))
+        (match (bytes-to-string buf)
+          ((Error k) (err (string-concat-many ["not a text file: invalid UTF-8 at byte "
+                                               (int-to-string k)])))
+          ((Success text)
+            (match (decode text)
+              ((Error e) (err e))
+              ((Success img) (ok (pair false img)))))))))
+
+;; Binary output: the ASCII header, then each sample as one byte, or as two
+;; (big-endian) when maxval > 255.
+(def-shell encode-binary [img: Image] -> bytes
+  (pre (image-ok? img))
+  (let [(c   (img-channels img))
+        (m   (img-maxval img))
+        (two (> m 255))
+        (hdr (string-concat-many [(if (= c 1) "P5" "P6") "\n"
+                                  (int-to-string (img-width img)) " " (int-to-string (img-height img)) "\n"
+                                  (int-to-string m) "\n"]))
+        (rev (list-fold (img-rows img) (list-empty)
+               (fn [acc: list[int] row: list[int]]
+                 (list-fold row acc
+                   (fn [a: list[int] s: int]
+                     (if two (list-prepend (mod s 256) (list-prepend (/ s 256) a)) (list-prepend s a)))))))]
+    (bytes-concat (bytes-from-string hdr)
+                  (unwrap-or (bytes-from-list (list-reverse rev)) (bytes-from-string "")))))
+
+;; Output follows the input format: binary when bin, else the P2/P3 text.
+(def-shell encode-bytes [bin: bool img: Image] -> bytes
+  (pre (image-ok? img))
+  (if bin (encode-binary img) (bytes-from-string (encode img))))
 
 ;; ─── Properties ─────────────────────────────────────────────────────────
 

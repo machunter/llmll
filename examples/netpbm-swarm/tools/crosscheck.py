@@ -1,16 +1,18 @@
 """Independent Python reference for the netpbm-swarm example.
 
 Runs the built LLMLL executable on every sample image and every transform,
-re-implements each transform here, and compares the decoded outputs. It also
-checks the encoder's line layout (<= 70 characters, <= 10 samples a line) and
-that every malformed input, bad argument and missing file exits 1 with a
-message on stderr.
+re-implements each transform here, and compares the decoded outputs. Plain
+(P2/P3) and binary (P5/P6) inputs are both read; the output must be in the
+input's format (binary in, binary out). It also checks the plain encoder's
+line layout (<= 70 characters, <= 10 samples a line) and that every
+malformed input, bad argument and missing file exits 1 with a message on
+stderr.
 
 usage: python3 -I tools/crosscheck.py BUILT_EXE SAMPLES_DIR WORK_DIR [EXTRA_IMAGE ...]
 """
 import os, re, subprocess, sys, time
 
-def decode(text):
+def decode_text(text):
     magic, body = text[:2], text[2:]
     c = {"P2": 1, "P3": 3}[magic]
     toks = [int(t) for t in re.sub(r"#[^\n]*", "", body).split()]
@@ -18,6 +20,55 @@ def decode(text):
     xs = toks[3:]
     assert len(xs) == w * h * c and all(0 <= x <= m for x in xs), "bad image"
     return c, w, h, m, xs
+
+WS = b" \t\n\v\f\r"
+
+def decode_bin(data):
+    """P5/P6 as netpbm reads it: a '#' comment runs to the end of the line
+    and reads as that LF or CR; exactly one whitespace byte follows maxval;
+    samples are 1 byte, or 2 big-endian when maxval > 255; bytes after the
+    raster are ignored."""
+    c = {b"P5": 1, b"P6": 3}[data[:2]]
+    pos = [2]
+
+    def getc():
+        assert pos[0] < len(data), "header ends early"
+        ch = data[pos[0]:pos[0] + 1]
+        pos[0] += 1
+        if ch == b"#":
+            while pos[0] < len(data) and data[pos[0]:pos[0] + 1] not in (b"\n", b"\r"):
+                pos[0] += 1
+            ch = getc()
+        return ch
+
+    toks = []
+    ch = getc()
+    assert ch in WS, "magic not followed by whitespace"
+    for _ in range(3):
+        while ch in WS:
+            ch = getc()
+        digits = b""
+        while ch.isdigit():
+            digits += ch
+            ch = getc()
+        assert digits, "header token is not a number"
+        toks.append(int(digits))
+    assert ch in WS, "maxval not followed by whitespace"
+    w, h, m = toks
+    assert w >= 1 and h >= 1 and 1 <= m <= 65535, "bad header"
+    b = 1 if m < 256 else 2
+    n = w * h * c
+    r = data[pos[0]:pos[0] + n * b]
+    assert len(r) == n * b, "raster too short"
+    xs = list(r) if b == 1 else [r[2 * i] * 256 + r[2 * i + 1] for i in range(n)]
+    assert all(x <= m for x in xs), "sample over maxval"
+    return c, w, h, m, xs
+
+def decode(data):
+    """(binary?, image) of a file's bytes."""
+    if data[:2] in (b"P5", b"P6"):
+        return True, decode_bin(data)
+    return False, decode_text(data.decode())
 
 def rows(img):
     c, w, h, m, xs = img
@@ -80,14 +131,18 @@ def run(exe, argv):
 def check_image(exe, path, work, timed):
     fails = 0
     name = os.path.basename(path)
-    img = decode(open(path).read())
+    binary, img = decode(open(path, "rb").read())
     for op, args in ops_for(img):
         out = os.path.join(work, "%s.%s%s" % (os.path.splitext(name)[0], op, os.path.splitext(name)[1]))
         p, dt = run(exe, [path, op, out] + [str(a) for a in args])
         if p.returncode != 0:
             print("FAIL", name, op, "exit", p.returncode, p.stderr.strip()); fails += 1; continue
-        text = open(out).read()
-        ok = decode(text) == ref(img, op, args) and layout_ok(text)
+        data = open(out, "rb").read()
+        try:
+            obin, oimg = decode(data)
+        except (AssertionError, KeyError, ValueError, IndexError) as e:
+            print("FAIL", name, op, "output does not decode:", e); fails += 1; continue
+        ok = obin == binary and oimg == ref(img, op, args) and (binary or layout_ok(data.decode()))
         print(("ok  " if ok else "FAIL"), name, op, ("%.2fs" % dt) if timed else "")
         fails += not ok
     return fails
