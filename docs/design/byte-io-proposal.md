@@ -97,6 +97,8 @@ Below, "witness C1" names the engineer's string witness and "condition C1" names
 
 13. **Versions and related rows.** No schema change, no `verify --json` key beyond item 8, and no `proof_artifact_version` change. `checker_soundness_version` stays "9": v0.40.1 raised it for `BYTES-MAKE-ALIAS-1`, and these rows only move a fallback to `refuted`, so no stored `verified` record changes meaning. (The language-team hand-off said "8"; that predates v0.40.1.) The professor's separate H3 finding, the `bytes-make` length collapse, is filed and closed as `BYTES-MAKE-ALIAS-1`, shipped in v0.40.1; it is not refiled here.
 
+14. **Implementation notes (2026-11-17, user-approved with the engineer's plan).** Two extensions of item 7 ship: `bytes-make` (its lemma `bytesLen(r) = n` qualifies when `n` names no D symbol; witnesses MK-P refuted, MK-N fallback) and the optional `bytes-set` length row (`L_r` outside D when `L_b` is). Item 8 adds no `verify --json` key, but its new diagnostic kind `lh-may-fail` raises `verify_json_version` from 1.2.0 to 1.3.0, as `MUL-VAR-1` did for its kind. Witness H1-G as first constructed was refuted by a sound modular refutation at its then-branch (the callee post `(= x 0)` says nothing of the result); the pinned witness gives `g` the post `(and (= x 0) (= result 0))`, and the original shape is pinned as `h1_g_modular`. A `let`-bound index read twice from a slice keeps the mark (witness G1); it is filed as `CONE-DEF-DIRECTION-1`. Implemented in `3755f2ef` and `7c2ee131`, ships in v0.41.0.
+
 ## Changes from Rev 1
 
 The professor's follow-up review of the Rev 1 P1 narrowing gave the verdict "accept with change". Rev 2 makes these changes. No other part of Rev 1 changes.
