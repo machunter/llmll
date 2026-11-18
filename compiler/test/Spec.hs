@@ -32,7 +32,7 @@ import LLMLL.ObligationAssembly
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, isSigmaAuto, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, fqResultToReportWD, WdReportCtx(..), WdFailKind(..), emptyWdReportCtx, isWdClause, runFQSolver, resourceStopText, resourceStopValue, parseFQNumCstr, decideSolved, solveFQText)
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..), selfEqReft, arrayTheorySyms)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..), selfEqReft, arrayTheorySyms, abstractedBuiltins, exactSealedBuiltins, flattenBodyVCTagged, collectLenDefs)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitDisclosure, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..), FQBind(..), fqNameCollisions, fqFreeSymbols)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -74,7 +74,7 @@ import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDi
 import System.Environment (setEnv, unsetEnv, lookupEnv, getEnvironment)
 import System.Process (callProcess, readProcessWithExitCode, readCreateProcessWithExitCode, createProcess, waitForProcess, proc, StdStream(..))
 import qualified System.Process as SP
-import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, intercalate, (\\))
+import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, intercalate, (\\), permutations)
 import Data.Char (isAlphaNum, isLower)
 import LLMLL.RegexPattern (validatePattern, rxMeaningfulEscapes, RegexProblem(..))
 import qualified Text.Regex.TDFA as RX
@@ -94,7 +94,8 @@ import LLMLL.DivergenceCheck
   , DistinguishingWitness(..), buildDivergenceReport, divergenceReportJson, fillStatusLabel
   , verdictLabel, probeSet )
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchedFn(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, applyPatchWithMode, PatchScopeMode(..), hasContracts, patchTargetFns, notProvedMessage)
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns, aoReportCtx)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns, aoReportCtx, aoCitedResult)
+import LLMLL.AbstractionCone (ConeRec(..), emptyConeRec, coneHits, clause1SeedUFs, coneFrozenHeads, exactLengthBuiltins)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
 import LLMLL.CDP
@@ -27967,15 +27968,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       truths `shouldSatisfy` (not . null)
       ms `shouldSatisfy` all (T.isInfixOf "; the counter-example may sit at a point where the clause is undefined; fix the ill-defined clause first")
 
-    it "F-4 a marked-only WD failure qualifies it as not proved defined, and the marked wd id reads lh-unsafe" $ do
+    -- CALL-RESULT-MARK-1 (H4): the marked wd id now reads lh-may-fail.
+    it "F-4 a marked-only WD failure qualifies it as not proved defined, and the marked wd id reads lh-may-fail" $ do
       er <- emitSrc v5
       let ids  = idsOf er "g" (const True)
           wds  = wdOf er "g" "wd-post"
-          ctx  = WdReportCtx (Set.fromList wds) (Map.fromList [("g", WdMarkedOnly)])
+          ctx  = WdReportCtx (Set.fromList wds) (Map.fromList [("g", WdMarkedOnly)]) Map.empty
           ds   = reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable er) ctx (FQUnsafe ids))
       [ diagMessage d | d <- ds, not ("the post" `T.isPrefixOf` diagMessage d) ]
         `shouldSatisfy` all (T.isInfixOf "; the counter-example may sit at a point where the clause is not proved defined")
-      [ diagKind d | d <- ds, "the post" `T.isPrefixOf` diagMessage d ] `shouldSatisfy` all (== Just "lh-unsafe")
+      [ diagKind d | d <- ds, "the post" `T.isPrefixOf` diagMessage d ] `shouldSatisfy` all (== Just "lh-may-fail")
 
     -- G. Versions
     it "CW-S1 a sidecar stamped \"6\" is discarded" $
@@ -28040,9 +28042,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
     -- MUL-VAR-1: verify_json_version 1.2.0 (abstraction:nonlinear:*); the
     -- trust report version does not move (design decision 4).
-    it "H-3 trust_report_version is 1.11.0 and verify_json_version is 1.2.0" $ do
+    -- CALL-RESULT-MARK-1: 1.3.0 (the lh-may-fail diagnostics kind).
+    it "H-3 trust_report_version is 1.11.0 and verify_json_version is 1.3.0" $ do
       trustReportEmitVersion `shouldBe` "1.11.0"
-      verifyJsonVersion `shouldBe` "1.2.0"
+      verifyJsonVersion `shouldBe` "1.3.0"
 
   -- CLAUSE-WELLDEF-1 (commit 3 of 3): the run-time guard (clause-welldef-
   -- proposal.md Rev 3 §4.6). A partial operation inside a clause check stops
@@ -29170,12 +29173,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- the verifier's consumer: crc-loop's guard translates, so the function is body-faithful
       er <- emitS (crcLoop "(= i (bytes-length buf))")
       erBodyFaithfulFns er `shouldSatisfy` elem "crc-loop"
-    it "T-V12 a constraint that holds a product and a slice result keeps the abstraction mark" $ do
+    -- ABSTRACTION-LEN-EXACT-1: the slice's length is exact over the
+    -- parameter b, so the post no longer reads the partial result: the
+    -- abstraction mark goes, and the product mark stays.
+    it "T-V12 a constraint that holds a product and an exact-length slice keeps the product mark only" $ do
       er <- emitS "(def-shell f [b: bytes x: int y: int] -> int (pre (and (>= x 0) (>= y 0))) (post (>= result 1)) (+ (* x y) (bytes-length (bytes-slice b 0 (bytes-length b)))))"
-      let marked = Map.keys (erAbstracted er)
-      marked `shouldSatisfy` (not . null)
-      [ c | c <- marked, c `Set.member` erProductMarked er ] `shouldSatisfy` (not . null)
-      Map.elems (erAbstracted er) `shouldSatisfy` all (== "bytes-slice")
+      let posts = [ i | (i, o) <- Map.toList (erConstraintTable er), coClause o == "body-post" ]
+      posts `shouldSatisfy` (not . null)
+      [ c | c <- posts, c `Map.member` erAbstracted er ] `shouldBe` []
+      [ c | c <- posts, c `Set.member` erProductMarked er ] `shouldSatisfy` (not . null)
     it "T-V13 a widened let-bound value gets no bytesLen(r) = n fact of its own (FACT-AG-LEN, P2)" $ do
       er <- emitS "(def-shell w [k: bytes[8]] -> int (post (= result 8)) (let [(z (bytes-set k 0 1))] (bytes-length (bytes-widen z))))"
       erBodyFaithfulFns er `shouldBe` ["w"]
@@ -29212,7 +29218,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- returns 8, and (= result 1) solved Safe). Each make is now a fresh term with
     -- its length lemma, and the constraint is marked abstracted, so the UNSAFE
     -- answer falls back (abstraction:app:bytes-make) rather than refuting.
-    it "T-V17 two makes with one fill are two terms: no Map_default in the .fq, and the wrong post is Unsafe" $ do
+    it "T-V17 two makes with one fill are two terms: no Map_default in the .fq, the wrong post is Unsafe and unmarked" $ do
       let src p v = "(def-shell two-makes [n: int] -> int (pre (>= n 0)) (post (= result " ++ show (p :: Int)
                     ++ ")) (let [(a (bytes-make 3 0)) (c (bytes-make 5 " ++ show (v :: Int)
                     ++ "))] (+ (bytes-length a) (bytes-length c))))"
@@ -29223,8 +29229,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf "Map_default" (erFQText er) `shouldBe` False
       T.isInfixOf "(bytesLen _bv_call_bytes_make_0) = 3" (erFQText er) `shouldBe` True
       T.isInfixOf "(bytesLen _bv_call_bytes_make_1) = 5" (erFQText er) `shouldBe` True
-      Map.elems (erAbstracted er) `shouldSatisfy` (\cs -> not (null cs) && all (== "bytes-make") cs)
-      Map.elems (erAbstracted er2) `shouldSatisfy` (\cs -> not (null cs) && all (== "bytes-make") cs)
+      -- ABSTRACTION-LEN-EXACT-1: each make's length is exact (3 and 5), so
+      -- the wrong post is no longer marked: an UNSAFE answer here refutes.
+      erAbstracted er `shouldBe` Map.empty
+      erAbstracted er2 `shouldBe` Map.empty
       expectSolveS er "Unsafe"
       expectSolveS er2 "Unsafe"
       expectSolveS erOk "Safe"
@@ -29424,6 +29432,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   productSpec
   recheckSpec
 
+  -- CALL-RESULT-MARK-1: the clause-1 cone and the H4 rendering
+  callResultMarkSpec
+  -- ABSTRACTION-LEN-EXACT-1: the length of a partial result
+  lenExactSpec
+
 -- | GENERIC-COMPARE-PAIR-1 (GP-2..GP-4): a value of the test-only evaluator
 -- over the compare unfolding.
 data GpV = GpI Integer | GpB Bool | GpP GpV GpV
@@ -29440,3 +29453,363 @@ gpVals = [ ((a, b), c) | a <- [0, 1], b <- [False, True], c <- [-1, 1] ]
 -- guard stop reads as exit 137 with no output, which no example accepts.
 solverRun :: FilePath -> [String] -> IO (ExitCode, String, String)
 solverRun lf args = either (const (ExitFailure 137, "", "")) id <$> runSolverGuarded lf args
+
+-- ---------------------------------------------------------------------------
+-- CALL-RESULT-MARK-1 (docs/design/byte-io-proposal.md, Amendment Rev 2b):
+-- clause 1 of the abstraction mark is the cone of influence of the partially
+-- known results ('LLMLL.AbstractionCone'), and a refuted function cites only
+-- its unmarked failing checks (H4).
+-- ---------------------------------------------------------------------------
+callResultMarkSpec :: Spec
+callResultMarkSpec = describe "CALL-RESULT-MARK-1 cone (Rev 2b)" $ do
+  let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+        Left e   -> error (show e)
+        Right ss -> ss
+      emitSrc src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+      fixture n = T.unpack <$> TIO.readFile ("../scripts/tests/fixtures/call_result_mark_1/" ++ n ++ ".llmll")
+      emitFix n = fixture n >>= emitSrc
+      origins er = Map.toList (erConstraintTable er)
+      idsOf er fn clauseP = [ i | (i, o) <- origins er, coFunction o == fn, clauseP (coClause o) ]
+      conOf er i = case find ((== i) . conId) (fqConstraints (erFQFile er)) of
+        Just c  -> c
+        Nothing -> error ("no constraint " ++ show i)
+      -- the call-pre ids of fn whose goal names the literal k
+      cpAt er fn k = [ i | i <- idsOf er fn ("call-pre:" `T.isPrefixOf`)
+                         , T.pack (show k) `elem` T.words (T.map (\ch -> if ch `elem` ("()" :: String) then ' ' else ch) (emitPred (reftPred (conRhs (conOf er i))))) ]
+      marked er i = Map.lookup i (erAbstracted er)
+      solved src k = do
+        er <- emitSrc src
+        tmp <- getTemporaryDirectory
+        (fqPath, h) <- SIO.openTempFile tmp "call-result-mark.fq"
+        SIO.hClose h
+        TIO.writeFile fqPath (erFQText er)
+        mLF <- do a <- findExecutable "liquid-fixpoint"
+                  maybe (findExecutable "fixpoint") (pure . Just) a
+        case mLF of
+          Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just lf -> do
+            (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
+            removeFile fqPath
+            k er (applyAbstractionVerdict Set.empty er (parseFQOutcome code (T.pack out <> T.pack err)))
+      -- hand-built inputs for the pure cone
+      v = FQVar
+      eq = FQBinPred FQEq
+      gt a b = FQBinPred FQGt a b
+      bnd i n p = FQBind i n (FQReft "v" FQInt p)
+      con env lhs rhs = FQConstraint 0 env (FQReft "v" FQInt (FQAnd lhs)) (FQReft "v" FQInt rhs) ["f", "body-post"]
+      recP = emptyConeRec { crParams = Set.fromList ["s", "b", "x"] }
+      hits binds mRec seeds c = coneHits (Map.fromList [ (bindId b, b) | b <- binds ]) mRec (Set.fromList seeds) c
+      rFact = eq (v "r") (FQApp "strCode" [v "s", FQLit 0])
+
+  -- U. the pure closure
+  it "CR-U1 a seed with no route to the goal or a path atom does not mark" $
+    hits [] (Just recP { crFacts = [rFact] }) ["r"]
+         (con [] [rFact] (FQBinPred FQLt (FQLit 5) (FQApp "strLen" [v "s"]))) `shouldBe` False
+  it "CR-U2 a seed in the goal marks" $
+    hits [] (Just recP { crFacts = [rFact] }) ["r"] (con [] [rFact] (FQBinPred FQGe (v "r") (FQLit 0))) `shouldBe` True
+  it "CR-U3 a seed reaches the goal through a let binder's env refinement" $ do
+    let y = bnd 1 "y" (eq (v "v") (FQBinArith FQAdd (v "r") (FQLit 1)))
+    hits [y] (Just recP { crFacts = [rFact], crLetBinds = Set.fromList [1] }) ["r"] (con [1] [rFact] (gt (v "y") (FQLit 0))) `shouldBe` True
+    hits [y] (Just recP { crFacts = [rFact], crLetBinds = Set.fromList [1] }) ["r"] (con [1] [rFact] (gt (v "x") (FQLit 0))) `shouldBe` False
+  it "CR-U4 a seed in a path atom (a guard, witness N1) marks" $ do
+    let g = eq (v "r") (FQLit 0)
+    hits [] (Just recP { crGuards = [g] }) ["r"] (con [] [g] (gt (v "x") (FQLit 0))) `shouldBe` True
+  it "CR-U5 a parameter shared by a seed fact and the goal does not link (witness C1)" $ do
+    let f = eq (v "r") (FQBinArith FQAdd (v "x") (FQLit 1))
+    hits [] (Just recP { crFacts = [f] }) ["r"] (con [] [f] (gt (v "x") (FQLit 0))) `shouldBe` False
+  it "CR-U6 strCode is a seed by name, with no result binder" $
+    hits [] (Just recP) [] (con [] [] (FQBinPred FQGe (FQApp "strCode" [v "s", FQLit 0]) (FQLit 0))) `shouldBe` True
+  it "CR-U7 a kvar in the lhs marks" $
+    hits [] (Just recP) [] (con [] [FQKVar "k0" [v "x"]] (gt (v "x") (FQLit 0))) `shouldBe` True
+  it "CR-U8 a kvar in an env refinement marks" $
+    hits [bnd 1 "z" (FQKVar "k0" [v "v"])] (Just recP) [] (con [1] [] (gt (v "x") (FQLit 0))) `shouldBe` True
+  it "CR-U9 bytesLen is frozen and does not link" $ do
+    let f = eq (FQApp "bytesLen" [v "r"]) (FQApp "bytesLen" [v "b"])
+    hits [] (Just recP { crFacts = [f] }) ["r"] (con [] [f] (FQBinPred FQLt (FQLit 0) (FQApp "bytesLen" [v "b"]))) `shouldBe` False
+  it "CR-U10 an atom recorded as a fact for another constraint is a path atom here (H1)" $ do
+    let a = eq (v "r") (FQLit 0)
+    hits [] (Just recP) ["r"] (con [] [a] (gt (v "x") (FQLit 0))) `shouldBe` True
+    hits [] (Just recP { crFacts = [a] }) ["r"] (con [] [a] (gt (v "x") (FQLit 0))) `shouldBe` False
+  it "CR-U11 an atom that is both a guard and a fact is a path atom" $ do
+    let a = eq (v "r") (FQLit 0)
+    hits [] (Just recP { crFacts = [a], crGuards = [a] }) ["r"] (con [] [a] (gt (v "x") (FQLit 0))) `shouldBe` True
+  it "CR-U12 a let equation as an lhs atom is a path atom (P-LG2)" $ do
+    let a = eq (v "y") (FQBinArith FQAdd (v "r") (FQLit 0))
+    hits [] (Just recP { crFacts = [rFact] }) ["r"] (con [] [rFact, a] (gt (v "x") (FQLit 0))) `shouldBe` True
+  it "CR-U13 a constraint with no record keeps the mark (fail-closed)" $
+    hits [] Nothing ["r"] (con [] [] (gt (v "x") (FQLit 0))) `shouldBe` True
+  it "CR-U14 a name bound twice in one env: its refinements are path atoms" $ do
+    let y1 = bnd 1 "y" (eq (v "v") (FQBinArith FQAdd (v "r") (FQLit 1)))
+        y2 = bnd 2 "y" (eq (v "v") (FQLit 3))
+        r  = recP { crLetBinds = Set.fromList [1, 2] }
+    hits [y1, y2] (Just r) ["r"] (con [1, 2] [] (gt (v "x") (FQLit 0))) `shouldBe` True
+    hits [y1] (Just r) ["r"] (con [1] [] (gt (v "x") (FQLit 0))) `shouldBe` False
+
+  -- E. the emitter (no solver)
+  it "CR-E1 C1: the second call-pre is unmarked, the body post is marked" $ do
+    er <- emitFix "c1_bad"
+    let cp5 = one (cpAt er "two-codes" (5 :: Int))
+        posts = idsOf er "two-codes" ("body-post" `T.isPrefixOf`)
+    marked er cp5 `shouldBe` Nothing
+    posts `shouldSatisfy` (not . null)
+    map (marked er) posts `shouldSatisfy` all (== Just "string-code-at")
+  it "CR-E2 N1: the call-pre of (bytes-get b 99) is marked (a guard reads the slice)" $ do
+    er <- emitFix "n1_spurious"
+    map (marked er) (cpAt er "first-agrees" (99 :: Int)) `shouldBe` [Just "bytes-slice"]
+  it "CR-E3 B1: the call-pre of (bytes-get b 8) is unmarked" $ do
+    er <- emitFix "b1_bad"
+    map (marked er) (cpAt er "slice-get" (8 :: Int)) `shouldBe` [Nothing]
+  it "CR-E4 H1-G: the else-else call-pre is marked; c = 0 is a fact only on the then path" $ do
+    er <- emitFix "h1_g"
+    let cp99 = one (cpAt er "h1" (99 :: Int))
+        th     = one (idsOf er "h1" (== "body-post-then"))
+        recOf i = Map.findWithDefault emptyConeRec i (erConeRecs er)
+        cEq0 a = case a of
+          FQBinPred FQEq (FQVar n) (FQLit 0) -> "_bv_call_bytes_get_" `T.isPrefixOf` n
+          _ -> False
+        thenFacts = filter cEq0 (crFacts (recOf th))
+    marked er cp99 `shouldBe` Just "bytes-slice"
+    thenFacts `shouldSatisfy` (not . null)
+    [ a | a <- thenFacts, a `elem` crFacts (recOf cp99) ] `shouldBe` []
+    [ a | a <- thenFacts, a `elem` crGuards (recOf cp99) ] `shouldSatisfy` (not . null)
+  it "CR-E5 P-LG2: the call-pre of (bytes-get b 99) is marked (the let binder reads the slice)" $ do
+    er <- emitFix "p_letguard2"
+    map (marked er) (cpAt er "never-differs" (99 :: Int)) `shouldBe` [Just "bytes-slice"]
+  it "CR-E6 A-ATTR: the post is attributed to g, not to the out-of-cone slice" $ do
+    er <- emitFix "a_attr"
+    map (marked er) (idsOf er "h8" ("body-post" `T.isPrefixOf`)) `shouldBe` [Just "g"]
+  it "CR-E7 flattenBodyVC is the projection of flattenBodyVCTagged, and the tags split each path guard" $ do
+    let p = FQVar
+        post n = Just (FQAnd [FQBinPred FQGe (p n) (FQLit 0), FQBinPred FQLe (p n) (FQLit 9)])
+        call n cont = CallVC "g" [] [] Nothing (post n) [] n FQInt cont Nothing False
+        leaf = SimpleVC [] (p "r")
+        br g t e = BranchVC g [] t e
+        g1 = FQBinPred FQGt (p "x") (FQLit 0)
+        g2 = FQAnd [FQBinPred FQLt (p "a") (p "c1"), FQBinPred FQEq (p "y") (FQLit 1)]
+        trees = [ leaf, call "c1" leaf, br g1 leaf leaf, br g1 (call "c1" leaf) leaf
+                , call "c1" (br g2 leaf (call "c2" leaf)), br g1 (br g2 leaf leaf) (call "c1" leaf)
+                , call "c1" (call "c2" (br g1 leaf leaf)), br g2 (call "c1" (br g1 (call "c2" leaf) leaf)) leaf
+                , CallVC "h" [] [] Nothing Nothing [] "c3" FQInt leaf Nothing False
+                , br g1 (CallVC "h" [] [] Nothing Nothing [] "c3" FQInt leaf Nothing False) (call "c1" leaf)
+                , call "c1" (call "c2" (call "c4" leaf)), br (FQNot g1) (br g1 leaf leaf) (br g2 leaf leaf) ]
+        atoms q = case q of { FQAnd qs -> concatMap atoms qs; FQTrue -> []; _ -> [q] }
+    length trees `shouldBe` 12
+    forM_ trees $ \t -> do
+      flattenBodyVC t `shouldBe` map (\(x, _, _) -> x) (flattenBodyVCTagged t)
+      forM_ (flattenBodyVCTagged t) $ \((g, _, _), gs, ps) ->
+        sort (map show (atoms g)) `shouldBe` sort (map show (gs ++ ps))
+  it "CR-E8 the .fq text of C1, B1 and H4-S equals the pinned v0.40.1 text" $
+    forM_ ["c1_bad", "b1_bad", "h4_cite"] $ \n -> do
+      er <- emitFix n
+      -- written by `llmll verify -o` of v0.40.1, which prints the qualifiers
+      -- in the brace form (FIXPOINT-UPGRADE-1)
+      pinned <- TIO.readFile ("test/fixtures/call-result-mark/" ++ n ++ ".fq")
+      qualifiersToBraces (erFQText er) `shouldBe` pinned
+  it "CR-E9 a wd-post id with a slice result in its env has no record and keeps the mark" $ do
+    er <- emitSrc "(def-shell f [b: bytes m: map[int,int]] -> int (pre (>= (bytes-length b) 4)) (post (>= (map-get m 3) 0)) (let [(h (bytes-slice b 0 2))] (bytes-length h)))"
+    let wds = idsOf er "f" isWdClause
+    wds `shouldSatisfy` (not . null)
+    [ Map.member i (erConeRecs er) | i <- wds ] `shouldSatisfy` all not
+    map (marked er) wds `shouldSatisfy` all (== Just "bytes-slice")
+
+  -- C. the classification (C4, C6, F-2)
+  it "CR-C1 sealedAxiomBuiltins is the disjoint union of abstractedBuiltins and exactSealedBuiltins; strCode is a seed, not frozen" $ do
+    Set.union abstractedBuiltins exactSealedBuiltins `shouldBe` sealedAxiomBuiltins
+    Set.intersection abstractedBuiltins exactSealedBuiltins `shouldBe` Set.empty
+    Set.member "strCode" clause1SeedUFs `shouldBe` True
+    Set.member "strCode" coneFrozenHeads `shouldBe` False
+
+  -- H. what a refuted function cites
+  it "CR-H1 a marked truth id renders as an lh-may-fail warning with its construct; an unmarked one stays lh-unsafe" $ do
+    er <- emitFix "c1_bad"
+    let cp5 = one (cpAt er "two-codes" (5 :: Int))
+        posts = idsOf er "two-codes" ("body-post" `T.isPrefixOf`)
+        ctx   = WdReportCtx (Set.fromList posts) Map.empty (Map.fromList [ (i, "abstraction:app:string-code-at") | i <- posts ])
+        ds    = reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable er) ctx (FQUnsafe (cp5 : posts)))
+        byPtr k = [ d | d <- ds, diagKind d == Just k ]
+    [ diagSeverity d | d <- byPtr "lh-unsafe" ] `shouldBe` [SevError]
+    length (byPtr "lh-may-fail") `shouldBe` length posts
+    [ diagSeverity d | d <- byPtr "lh-may-fail" ] `shouldSatisfy` all (== SevWarning)
+    [ diagMessage d | d <- byPtr "lh-may-fail" ] `shouldSatisfy`
+      all (T.isInfixOf "body verification of 'two-codes' may fail: the counterexample uses a value the verifier knows only in part (abstraction:app:string-code-at), so no run may reach it")
+  it "CR-H2 a marked WD id renders as an lh-may-fail warning with its definedness text" $ do
+    er <- emitSrc "(def-shell f [b: bytes m: map[int,int]] -> int (pre (>= (bytes-length b) 4)) (post (>= (map-get m 3) 0)) (let [(h (bytes-slice b 0 2))] (bytes-length h)))"
+    let wds = idsOf er "f" isWdClause
+        ctx = WdReportCtx (Set.fromList wds) (Map.fromList [("f", WdMarkedOnly)]) Map.empty
+        ds  = reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable er) ctx (FQUnsafe wds))
+    wds `shouldSatisfy` (not . null)
+    [ (diagKind d, diagSeverity d) | d <- ds ] `shouldSatisfy` all (== (Just "lh-may-fail", SevWarning))
+    [ diagMessage d | d <- ds ] `shouldSatisfy` all (T.isInfixOf "the post of 'f' is not proved defined where it is evaluated")
+  let allPos = "(def-shell all-pos? [xs: list[int]] -> bool (list-fold xs true (fn [acc: bool x: int] (and acc (> x 0)))))\n"
+      flagD  = "(def-shell flag [n: int] -> int (post (all-pos? [result])) (if (> n 0) n 1))\n"
+      vRows =
+        [ "(def-shell mk [n: int] -> map[int,int] (post (= (map-get result 3) 0)) (map-empty))"
+        , "(def-shell mk [n: int] -> map[int,int] (post (and (map-has result 3) (= (map-get result 3) 7))) (map-put (map-empty) 3 7))"
+        , "(def-shell mk [n: int] -> map[int,int] (post (and (= (map-get result 3) 7) (map-has result 3))) (map-empty))"
+        , "(def-shell g [m: map[int,int]] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) 1)"
+        , allPos ++ flagD ++ "(def-shell g [m: map[int,int] n: int] -> int (pre (> (map-get m 3) 0)) (post (> result 5)) (flag n))"
+        , allPos ++ flagD ++ "(def-shell g [m: map[int,int] n: int] -> int (post (or (= result 0) (and (> result 0) (= (map-get m 3) (map-get m 3))))) (if (> n 0) (flag n) -1))"
+        , allPos ++ flagD ++ "(def-shell g [m: map[int,int] n: int] -> int (post (or (= result 0) (= (map-get m 3) (map-get m 3)))) (flag n))"
+        , allPos ++ flagD ++ "(def-shell g [m: map[int,int] n: int] -> int (post (and (> result 0) (= (map-get m 3) (map-get m 3)))) (flag n))"
+        , "(def-shell gl [xs: list[int]] -> int (post (>= result 0)) (list-length xs))\n(def-shell hv [xs: list[int] m: map[int,int]] -> int (post (and (= result 0) (= (map-get m 3) (map-get m 3)))) (- (gl xs) (gl xs)))"
+        , "(def-shell lp [m: map[int,int] x: int] -> int (pre (> (map-get m 3) 0)) (post (>= result 0)) (decreases x) (if (= x 0) 0 (lp m x)))"
+        , allPos ++ flagD ++ "(def-shell lp [m: map[int,int] x: int] -> int (pre (>= x 0)) (post (or (= result 0) (= (map-get m 3) (map-get m 3)))) (decreases x) (if (= x 0) (flag x) (let [(y (lp m x))] 0)))"
+        , allPos ++ flagD ++ "(def-shell lp [m: map[int,int] x: int] -> int (pre (>= x 0)) (post (or (= result 0) (= (map-get m 3) (map-get m 3)))) (decreases x) (let [(z (flag x))] (if (= x 0) z (let [(y (lp m x))] 0))))"
+        , allPos ++ "(def-shell pos-only [n: int] -> int (post (all-pos? [result])) (if (> n 0) n 1))\n(def-shell lp [x: int] -> int (pre (>= x 0)) (post (>= result 2)) (decreases x) (if (= x 0) (+ (pos-only x) 1) (lp x)))"
+        , allPos ++ flagD ++ "(def-shell lp [x: int] -> int (pre (>= x 0)) (post (>= result 2)) (decreases x) (if (= x 0) 0 (let [(z (flag x))] (let [(y (lp x))] 2))))" ]
+  it "CR-H3 over the CLAUSE-WELLDEF V-rows, each function in a hard set keeps at least one error" $
+    forM_ vRows $ \src -> solved src $ \_ av -> do
+      let ds   = reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable (aoEmit av)) (aoReportCtx av) (aoResult av))
+          errs = [ d | d <- ds, diagSeverity d == SevError ]
+          errFns = Set.fromList [ coFunction o | i <- citedIds av, Just o <- [Map.lookup i (erConstraintTable (aoEmit av))] ]
+          hard = Set.unions [aoIllDefined av, aoMeasureBad av, aoRefuted av]
+      unless (Set.null hard) $ errs `shouldSatisfy` (not . null)
+      hard `shouldSatisfy` (`Set.isSubsetOf` errFns)
+  it "CR-H4 aoCitedResult excludes the marked ids and is never an empty FQUnsafe on those rows" $
+    forM_ vRows $ \src -> solved src $ \_ av -> case aoCitedResult av of
+      FQUnsafe c -> do
+        c `shouldSatisfy` (not . null)
+        [ i | i <- c, Set.member i (aoMarkedIds av) ] `shouldBe` []
+      r -> r `shouldBe` aoResult av
+  it "CR-H5 on H4-S the cited failing id is the (string-code-at s 5) call-pre, not the marked (s 7) one" $
+    fixture "h4_cite" >>= \src -> solved src $ \er av -> do
+      aoCitedResult av `shouldBe` FQUnsafe (cpAt er "cite" (5 :: Int))
+      Set.toList (aoMarkedIds av) `shouldBe` cpAt er "cite" (7 :: Int)
+      Map.elems (aoMarkCause av) `shouldBe` ["abstraction:app:string-code-at"]
+
+  -- S. solver-backed verdicts
+  forM_ [ ("CR-S1", "c1_bad", "two-codes"), ("CR-S2", "b1_bad", "slice-get")
+        , ("CR-S3", "c3_strfromcode", "one-char"), ("CR-S4", "h4_cite", "cite") ] $ \(cell, n, fn) ->
+    it (cell ++ " " ++ n ++ " is refuted") $ fixture n >>= \src -> solved src $ \_ av -> do
+      Set.toList (aoRefuted av) `shouldBe` [T.pack fn]
+      aoReclassified av `shouldBe` []
+  forM_ [ ("CR-S5", "n1_spurious", "first-agrees"), ("CR-S6", "c2_guard", "guarded")
+        , ("CR-S8", "p_letguard2", "never-differs"), ("CR-S9", "h1_g", "h1") ] $ \(cell, n, fn) ->
+    it (cell ++ " " ++ n ++ " stays a fallback") $ fixture n >>= \src -> solved src $ \_ av -> do
+      map fst (aoReclassified av) `shouldBe` [T.pack fn]
+      aoRefuted av `shouldBe` Set.empty
+  it "CR-S7 a_code stays a fallback" $ do
+    src <- T.unpack <$> TIO.readFile "../scripts/tests/fixtures/bitwise_char/a_code.llmll"
+    solved src $ \_ av -> do
+      map fst (aoReclassified av) `shouldBe` ["a-code"]
+      aoRefuted av `shouldBe` Set.empty
+  it "CR-S10 the original H1 shape is a modular refutation; its else-else ids stay marked" $
+    fixture "h1_g_modular" >>= \src -> solved src $ \er av -> do
+      Set.toList (aoRefuted av) `shouldBe` ["h1"]
+      aoCitedResult av `shouldBe` FQUnsafe (idsOf er "h1" (== "body-post-then"))
+      cpAt er "h1" (99 :: Int) `shouldSatisfy` all (`Set.member` aoMarkedIds av)
+  where
+    citedIds av = case aoCitedResult av of { FQUnsafe c -> c; _ -> [] }
+    one xs = case xs of { [x] -> x; _ -> error ("expected one id, got " ++ show xs) }
+
+-- ---------------------------------------------------------------------------
+-- ABSTRACTION-LEN-EXACT-1 (byte-io-proposal Rev 2b item 7, with the bytes-make
+-- and bytes-set rows): the length of a partial result is its own symbol L_x,
+-- outside D when its recorded exact equation reads no D symbol; one monotone
+-- fixpoint; the equation defines L_x only.
+-- ---------------------------------------------------------------------------
+lenExactSpec :: Spec
+lenExactSpec = describe "ABSTRACTION-LEN-EXACT-1" $ do
+  let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+        Left e   -> error (show e)
+        Right ss -> ss
+      emitSrc src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+      fixture n = T.unpack <$> TIO.readFile ("../scripts/tests/fixtures/call_result_mark_1/" ++ n ++ ".llmll")
+      solved src k = do
+        er <- emitSrc src
+        tmp <- getTemporaryDirectory
+        (fqPath, h) <- SIO.openTempFile tmp "len-exact.fq"
+        SIO.hClose h
+        TIO.writeFile fqPath (erFQText er)
+        mLF <- do a <- findExecutable "liquid-fixpoint"
+                  maybe (findExecutable "fixpoint") (pure . Just) a
+        case mLF of
+          Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just lf -> do
+            (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
+            removeFile fqPath
+            k er (applyAbstractionVerdict Set.empty er (parseFQOutcome code (T.pack out <> T.pack err)))
+      v = FQVar
+      eq = FQBinPred FQEq
+      lt a b = FQBinPred FQLt a b
+      len x = FQApp "bytesLen" [v x]
+      sub a b = FQBinArith FQSub a b
+      con lhs rhs = FQConstraint 0 [] (FQReft "v" FQInt (FQAnd lhs)) (FQReft "v" FQInt rhs) ["f", "body-post"]
+      recP = emptyConeRec { crParams = Set.fromList ["b", "s", "e", "s2", "e2", "i", "n", "w", "vv"] }
+      -- every def is a recorded call-post fact of the constraint, in its lhs
+      withDefs defs facts = recP { crFacts = map snd defs ++ facts, crLenDefs = Map.fromList defs }
+      hits r seeds c = coneHits Map.empty (Just r) (Set.fromList seeds) c
+      sliceDef x hi lo = (x, eq (len x) (sub hi lo))
+      goalAt x = lt (v "i") (len x)
+
+  -- U. the pure rule
+  it "LX-U1 the slice length equation does not pull its bounds into D" $ do
+    let d = sliceDef "x" (v "k") (FQLit 0)
+    hits (withDefs [d] []) ["x"] (con [snd d] (FQBinPred FQGt (v "k") (FQLit 0))) `shouldBe` False
+    hits (withDefs [d] []) ["x"] (con [snd d] (goalAt "x")) `shouldBe` False
+  it "LX-U2 a right side that names a D symbol puts L_x in D (LX-N1)" $ do
+    let d = sliceDef "x" (v "k") (FQLit 0)
+        f = eq (v "k") (FQApp "Map_select" [v "y", FQLit 0])
+    hits (withDefs [d] [f]) ["x", "y"] (con [snd d, f] (goalAt "x")) `shouldBe` True
+  it "LX-U3 a concat of two parameter-bounded slices (E11): unmarked in every atom order" $ do
+    let d1 = sliceDef "x1" (v "e") (v "s")
+        d2 = sliceDef "x2" (v "e2") (v "s2")
+        dz = ("z", eq (len "z") (FQBinArith FQAdd (len "x1") (len "x2")))
+        defs = [d1, d2, dz]
+    forM_ (permutations (map snd defs)) $ \atoms ->
+      hits (withDefs defs []) ["x1", "x2", "z"] (con atoms (goalAt "z")) `shouldBe` False
+  it "LX-U4 a slice bound that reads a D symbol puts the concat length in D in every order (E11-D)" $ do
+    let d1 = sliceDef "x1" (v "k") (FQLit 0)
+        d2 = sliceDef "x2" (v "e2") (v "s2")
+        dz = ("z", eq (len "z") (FQBinArith FQAdd (len "x1") (len "x2")))
+        f  = eq (v "k") (FQApp "Map_select" [v "y", FQLit 0])
+        defs = [d1, d2, dz]
+    forM_ (permutations (f : map snd defs)) $ \atoms ->
+      hits (withDefs defs [f]) ["x1", "x2", "z", "y"] (con atoms (goalAt "z")) `shouldBe` True
+  it "LX-U5 a length known only by congruence (an alias y = x) is not a symbol: y stays in D" $ do
+    let d = (T.pack "x", eq (len "x") (FQLit 4))
+        a = eq (v "y") (v "x")
+    hits (withDefs [d] [a]) ["x"] (con [snd d, a] (goalAt "y")) `shouldBe` True
+  it "LX-U6 a Map_select of x keeps x in D while L_x is outside" $ do
+    let d = (T.pack "x", eq (len "x") (FQLit 4))
+    hits (withDefs [d] []) ["x"] (con [snd d] (FQBinPred FQGe (FQApp "Map_select" [v "x", FQLit 0]) (FQLit 0))) `shouldBe` True
+    hits (withDefs [d] []) ["x"] (con [snd d] (goalAt "x")) `shouldBe` False
+  it "LX-U7 the bytes-make row: bytesLen(r) = n is exact unless n reads D" $ do
+    let d  = (T.pack "r", eq (len "r") (v "n"))
+        d' = (T.pack "r", eq (len "r") (v "k"))
+        f  = eq (v "k") (FQApp "Map_select" [v "y", FQLit 0])
+    hits (withDefs [d] []) ["r"] (con [snd d] (goalAt "r")) `shouldBe` False
+    hits (withDefs [d'] [f]) ["r", "y"] (con [snd d', f] (goalAt "r")) `shouldBe` True
+  it "LX-U8 the bytes-set row: L_r is outside D exactly when L_b is" $ do
+    let dx = (T.pack "x", eq (len "x") (FQLit 4))
+        dr = (T.pack "r", eq (len "r") (len "x"))
+        st = eq (v "r") (FQApp "Map_store" [v "x", v "i", v "vv"])
+    hits (withDefs [dx, dr] [st]) ["x"] (con [snd dx, snd dr, st] (goalAt "r")) `shouldBe` False
+    hits (withDefs [dr] [st]) ["x"] (con [snd dr, st] (goalAt "r")) `shouldBe` True
+  it "LX-U9 bytes-concat-many and bytes-from-string lemmas are not length definitions" $ do
+    let r = FQVar "r"
+        call c parts = CallVC c [] [] Nothing (Just (FQAnd (map snd parts))) parts "r" FQInt (SimpleVC [] r) Nothing False
+    collectLenDefs (call "bytes-concat-many" [("lemma", FQBinPred FQGe (len "r") (FQLit 0))]) `shouldBe` Map.empty
+    collectLenDefs (call "bytes-from-string" [("lemma", FQBinPred FQLe (FQApp "strLen" [v "s"]) (len "r"))]) `shouldBe` Map.empty
+    collectLenDefs (call "bytes-slice" [("lemma", eq (len "r") (sub (v "e") (v "s")))]) `shouldBe` Map.fromList [("r", eq (len "r") (sub (v "e") (v "s")))]
+  it "LX-U10 a length equation that is not a call-post fact of this constraint does not count" $ do
+    let d = sliceDef "x" (v "e") (v "s")
+    hits (recP { crLenDefs = Map.fromList [d] }) ["x"] (con [snd d] (goalAt "x")) `shouldBe` True
+
+  it "LX-C1 exactLengthBuiltins is the six rows and excludes the inexact four" $ do
+    exactLengthBuiltins `shouldBe` Set.fromList ["bytes-slice", "bytes-concat", "bytes-to-list", "string-from-code", "bytes-make", "bytes-set"]
+    Set.toList (Set.intersection exactLengthBuiltins (Set.fromList ["bytes-concat-many", "bytes-from-string", "string-code-at", "bytes-widen"])) `shouldBe` []
+
+  -- S. solver-backed verdicts
+  forM_ [ ("LX-S1", "n3_len_let", "via-len"), ("LX-S2", "n4_slice_index", "row-at")
+        , ("LX-S3", "lx_p1", "one-char-bad"), ("LX-S4", "mk_at_len", "mk-at-len")
+        , ("LX-S5", "set_at_len", "set-at"), ("LX-S6", "e11_cat", "cat-at")
+        , ("LX-S7", "e11_cat_rev", "cat-at"), ("LX-S8", "g1_two_reads_param", "two-reads") ] $ \(cell, n, fn) ->
+    it (cell ++ " " ++ n ++ " is refuted") $ fixture n >>= \src -> solved src $ \_ av -> do
+      Set.toList (aoRefuted av) `shouldBe` [T.pack fn]
+      aoReclassified av `shouldBe` []
+  forM_ [ ("LX-S9", "lx_n1", "dep-len"), ("LX-S10", "mk_dep_len", "dep-make")
+        , ("LX-S11", "e11_dep", "cat-dep"), ("LX-S12", "g1_two_reads", "two-reads") ] $ \(cell, n, fn) ->
+    it (cell ++ " " ++ n ++ " stays a fallback") $ fixture n >>= \src -> solved src $ \_ av -> do
+      map fst (aoReclassified av) `shouldBe` [T.pack fn]
+      aoRefuted av `shouldBe` Set.empty

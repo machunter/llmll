@@ -1,0 +1,6 @@
+;; CALL-RESULT-MARK-1 witness N2: the index is slice content; stays a fallback.
+(def-shell via-content [b: bytes] -> int
+  (pre (>= (bytes-length b) 8))
+  (post (>= result 0))
+  (let [(h (bytes-slice b 0 4))]
+    (bytes-get b (bytes-get h 0))))

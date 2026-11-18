@@ -520,11 +520,10 @@ def test_bio_c12_crc32_of_a_file_equals_zlib(cli_exe):
 # * BIO-V1..V12, V14, V15 (and V16..V18, BYTES-MAKE-ALIAS-1, below): each
 #   witness of the step-3 plan's contract plan gets its stated verdict
 #   through `llmll --json verify`: the correct body is SAFE and body-faithful;
-#   a refuting body whose constraint holds no abstracted result is `refuted`,
-#   exit 1, on the named obligation; a
-#   refuting body whose constraint holds a partial (abstracted) result falls
-#   back with `abstraction:app:<name>`, exit 0, and is not refuted (design
-#   risk 4, CALL-RESULT-MARK-1). W-8 is the design's crc-loop as written (the
+#   a refuting body whose failing check does not depend on a partially known
+#   result is `refuted`, exit 1, on the named obligation (CALL-RESULT-MARK-1:
+#   the cone of influence; ABSTRACTION-LEN-EXACT-1: the exact length of a
+#   slice, concat, make or set result counts as known). W-8 is the design's crc-loop as written (the
 #   Rev 2a `bytes-length` guard arm) with its off-by-one guard control; W-15
 #   is the Rev 2a slice workaround: the index bug sits in a callee that takes
 #   the slice as a `bytes` parameter with a length pre, so it is refuted.
@@ -535,7 +534,8 @@ def test_bio_c12_crc32_of_a_file_equals_zlib(cli_exe):
 #   sealed axioms; a bytes-free program names none of them; the obligation
 #   report's effect_summary carries the `stdin` label for
 #   `(wasi.io.stdin-bytes)`; `--strict-verified-core` refuses W-2's
-#   abstraction fallback and admits its correct body.
+#   refuted body (ABSTRACTION-LEN-EXACT-1; a fallback before) and admits its
+#   correct body.
 
 FIXTURES = REPO / "scripts" / "tests" / "fixtures" / "byte_io_1"
 
@@ -619,12 +619,13 @@ def test_bio_v1_magic16_verifies_and_an_index_past_the_pre_is_refuted(tmp_path):
 
 
 @pytestmark_v
-def test_bio_v2_slice_length_verifies_a_bad_slice_end_refutes_a_bad_start_falls_back(tmp_path):
+def test_bio_v2_slice_length_verifies_and_a_bad_slice_end_or_start_refutes(tmp_path):
     _safe(tmp_path, "w02_tail_len", ["tail-len"])
     # Body A: the slice call-pre fails before the slice result is in scope.
     _refuted(tmp_path, "w02_tail_len_bad_a", "tail-len", _call_pre("bytes-slice", "tail-len"))
-    # Body B: the false post's constraint holds the slice result (risk 4).
-    _abstraction_fallback(tmp_path, "w02_tail_len_bad_b", "tail-len", "bytes-slice")
+    # Body B: the false post reads only the slice's exact length
+    # (ABSTRACTION-LEN-EXACT-1; a fallback before).
+    _refuted(tmp_path, "w02_tail_len_bad_b", "tail-len", _body("tail-len"))
 
 
 @pytestmark_v
@@ -639,9 +640,9 @@ def test_bio_v4_widen_of_a_let_bound_bytes_set_keeps_the_parameter_length(tmp_pa
 
 
 @pytestmark_v
-def test_bio_v5_concat_length_verifies_and_a_wrong_operand_falls_back(tmp_path):
+def test_bio_v5_concat_length_verifies_and_a_wrong_operand_refutes(tmp_path):
     _safe(tmp_path, "w05_cat_len", ["cat-len"])
-    _abstraction_fallback(tmp_path, "w05_cat_len_bad", "cat-len", "bytes-concat")
+    _refuted(tmp_path, "w05_cat_len_bad", "cat-len", _body("cat-len"))
 
 
 @pytestmark_v
@@ -655,24 +656,24 @@ def test_bio_v6_make_length_is_exact_and_a_value_of_256_is_refuted(tmp_path):
 # congruence on `bytesLen` forced two lengths on it: the hypotheses were
 # inconsistent and any post was proved. W-16 is the professor's witness (it
 # returns 8; v0.40.0 called `(= result 1)` SAFE and body-faithful). bytes-make now
-# states its length only and is abstracted, so each wrong post falls back with
-# `abstraction:app:bytes-make`, exit 0, and the true post `(= result 8)` still
-# verifies on the length lemmas. The fill-1 control was refuted on v0.40.0
-# (different terms); it now falls back too, because the verdict rule does not
-# refute on a constraint holding an abstracted result.
+# states its length only and is abstracted, and the true post `(= result 8)`
+# verifies on the length lemmas. Each wrong post reads only the makes' exact
+# lengths, so it is refuted (ABSTRACTION-LEN-EXACT-1; v0.40.1 fell back with
+# `abstraction:app:bytes-make`).
 @pytestmark_v
 def test_bio_v16_two_makes_of_different_lengths_are_not_one_term(tmp_path):
     _safe(tmp_path, "w16_make_two_len_ok", ["two-makes"])
-    _abstraction_fallback(tmp_path, "w16_make_two_len", "two-makes", "bytes-make")
-    _abstraction_fallback(tmp_path, "w16_make_two_len_fill1", "two-makes", "bytes-make")
+    _refuted(tmp_path, "w16_make_two_len", "two-makes", _body("two-makes"))
+    _refuted(tmp_path, "w16_make_two_len_fill1", "two-makes", _body("two-makes"))
 
 
 # The same cause through a variable length and through a bytes-set chain rooted
-# at each make (v0.40.0: both SAFE, both false).
+# at each make (v0.40.0: both SAFE, both false; refuted since
+# ABSTRACTION-LEN-EXACT-1, the set chain through the bytes-set length row).
 @pytestmark_v
 def test_bio_v17_a_variable_length_make_and_a_set_chain_are_not_one_term(tmp_path):
-    _abstraction_fallback(tmp_path, "w17_make_var_len", "v", "bytes-make")
-    _abstraction_fallback(tmp_path, "w17_make_set_chain", "s", "bytes-make")
+    _refuted(tmp_path, "w17_make_var_len", "v", _body("v"))
+    _refuted(tmp_path, "w17_make_set_chain", "s", _body("s"))
 
 
 # Audit control: `(bytes-zero)` also reflects as `Map_default(0)`, but only as
@@ -733,9 +734,9 @@ def test_bio_v11_a_match_that_binds_the_rbytes_payload_falls_back(tmp_path):
 
 
 @pytestmark_v
-def test_bio_v12_reading_at_the_length_refutes_on_a_parameter_and_falls_back_on_a_slice(tmp_path):
+def test_bio_v12_reading_at_the_length_refutes_on_a_parameter_and_on_a_slice(tmp_path):
     _refuted(tmp_path, "w12_at_len", "at-len", _call_pre("bytes-get", "at-len"))
-    _abstraction_fallback(tmp_path, "w12_at_len_slice", "at-len-slice", "bytes-slice")
+    _refuted(tmp_path, "w12_at_len_slice", "at-len-slice", _call_pre("bytes-get", "at-len-slice"))
 
 
 @pytestmark_v
@@ -833,7 +834,7 @@ def test_bio_t3_effect_summary_reports_stdin_for_stdin_bytes(tmp_path):
 
 
 @pytestmark_v
-def test_bio_t4_strict_core_refuses_the_slice_fallback_and_admits_the_correct_body(tmp_path):
+def test_bio_t4_strict_core_refuses_the_refuted_slice_body_and_admits_the_correct_body(tmp_path):
     for name, rc in [("w02_tail_len", 0), ("w02_tail_len_bad_b", 1)]:
         d = tmp_path / name
         d.mkdir()
@@ -842,5 +843,4 @@ def test_bio_t4_strict_core_refuses_the_slice_fallback_and_admits_the_correct_bo
         p = _llmll(["verify", "--strict-verified-core", "t.llmll", "-o", "t.fq"], d)
         assert p.returncode == rc, (name, p.stdout + p.stderr)
         if rc:
-            assert ("--strict-verified-core: 1 function(s) fell back from body-faithful verification: "
-                    "tail-len (abstraction-unsafe, abstraction:app:bytes-slice)") in p.stdout + p.stderr, p.stdout + p.stderr
+            assert "--strict-verified-core: refuted: tail-len" in p.stdout + p.stderr, p.stdout + p.stderr

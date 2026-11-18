@@ -1,0 +1,6 @@
+;; ABSTRACTION-LEN-EXACT-1 witness LX-P1: bug at index 1 of a one-char string; fallback after commit 1, refuted after commit 2.
+(def-shell one-char-bad [c: int] -> int
+  (pre (and (>= c 65) (<= c 90)))
+  (post (>= result 0))
+  (let [(u (string-from-code c))]
+    (string-code-at u 1)))

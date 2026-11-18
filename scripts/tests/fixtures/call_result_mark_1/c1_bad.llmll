@@ -1,0 +1,5 @@
+;; CALL-RESULT-MARK-1 witness C1: bug at s = "a"; the parameter s does not link strCode to the goal, so refuted.
+(def-shell two-codes [s: string] -> int
+  (pre (> (string-length s) 0))
+  (post (>= result 0))
+  (+ (string-code-at s 0) (string-code-at s 5)))

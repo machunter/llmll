@@ -8,8 +8,8 @@
   "additionalProperties": true,
   "properties": {
     "verify_json_version": {
-      "const": "1.2.0",
-      "description": "Version of this document's shape (`LLMLL.VerifyEnvelope.verifyJsonVersion`). 1.1.0 (CLAUSE-WELLDEF-1) added `ill_defined` and `welldef_unproved`. 1.2.0 (MUL-VAR-1) widened `abstraction_fallback` to admit `abstraction:nonlinear:*`; no key was added."
+      "const": "1.3.0",
+      "description": "Version of this document's shape (`LLMLL.VerifyEnvelope.verifyJsonVersion`). 1.1.0 (CLAUSE-WELLDEF-1) added `ill_defined` and `welldef_unproved`. 1.2.0 (MUL-VAR-1) widened `abstraction_fallback` to admit `abstraction:nonlinear:*`; no key was added. 1.3.0 (CALL-RESULT-MARK-1) added the `diagnostics` kind `lh-may-fail`: a failing constraint of a refuted function whose counterexample uses a value the verifier knows only in part is a warning, not an error; no key was added."
     },
     "exit_code": {
       "type": "integer",

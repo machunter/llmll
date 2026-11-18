@@ -1,0 +1,9 @@
+;; CALL-RESULT-MARK-1 witness A-ATTR: the slice is outside the cone, so the fallback is attributed to g (clause 2).
+(def-shell g [x: bytes] -> int
+  (post (>= result 0))
+  (bytes-length x))
+(def-shell h8 [b: bytes a: bytes] -> int
+  (pre (>= (bytes-length b) 8))
+  (post (= result 0))
+  (let [(s (bytes-slice b 0 4))]
+    (- (g a) (g b))))

@@ -1,0 +1,8 @@
+;; ABSTRACTION-LEN-EXACT-1 witness E11: index at the length of a concat of two parameter-bounded slices; refuted (both lengths exact).
+(def-shell cat-at [b: bytes s: int] -> int
+  (pre (and (>= s 0) (<= s (bytes-length b))))
+  (post (>= result 0))
+  (let [(x (bytes-slice b 0 s))
+        (y (bytes-slice b s (bytes-length b)))
+        (z (bytes-concat x y))]
+    (bytes-get z (bytes-length b))))

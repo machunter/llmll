@@ -1,0 +1,5 @@
+;; CALL-RESULT-MARK-1 witness C1-OK: the correct twin of c1_bad; SAFE.
+(def-shell two-codes [s: string] -> int
+  (pre (> (string-length s) 5))
+  (post (>= result 0))
+  (+ (string-code-at s 0) (string-code-at s 5)))

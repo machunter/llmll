@@ -109,7 +109,7 @@ W23_PRODUCT_FALLBACK = (
 def test_vs_product_fallback_validates(tmp_path, flags):
     r, doc = _verify(tmp_path, W23_PRODUCT_FALLBACK, flags)
     _assert_valid(doc, r.returncode)
-    assert doc["verify_json_version"] == "1.2.0"
+    assert doc["verify_json_version"] == "1.3.0"
     assert doc["abstraction_fallback"] == {"w23": "abstraction:nonlinear:*"}, doc
     assert r.returncode == 0
 

@@ -63,7 +63,7 @@ import System.Directory (getTemporaryDirectory, removeFile)
 import System.IO (hClose, openBinaryTempFile)
 import LLMLL.Diagnostic
   ( Diagnostic(..), DiagnosticReport(..), Severity(..)
-  , mkError, reportDiagnostics )
+  , mkError, mkWarning, reportDiagnostics )
 
 -- ---------------------------------------------------------------------------
 -- Constraint origin table
@@ -109,10 +109,14 @@ data WdReportCtx = WdReportCtx
   , wrWdFailing :: Map Text WdFailKind
     -- ^ each function with a failing WD id; it qualifies that function's
     -- refutation and measure texts (N5)
+  , wrMarkCause :: Map FQConstraintId Text
+    -- ^ CALL-RESULT-MARK-1 (H4): for each id in 'wrMarkedIds', the construct
+    -- of the mark that hit it (@abstraction:app:<g>@,
+    -- @post-unassumed:app:<g>@ or @abstraction:nonlinear:*@)
   } deriving (Show, Eq)
 
 emptyWdReportCtx :: WdReportCtx
-emptyWdReportCtx = WdReportCtx Set.empty Map.empty
+emptyWdReportCtx = WdReportCtx Set.empty Map.empty Map.empty
 
 -- ---------------------------------------------------------------------------
 -- Parse liquid-fixpoint output
@@ -493,9 +497,10 @@ fqResultToReportWD _fp _table _ (FQError txt) =
     , reportSuccess     = False
     }
 
--- | One Diagnostic per failed constraint id. Both branches carry
--- @diagKind = Just "lh-unsafe"@, the same kind 'fallbackUnsafeDiag' uses, so
--- every diagnostic on the UNSAFE path answers to one machine-readable key.
+-- | One Diagnostic per failed constraint id. An unmarked id carries
+-- @diagKind = Just "lh-unsafe"@ (the kind 'fallbackUnsafeDiag' uses), or
+-- @clause-ill-defined@ for a definedness id, as an error. CALL-RESULT-MARK-1:
+-- a marked id ('wrMarkedIds') carries @lh-may-fail@, as a warning.
 toDiag :: FilePath -> ConstraintTable -> WdReportCtx -> FQConstraintId -> Maybe Diagnostic
 toDiag fp table wctx cid =
   case Map.lookup cid table of
@@ -503,6 +508,23 @@ toDiag fp table wctx cid =
       let d = mkError Nothing $
                 "constraint #" <> T.pack (show cid) <> " failed (unknown origin)"
       in Just d { diagKind = Just "lh-unsafe" }
+    -- CALL-RESULT-MARK-1 (byte-io-proposal Rev 2b item 8, H4): a marked
+    -- failing id of a function that stays refuted is not cited as a failure.
+    -- Its model may be one no run gives, so it renders as a warning of kind
+    -- @lh-may-fail@. A marked WD id keeps its text; only kind and severity
+    -- change.
+    Just orig | marked0, not (isWdClause (coClause orig)) ->
+      let fn   = coFunction orig
+          tl   = ": the counterexample uses a value the verifier knows only in part"
+                 <> maybe "" (\k -> " (" <> k <> ")") (Map.lookup cid (wrMarkCause wctx))
+                 <> ", so no run may reach it (constraint #" <> T.pack (show cid) <> ")"
+          msg = case coClause orig of
+                  clause | clause `elem` ["body-post", "body-post-then", "body-post-else"] ->
+                    "body verification of '" <> fn <> "' may fail" <> tl
+                  clause | "call-pre:" `T.isPrefixOf` clause ->
+                    "call-site precondition of '" <> T.drop 9 clause <> "' may not hold in '" <> fn <> "'" <> tl
+                  clause -> clause <> "-condition of '" <> fn <> "' may fail" <> tl
+      in Just (mkWarning Nothing msg) { diagPointer = Just (coJsonPtr orig), diagKind = Just "lh-may-fail" }
     Just orig ->
       let msg = case coClause orig of
                   "body-post"      -> "body verification of '" <> coFunction orig
@@ -547,9 +569,13 @@ toDiag fp table wctx cid =
                 Just WdMarkedOnly -> "; the counter-example may sit at a point where the clause is not proved defined"
                 Nothing           -> ""
           kind | isWd && not marked = "clause-ill-defined"
+               | isWd               = "lh-may-fail"   -- CALL-RESULT-MARK-1 (H4)
                | otherwise          = "lh-unsafe"
-          d   = mkError Nothing msg
+          d   | isWd && marked = mkWarning Nothing msg
+              | otherwise      = mkError Nothing msg
       in Just d { diagPointer = Just (coJsonPtr orig), diagKind = Just kind }
+  where
+    marked0 = cid `Set.member` wrMarkedIds wctx
 
 -- | VERIFY-RPT-1 (Defect 1b): fallback diagnostic for an UNSAFE verdict that
 -- carries no resolvable constraint id. Points at the first known origin's

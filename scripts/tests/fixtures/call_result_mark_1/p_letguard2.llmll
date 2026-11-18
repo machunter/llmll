@@ -1,0 +1,6 @@
+;; CALL-RESULT-MARK-1 witness P-LG2 (must not refute): a guard over a let binder whose branch is unreachable.
+(def-shell never-differs [b: bytes] -> int
+  (pre (>= (bytes-length b) 1))
+  (post (>= result 0))
+  (let [(h (bytes-slice b 0 1)) (x (+ (bytes-get h 0) 0)) (y (bytes-get b 0))]
+    (if (= x (+ y 1)) (bytes-get b 99) 0)))

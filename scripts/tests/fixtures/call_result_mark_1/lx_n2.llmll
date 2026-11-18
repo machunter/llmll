@@ -1,0 +1,5 @@
+;; ABSTRACTION-LEN-EXACT-1 witness LX-N2: index at the length of a bytes-concat-many result; stays a fallback.
+(def-shell many-len [xs: list[bytes]] -> int
+  (post (>= result 0))
+  (let [(m (bytes-concat-many xs))]
+    (bytes-get m (bytes-length m))))

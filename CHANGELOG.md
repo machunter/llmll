@@ -4,6 +4,73 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.40.1)
+
+**Measured over 855 sources (liquid-fixpoint 0.9.6.3.7), one commit at a time:**
+
+- **`CALL-RESULT-MARK-1` (`3755f2ef`) against v0.40.1:** no file changes verdict. `.fq` text is
+  byte-identical on all 743 sources that emit one. Two diagnostics change kind, `lh-unsafe` →
+  `lh-may-fail`, both on marked ids (`w02_tail_len_bad_a`, `callee_post_unassumed/wrongother`).
+- **`ABSTRACTION-LEN-EXACT-1` (`7c2ee131`) against the first commit:** exactly 15 files change
+  verdict, all from fallback (exit 0) to `refuted` (exit 1), and no `.fq` text changes. Seven
+  are `byte_io_1` fixtures (`w02_tail_len_bad_b`, `w05_cat_len_bad`, `w12_at_len_slice`,
+  `w16_make_two_len`, `w16_make_two_len_fill1`, `w17_make_set_chain`, `w17_make_var_len`);
+  eight are the new `call_result_mark_1` witnesses `n3_len_let`, `n4_slice_index`, `lx_p1`,
+  `mk_at_len`, `set_at_len`, `e11_cat`, `e11_cat_rev` and `g1_two_reads_param`.
+- `make refute-crux-gate`: 99 passed, 0 failed.
+- **Witnesses** (`scripts/tests/fixtures/call_result_mark_1/`, 25 programs), driven by
+  `scripts/tests/test_call_result_mark_1.py` (33 cells: 24 verdict, 2 citation, 1 strict-core,
+  6 run-time).
+
+### Fixed: a real bug after a partly reflected builtin falls back, exit 0 — `CALL-RESULT-MARK-1`, `ABSTRACTION-LEN-EXACT-1`
+
+Implemented as settled in [`docs/design/byte-io-proposal.md`](docs/design/byte-io-proposal.md)
+Amendment Rev 2b (2026-11-17), as two commits in one release.
+
+- **`(+ (string-code-at s 0) (string-code-at s 5))` under only `(> (string-length s) 0)` is now
+  `refuted`, exit 1**, at the second call; v0.40.1 fell back with
+  `abstraction:app:string-code-at`, exit 0. Before, any result of `string-code-at`,
+  `string-from-code`, `bytes-make`, `bytes-slice`, `bytes-concat`, `bytes-concat-many`,
+  `bytes-to-list` or `bytes-from-string` in a constraint's environment made every UNSAFE answer
+  on it fall back, even when the failing check did not use it.
+- **The mark now follows the cone of influence** (`LLMLL.AbstractionCone`). A constraint is
+  marked only when such a result, or a value computed from it through a recorded fact, occurs
+  in its goal or in a path condition (a branch guard, a `pre` conjunct). Parameters never link
+  two facts. A kvar, or a function with no recorded closure data, marks (fail-closed). The
+  `.fq` text does not change.
+- **The exact length of a partial result counts as known** (`ABSTRACTION-LEN-EXACT-1`) when its
+  length equation reads no partially known value: `bytes-slice` (`e − s`), `bytes-concat`,
+  `bytes-to-list`, `string-from-code` (1), `bytes-make` (`n`) and `bytes-set`. With
+  `row = (bytes-slice b 0 w)`, `(bytes-get row w)` is refuted at `w`. `bytes-concat-many` and
+  `bytes-from-string` give a bound, not a length, and still mark.
+- **Still a fallback (cost, by design):** a check behind a branch guard that reads slice or
+  code-point content (`(if (> c 64) (string-code-at s 5) c)` with `c = (string-code-at s 0)`);
+  a slice length computed from slice content; and a `let`-bound index read twice through a
+  slice (`CONE-DEF-DIRECTION-1`, DECIDE). The run-time check still stops each one.
+- **A refuted function cites only the checks that do not depend on a partially known value.**
+  A failing check that does is printed as a warning,
+  `warning: call-site precondition of 'bytes-get' may not hold in 'h1': the counterexample uses
+  a value the verifier knows only in part (abstraction:app:bytes-slice), so no run may reach it
+  (constraint #8)`, with the `verify --json` diagnostic kind `lh-may-fail`. The obligation
+  report and `patch` read the cited checks only. The rendering changes no exit code and no
+  per-function verdict.
+- **`refuted` is restated** (`LLMLL.md` §4.4.1, §5.3.3): every hypothesis that the failing
+  check depends on is the authored one, and the cited site may follow an earlier failing check
+  on the same input. `LLMLL.md` §5.3.4, §5.3.5 and §13.12, the README verification table and
+  `docs/getting-started.md` follow; the §13.12 callee workaround now applies only when the
+  failing check reads slice content.
+- **Audit (condition C6).** One hspec test checks that each name in `sealedAxiomBuiltins` is in
+  exactly one of `abstractedBuiltins` or `exactSealedBuiltins`, so a new partial builtin fails CI
+  until it is classified.
+- **CI pins.** New step `CALL-RESULT-MARK-1` at 33 cells; `BYTE-IO step 3` stays 44.
+- **`verify_json_version` 1.2.0 → 1.3.0:** the diagnostic kind `lh-may-fail`, a warning; no key
+  is added. `checker_soundness_version` stays "9": these rows only move fallbacks to `refuted`,
+  so no stored `verified` record changes meaning. `proof_artifact_version`,
+  `trust_report_version` and the JSON-AST schema do not change.
+
+**Tests:** hspec 3345 → 3384 (`CALL-RESULT-MARK-1`) → 3407 (`ABSTRACTION-LEN-EXACT-1`), 0
+failures; Python 900 → 920 → 933 passed, 10 skipped.
+
 ## v0.40.1: a false `verified` from `bytes-make` fixed, and spec claims corrected (2026-11-17)
 
 **Measured, v0.40.0 against this release, over 824 sources (liquid-fixpoint 0.9.6.3.7):**

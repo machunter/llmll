@@ -1,0 +1,6 @@
+;; ABSTRACTION-LEN-EXACT-1 witness G1-P: two reads of a slice at a parameter index; bug at x = w - 1, refuted.
+(def-shell two-reads [b: bytes w: int x: int] -> int
+  (pre (and (and (>= w 1) (<= w (bytes-length b))) (and (>= x 0) (< x w))))
+  (post (>= result 0))
+  (let [(row (bytes-slice b 0 w))]
+    (+ (bytes-get row x) (bytes-get row (+ x 1)))))

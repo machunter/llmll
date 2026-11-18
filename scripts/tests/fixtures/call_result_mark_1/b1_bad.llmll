@@ -1,0 +1,6 @@
+;; CALL-RESULT-MARK-1 witness B1: (bytes-get b 8) under length 8 does not read the slice; refuted.
+(def-shell slice-get [b: bytes] -> int
+  (pre (>= (bytes-length b) 8))
+  (post (>= result 0))
+  (let [(h (bytes-slice b 0 4))]
+    (+ (bytes-get h 0) (bytes-get b 8))))

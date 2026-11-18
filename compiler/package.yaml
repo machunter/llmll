@@ -104,6 +104,8 @@ library:
     # ABSTRACTION-VERDICT-1: an UNSAFE answer that rests on two unrelated calls
     # to one callee is a fallback, not a refutation. Read after the solver.
     - LLMLL.AbstractionVerdict
+    # CALL-RESULT-MARK-1: the clause-1 cone of influence (pure)
+    - LLMLL.AbstractionCone
     # MUL-VAR-1: the normal form of a product and its fixed fact set (pure)
     - LLMLL.ProductNF
     - LLMLL.ProductFacts

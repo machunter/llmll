@@ -1,0 +1,6 @@
+;; ABSTRACTION-LEN-EXACT-1 witness MK-P: index at the length of a bytes-make result; bug at n = 0, refuted.
+(def-shell mk-at-len [n: int] -> int
+  (pre (>= n 0))
+  (post (>= result 0))
+  (let [(m (bytes-make n 7))]
+    (bytes-get m n)))

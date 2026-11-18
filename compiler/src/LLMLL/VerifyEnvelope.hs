@@ -60,8 +60,11 @@ data VerifyEnvelope = VerifyEnvelope
 -- 'welldef_unproved'.
 -- MUL-VAR-1 (1.2.0): 'abstraction_fallback' admits the value
 -- @abstraction:nonlinear:*@ (design "The verify schema"); no key is added.
+-- CALL-RESULT-MARK-1 (1.3.0): a @diagnostics@ item may carry the kind
+-- @lh-may-fail@, and a failing constraint of a refuted function may be a
+-- warning (byte-io-proposal Rev 2b item 8); no key is added.
 verifyJsonVersion :: Text
-verifyJsonVersion = "1.2.0"
+verifyJsonVersion = "1.3.0"
 
 -- | The fixed key of each nested report, in emit order (design §3.3).
 nestedReportKeys :: [Text]

@@ -1,0 +1,45 @@
+constant bytesLen : (func(0 , [(Map_t int int); int]))
+qualif True(v : int) { (true) }
+qualif GEZ(v : int) { (v >= 0) }
+qualif GTZ(v : int) { (v > 0) }
+qualif EqZ(v : int) { (v = 0) }
+qualif Eq(v : int, w : int) { (v = w) }
+qualif GE(v : int, w : int) { (v >= w) }
+qualif GT(v : int, w : int) { (v > w) }
+qualif Q_slice_get_post_41(v : int, result : int) { (result >= 0) }
+bind 0 b : { v : (Map_t int int) | true }
+bind 1 _bv_call_bytes_slice_2 : { v : (Map_t int int) | v = _bv_call_bytes_slice_2 }
+bind 2 _bv_call_bytes_get_3 : { v : int | v = _bv_call_bytes_get_3 }
+bind 3 _bv_call_bytes_get_4 : { v : int | v = _bv_call_bytes_get_4 }
+bind 4 result : { v : int | true }
+bind 5 _bv_call_bytes_slice_2 : { v : (Map_t int int) | true }
+bind 6 _bv_call_bytes_slice_2 : { v : (Map_t int int) | true }
+bind 7 _bv_call_bytes_get_3 : { v : int | true }
+constraint:
+  env [0; 1; 2; 3; 4]
+  lhs { result : int | (Map_select b 8) >= 0 && (Map_select b 8) <= 255 && (Map_select _bv_call_bytes_slice_2 0) >= 0 && (Map_select _bv_call_bytes_slice_2 0) <= 255 && (bytesLen _bv_call_bytes_slice_2) >= 0 && (bytesLen b) >= 0 && _bv_call_bytes_get_4 = (Map_select b 8) && _bv_call_bytes_get_3 = (Map_select _bv_call_bytes_slice_2 0) && (bytesLen _bv_call_bytes_slice_2) = (4 - 0) && (bytesLen b) >= 8 && result = (_bv_call_bytes_get_3 + _bv_call_bytes_get_4) }
+  rhs { result : int | result >= 0 }
+  id 0
+  tag [0]
+
+constraint:
+  env [0]
+  lhs { v : int | (bytesLen b) >= 0 && (bytesLen b) >= 8 }
+  rhs { v : int | 0 >= 0 && 0 <= 4 && 4 <= (bytesLen b) }
+  id 1
+  tag [1]
+
+constraint:
+  env [0; 5]
+  lhs { v : int | (bytesLen b) >= 0 && (bytesLen _bv_call_bytes_slice_2) >= 0 && (bytesLen b) >= 8 && (bytesLen _bv_call_bytes_slice_2) = (4 - 0) }
+  rhs { v : int | 0 <= 0 && 0 < (bytesLen _bv_call_bytes_slice_2) }
+  id 2
+  tag [2]
+
+constraint:
+  env [0; 6; 7]
+  lhs { v : int | (bytesLen b) >= 0 && (bytesLen _bv_call_bytes_slice_2) >= 0 && (Map_select _bv_call_bytes_slice_2 0) >= 0 && (Map_select _bv_call_bytes_slice_2 0) <= 255 && (bytesLen b) >= 8 && (bytesLen _bv_call_bytes_slice_2) = (4 - 0) && _bv_call_bytes_get_3 = (Map_select _bv_call_bytes_slice_2 0) }
+  rhs { v : int | 0 <= 8 && 8 < (bytesLen b) }
+  id 3
+  tag [3]
+

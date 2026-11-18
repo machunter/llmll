@@ -1,0 +1,8 @@
+;; ABSTRACTION-LEN-EXACT-1 witness LX-N1 (must not refute): the slice bound is read from slice content.
+(def-shell dep-len [b: bytes] -> int
+  (pre (and (>= (bytes-length b) 1) (= (bytes-get b 0) 0)))
+  (post (>= result 0))
+  (let [(h (bytes-slice b 0 1))
+        (k (bytes-get h 0))
+        (t (bytes-slice b 0 k))]
+    (bytes-get b (+ (bytes-length t) (- (bytes-length b) 1)))))

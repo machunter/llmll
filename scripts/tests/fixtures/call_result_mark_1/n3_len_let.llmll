@@ -1,0 +1,6 @@
+;; CALL-RESULT-MARK-1 witness N3: bug through the slice length; a fallback after CALL-RESULT-MARK-1, refuted after ABSTRACTION-LEN-EXACT-1.
+(def-shell via-len [b: bytes] -> int
+  (pre (>= (bytes-length b) 8))
+  (post (>= result 0))
+  (let [(h (bytes-slice b 0 4))]
+    (bytes-get b (+ (bytes-length h) 4))))
