@@ -4,7 +4,7 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.40.1)
+## v0.41.0: an abstraction mark follows the dependence of the failing check, and exact lengths of partial results stay exact (2026-11-17)
 
 **Measured over 855 sources (liquid-fixpoint 0.9.6.3.7), one commit at a time:**
 
