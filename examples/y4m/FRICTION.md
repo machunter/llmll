@@ -7,19 +7,25 @@ capability first, then lost performance, then lost time, then noise. A
 roadmap tag means a row in `docs/compiler-team-roadmap.md` matches. **new**
 means no row matches.
 
+**Update 2026-11-18 (EXAMPLES-BYTES-1, compiler v0.41.0).** The program now
+reads and writes bytes (`wasi.fs.read-bytes`, `wasi.fs.write-bytes`), and a
+new verified module, `ybuf`, holds the index and slice decisions. F1, F2 and
+F9 are resolved; F3 is resolved for the header split and the frame walk.
+The items below keep their original text, with a resolution note.
+
 ## Summary
 
 | # | Item | Row |
 |---|---|---|
-| F1 | No byte input or output; the program spawns `od` and `xxd` | BYTES-READ-1, BYTES-WRITE-1, BYTES-UNSIZED-1, FFI-BYTES-1 |
-| F2 | 1.8-2.5 µs and about 550 bytes of memory per input byte | PERF-TEXT-1 |
-| F3 | Hand-written take, drop, split and enumerate; no seek | LIST-SLICE-1 (second consumer) |
+| F1 | No byte input or output; the program spawns `od` and `xxd` (**resolved** v0.41.0) | BYTES-READ-1, BYTES-WRITE-1, BYTES-UNSIZED-1, FFI-BYTES-1; EXAMPLES-BYTES-1 |
+| F2 | 1.8-2.5 µs and about 550 bytes of memory per input byte (**resolved**: `info` 0.01 s, 17.6 MB) | PERF-TEXT-1; EXAMPLES-BYTES-1 |
+| F3 | Hand-written take, drop, split and enumerate; no seek (**partly resolved**: slices and seek on `bytes`) | LIST-SLICE-1 (second consumer) |
 | F4 | One `if` conjunct withdrew a whole post, and `check` did not say so | POST-CONJ-SPLIT-1 |
 | F5 | The frame size `w*h` is nonlinear, so no contract can state it | new (message: CORE-SYNTAX-MSG-1) |
 | F6 | A contract fix restarts the hole protocol; fills must be JSON-AST | new |
 | F7 | Nested pair projections fall back | PAIR-NEST-PROJ-1 |
 | F8 | No character codes | CHAR-CODE-1 |
-| F9 | Child output only goes to a file; fixed temp paths; capability not checked | new (capability part: CAP-1-REAL) |
+| F9 | Child output only goes to a file; fixed temp paths; capability not checked (**resolved here**: no child process) | new (capability part: CAP-1-REAL) |
 | F10 | Trust-gap warning noise, and parse errors at the wrong place | TRUST-GAP-PRE-1, AND-NARY-1 |
 
 Not hit: BITWISE-1 and PBT-XMOD-CTOR-1. See "What did not hurt".
@@ -59,6 +65,20 @@ written over byte values (`int` 0..255), so it applies unchanged to a future
 byte type. The cost is F2: the text round trip is most of the run time and
 memory.
 
+**Resolved 2026-11-18 (EXAMPLES-BYTES-1, v0.41.0).** `main.llmll` reads the
+file with `wasi.fs.read-bytes` into one `bytes` buffer and writes with
+`wasi.fs.write-bytes`. The `od` and `xxd` processes, the two `/tmp` files and
+the `exec` capability are gone. The new level-1 module `ybuf.llmll` holds the
+index and slice decisions (`find-lf`, `marker-end`, `luma-plane`,
+`crop-row`, `hflip-at`): 5 of 5 proved, filled through `checkout` and
+`patch`, with no `abstraction:app:bytes-*` fallback. `find-lf` and
+`marker-end` are loops, so they are `def-shell` with `(decreases …)`:
+`letrec` does not parse in the default grammar, and a `def` takes no
+`decreases`. Both are body-faithful, with termination verified. Two wrong
+`ybuf` bodies that break only the length post of a returned slice fall back
+instead of being refuted (ABSTRACTION-RESULT-LEN-1). An importer's trust
+report lists the two loops as termination-unverified (XMOD-TERM-REPORT-1).
+
 ### F2. 1.8-2.5 µs and about 550 bytes of memory per input byte. PERF-TEXT-1
 
 Measured on a 320x240, 30-frame clip (3,456,229 bytes) on Apple Silicon:
@@ -86,6 +106,20 @@ Measured on a 320x240, 30-frame clip (3,456,229 bytes) on Apple Silicon:
 **Workaround:** none. The clip was not shrunk; all four commands finish on
 the full 30-frame clip.
 
+**Resolved 2026-11-18 (EXAMPLES-BYTES-1, v0.41.0).** On the same clip, with
+byte I/O and O(1) slices:
+
+| Command | Time | Max RSS |
+|---|---|---|
+| `info` | 0.01 s (0.46 s cold) | 17.6 MB |
+| `frame IN 29 OUT` | 0.01 s | 18.7 MB |
+| `hflip` | 0.25-0.26 s | 36.6 MB |
+| `crop 32 16 255 201` | 0.01 s | 28.5 MB |
+
+`frame N` now seeks: each frame is a slice at a known offset. `hflip` is the
+slowest command because it still builds each row through `list[int]` and
+`bytes-from-list`.
+
 ### F3. Hand-written take, drop, split and enumerate; no seek. LIST-SLICE-1 (second consumer)
 
 **Did the program need list-take, list-drop, list-slice, zip, or O(1)
@@ -103,7 +137,13 @@ and it gave up seeking. Each hand-written helper is in `y4m.llmll`:
 | O(1) indexing | `row-map`: each row becomes a `map[int,int]`, then `map-get` (O(log w)) | hflip |
 | slice by offset (seek) | none | `frame N` decodes every frame |
 
-These helpers are about 45 lines. The payload walk itself needed no slice.
+**Partly resolved 2026-11-18 (EXAMPLES-BYTES-1).** `split-header`,
+`drop-bytes`, `row-map` and the hex encoders are gone: the header end is
+`ybuf.find-lf`, each frame is a `bytes-slice`, and `hflip` reads with
+`bytes-get` through `ybuf.hflip-at`. The header tokens are still split as
+`list[int]` with `split-on`.
+
+These helpers were about 45 lines. The payload walk itself needed no slice.
 A raster cursor (F5) streams the bytes into rows, so the layout is never an
 offset computation. But with a slice and a length fact, `frame N` could
 stop after frame N, and the header split would be one call.
@@ -198,6 +238,10 @@ Two places need to move between a byte value and text:
 - `main.llmll` declares `(capability exec "/usr/bin/od")` and also runs
   `/usr/bin/xxd`. Nothing objects, because the capability clause is
   declarative (LLMLL.md §7).
+
+**Resolved here 2026-11-18 (EXAMPLES-BYTES-1).** The program starts no child
+process and writes no temp file. The capability gap itself is still
+CAP-1-REAL.
 
 ### F10. Noise: trust-gap warnings and parse errors at the wrong place. TRUST-GAP-PRE-1, AND-NARY-1
 

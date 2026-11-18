@@ -3519,6 +3519,8 @@ Every such axiom is **disclosed rather than silent**. `llmll verify --trust-repo
   (get2 (bytes-slice b 0 3)))         ;; the caller proves get2's pre from the slice's length lemma
 ```
 
+[`examples/y4m/ybuf.llmll`](examples/y4m/ybuf.llmll) is a worked module of this pattern over a whole file buffer: every index is a parameter or a linear term over parameters, and all five defs verify. A wrong length post on a returned slice still falls back (`ABSTRACTION-RESULT-LEN-1`).
+
 **Map keys are `{int, string}`** — a map operation at any other key type is a typechecker diagnostic on the *operation*; the `map[k,v]` type former itself is unrestricted.
 
 ### 13.13 JSON Operations

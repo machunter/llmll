@@ -4,6 +4,90 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.41.0)
+
+**Measured on v0.41.0 (liquid-fixpoint 0.9.6.3.7, Apple Silicon). No compiler change; no schema,
+sidecar, stamp or version change.**
+
+- **`abstraction:app:bytes-*` fallbacks on correct code: 0** in every module of the three
+  examples.
+- **Witnesses:** `scripts/tests/test_examples_bytes_1.py` (18 cells: 8 y4m, 5 netpbm-swarm,
+  5 netpbm), run by the new CI step `EXAMPLES-BYTES-1`, pinned at 18 cells with no skip.
+
+### Examples: Y4M and both Netpbm tools read and write bytes — `EXAMPLES-BYTES-1`
+
+One commit per example (`59add2e8` y4m, `8563f947` netpbm-swarm, `3d18ed88` netpbm) and one CI
+commit (`f79291d0`). Each example reads with `wasi.fs.read-bytes`, writes with
+`wasi.fs.write-bytes`, and gains one level-1 verified module that holds every index and slice
+decision over the file buffer. The contracts were written before the bodies.
+
+- **`examples/y4m`: the `od` and `xxd` helper processes and their `/tmp` files are gone.** The
+  file is one `bytes` buffer, and each frame is an O(1) `bytes-slice` of it. New module **`ybuf`**
+  (`find-lf`, `marker-end`, `luma-plane`, `crop-row`, `hflip-at`), filled through `checkout` and
+  `patch`: 5/5 proved. `find-lf` and `marker-end` are `def-shell` with `(decreases …)`, because
+  `letrec` does not parse in the default grammar and a `def` takes no `decreases`; both are
+  body-faithful with termination verified. `main.llmll` declares `read-write "."` and `args`
+  in place of `read-write "/tmp"` and `exec "/usr/bin/od"`. 320x240, 30 frames
+  (3,456,229 bytes):
+
+  | Command | v0.41.0, `od` text | bytes |
+  |---|---|---|
+  | `info` | 6.3-6.8 s, 1.78-1.92 GB | 0.01 s (0.46 s cold), 17.6 MB |
+  | `frame IN 29 OUT` | 5.7-6.0 s, 1.41-1.65 GB | 0.01 s, 18.7 MB |
+  | `hflip` | 8.5-8.6 s, 1.93-1.94 GB | 0.25-0.26 s, 36.6 MB |
+  | `crop 32 16 255 201` | 7.7-7.9 s, 1.97 GB | 0.01 s, 28.5 MB |
+
+  Cross-check: 0 failures in 43 checks.
+- **`examples/netpbm-swarm`: binary PGM P5 and PPM P6**, 8- and 16-bit, with `#` comments in the
+  header. The output format follows the input format, bytes after the raster are ignored, and a
+  short raster is a sample-count error. P2 and P3 keep their text path and messages. New module
+  **`binfmt`** (`byte-class`, `header-end`, `raster-len`, `bin-sample`), filled through holes:
+  4/4 proved. `bin-sample` is so named because both netpbm examples already define `sample-at`.
+  A 256x256 `copy` takes 0.16 s and 46 MB as P6, against 1.85 s and 118 MB as P3. Cross-check:
+  0 failures in 105 checks. `samples/bad-magic.ppm` now uses `P7`, since its `P6` content is a
+  valid image. **`build.sh` skips blur's verify**, which stops at the solver time limit on
+  v0.41.0 (`EXAMPLES-VERIFY-REGRESS-1`, below).
+- **`examples/netpbm`: the same, with `binfmt` hand-written**, and `#` comments ending at LF or
+  CR. P2 and P3 output is byte-identical to the previous build. A 256x256 `copy` takes 0.14 s as
+  P6 against 7.3 s as P3. `samples/bad-magic.pgm` now uses `P7`
+  (`bad magic number 'P7' (expected P2 or P3)`). A missing input file now reports
+  `withBinaryFile: does not exist (No such file or directory)`, the run-time message of
+  `wasi.fs.read-bytes`.
+- **Contract strength.** y4m: 16 wrong core bodies, 14 refuted and 2 expected fallbacks. The two
+  fallbacks are `luma-plane` one row short and `crop-row` shifted right (mutant B): each breaks
+  only the length post of a returned slice (`ABSTRACTION-RESULT-LEN-1`). `crop-row` mutant A,
+  one column too wide, breaks the outer call pre through the inner slice's exact length and is
+  `refuted`: the first witness of `ABSTRACTION-LEN-EXACT-1` on example code. `binfmt`: 4/4
+  wrong bodies refuted in each netpbm example.
+- **Verdicts per module, v0.41.0, proved/contracted (body fallbacks):**
+
+  | Example | Module | before | after |
+  |---|---|---|---|
+  | y4m | raster, hdr, xform | 11/11, 6/6, 7/7 (0) | unchanged |
+  | y4m | `ybuf` | — | 5/5 (0) |
+  | y4m | y4m | 4/4 (12) | 4/4 (12) |
+  | y4m | main | 6/6 (3) | 6/6 (3) |
+  | netpbm-swarm | types, lex, sample, rules, geom, kernel | 13/13, 5/5, 6/6, 10/10, 5/5, 4/4 (0) | unchanged |
+  | netpbm-swarm | `binfmt` | — | 4/4 (0) |
+  | netpbm-swarm | blur | exit 5, resource limit | skipped |
+  | netpbm-swarm | codec | 6/15 (14) | 6/15 (19) |
+  | netpbm-swarm | image, main | 0/9 (10), 5/14 (10) | unchanged |
+  | netpbm | pixel, mainlogic, geom, blur | 17/17, 4/4, 2/2, 1/1 (0) | unchanged |
+  | netpbm | `binfmt` | — | 4/4 (0) |
+  | netpbm | netpbm | 3/33 (31) | 3/37 (37) |
+  | netpbm | main | 3/13 (10) | 3/13 (10) |
+
+  The new fallbacks are shells: five in netpbm-swarm's codec, and six in netpbm's netpbm module
+  (four `contract-signature-outside-fragment`, two with no post).
+- **Filed, three rows in G1:** `EXAMPLES-VERIFY-REGRESS-1` (PLAN: `blur.llmll` stops at the
+  120 s limit on v0.41.0 and at the 2048 MB limit with liquid-fixpoint 0.9.6.3.1; the README
+  recorded 18 s; bisect the compiler), `ABSTRACTION-RESULT-LEN-1` (DECIDE, language-team: a
+  wrong length post on a returned slice exits 0; precision, not soundness) and
+  `XMOD-TERM-REPORT-1` (PLAN: an importer's trust report lists `ybuf.find-lf` and
+  `ybuf.marker-end` as termination-unverified, though `ybuf`'s own record verifies both).
+
+**Tests:** hspec 3407, unchanged (no compiler change); Python 933 → 951 passed, 10 skipped.
+
 ## v0.41.0: an abstraction mark follows the dependence of the failing check, and exact lengths of partial results stay exact (2026-11-17)
 
 **Measured over 855 sources (liquid-fixpoint 0.9.6.3.7), one commit at a time:**

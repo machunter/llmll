@@ -1,7 +1,9 @@
-# netpbm: an ASCII PGM/PPM codec in LLMLL
+# netpbm: a PGM/PPM codec in LLMLL
 
 An encoder and decoder for the plain Netpbm formats **PGM P2** (grayscale) and
 **PPM P3** (colour), with eight transforms and a command-line entry point.
+Since EXAMPLES-BYTES-1 (compiler v0.41.0) it also reads and writes the binary
+formats **PGM P5** and **PPM P6**.
 The goal was a practical program written against today's compiler (v0.33.2),
 with as much of it proved as the verifier allows. The verified share is the
 main measure. Everything that got in the way is logged in
@@ -15,10 +17,20 @@ netpbm IN TRANSFORM OUT [N ...]
 * **Decoder.** Handles `#` comments anywhere on a line, any whitespace
   (including a header on one line), and maxval up to 65535. Malformed input is
   rejected with a `Result` error that names the problem, and the CLI exits 1:
-  `bad magic number 'P6' (expected P2 or P3)`, `missing height`,
+  `bad magic number 'P7' (expected P2 or P3)`, `missing height`,
   `width must be positive`, `sample 5 (11) exceeds maxval 10`,
   `wrong sample count: 3x2x1 needs 6 samples, found 5`, and
   `sample 3 is not a non-negative integer: '-4'`.
+* **Binary input (P5, P6).** The CLI reads the file whole with
+  `wasi.fs.read-bytes`. A sample is one byte when maxval is below 256 and two
+  bytes, big-endian, otherwise. `#` comments may appear in the header and end
+  at LF or CR. Bytes after the raster are ignored, and a short raster is a
+  sample-count error. The verified module `binfmt` makes every index
+  decision. **The output format follows the input format**, written with
+  `wasi.fs.write-bytes`. P2 and P3 output is byte-identical to the build
+  before byte I/O. A missing input file reports
+  `withBinaryFile: does not exist (No such file or directory)`, the run-time
+  message of `wasi.fs.read-bytes`.
 * **Encoder.** Writes the header, then the samples with a newline at the end
   of each row and after every 12th sample in a row, so no line is longer than
   70 characters.
@@ -39,12 +51,14 @@ module.
 |---|---|---|
 | `pixel.llmll` | 1 (leaf) | 17 strict-core defs over plain ints: header and crop predicates, per-sample transforms, luma, blur average, coordinate clamp, row spans, encoder column logic, decoder decisions, map-backed sample read |
 | `mainlogic.llmll` | 1 (leaf) | 4 defs: transform-name lookup, argument counts, loop termination, exit status |
+| `binfmt.llmll` | 1 (leaf) | 4 functions over the file's `bytes` buffer, hand-written with the same contracts as [`netpbm-swarm`](../netpbm-swarm)'s copy: `byte-class`, `header-end` (a `def-shell` loop with `decreases`), `raster-len`, `bin-sample` |
 | `geom.llmll` | 2 | `pixel-offset`, `window-sum3` (calls layer 1) |
 | `blur.llmll` | 3 | `blur-sample`: one output sample of the box blur (calls layers 1 and 2) |
 | `netpbm.llmll` | shell | Image type, decoder, encoder, transforms, and 19 `check` properties |
 | `main.llmll` | shell | The `def-main :mode cli` loop: argv, read, process, write, report |
-| `samples/` | | `feep.pgm` (from pgm(5)), `tiny.ppm` (from ppm(5)), `rgb.ppm` (header on one line, comments between rows), and four malformed `bad-*.pgm` files |
-| `tools/crosscheck.py` | | An independent Python reference. It runs the binary on every sample and transform and compares the decoded results |
+| `samples/` | | `feep.pgm` (from pgm(5)), `tiny.ppm` (from ppm(5)), `rgb.ppm` (header on one line, comments between rows), seven binary `bin-*` files (P5, P6, 16-bit, comments ending at LF or CR, trailing bytes), and seven malformed `bad-*` files |
+| `tools/crosscheck.py` | | An independent Python reference for P2, P3, P5 and P6. It runs the binary on every sample and transform and compares the decoded results |
+| `tools/genbin.py`, `tools/mutants.py` | | The binary samples and 256x256 images; 4 wrong `binfmt` bodies, each of which must be refuted (`./build.sh --mutants`) |
 | `build.sh` | | Verifies, tests, builds and cross-checks, in that order |
 
 An image is `(Header, list[int])`, with `Header = (channels, (width, (height, maxval)))`.
@@ -56,26 +70,37 @@ outside the fragment, so the core takes the header fields as separate ints
 ## Build and run
 
 ```sh
-./build.sh                      # verify x6, test, build, cross-check
+./build.sh                      # verify x7, test, build, cross-check
+./build.sh --mutants            # also verify 4 wrong binfmt bodies
 EXE=$(cd build && stack path --local-install-root)/bin/main
 $EXE samples/tiny.ppm gray work/tiny-gray.pgm
 $EXE samples/feep.pgm crop work/feep-crop.pgm 1 1 6 5
 ```
 
-`build.sh` runs `llmll verify` on `pixel`, `mainlogic`, `geom`, `blur`,
-`netpbm` and `main`, in that order. It then runs `llmll test netpbm.llmll`
+`build.sh` runs `llmll verify` on `pixel`, `mainlogic`, `binfmt`, `geom`,
+`blur`, `netpbm` and `main`, in that order. It then runs `llmll test netpbm.llmll`
 (19 properties) and `llmll build main.llmll -o build`. Last, it runs
 `python3 -I tools/crosscheck.py`, which compares every transform on every
 sample with the Python reference and checks that each malformed input,
 unknown transform, out-of-range crop, missing argument, negative argument and
 missing file exits 1 with a message. Current result: **0 failures**. The
-cross-check also passes on generated 256x256 P2 and P3 images.
+cross-check also passes on generated 256x256 P3 and P6 images.
 
 The executable is named `main` and is installed under
 `$(cd build && stack path --local-install-root)/bin/`. `llmll build` does not
 print that path.
 
 ## Verification summary
+
+**Binary formats (EXAMPLES-BYTES-1, v0.41.0, 2026-11-18).** `binfmt` is 4 of
+4 verified, body-faithful, with no `abstraction:app:bytes-*` fallback, and
+`tools/mutants.py` refutes all 4 wrong bodies. The netpbm module gains 7
+shell functions (`decode-bytes`, `encode-bytes` and their helpers): it is 3 of
+37 contracted functions verified, with 37 body fallbacks (31 before). The six
+new fallbacks are four `contract-signature-outside-fragment` and two with no
+post. pixel, mainlogic, geom, blur and main did not change. So the program
+has 87 functions, and 34 are verified. The figures below are the earlier run
+over the 76 functions before byte I/O.
 
 The figures come from `llmll verify` / `llmll trust-report` on every module,
 counting each module's own functions only, which is 76 in total. Each count
@@ -171,6 +196,10 @@ runtime contracts (`image-ok?` before and after every transform, and
 property tests.
 
 ## Performance (256x256, Apple Silicon, default build)
+
+On v0.41.0 a 256x256 `copy` takes **0.14 s as P6 against 7.3 s as P3**
+(default build, one run each). The table below is the earlier measurement of
+the text formats.
 
 Wall-clock time for one run. Each cell gives the default build (runtime
 contracts on) first, then the `--contracts none` build. Single runs; the
