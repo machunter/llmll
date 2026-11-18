@@ -1,24 +1,22 @@
-;; y4m — SHELL layer: the YUV4MPEG2 (4:2:0) codec over byte lists.
-;; Depends on: raster, hdr, xform. Verify those first.
+;; y4m — SHELL layer: the YUV4MPEG2 (4:2:0) codec over a byte buffer.
+;; Depends on: raster, hdr, xform, ybuf. Verify those first.
 ;;
-;; A file arrives as the text of `od -An -v -tu1 FILE` (one decimal number
-;; per byte), because wasi.fs.read can only deliver UTF-8 text (FRICTION F1).
-;; A file leaves as hex text that `xxd -r -p` turns into bytes.
+;; A file arrives as one `bytes` buffer (wasi.fs.read-bytes) and leaves as
+;; one (wasi.fs.write-bytes). A frame payload is an O(1) slice of the input.
 ;;
 ;;   Hdr    = ((w, h), (rn, rd))          frame rate rn/rd
-;;   Row    = list[int]                   bytes 0..255
-;;   Plane  = list[Row]
-;;   Frame  = list[Plane]                 exactly 3 planes: Y, U, V
-;;   Video  = (Hdr, (header-line bytes, list[Frame]))
+;;   Frame  = bytes                       the payload: Y rows, U rows, V rows
+;;   Video  = (Hdr, (header line without its LF, list[Frame]))
 ;;
-;; Every per-byte and per-header decision is a verified core def:
+;; Every per-byte, per-index and per-header decision is a verified core def:
 ;;   header fields      hdr.num-step, hdr.param-tag, hdr.magic-byte,
 ;;                      hdr.chroma-420?, hdr.header-problem
-;;   payload layout     raster.next-x / next-y / next-p / frame-end?,
-;;                      raster.marker-step, raster.plane-w / plane-h
-;;   transforms         xform.hflip-src, xform.crop-keep?
-;;   output bytes       xform.hex-hi / hex-lo / digit-code
-;; This module only walks lists and builds strings.
+;;   header end, marker ybuf.find-lf, ybuf.marker-end (raster.marker-step)
+;;   payload layout     raster.frame-size, raster.chroma-dim
+;;   transforms         ybuf.hflip-at (xform.hflip-src), ybuf.crop-row,
+;;                      ybuf.luma-plane, xform.crop-ok?
+;; Only the header line is turned into a list[int], for the token logic.
+;; This module only walks lists and indexes and joins buffers.
 
 (import raster)
 (open raster)
@@ -26,17 +24,11 @@
 (open hdr)
 (import xform)
 (open xform)
+(import ybuf)
+(open ybuf)
 
 (type Hdr   ((int, int), (int, int)))
-(type Frame list[list[list[int]]])
-(type Video (Hdr, (list[int], list[list[list[list[int]]]])))
-
-;; Walk state: ints ((mode, i), ((p, y), x)), lists ((row, plane), (frame, frames)).
-;; mode: -1 header (i < hlen), 0..5 and 7 inside a FRAME marker (raster.marker-step),
-;; 6 inside a payload, -2 a bad marker was seen.
-(type WInts  ((int, int), ((int, int), int)))
-(type WLists ((list[int], list[list[int]]), (list[list[list[int]]], list[list[list[list[int]]]])))
-(type Walk   (WInts, WLists))
+(type Video (Hdr, (bytes, list[bytes])))
 
 ;; ─── Accessors ──────────────────────────────────────────────────────────
 
@@ -53,31 +45,10 @@
 (def-shell hdr-rd [h: Hdr] -> int (pair-b (hdr-rate h)))
 
 (def-shell vid-hdr    [v: Video] -> Hdr (first v))
-(def-shell vid-line   [v: Video] -> list[int] (first (second v)))
-(def-shell vid-frames [v: Video] -> list[list[list[list[int]]]] (second (second v)))
+(def-shell vid-line   [v: Video] -> bytes (first (second v)))
+(def-shell vid-frames [v: Video] -> list[bytes] (second (second v)))
 
-;; ─── Bytes in ───────────────────────────────────────────────────────────
-
-;; od -An -v -tu1 text -> bytes.
-(def-shell od-bytes [text: string] -> list[int]
-  (list-map
-    (list-filter (string-split " " (regex-replace-all "[ \n\t]+" text " "))
-                 (fn [t: string] (not (string-empty? t))))
-    (fn [t: string] (unwrap-or (string-to-int t) 0))))
-
-;; Length of the header line including its LF, and its bytes without the
-;; LF; (-1, bytes) when there is no LF. A full pass: a fold cannot stop
-;; early, and there is no list-take (FRICTION F3).
-(def-shell split-header [bs: list[int]] -> (int, list[int])
-  (let [(r (list-fold bs (pair 0 (pair -1 (list-empty)))
-             (fn [acc: (int, (int, list[int])) b: int]
-               (let [(i (first acc)) (n (first (second acc))) (hb (second (second acc)))]
-                 (if (>= n 0)
-                     acc
-                     (if (= b 10)
-                         (pair (+ i 1) (pair (+ i 1) hb))
-                         (pair (+ i 1) (pair -1 (list-prepend b hb)))))))))]
-    (pair (first (second r)) (list-reverse (second (second r))))))
+;; ─── Header line bytes ──────────────────────────────────────────────────
 
 ;; Split a byte list at every sep byte. Empty pieces are kept.
 (def-shell split-on [sep: int bs: list[int]] -> list[list[int]]
@@ -88,16 +59,22 @@
                    (pair (list-prepend b (first acc)) (second acc))))))]
     (list-reverse (list-prepend (list-reverse (first r)) (second r)))))
 
-;; The bytes from index k on (no list-drop: FRICTION F3).
-(def-shell drop-bytes [k: int bs: list[int]] -> list[int]
-  (list-reverse (second
-    (list-fold bs (pair 0 (list-empty))
-      (fn [acc: (int, list[int]) b: int]
-        (pair (+ (first acc) 1)
-              (if (>= (first acc) k) (list-prepend b (second acc)) (second acc))))))))
+;; The bytes of the header line after "YUV4MPEG2 " (none when it is shorter).
+(def-shell header-rest [hl: bytes] -> list[int]
+  (let [(n (bytes-length hl))]
+    (bytes-to-list (if (>= n 10) (bytes-slice hl 10 n) (bytes-slice hl n n)))))
+
+;; The space-separated parameter tokens of the header line, empty ones dropped.
+(def-shell header-tokens [hl: bytes] -> list[list[int]]
+  (list-filter (split-on 32 (header-rest hl))
+               (fn [t: list[int]] (>= (list-length t) 1))))
 
 (def-shell byte-at [bs: list[int] i: int] -> int
   (unwrap-or (list-nth bs i) -1))
+
+;; A token without its tag byte.
+(def-shell token-value [t: list[int]] -> list[int]
+  (unwrap-or (list-tail t) (list-empty)))
 
 ;; Decimal value of a field: -1 empty, -2 malformed (hdr.num-step).
 (def-shell parse-num [bs: list[int]] -> int
@@ -138,17 +115,15 @@
   (if (= code 9) "frame rate terms must be at least 1"
       (string-concat-many ["colour space '" tok "' is not 4:2:0"])))))))))))
 
-;; Header line bytes (no LF) -> Hdr.
+;; Header line (no LF) -> Hdr.
 ;; Fold state over the tokens: ((w, h), ((rn, rd), (c420, ctext))).
-(def-shell parse-header [hb: list[int]] -> Result[Hdr, string]
-  (if (not (magic-ok? hb))
+(def-shell parse-header [hl: bytes] -> Result[Hdr, string]
+  (if (not (magic-ok? (bytes-to-list hl)))
       (err "not a YUV4MPEG2 stream (bad magic)")
-      (let [(toks (list-filter (split-on 32 (drop-bytes 10 hb))
-                               (fn [t: list[int]] (>= (list-length t) 1))))
-            (r (list-fold toks (pair (pair -1 -1) (pair (pair -1 -1) (pair true "")))
+      (let [(r (list-fold (header-tokens hl) (pair (pair -1 -1) (pair (pair -1 -1) (pair true "")))
                  (fn [acc: ((int, int), ((int, int), (bool, string))) t: list[int]]
                    (let [(tag (param-tag (byte-at t 0)))
-                         (val (drop-bytes 1 t))
+                         (val (token-value t))
                          (w (first (first acc))) (h (second (first acc)))
                          (rate (first (second acc))) (cs (second (second acc)))]
                      (if (= tag 1) (pair (pair (parse-num val) h) (second acc))
@@ -175,163 +150,115 @@
             (ok (pair (pair w h) (pair rn rd)))
             (err (problem-text code ctext))))))
 
-;; ─── Payload walk ───────────────────────────────────────────────────────
+;; ─── Frames ─────────────────────────────────────────────────────────────
 
 (def-shell plane-name [p: int] -> string
   (if (= p 0) "Y" (if (= p 1) "U" "V")))
 
-;; All bytes -> frames. hlen = header line length with its LF.
-(def-shell walk [w: int h: int hlen: int bs: list[int]] -> Result[list[list[list[list[int]]]], string]
-  (pre  (and (>= w 1) (>= h 1)))
-  (let [(s0 (pair (pair (pair -1 0) (pair (pair 0 0) 0))
-                  (pair (pair (list-empty) (list-empty)) (pair (list-empty) (list-empty)))))
-        (s (list-fold bs s0
-             (fn [s: Walk b: int]
-               (let [(md (first (first (first s)))) (i (second (first (first s))))
-                     (p (first (first (second (first s))))) (y (second (first (second (first s)))))
-                     (x (second (second (first s))))
-                     (row (first (first (second s)))) (plane (second (first (second s))))
-                     (frame (first (second (second s)))) (frames (second (second (second s))))]
-                 (if (< i hlen)
-                     (pair (pair (pair (if (= (+ i 1) hlen) 0 -1) (+ i 1)) (second (first s))) (second s))
-                 (if (= md -2)
-                     s
-                 (if (= md 6)
-                     (let [(row2 (list-prepend b row))
-                           (nx (next-x w h p y x)) (ny (next-y w h p y x)) (np (next-p w h p y x))
-                           (ints (pair (pair (if (frame-end? w h p y x) 0 6) i) (pair (pair np ny) nx)))]
-                       (if (> nx 0)
-                           (pair ints (pair (pair row2 plane) (second (second s))))
-                           (let [(plane2 (list-prepend (list-reverse row2) plane))]
-                             (if (> ny 0)
-                                 (pair ints (pair (pair (list-empty) plane2) (second (second s))))
-                                 (let [(frame2 (list-prepend (list-reverse plane2) frame))]
-                                   (if (frame-end? w h p y x)
-                                       (pair ints (pair (pair (list-empty) (list-empty))
-                                                        (pair (list-empty)
-                                                              (list-prepend (list-reverse frame2) frames))))
-                                       (pair ints (pair (pair (list-empty) (list-empty))
-                                                        (pair frame2 frames)))))))))
-                     (let [(k (marker-step md b))]
-                       (pair (pair (pair (if (= k -1) -2 k) i) (pair (pair 0 0) 0)) (second s))))))))))
-        (md (first (first (first s))))
-        (nf (int-to-string (list-length (second (second (second s))))))]
-    (if (= md 0)
-        (ok (list-reverse (second (second (second s)))))
-    (if (= md -1)
-        (err "no header line (no LF)")
-    (if (= md -2)
-        (err (string-concat-many ["frame " nf ": bad FRAME marker"]))
-    (if (= md 6)
-        (err (string-concat-many ["frame " nf " is truncated: the payload ends in the "
-                                  (plane-name (first (first (second (first s))))) " plane at row "
-                                  (int-to-string (second (first (second (first s))))) ", column "
-                                  (int-to-string (second (second (first s))))]))
-        (err (string-concat-many ["frame " nf " is truncated inside its FRAME marker"]))))))))
+;; Where a payload of r < frame-size bytes ends: plane, row and column of
+;; the first missing sample.
+(def-shell truncated-text [w: int h: int nf: int r: int] -> string
+  (pre  (and (>= w 1) (and (>= h 1) (>= r 0))))
+  (let [(cw (chroma-dim w)) (ca (* (chroma-dim w) (chroma-dim h))) (la (* w h))
+        (p (if (< r la) 0 (if (< r (+ la ca)) 1 2)))
+        (o (if (= p 0) r (if (= p 1) (- r la) (- r (+ la ca)))))
+        (pw (if (= p 0) w cw))]
+    (string-concat-many ["frame " (int-to-string nf) " is truncated: the payload ends in the "
+                         (plane-name p) " plane at row " (int-to-string (/ o pw))
+                         ", column " (int-to-string (mod o pw))])))
 
-;; Whole file (od text) -> Video.
-(def-shell decode [text: string] -> Result[Video, string]
-  (let [(bs (od-bytes text))
-        (sh (split-header bs))]
-    (if (< (first sh) 0)
+;; The frame payloads from offset pos on, each fsz bytes after its FRAME
+;; marker. acc holds the frames before pos, last first.
+(def-shell frames-from [w: int h: int buf: bytes pos: int acc: list[bytes]] -> Result[list[bytes], string]
+  (pre  (and (>= w 1) (and (>= h 1) (and (>= pos 0) (<= pos (bytes-length buf))))))
+  (let [(n (bytes-length buf)) (nf (list-length acc))]
+    (if (>= pos n)
+        (ok (list-reverse acc))
+        (let [(e (marker-end buf pos 0)) (fsz (frame-size w h))]
+          (if (= e -1)
+              (err (string-concat-many ["frame " (int-to-string nf) ": bad FRAME marker"]))
+          (if (< e 0)
+              (err (string-concat-many ["frame " (int-to-string nf) " is truncated inside its FRAME marker"]))
+          (if (> (+ e fsz) n)
+              (err (truncated-text w h nf (- n e)))
+              (frames-from w h buf (+ e fsz) (list-prepend (bytes-slice buf e (+ e fsz)) acc)))))))))
+
+;; Whole file -> Video.
+(def-shell decode [buf: bytes] -> Result[Video, string]
+  (let [(nl (find-lf buf 0))]
+    (if (< nl 0)
         (err "no header line (no LF)")
-        (match (parse-header (second sh))
-          ((Error e) (err e))
-          ((Success hd)
-            (match (walk (hdr-w hd) (hdr-h hd) (first sh) bs)
-              ((Error e) (err e))
-              ((Success frames) (ok (pair hd (pair (second sh) frames))))))))))
+        (let [(hl (bytes-slice buf 0 nl))]
+          (match (parse-header hl)
+            ((Error e) (err e))
+            ((Success hd)
+              (match (frames-from (hdr-w hd) (hdr-h hd) buf (+ nl 1) (list-empty))
+                ((Error e) (err e))
+                ((Success frames) (ok (pair hd (pair hl frames)))))))))))
 
 ;; ─── Transforms ─────────────────────────────────────────────────────────
 
-;; Apply f to each plane with its index.
-(def-shell map-planes [fr: list[list[list[int]]] f: (fn [int list[list[int]]] -> list[list[int]])] -> list[list[list[int]]]
-  (list-reverse (second
-    (list-fold fr (pair 0 (list-empty))
-      (fn [acc: (int, list[list[list[int]]]) pl: list[list[int]]]
-        (pair (+ (first acc) 1) (list-prepend (f (first acc) pl) (second acc))))))))
+;; Rows y0 .. y0+ch-1 of the pw-wide plane at offset off of fr, each passed
+;; to f with its offset in fr; the results joined.
+(def-shell plane-rows [fr: bytes off: int pw: int y0: int ch: int f: (fn [int] -> bytes)] -> bytes
+  (bytes-concat-many (list-map (range y0 (+ y0 ch)) (fn [y: int] (f (+ off (* y pw)))))))
 
-(def-shell row-map [row: list[int]] -> map[int, int]
-  (second
-    (list-fold row (pair 0 (map-empty))
-      (fn [acc: (int, map[int, int]) b: int]
-        (pair (+ (first acc) 1) (map-put (second acc) (first acc) b))))))
+;; One mirrored row (ybuf.hflip-at per output column).
+(def-shell hflip-row [row: bytes] -> bytes
+  (let [(pw (bytes-length row))]
+    (unwrap-or (bytes-from-list (list-map (range 0 pw) (fn [ox: int] (hflip-at row ox))))
+               row)))
 
-(def-shell hflip-row [row: list[int]] -> list[int]
-  (let [(pw (list-length row)) (m (row-map row))]
-    (if (< pw 1)
-        row
-        (list-map (range 0 pw)
-          (fn [ox: int] (let [(sx (hflip-src pw ox))] (if (map-has m sx) (map-get m sx) 0)))))))
+(def-shell hflip-frame [w: int h: int fr: bytes] -> bytes
+  (pre  (and (>= w 1) (>= h 1)))
+  (let [(cw (chroma-dim w)) (ch (chroma-dim h)) (la (* w h)) (ca (* (chroma-dim w) (chroma-dim h)))]
+    (bytes-concat-many
+      [(plane-rows fr 0 w 0 h (fn [ro: int] (hflip-row (bytes-slice fr ro (+ ro w)))))
+       (plane-rows fr la cw 0 ch (fn [ro: int] (hflip-row (bytes-slice fr ro (+ ro cw)))))
+       (plane-rows fr (+ la ca) cw 0 ch (fn [ro: int] (hflip-row (bytes-slice fr ro (+ ro cw)))))])))
 
-(def-shell hflip-frame [fr: list[list[list[int]]]] -> list[list[list[int]]]
-  (list-map fr (fn [pl: list[list[int]]] (list-map pl hflip-row))))
+;; The window (x0, y0, cw, ch) of the Y plane, and (x0/2, y0/2, ceil(cw/2),
+;; ceil(ch/2)) of U and V (xform.crop-keep?), row by row with ybuf.crop-row.
+(def-shell crop-frame [w: int h: int x0: int y0: int cw: int ch: int fr: bytes] -> bytes
+  (pre  (and (>= w 1) (and (>= h 1) (and (>= x0 0) (and (>= y0 0) (and (>= cw 1) (>= ch 1)))))))
+  (let [(pcw (chroma-dim w)) (la (* w h)) (ca (* (chroma-dim w) (chroma-dim h)))
+        (cx (/ x0 2)) (cy (/ y0 2)) (ccw (chroma-dim cw)) (cch (chroma-dim ch))]
+    (bytes-concat-many
+      [(plane-rows fr 0 w y0 ch (fn [ro: int] (crop-row fr ro w x0 cw)))
+       (plane-rows fr la pcw cy cch (fn [ro: int] (crop-row fr ro pcw cx ccw)))
+       (plane-rows fr (+ la ca) pcw cy cch (fn [ro: int] (crop-row fr ro pcw cx ccw)))])))
 
-;; Keep the samples of plane p inside the window, row by row.
-(def-shell crop-plane [x0: int y0: int cw: int ch: int p: int pl: list[list[int]]] -> list[list[int]]
-  (pre  (and (>= p 0) (and (<= p 2) (and (>= x0 0) (and (>= y0 0) (and (>= cw 1) (>= ch 1)))))))
-  (list-reverse (second
-    (list-fold pl (pair 0 (list-empty))
-      (fn [acc: (int, list[list[int]]) row: list[int]]
-        (let [(y (first acc))
-              (kept (list-reverse (second
-                      (list-fold row (pair 0 (list-empty))
-                        (fn [a: (int, list[int]) b: int]
-                          (pair (+ (first a) 1)
-                                (if (crop-keep? p y (first a) x0 y0 cw ch)
-                                    (list-prepend b (second a))
-                                    (second a))))))))]
-          (pair (+ y 1) (if (>= (list-length kept) 1) (list-prepend kept (second acc)) (second acc)))))))))
+;; ─── Bytes out ──────────────────────────────────────────────────────────
 
-;; ─── Bytes out (as hex for xxd -r -p) ───────────────────────────────────
+(def-shell ascii-bytes [s: string] -> bytes (bytes-from-string s))
 
-(def-shell hex-digits [] -> string "0123456789abcdef")
-
-(def-shell hex-byte [b: int] -> string
-  (pre  (and (>= b 0) (<= b 255)))
-  (string-concat (string-char-at (hex-digits) (hex-hi b)) (string-char-at (hex-digits) (hex-lo b))))
-
-(def-shell hex-bytes [bs: list[int]] -> string
-  (string-concat-many (list-map bs hex-byte)))
-
-;; One row per line keeps the lines short.
-(def-shell hex-plane [pl: list[list[int]]] -> string
-  (string-concat-many (list-map pl (fn [row: list[int]] (string-concat (hex-bytes row) "\n")))))
-
-(def-shell hex-frames [frames: list[list[list[list[int]]]]] -> string
-  (string-concat-many
-    (list-map frames (fn [fr: list[list[list[int]]]]
-      (string-concat "4652414d450a\n" (string-concat-many (list-map fr hex-plane)))))))
-
-;; Decimal digits of n >= 0 as ASCII codes.
-(def-shell digit-bytes [n: int] -> list[int]
-  (pre  (>= n 0))
-  (list-map (regex-find-all "[0-9]" (int-to-string n))
-    (fn [g: list[string]] (digit-code (max 0 (min 9 (unwrap-or (string-to-int (unwrap-or (list-head g) "0")) 0)))))))
+;; A token's bytes, copied (each came from a byte of the input).
+(def-shell token-bytes [t: list[int]] -> bytes
+  (unwrap-or (bytes-from-list t) (bytes-from-string "")))
 
 ;; The header line with W and H replaced (the other tokens are copied).
-(def-shell header-hex [hb: list[int] w: int h: int] -> string
+(def-shell header-bytes [hl: bytes w: int h: int] -> bytes
   (pre  (and (>= w 1) (>= h 1)))
-  (let [(toks (list-filter (split-on 32 (drop-bytes 10 hb))
-                           (fn [t: list[int]] (>= (list-length t) 1))))]
-    (string-concat-many
-      [(hex-bytes [89 85 86 52 77 80 69 71 50])
-       (string-concat-many
-         (list-map toks (fn [t: list[int]]
-           (let [(tag (param-tag (byte-at t 0)))]
-             (string-concat "20"
-               (if (= tag 1) (string-concat "57" (hex-bytes (digit-bytes w)))
-               (if (= tag 2) (string-concat "48" (hex-bytes (digit-bytes h)))
-                   (hex-bytes t))))))))
-       "0a\n"])))
+  (bytes-concat-many
+    [(ascii-bytes "YUV4MPEG2")
+     (bytes-concat-many
+       (list-map (header-tokens hl) (fn [t: list[int]]
+         (let [(tag (param-tag (byte-at t 0)))]
+           (bytes-concat (ascii-bytes " ")
+             (if (= tag 1) (ascii-bytes (string-concat "W" (int-to-string w)))
+             (if (= tag 2) (ascii-bytes (string-concat "H" (int-to-string h)))
+                 (token-bytes t))))))))
+     (ascii-bytes "\n")]))
 
-(def-shell encode-y4m [v: Video w: int h: int frames: list[list[list[list[int]]]]] -> string
+(def-shell encode-y4m [v: Video w: int h: int frames: list[bytes]] -> bytes
   (pre  (and (>= w 1) (>= h 1)))
-  (string-concat (header-hex (vid-line v) w h) (hex-frames frames)))
+  (bytes-concat (header-bytes (vid-line v) w h)
+                (bytes-concat-many
+                  (list-map frames (fn [fr: bytes] (bytes-concat (ascii-bytes "FRAME\n") fr))))))
 
-;; Binary PGM (P5, maxval 255) of one plane.
-(def-shell encode-pgm [w: int h: int pl: list[list[int]]] -> string
+;; Binary PGM (P5, maxval 255) of the luma plane of a frame payload.
+(def-shell encode-pgm [w: int h: int fr: bytes] -> bytes
   (pre  (and (>= w 1) (>= h 1)))
-  (string-concat-many
-    [(hex-bytes [80 53 10]) (hex-bytes (digit-bytes w)) "20" (hex-bytes (digit-bytes h))
-     (hex-bytes [10 50 53 53 10]) "\n" (hex-plane pl)]))
+  (bytes-concat
+    (ascii-bytes (string-concat-many ["P5\n" (int-to-string w) " " (int-to-string h) "\n255\n"]))
+    (luma-plane fr w h)))

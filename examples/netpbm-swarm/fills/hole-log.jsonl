@@ -1,0 +1,9 @@
+{"module": "binfmt", "hole": "byte-class-body", "pointer": "/statements/0/body", "result": "PatchTypeError", "secs": 0.0, "verification": null, "diagnostics": [{"holeSensitive": false, "message": "operator '+' expects 2 args, got 3", "severity": "error"}]}
+{"module": "binfmt", "hole": "byte-class-body", "pointer": "/statements/0/body", "result": "PatchSuccess", "secs": 0.2, "verification": [{"body_faithful": true, "fn": "byte-class"}], "diagnostics": null}
+{"module": "binfmt", "hole": "header-end-body", "pointer": "/statements/1/body", "result": "PatchSuccess", "secs": 0.3, "verification": [{"body_faithful": true, "fn": "header-end"}], "diagnostics": null}
+{"module": "binfmt", "hole": "raster-len-body", "pointer": "/statements/2/body", "result": "PatchSuccess", "secs": 0.4, "verification": [{"body_faithful": true, "fn": "raster-len"}], "diagnostics": null}
+{"module": "binfmt", "hole": "sample-at-body", "pointer": "/statements/3/body", "result": "PatchSuccess", "secs": 0.3, "verification": [{"body_faithful": true, "fn": "sample-at"}], "diagnostics": null}
+{"module": "binfmt", "hole": "byte-class-body", "pointer": "/statements/0/body", "result": "PatchSuccess", "secs": 0.4, "verification": [{"body_faithful": true, "fn": "byte-class"}], "diagnostics": null}
+{"module": "binfmt", "hole": "header-end-body", "pointer": "/statements/1/body", "result": "PatchSuccess", "secs": 0.4, "verification": [{"body_faithful": true, "fn": "header-end"}], "diagnostics": null}
+{"module": "binfmt", "hole": "raster-len-body", "pointer": "/statements/2/body", "result": "PatchSuccess", "secs": 0.3, "verification": [{"body_faithful": true, "fn": "raster-len"}], "diagnostics": null}
+{"module": "binfmt", "hole": "bin-sample-body", "pointer": "/statements/3/body", "result": "PatchSuccess", "secs": 0.3, "verification": [{"body_faithful": true, "fn": "bin-sample"}], "diagnostics": null}

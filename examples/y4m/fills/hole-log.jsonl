@@ -64,3 +64,8 @@
 {"module": "raster", "hole": "plane-area-body", "pointer": "/statements/8/body", "result": "PatchSuccess", "secs": 0.5, "verification": [{"body_faithful": true, "fn": "plane-area"}], "diagnostics": null}
 {"module": "raster", "hole": "frame-size-body", "pointer": "/statements/9/body", "result": "PatchSuccess", "secs": 0.2, "verification": [{"body_faithful": true, "fn": "frame-size"}], "diagnostics": null}
 {"module": "raster", "hole": "plane-offset-body", "pointer": "/statements/10/body", "result": "PatchSuccess", "secs": 0.6, "verification": [{"body_faithful": true, "fn": "plane-offset"}], "diagnostics": null}
+{"module": "ybuf", "hole": "find-lf-body", "pointer": "/statements/4/body", "result": "PatchSuccess", "secs": 0.1, "verification": [{"body_faithful": true, "fn": "find-lf"}], "diagnostics": null}
+{"module": "ybuf", "hole": "marker-end-body", "pointer": "/statements/5/body", "result": "PatchSuccess", "secs": 0.2, "verification": [{"body_faithful": true, "fn": "marker-end"}], "diagnostics": null}
+{"module": "ybuf", "hole": "luma-plane-body", "pointer": "/statements/6/body", "result": "PatchSuccess", "secs": 0.2, "verification": [{"body_faithful": true, "fn": "luma-plane"}], "diagnostics": null}
+{"module": "ybuf", "hole": "crop-row-body", "pointer": "/statements/7/body", "result": "PatchSuccess", "secs": 0.1, "verification": [{"body_faithful": true, "fn": "crop-row"}], "diagnostics": null}
+{"module": "ybuf", "hole": "hflip-at-body", "pointer": "/statements/8/body", "result": "PatchSuccess", "secs": 0.1, "verification": [{"body_faithful": true, "fn": "hflip-at"}], "diagnostics": null}

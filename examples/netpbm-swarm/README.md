@@ -2,7 +2,9 @@
 
 A decoder, encoder and eight-transform command-line tool for the plain Netpbm
 formats **PGM P2** (grayscale) and **PPM P3** (colour), written in LLMLL
-against compiler v0.33.2 (`d0183907`). It is the second take on
+against compiler v0.33.2 (`d0183907`). Since EXAMPLES-BYTES-1 (compiler
+v0.41.0) it also reads and writes the binary formats **PGM P5** and
+**PPM P6**. It is the second take on
 [`examples/netpbm`](../netpbm). This time it was built by a swarm of agents:
 an architect designed the verified core, one implementer and one adversarial
 reviewer worked on each core module, and an integrator wrote the shell, the
@@ -19,11 +21,22 @@ main IN TRANSFORM OUT [N ...]
   after a digit (`12#c` is 12). Whitespace is space, TAB, CR and LF. The
   header may be on one line, and maxval may be anything from 1 to 65535.
   Malformed input fails with a message that names the problem, and the CLI
-  exits 1. The messages are: `bad magic number 'P6'` (and `'P23'`, because
-  the magic must be followed by whitespace or `#`), `unexpected character 'x'`,
+  exits 1. The messages are:
+  `bad magic number 'P7' (expected P2 or P3 followed by whitespace)` (and
+  `'P23'`, because the magic must be followed by whitespace or `#`),
+  `unexpected character 'x'`,
   `missing height`, `width must be at least 1, got 0`,
   `maxval must be in 1..65535, got 65536`, `sample 0 (11) exceeds maxval 10`,
   and `wrong sample count: 2x2x1 needs 4 samples, found 3`.
+* **Binary input (P5, P6).** The file is read whole with
+  `wasi.fs.read-bytes`. A sample is one byte when maxval is below 256 and two
+  bytes, big-endian, otherwise. `#` comments may appear in the header, and the
+  single whitespace byte after maxval ends it. Bytes after the raster are
+  ignored, and a short raster is a sample-count error
+  (`wrong sample count: 2x2x1 needs 4 samples, found 3`). The verified module
+  `binfmt` makes every index decision. **The output format follows the input
+  format**: P5 or P6 in gives P5 or P6 out, written with
+  `wasi.fs.write-bytes`, and P2 or P3 in gives P2 or P3 out.
 * **Encoder.** Writes a newline after every 10th sample and at the end of
   each row, so a line holds at most 10 samples and 59 characters, inside the
   format's limit of 70. The earlier example used 12 per line, which allows
@@ -41,7 +54,9 @@ main IN TRANSFORM OUT [N ...]
 ## Build and run
 
 ```sh
-./build.sh      # verify x10 leaf-first, test x9, build, cross-check (about 2.5 min)
+./build.sh            # verify leaf-first (blur skipped), test, build, cross-check
+./build.sh --refill   # first fill binfmt's holes again with checkout + patch
+./build.sh --mutants  # also verify 4 wrong binfmt bodies (all must be refuted)
 EXE=$(cd build && stack path --local-install-root)/bin/main
 $EXE samples/tiny.ppm gray /tmp/tiny-gray.pgm
 $EXE samples/feep.pgm crop /tmp/feep-crop.pgm 1 1 6 5
@@ -51,9 +66,13 @@ $EXE samples/feep.pgm crop /tmp/feep-crop.pgm 1 1 6 5
 
 1. `llmll verify --trust-report` on every module, leaf-first. An importer
    cannot be checked until each module it imports has a `.verified.json`.
+   **`blur.llmll` is skipped**, with a `SKIPPED:` line in the log: on v0.41.0
+   its verify stops at the 120 s solver time limit (EXAMPLES-VERIFY-REGRESS-1).
+   It verified in 18 s on v0.33.2.
 2. `llmll test` on every module that has `check` properties.
 3. `llmll build main.llmll -o build`.
-4. It generates a 256x256 P3 image with `tools/gen256.py`.
+4. It generates a 256x256 P3 image with `tools/gen256.py`, and the binary
+   samples and a 256x256 P6 image with `tools/genbin.py`.
 5. `python3 -I tools/crosscheck.py` compares every transform, on every sample
    and on the 256x256 image, against an independent Python implementation.
    It also checks the encoder's line layout (at most 70 characters and at
@@ -61,12 +80,15 @@ $EXE samples/feep.pgm crop /tmp/feep-crop.pgm 1 1 6 5
    transform, wrong argument count, negative argument, out-of-range crop,
    missing file and missing argument exits 1 with a message on stderr.
 
-**Result of the last run: 0 failures in 47 checks** (8 transforms x 4 images,
-8 malformed files, 7 argument and IO errors).
+**Result of the last run (2026-11-18, v0.41.0): 0 failures in 105 checks.**
+On 2026-10-31, before the binary formats, it was 0 failures in 47 checks
+(8 transforms x 4 images, 8 malformed files, 7 argument and IO errors).
 
 **Timing** (256x256 P3, 196,608 samples, 702 KB, Apple Silicon): each
 transform runs end to end (read, decode, transform, encode, write) in
 0.4-0.9 s, with about 106 MB maximum RSS. Blur is the slowest, at 0.8-0.9 s.
+On v0.41.0 a 256x256 `copy` takes 0.16 s and 46 MB as P6, against 1.85 s and
+118 MB as P3.
 `llmll verify` takes about 136 s across all ten modules. Most of that is
 rules (50 s), kernel (45 s), blur (18 s) and lex (15 s); the shell modules
 take under 3 s each. The build takes about 17 s.
@@ -82,20 +104,33 @@ whose verified records already exist.
 | 0 | `types.llmll` | Representation: `Image = (Header, list[Row])`, `Header = ((channels, maxval), (width, height))`. Rows are channel-interleaved. Only one-level accessors. | 13 |
 | 0 | `lex.llmll` | Scanner automaton: `CharClass`, `LexState`, `Tok`. | 5 |
 | 0 | `sample.llmll` | Per-sample arithmetic: invert, threshold, luma, the 9-mean, a coordinate clamp, and a clamped map read. | 6 |
+| 1 | `binfmt.llmll` | Binary format decisions over the file's `bytes` buffer: `byte-class`, `header-end` (where the header ends), `raster-len` (bytes in the raster, 8- or 16-bit), `bin-sample` (one sample). | 4 |
 | 1 | `rules.llmll` | Format decisions: magic, ordered header faults (`Problem`), sample range, the `(r, k)` row counter (so w*h*c is never compared), line layout, shape predicates. | 10 |
 | 1 | `geom.llmll` | Index maps on interleaved rows: hflip source, crop window, crop source, same-channel neighbour. | 5 |
 | 2 | `kernel.llmll` | One output sample per transform: geom index, then sample read, then arithmetic. | 4 |
 | 3 | `blur.llmll` | One blur output sample: 3 x `row-sum3`, then `avg9`. | 1 |
-| shell | `codec.llmll` | Verified header accessors and `make-image`; `image-ok?`; the scanner loop; `decode`; `encode`; Problem messages. | 22 |
+| shell | `codec.llmll` | Verified header accessors and `make-image`; `image-ok?`; the scanner loop; `decode`; `encode`; Problem messages; `decode-bytes` and `encode-bytes`, which pick the binary or the text path. | 29 |
 | shell | `image.llmll` | Whole-image transforms. They only walk rows and indices; every sample comes from a core def. | 11 |
 | shell | `main.llmll` | `def-main :mode cli`: args, read, decode, transform, encode, write, exit status. Transform lookup, arity and exit code are verified defs. | 17 |
-| | `samples/` | `feep.pgm` (pgm(5)), `tiny.ppm` (ppm(5)), `rgb.ppm` (CRLF, TABs, a comment straight after the magic and after digits, a header split across lines), and eight `bad-*` files. | |
-| | `tools/` | `crosscheck.py` (the Python reference), `gen256.py` (the timing image). | |
+| | `samples/` | `feep.pgm` (pgm(5)), `tiny.ppm` (ppm(5)), `rgb.ppm` (CRLF, TABs, a comment straight after the magic and after digits, a header split across lines), six binary `bin-*` files (P5, P6, 16-bit, comments, a CR separator and trailing bytes), and ten `bad-*` files. | |
+| | `holed/`, `fills/` | `binfmt` as first written, with a hole for each body; the bodies (`binfmt.sexp`) and `hole-log.jsonl`. `binfmt.ast.json` is the patched JSON-AST. | |
+| | `tools/` | `crosscheck.py` (the Python reference, P2, P3, P5 and P6), `gen256.py` and `genbin.py` (the samples and timing images), `fill.py` (the hole driver), `mutants.py`. | |
 
-The verify order is types, lex, sample, then rules, geom, then kernel, then
-blur, then codec, image, main.
+The verify order is types, lex, sample, then binfmt, rules, geom, then
+kernel, then blur, then codec, image, main.
 
 ## Verification
+
+**Binary formats (EXAMPLES-BYTES-1, v0.41.0, 2026-11-18).** `binfmt` is 4 of
+4 verified, body-faithful, with no `abstraction:app:bytes-*` fallback.
+`header-end` is a loop, so it is a `def-shell` with `(decreases …)`, and its
+measure verifies. `tools/mutants.py` refutes all 4 wrong `binfmt` bodies. The
+seven new codec functions are shells; codec stays 6 of 15 verified, with 19
+fallbacks (14 before). `blur` was not verified on v0.41.0
+(EXAMPLES-VERIFY-REGRESS-1). The other modules did not change. So the
+program has 105 functions, and 58 of them verify on v0.41.0; `blur-sample`,
+which verified on 2026-10-31, would make 59. The tables below are the 2026-10-31 run and do not list `binfmt`
+or the new codec functions.
 
 All figures below are from a fresh `./build.sh` run on 2026-10-31, using
 `llmll verify --trust-report` and then `llmll trust-report` on each module.

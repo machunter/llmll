@@ -5,31 +5,28 @@
 ;;   main hflip IN OUT.y4m         mirror every plane left to right
 ;;   main crop  IN X Y W H OUT.y4m the W x H window at (X, Y); X and Y even
 ;;
-;; LLMLL cannot read or write bytes (FRICTION F1), so the program runs two
-;; helper processes:
-;;   od -An -v -tu1 IN  > /tmp/llmll-y4m-od.txt     bytes -> decimal text
-;;   xxd -r -p /tmp/llmll-y4m-hex.txt OUT           hex text -> bytes
+;; The file is read whole as bytes and written whole as bytes.
 ;;
 ;; A `cli` loop over the Command/Response model. State = (phase, (args, msg)):
-;;   phase 0 want args           -> RList args   : run od
-;;   phase 1 od running          -> RCode 0      : read its output
-;;   phase 2 reading od output   -> RText text   : decode, transform, encode;
+;;   phase 0 want args           -> RList args   : read IN as bytes
+;;   phase 1 reading IN          -> RBytes buf   : decode, transform, encode;
 ;;                                                 info is done here
-;;   phase 3 writing hex         -> RNone        : run xxd
-;;   phase 4 xxd running         -> RCode 0      : done
+;;   phase 2 writing OUT         -> RNone        : done
 ;;   phase 5 done, 6 failed
 ;; The decisions with a contract worth proving (command lookup, argument
 ;; count, frame index, termination, exit status) are defs and verify.
 
 (import wasi.io   (capability stdout :deterministic false))
-(import wasi.fs   (capability read-write "/tmp"))
-(import wasi.proc (capability exec "/usr/bin/od"))
+(import wasi.fs   (capability read-write "."))
+(import wasi.proc (capability args :deterministic false))
 (import raster)
 (open raster)
 (import hdr)
 (open hdr)
 (import xform)
 (open xform)
+(import ybuf)
+(open ybuf)
 (import y4m)
 (open y4m)
 
@@ -74,9 +71,6 @@
 
 ;; ─── Glue ───────────────────────────────────────────────────────────────
 
-(def-shell od-path [] -> string "/tmp/llmll-y4m-od.txt")
-(def-shell hex-path [] -> string "/tmp/llmll-y4m-hex.txt")
-
 (def-shell st-args [s: State] -> list[string] (first (second s)))
 (def-shell st-msg  [s: State] -> string (second (second s)))
 (def-shell mk [phase: int args: list[string] msg: string] -> State
@@ -120,32 +114,31 @@
        "frame rate: " (int-to-string (hdr-rn hd)) "/" (int-to-string (hdr-rd hd)) "\n"
        "frames: " (int-to-string (list-length (vid-frames v))) "\n"])))
 
-;; Turn 2: decoded file -> (Success "") for info's text in msg, or hex text.
-;; Answers (is-info, text).
-(def-shell process [args: list[string] text: string] -> Result[(bool, string), string]
-  (match (decode text)
+;; Turn 2: the file's bytes -> (is-info, (info text, output bytes)).
+(def-shell process [args: list[string] buf: bytes] -> Result[(bool, (string, bytes)), string]
+  (match (decode buf)
     ((Error e) (err (string-concat-many [(arg args 1) ": " e])))
     ((Success v)
       (let [(code (cmd-code (arg args 0)))
             (hd (vid-hdr v)) (w (hdr-w hd)) (h (hdr-h hd))
-            (frames (vid-frames v))]
+            (frames (vid-frames v))
+            (none (bytes-from-string ""))]
         (if (= code 1)
-            (ok (pair true (info-text v)))
+            (ok (pair true (pair (info-text v) none)))
         (if (= code 2)
             (let [(n (nat-arg args 2))]
               (if (frame-index-ok? n (list-length frames))
                   (match (list-nth frames n)
-                    ((Success fr) (ok (pair false (encode-pgm w h (unwrap-or (list-head fr) (list-empty))))))
+                    ((Success fr) (ok (pair false (pair "" (encode-pgm w h fr)))))
                     ((Error e) (err e)))
                   (err (string-concat-many ["frame " (int-to-string n) " does not exist: the stream has "
                                             (int-to-string (list-length frames)) " frames"]))))
         (if (= code 3)
-            (ok (pair false (encode-y4m v w h (list-map frames hflip-frame))))
+            (ok (pair false (pair "" (encode-y4m v w h (list-map frames (fn [fr: bytes] (hflip-frame w h fr)))))))
             (let [(x0 (nat-arg args 2)) (y0 (nat-arg args 3)) (cw (nat-arg args 4)) (ch (nat-arg args 5))]
               (if (crop-ok? w h x0 y0 cw ch)
-                  (ok (pair false (encode-y4m v cw ch
-                        (list-map frames (fn [fr: list[list[list[int]]]]
-                          (map-planes fr (fn [p: int pl: list[list[int]]] (crop-plane x0 y0 cw ch p pl))))))))
+                  (ok (pair false (pair "" (encode-y4m v cw ch
+                        (list-map frames (fn [fr: bytes] (crop-frame w h x0 y0 cw ch fr)))))))
                   (err (string-concat-many ["crop window " (int-to-string cw) "x" (int-to-string ch)
                                             "+" (int-to-string x0) "+" (int-to-string y0)
                                             " must have an even corner and lie inside the "
@@ -161,35 +154,25 @@
         (let [(prob (args-problem xs))]
           (if (not (= prob ""))
               (fail xs prob)
-              (pair (mk 1 xs "")
-                    (wasi.proc.exec "/usr/bin/od" ["-An" "-v" "-tu1" (arg xs 1)]
-                      (proc-stdout (proc-spec 600) (od-path)))))))
-      ((RCode n)
-        (if (= ph 1)
-            (if (= n 0)
-                (pair (mk 2 args "") (wasi.fs.read (od-path)))
-                (fail args (string-concat-many ["cannot read " (arg args 1) "\n"])))
-            (if (= n 0)
-                (pair (mk 5 args (string-concat-many [(arg args 0) " " (arg args 1) " -> "
-                                                      (arg args (- (list-length args) 1)) "\n"]))
-                      (wasi.io.stdout ""))
-                (fail args "xxd failed\n"))))
-      ((RText text)
-        (match (process args text)
+              (pair (mk 1 xs "") (wasi.fs.read-bytes (arg xs 1))))))
+      ((RBytes buf)
+        (match (process args buf)
           ((Error e) (fail args (string-concat e "\n")))
           ((Success out)
             (if (first out)
-                (pair (mk 5 args (second out)) (wasi.io.stdout ""))
-                (pair (mk 3 args "") (wasi.fs.write (hex-path) (second out)))))))
+                (pair (mk 5 args (first (second out))) (wasi.io.stdout ""))
+                (pair (mk 2 args "")
+                      (wasi.fs.write-bytes (arg args (- (list-length args) 1)) (second (second out))))))))
       ((RNone)
-        (if (= ph 3)
-            (pair (mk 4 args "")
-                  (wasi.proc.exec "/usr/bin/xxd" ["-r" "-p" (hex-path) (arg args (- (list-length args) 1))]
-                    (proc-spec 600)))
+        (if (= ph 2)
+            (pair (mk 5 args (string-concat-many [(arg args 0) " " (arg args 1) " -> "
+                                                  (arg args (- (list-length args) 1)) "\n"]))
+                  (wasi.io.stdout ""))
             (fail args "y4m: unexpected empty response\n")))
       ((RErr e)
         (fail args (string-concat-many ["y4m: " e "\n"])))
-      ((RBytes _) (fail args "y4m: unexpected bytes response\n")))))
+      ((RCode _) (fail args "y4m: unexpected status response\n"))
+      ((RText _) (fail args "y4m: unexpected text response\n")))))
 
 (def-shell report [s: State] -> Command
   (if (= (st-phase s) 5)

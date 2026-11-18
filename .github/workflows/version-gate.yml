@@ -666,6 +666,24 @@ jobs:
           grep -q ' 33 passed' "$RUNNER_TEMP/call-result-mark-1.log" \
             || { echo "CALL-RESULT-MARK-1: expected 33 passed cells"; exit 1; }
 
+      # EXAMPLES-BYTES-1's cells: the verified byte modules of the three
+      # examples (y4m ybuf, netpbm-swarm binfmt, netpbm binfmt) verify with no
+      # abstraction:app:bytes-* fallback, and their wrong bodies get their
+      # stated verdicts: refuted, except the two length-only errors in a
+      # returned slice (y4m M3, M4B), pinned as fallbacks (ABSTRACTION-RESULT-LEN-1).
+      # 8 y4m, 5 netpbm-swarm and 5 netpbm cells; no skip allowed.
+      - name: Run EXAMPLES-BYTES-1 cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_examples_bytes_1.py -v -rs \
+            | tee "$RUNNER_TEMP/examples-bytes-1.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/examples-bytes-1.log"; then
+            echo "an EXAMPLES-BYTES-1 cell skipped; LLMLL_BIN and fixpoint must be present here"; exit 1
+          fi
+          grep -q ' 18 passed' "$RUNNER_TEMP/examples-bytes-1.log" \
+            || { echo "EXAMPLES-BYTES-1: expected 18 passed cells"; exit 1; }
+
       # REGEX-CAPTURE-1 / REGEX-CASE-1's end-to-end cells. They build and run one
       # program with GHC (needs the toolchain), run `check` per agreement row,
       # and run `verify` once (needs fixpoint), so they sit after the solver is
