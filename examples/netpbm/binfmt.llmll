@@ -1,0 +1,83 @@
+;; binfmt — the verified byte-buffer core of the netpbm codec (layer 1).
+;; Imports nothing. Hand-written; the same four contracts as
+;; examples/netpbm-swarm/binfmt.llmll (EXAMPLES-BYTES-1 B-1..B-4), copied
+;; because each example directory stands alone.
+;;
+;; The index decisions over the `bytes` buffer of a binary PGM (P5) or PPM
+;; (P6) file. The shell (netpbm.llmll) reads the whole file with
+;; wasi.fs.read-bytes and keeps it as one buffer; these defs classify header
+;; bytes, find where the header ends, size the raster and read one sample
+;; from it.
+;;
+;; Every index is a parameter or a linear term over parameters (no index is
+;; bound by `let` and read twice through a slice, CONE-DEF-DIRECTION-1). No
+;; def calls another def of this module. header-end is `def-shell` because
+;; only a `def-shell` takes a `(decreases …)` clause; its body verifies and
+;; its measure discharges, so it is body-faithful and total. B-4 is named
+;; bin-sample because pixel.llmll already defines sample-at.
+
+;; ─── Header ─────────────────────────────────────────────────────────────
+
+;; Class of a header byte:
+;;   0 whitespace (9 10 11 12 13 32)   1 digit (48..57)   2 '#' (35)   3 other
+;; Rejects a whitespace test that forgets CR (13).
+(def byte-class [b: int] -> int
+  (post (and (>= result 0) (and (<= result 3)
+        (and (= (= result 0) (or (= b 9) (or (= b 10) (or (= b 11) (or (= b 12) (or (= b 13) (= b 32)))))))
+        (and (= (= result 1) (and (>= b 48) (<= b 57)))
+        (and (= (= result 2) (= b 35))
+             (= (= result 3) (not (or (or (= b 9) (or (= b 10) (or (= b 11) (or (= b 12) (or (= b 13) (= b 32))))))
+                                      (or (and (>= b 48) (<= b 57)) (= b 35)))))))))))
+  (if (or (= b 9) (or (= b 10) (or (= b 11) (or (= b 12) (or (= b 13) (= b 32)))))) 0
+  (if (and (>= b 48) (<= b 57)) 1
+  (if (= b 35) 2 3))))
+
+;; The offset just after the single whitespace byte that ends the fourth
+;; header token (magic, width, height, maxval), or -1 when the buffer ends
+;; first. Walk from offset i with nt tokens finished, it = 1 inside a token,
+;; ic = 1 inside a comment. A '#' ends a token and starts a comment that runs
+;; to the end of the line; the LF or CR that ends it counts as the
+;; whitespace byte (netpbm's pm_getc). Start with (header-end buf 0 0 0 0).
+;; Rejects a walk that answers the offset of the whitespace byte itself.
+(def-shell header-end [buf: bytes i: int nt: int it: int ic: int] -> int
+  (pre  (and (>= i 0) (<= i (bytes-length buf))))
+  (post (or (= result -1) (and (> result i) (<= result (bytes-length buf)))))
+  (decreases (- (bytes-length buf) i))
+  (if (>= i (bytes-length buf)) -1
+    (let [(b (bytes-get buf i))]
+      (if (= ic 1)
+          (if (or (= b 10) (= b 13))
+              (if (>= nt 4) (+ i 1) (header-end buf (+ i 1) nt 0 0))
+              (header-end buf (+ i 1) nt 0 1))
+          (if (or (= b 9) (or (= b 10) (or (= b 11) (or (= b 12) (or (= b 13) (= b 32))))))
+              (if (= it 1)
+                  (if (>= (+ nt 1) 4) (+ i 1) (header-end buf (+ i 1) (+ nt 1) 0 0))
+                  (header-end buf (+ i 1) nt 0 0))
+              (if (= b 35)
+                  (header-end buf (+ i 1) (+ nt it) 0 1)
+                  (header-end buf (+ i 1) nt 1 0)))))))
+
+;; ─── Raster ─────────────────────────────────────────────────────────────
+
+;; Bytes in the raster of a c-channel w x h image with maxval m: one byte a
+;; sample when m < 256, two (big-endian) otherwise.
+;; Rejects a length that ignores 16-bit samples.
+(def raster-len [c: int w: int h: int m: int] -> int
+  (pre  (and (or (= c 1) (= c 3)) (and (>= w 1) (and (>= h 1) (and (>= m 1) (<= m 65535))))))
+  (post (and (=> (and (= c 1) (< m 256)) (= result (* w h)))
+        (and (=> (and (= c 3) (< m 256)) (= result (* 3 (* w h))))
+        (and (=> (and (= c 1) (>= m 256)) (= result (* 2 (* w h))))
+             (=> (and (= c 3) (>= m 256)) (= result (* 6 (* w h))))))))
+  (let [(n (* w h)) (k (if (= c 1) 1 3)) (b (if (< m 256) 1 2))]
+    (* b (* k n))))
+
+;; Sample i of a raster that starts at offset off, b bytes a sample.
+;; Rejects a 16-bit read whose low byte is one past the sample.
+(def bin-sample [buf: bytes off: int b: int i: int] -> int
+  (pre  (and (>= off 0) (and (>= i 0) (or
+        (and (= b 1) (< (+ off i) (bytes-length buf)))
+        (and (= b 2) (< (+ (+ off (+ i i)) 1) (bytes-length buf)))))))
+  (post (and (>= result 0) (and (=> (= b 1) (<= result 255)) (=> (= b 2) (<= result 65535)))))
+  (if (= b 1)
+      (bytes-get buf (+ off i))
+      (+ (* 256 (bytes-get buf (+ off (+ i i)))) (bytes-get buf (+ (+ off (+ i i)) 1)))))

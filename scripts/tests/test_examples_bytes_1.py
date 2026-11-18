@@ -28,7 +28,12 @@ these cells check.
 * SWARM-B1 .. B4: a wrong body of byte-class, header-end, raster-len and
   bin-sample is refuted, naming the function.
 
-The netpbm `binfmt` cells (commit 3) go below the netpbm-swarm ones.
+* NETPBM-V: examples/netpbm/binfmt.llmll, the hand-written copy with the
+  same four contracts, verifies on its own (it imports nothing): exit 0,
+  4 of 4 proved, no `abstraction:app:bytes-*` fallback, header-end total.
+* NETPBM-B1 .. B4: the same four wrong bodies are refuted in that copy,
+  naming the function. They are spelled out again, so a change to the
+  netpbm-swarm cells cannot change what these check.
 """
 
 import json
@@ -43,6 +48,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 Y4M = REPO / "examples" / "y4m"
 SWARM = REPO / "examples" / "netpbm-swarm"
+NETPBM = REPO / "examples" / "netpbm"
 
 pytestmark = [
     pytest.mark.skipif(not os.environ.get("LLMLL_BIN"), reason="set LLMLL_BIN to a built llmll"),
@@ -234,6 +240,55 @@ SWARM_REFUTED = [
 @pytest.mark.parametrize("cell,fn,old,new", SWARM_REFUTED, ids=[c[0] for c in SWARM_REFUTED])
 def test_swarm_mutant_refuted(tmp_path, swarm_imports, cell, fn, old, new):
     d = _swarm_copy(tmp_path, swarm_imports)
+    _mutate(d, old, new, module="binfmt")
+    p, doc = _verify(d, "binfmt")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert doc["exit_code"] == 1, doc
+    assert doc["solver_verdict"] == "refuted", doc
+    unsafe = [x["message"] for x in doc["diagnostics"] if x.get("kind") == "lh-unsafe"]
+    assert any(f"'{fn}'" in m for m in unsafe), doc["diagnostics"]
+    assert fn not in doc.get("body_fallback_constructs", {}), doc
+
+
+# ─── netpbm ──────────────────────────────────────────────────────────────
+
+def _netpbm_copy(tmp_path):
+    """binfmt imports nothing, so each cell verifies a fresh private copy."""
+    d = tmp_path / "netpbm"
+    d.mkdir()
+    shutil.copyfile(NETPBM / "binfmt.llmll", d / "binfmt.llmll")
+    return d
+
+
+def test_netpbm_v_binfmt_verifies(tmp_path):
+    d = _netpbm_copy(tmp_path)
+    p, doc = _verify(d, "binfmt")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert doc["exit_code"] == 0, doc
+    assert doc["solver_verdict"] == "safe", doc
+    assert doc["contracted_count"] == 4, doc
+    assert doc["proved_count"] == 4, doc
+    assert sorted(doc["body_faithful"]) == sorted(
+        ["byte-class", "header-end", "raster-len", "bin-sample"]), doc
+    assert doc["body_fallback"] == [], doc
+    assert doc["termination_assumed_fns"] == [], doc
+    assert _bytes_fallbacks(doc) == [], doc
+
+
+NETPBM_WS = "(or (= b 9) (or (= b 10) (or (= b 11) (or (= b 12) (or (= b 13) (= b 32))))))"
+NETPBM_REFUTED = [
+    ("B1", "byte-class", NETPBM_WS + " 0",
+     "(or (= b 9) (or (= b 10) (or (= b 11) (or (= b 12) (= b 32))))) 0"),
+    ("B2", "header-end", "(if (>= (+ nt 1) 4) (+ i 1)", "(if (>= (+ nt 1) 4) i"),
+    ("B3", "raster-len", "(* b (* k n))", "(* k n)"),
+    ("B4", "bin-sample", "(bytes-get buf (+ (+ off (+ i i)) 1))",
+     "(bytes-get buf (+ (+ off (+ i i)) 2))"),
+]
+
+
+@pytest.mark.parametrize("cell,fn,old,new", NETPBM_REFUTED, ids=[c[0] for c in NETPBM_REFUTED])
+def test_netpbm_mutant_refuted(tmp_path, cell, fn, old, new):
+    d = _netpbm_copy(tmp_path)
     _mutate(d, old, new, module="binfmt")
     p, doc = _verify(d, "binfmt")
     assert p.returncode == 1, p.stdout + p.stderr
