@@ -5,18 +5,19 @@
 #   ./build.sh            verify, test, build, cross-check
 #   ./build.sh --refill   first fill every core hole again through the hole
 #                         protocol (checkout + patch), from holed/ and fills/
-#   ./build.sh --mutants  also verify 10 wrong core bodies (each must fail)
+#   ./build.sh --mutants  also verify 16 wrong core bodies (14 must be refuted;
+#                         2 ybuf ones are expected fallbacks, see tools/mutants.py)
 #
 # Order matters: `check`/`verify` on an importer needs the import's
 # <module>.llmll.verified.json, written by an EARLIER verify run. Verify
 # runs one module at a time.
-#   level 0: raster hdr   level 1: xform   shell: y4m main   tests: props
+#   level 0: raster hdr   level 1: xform ybuf   shell: y4m main   tests: props
 set -e
 cd "$(dirname "$0")"
 LLMLL=${LLMLL:-$(cd ../../compiler && stack path --local-install-root)/bin/llmll}
 export LLMLL
 mkdir -p work
-for m in raster hdr xform; do
+for m in raster hdr xform ybuf; do
   if [ "$1" = "--refill" ]; then
     rm -f "$m.ast.json"
     python3 -I tools/fill.py "$m"
