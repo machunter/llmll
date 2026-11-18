@@ -121,6 +121,50 @@
 --     the callee-post mark (CALLEE-POST-UNASSUMED-1) and the modular reading
 --     (P16): its single result is kind 3 above.
 
+-- LENGTH OF A PARTIAL RESULT (ABSTRACTION-LEN-EXACT-1; Rev 2b item 7, with
+-- the professor addendum and the user-approved @bytes-make@ and @bytes-set@
+-- rows).
+--
+-- For a result @x@ of an 'exactLengthBuiltins' call, the term @bytesLen(x)@
+-- (or @listLen(x)@, or @strLen(x)@) is a symbol of its own, @L_x@, separate
+-- from the content @x@. The seed is the content @x@. @L_x@ is outside D only
+-- when the constraint holds the exact length equation of @x@ as a recorded
+-- fact AND its right side names no D symbol. Three conditions:
+--
+--   1. One monotone fixpoint. @L_x@ starts outside D and joins D as soon as a
+--      symbol of its equation's right side joins D; it never leaves. Both
+--      rules only add, so the least fixpoint does not depend on worklist
+--      order. (A two-pass form is unsound for a chain such as a slice whose
+--      bound reads a later D symbol.)
+--   2. The equation defines @L_x@ only. It is not a D-atom of @x@: it never
+--      pulls @e@ and @s@ (or any right-side symbol) into D.
+--   3. By position (C1, C2). The equation is the @"lemma"@ part of the
+--      qualifying arm ('crLenDefs', written by the emitter for each call
+--      result of the body), and it counts only when that atom is a recorded
+--      call-post fact of THIS constraint's @lhs@, that is, its call is on this
+--      constraint's path. A text match elsewhere does not count. Any other
+--      occurrence of @x@ (a @Map_select@, a @Map_store@, an array equality, a
+--      callee argument) still names @x@; only the length leaves.
+--
+-- A length known only by congruence (an alias @y = x@, or @bytes-widen@) is
+-- not a symbol: @bytesLen(y)@ names @y@, which is in D with @x@.
+--
+-- Rows ('exactLengthBuiltins'): @bytes-slice b s e@ (@bytesLen(r) = e - s@,
+-- exact when the slice pre holds), @bytes-concat a b@
+-- (@bytesLen(r) = bytesLen(a) + bytesLen(b)@), @bytes-to-list b@
+-- (@listLen(r) = bytesLen(b)@), @string-from-code c@ (@strLen(r) = 1@, exact
+-- when the pre holds), @bytes-make n v@ (@bytesLen(r) = n@: the runtime builds
+-- exactly @n@ bytes when the pre holds), @bytes-set b i v@
+-- (@bytesLen(r) = bytesLen(b)@: a store keeps the length; @r@ is in D only
+-- through its reflection @r = Map_store(b, i, v)@ when @b@ is). Not rows:
+-- @bytes-concat-many@ (@bytesLen(r) >= 0@), @bytes-from-string@ (a range),
+-- @string-code-at@ (no length), @bytes-widen@ (no lemma).
+--
+-- Soundness, as the lemma: when the call's pre holds, the run meets the
+-- equation and its right side has the same value in the run and in M, so
+-- @L_x@ does too. When the pre fails, the run stops there (the lemma's
+-- earlier-failing-call case).
+
 module LLMLL.AbstractionCone
   ( ConeRec(..)
   , emptyConeRec
@@ -131,6 +175,8 @@ module LLMLL.AbstractionCone
   , clause1SeedUFs
   , coneFrozenHeads
   , atomsOf
+  , exactLengthBuiltins
+  , lengthHeads
   ) where
 
 import Data.Text (Text)
@@ -157,10 +203,26 @@ data ConeRec = ConeRec
     -- ^ the @lhs@ atoms 'addConst' added, after all three injectors ran
   , crParams   :: Set Text
     -- ^ the owner's parameter binders, in emitted (sanitized) form; frozen
+  , crLenDefs  :: Map Text FQPred
+    -- ^ ABSTRACTION-LEN-EXACT-1: each 'exactLengthBuiltins' call result of
+    -- the body (raw name) with the @"lemma"@ atom of its arm. It counts for a
+    -- constraint only when the atom is also one of that constraint's recorded
+    -- call-post facts ('crFacts') in its @lhs@
   } deriving (Show, Eq)
 
 emptyConeRec :: ConeRec
-emptyConeRec = ConeRec [] [] Set.empty [] Set.empty
+emptyConeRec = ConeRec [] [] Set.empty [] Set.empty Map.empty
+
+-- | ABSTRACTION-LEN-EXACT-1 (Rev 2b item 7): the builtins whose length lemma
+-- is an exact equation. The engineer's adopted rows include @bytes-make@ and
+-- @bytes-set@.
+exactLengthBuiltins :: Set Text
+exactLengthBuiltins = Set.fromList
+  [ "bytes-slice", "bytes-concat", "bytes-to-list", "string-from-code", "bytes-make", "bytes-set" ]
+
+-- | The length heads a length symbol @L_x@ stands for.
+lengthHeads :: Set Text
+lengthHeads = Set.fromList ["bytesLen", "listLen", "strLen"]
 
 -- | One constraint, classified. Every set holds emitted symbol names
 -- ('predSymbols').
@@ -171,6 +233,9 @@ data ConeInput = ConeInput
   , ciFacts  :: [Set Text]   -- ^ one symbol set per recorded fact
   , ciPath   :: [Set Text]   -- ^ one symbol set per path atom
   , ciKVar   :: Bool         -- ^ a kvar occurs in the scanned predicates
+  , ciLenEqs :: [(Text, Set Text)]
+    -- ^ ABSTRACTION-LEN-EXACT-1: each length symbol @L_x@ with the symbols of
+    -- its recorded equation's right side
   } deriving (Show, Eq)
 
 -- | Rev 2b item 2.1: the partial uninterpreted symbols a clause-1 reflection
@@ -200,12 +265,23 @@ coneInput _ Nothing _ _ = Nothing
 coneInput bindById (Just rec) seedNames c = Just ConeInput
   { ciSeeds  = Set.map symOf seedNames `Set.union` clause1SeedUFs
   , ciFrozen = crParams rec `Set.union` coneFrozenHeads
-  , ciGoal   = Set.unions (map predSymbols rhsAtoms)
-  , ciFacts  = map predSymbols (lhsFacts ++ envFacts)
-  , ciPath   = map predSymbols (lhsPath ++ envPath)
+  , ciGoal   = Set.unions (map syms rhsAtoms)
+  , ciFacts  = map syms ([ a | a <- lhsFacts, a `notElem` lenEqAtoms ] ++ envFacts)
+  , ciPath   = map syms (lhsPath ++ envPath)
   , ciKVar   = any hasKVar (lhsAtoms ++ rhsAtoms ++ concatMap snd envAtoms)
+  , ciLenEqs = [ (lenSym (symOf x), syms rhs) | (x, rhs) <- lenDefs ]
   }
   where
+    -- ABSTRACTION-LEN-EXACT-1: the length equations that count here (by
+    -- position: a call-post fact of this constraint's lhs), and the symbol
+    -- reading that turns their lengths into @L_x@.
+    lenDefs = [ (x, rhs)
+              | (x, a@(FQBinPred FQEq (FQApp h [FQVar x']) rhs)) <- Map.toList (crLenDefs rec)
+              , x' == x, h `Set.member` lengthHeads
+              , a `elem` crFacts rec, a `elem` lhsFacts ]
+    lenEqAtoms = [ a | (x, a) <- Map.toList (crLenDefs rec), x `elem` map fst lenDefs ]
+    defined = Set.fromList [ symOf x | (x, _) <- lenDefs ]
+    syms = lenSymbols defined
     lhsAtoms = atomsOf (reftPred (conLhs c))
     rhsAtoms = atomsOf (reftPred (conRhs c))
     isFact a = (a `elem` crFacts rec || a `elem` crInjected rec)
@@ -236,8 +312,13 @@ coneBit ci
     unfrozen s = s `Set.difference` ciFrozen ci
     facts = map unfrozen (ciFacts ci)
     d0 = ciSeeds ci `Set.difference` ciFrozen ci
+    -- One monotone step: rule (a) over the facts, rule (b) over the length
+    -- equations (only L_x joins). Iterated to the least fixpoint.
+    step d =
+      let da = foldl (\acc f -> if Set.null (Set.intersection f acc) then acc else Set.union acc f) d facts
+      in foldl (\acc (l, r) -> if Set.null (Set.intersection r acc) then acc else Set.insert l acc) da (ciLenEqs ci)
     close d =
-      let d' = foldl (\acc f -> if Set.null (Set.intersection f acc) then acc else Set.union acc f) d facts
+      let d' = step d
       in if Set.size d' == Set.size d then d else close d'
     dFinal = close d0
     touches s = not (Set.null (Set.intersection s dFinal))
@@ -247,6 +328,29 @@ coneBit ci
 coneHits :: Map FQBindId FQBind -> Maybe ConeRec -> Set Text -> FQConstraint -> Bool
 coneHits bindById mRec seedNames c =
   maybe True coneBit (coneInput bindById mRec seedNames c)
+
+-- | ABSTRACTION-LEN-EXACT-1: the length symbol of a defined result.
+lenSym :: Text -> Text
+lenSym x = "L#" <> x
+
+-- | 'predSymbols', except that a length head applied to a defined result
+-- reads as its length symbol and does not name the result.
+lenSymbols :: Set Text -> FQPred -> Set Text
+lenSymbols defined = go
+  where
+    go p = case p of
+      FQApp h [FQVar x]
+        | h `Set.member` lengthHeads, symOf x `Set.member` defined -> Set.singleton (lenSym (symOf x))
+      FQApp f as       -> Set.insert (symOf f) (Set.unions (map go as))
+      FQNot q          -> go q
+      FQAnd ps         -> Set.unions (map go ps)
+      FQOr ps          -> Set.unions (map go ps)
+      FQBinPred _ a b  -> go a `Set.union` go b
+      FQBinArith _ a b -> go a `Set.union` go b
+      FQKVar _ as      -> Set.unions (map go as)
+      FQIte a b q      -> Set.unions [go a, go b, go q]
+      FQImplies a b    -> go a `Set.union` go b
+      _                -> predSymbols p
 
 -- | The emitted form of one name.
 symOf :: Text -> Text

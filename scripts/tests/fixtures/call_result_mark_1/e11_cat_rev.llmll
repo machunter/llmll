@@ -1,4 +1,4 @@
-;; ABSTRACTION-LEN-EXACT-1 witness e11_cat_rev (crm plan Rev 2); a fallback after CALL-RESULT-MARK-1.
+;; ABSTRACTION-LEN-EXACT-1 witness E11-R: E11 with the operands swapped; the same answer, refuted.
 (def-shell cat-at [b: bytes s: int] -> int
   (pre (and (>= s 0) (<= s (bytes-length b))))
   (post (>= result 0))

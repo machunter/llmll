@@ -1,4 +1,4 @@
-;; CALL-RESULT-MARK-1 witness N4: index at the slice length; fallback until ABSTRACTION-LEN-EXACT-1.
+;; CALL-RESULT-MARK-1 witness N4: index at the slice length (bug at w = 1); a fallback after CALL-RESULT-MARK-1, refuted after ABSTRACTION-LEN-EXACT-1.
 (def-shell row-at [b: bytes w: int] -> int
   (pre (and (>= w 1) (>= (bytes-length b) w)))
   (post (>= result 0))

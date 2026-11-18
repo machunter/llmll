@@ -97,6 +97,7 @@ module LLMLL.FixpointEmit
   , bodyToPredFromR
   , flattenBodyVC
   , flattenBodyVCTagged          -- CALL-RESULT-MARK-1: the same paths, with guard and post atoms apart
+  , collectLenDefs               -- ABSTRACTION-LEN-EXACT-1: each exact-length call result with its lemma
   , pathBranchSides              -- COMP-3b-general: structural branch provenance (localization)
   , collectBranchBinders         -- COMP-3b-general: match-binder tree-walk
   , collectCallSites             -- COMP-4 (b): call sites for payload-subtyping
@@ -184,7 +185,7 @@ import qualified LLMLL.ProductNF as PNF
 import qualified LLMLL.ProductFacts as PF
 import LLMLL.ProductFacts (hasProduct)
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, isWdClause)
-import LLMLL.AbstractionCone (ConeRec(..), emptyConeRec, coneHits, atomsOf)
+import LLMLL.AbstractionCone (ConeRec(..), emptyConeRec, coneHits, atomsOf, exactLengthBuiltins, lengthHeads)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkError, mkBodyFallbackWarning, mkDecreasesUndischarged, mkBodyFallbackProduct, ProductWhy(..))
 import LLMLL.HoleAnalysis (buildCallGraph)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare, reflectMinMaxAbs)
@@ -2311,6 +2312,10 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     -- ('flattenBodyVC' is its projection) and, per path, the
                     -- guard atoms and the call-post atoms, kept apart (C1).
                     let taggedPaths = flattenBodyVCTagged bvc
+                        -- ABSTRACTION-LEN-EXACT-1: the length lemmas of the
+                        -- body's exact-length calls; each counts for a
+                        -- constraint only when it is one of its call-post facts.
+                        coneLenDefs = collectLenDefs bvc
                         provs = pathBranchSides bvc  -- structural then/else provenance, positionally aligned with paths
                         retSort = maybe FQInt sortA1 mRet
                         -- FACT-AG-LEN (Stage 3): the family-1 fact for a gated
@@ -2426,7 +2431,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                         { crFacts    = postAtoms
                         , crGuards   = guardAtoms ++ maybe [] atomsOf mPre
                         , crLetBinds = Set.fromList lbBindIds
-                        , crParams   = coneParams }
+                        , crParams   = coneParams
+                        , crLenDefs  = coneLenDefs }
                       -- POST-TRUE-1: a post that is closed and true, `(post true)`
                       -- or `(post (>= 0 0))`, has nothing to prove, and
                       -- liquid-fixpoint's sanitizer rejects a `true` RHS ("RHS
@@ -2526,7 +2532,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                           { crFacts    = concatMap atomsOf ctxPosts
                           , crGuards   = atomsOf pathGuard ++ maybe [] atomsOf mPre
                           , crLetBinds = Set.fromList lbCtxBindIds
-                          , crParams   = coneParams }
+                          , crParams   = coneParams
+                          , crLenDefs  = coneLenDefs }
                         addConst c
                         -- OBLIG-D4: the pointer stays on the enclosing BODY —
                         -- oblig-0-spec §3.2 treats `origin` as separate mutable
@@ -2617,7 +2624,8 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                                       { crFacts    = concatMap atomsOf ctxPosts
                                       , crGuards   = atomsOf pathGuard ++ maybe [] atomsOf mPre
                                       , crLetBinds = Set.fromList lbCtxBindIds
-                                      , crParams   = coneParams }
+                                      , crParams   = coneParams
+                                      , crLenDefs  = coneLenDefs }
                                     addConst dc
                                     let dptr = "/statements/" <> T.pack (show stmtIdx) <> "/decreases"
                                     addOrigin dcid (ConstraintOrigin name "descent" dptr srcFile Nothing)
@@ -6723,6 +6731,25 @@ collectCallBinders (CallVC c _ _ _ _ parts rv rs cont ck pu) =
       , cbAbstractable = not (Set.member c sealedAxiomBuiltins) && isNothing ck && not exactBit
       , cbUnassumed    = pu
       }
+
+-- | ABSTRACTION-LEN-EXACT-1 (byte-io-proposal Rev 2b item 7): each call of
+-- an 'exactLengthBuiltins' arm in the emitted tree, as its result variable and
+-- the @"lemma"@ part of the arm that states the result's exact length
+-- (@bytesLen(r) = e - s@ for a slice). Read from 'cvPostParts', where the arm
+-- tagged it, never from the merged post. The cone counts an entry for a
+-- constraint only when the atom is one of that constraint's call-post facts,
+-- so the call is on its path (condition C1).
+collectLenDefs :: BodyVC -> Map Name FQPred
+collectLenDefs (SimpleVC _ _)     = Map.empty
+collectLenDefs (BranchVC _ _ t e) = Map.union (collectLenDefs t) (collectLenDefs e)
+collectLenDefs (CallVC c _ _ _ _ parts rv _ cont _ _) =
+  Map.union here (collectLenDefs cont)
+  where
+    here = Map.fromList
+      [ (rv, a)
+      | Set.member c exactLengthBuiltins
+      , ("lemma", a@(FQBinPred FQEq (FQApp h [FQVar r]) _)) <- parts
+      , r == rv, Set.member h lengthHeads ]
 
 -- OBLIG-D4: each obligation also carries the call's SURFACE argument vector,
 -- which names the call site (two calls to one callee from one body are

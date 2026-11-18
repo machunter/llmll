@@ -1,5 +1,6 @@
-"""CALL-RESULT-MARK-1: the clause-1 cone of influence and what a refuted
-function cites (docs/design/byte-io-proposal.md, Amendment Rev 2b).
+"""CALL-RESULT-MARK-1 and ABSTRACTION-LEN-EXACT-1: the clause-1 cone of
+influence, what a refuted function cites, and the exact length of a partial
+result (docs/design/byte-io-proposal.md, Amendment Rev 2b, items 2-8).
 
 What a pass here means:
 
@@ -8,15 +9,20 @@ What a pass here means:
   named `lh-unsafe` message: the failing check does not depend on a partially
   known result, so it is a disproof (C1, B1, C3). A fallback cell asserts exit
   0, the `abstraction_fallback` construct and no `lh-unsafe`. N1, P-LG2 and
-  H1-G are correct functions, so a refutation there would be false. N3, N4 and
-  LX-P1 are real bugs that stay fallbacks until ABSTRACTION-LEN-EXACT-1.
+  H1-G are correct functions, so a refutation there would be false.
+* CRM-V7, V8, V11 and V14..V23 (ABSTRACTION-LEN-EXACT-1): the length of a
+  slice, concat, make, set or string-from-code result is exact when its
+  equation reads no partially known value, so N3, N4, LX-P1, MK-P, SET, E11,
+  E11-R and G1-P are refuted. LX-N1, MK-N and E11-D read a length from slice
+  content and must stay fallbacks; LX-N2 (bytes-concat-many) and G1 (a
+  let-bound index read twice, the stated precision gap) stay fallbacks too.
   V13b is the original H1 shape: a real modular refutation in the then-branch,
   with the H1 sites on the else path still marked `lh-may-fail`.
 * CRM-H1, H2: a refuted function cites only its unmarked failing check; the
   marked one is a `lh-may-fail` warning (H4), and `verify_json_version` is
   1.3.0.
 * CRM-S1: `--strict-verified-core` names the refutation, not the fallback.
-* RT-1..RT-3: a built program on each counterexample input stops with the named
+* RT-1..RT-6: a built program on each counterexample input stops with the named
   pre-condition error, so each refutation is a real run-time failure.
 """
 
@@ -120,18 +126,28 @@ REFUTED = [
     ("V1", "c1_bad", "two-codes", _call_pre("string-code-at", "two-codes")),
     ("V3", "b1_bad", "slice-get", _call_pre("bytes-get", "slice-get")),
     ("V4", "c3_strfromcode", "one-char", _call_pre("string-code-at", "one-char")),
+    ("V7", "n3_len_let", "via-len", _call_pre("bytes-get", "via-len")),
+    ("V8", "n4_slice_index", "row-at", _call_pre("bytes-get", "row-at")),
+    ("V11", "lx_p1", "one-char-bad", _call_pre("string-code-at", "one-char-bad")),
+    ("V16", "mk_at_len", "mk-at-len", _call_pre("bytes-get", "mk-at-len")),
+    ("V18", "set_at_len", "set-at", _call_pre("bytes-get", "set-at")),
+    ("V19", "e11_cat", "cat-at", _call_pre("bytes-get", "cat-at")),
+    ("V20", "e11_cat_rev", "cat-at", _call_pre("bytes-get", "cat-at")),
+    ("V23", "g1_two_reads_param", "two-reads", _call_pre("bytes-get", "two-reads")),
 ]
 
 FALLBACK = [
     ("V5", "n1_spurious", "first-agrees", "bytes-slice"),
     ("V6", "n2_content_index", "via-content", "bytes-slice"),
-    ("V7", "n3_len_let", "via-len", "bytes-slice"),
-    ("V8", "n4_slice_index", "row-at", "bytes-slice"),
     ("V9", "c2_guard", "guarded", "string-code-at"),
     ("V10", "a_attr", "h8", "g"),
-    ("V11", "lx_p1", "one-char-bad", "string-from-code"),
     ("V12", "p_letguard2", "never-differs", "bytes-slice"),
     ("V13", "h1_g", "h1", "bytes-slice"),
+    ("V14", "lx_n1", "dep-len", "bytes-slice"),
+    ("V15", "lx_n2", "many-len", "bytes-concat-many"),
+    ("V17", "mk_dep_len", "dep-make", "bytes-make"),
+    ("V21", "e11_dep", "cat-dep", "bytes-slice"),
+    ("V22", "g1_two_reads", "two-reads", "bytes-slice"),
 ]
 
 
@@ -253,6 +269,12 @@ RUNTIME = [
      "bytes-get: pre-condition failed: index 8 out of bounds for bytes of length 8"),
     ("RT-3", "c3_strfromcode", '(int-to-string (one-char 65 ""))',
      "string-code-at: pre-condition failed: index 0 out of bounds for a string of length 0"),
+    ("RT-4", "n4_slice_index", "(int-to-string (row-at (bytes-make 1 0) 1))",
+     "bytes-get: pre-condition failed: index 1 out of bounds for bytes of length 1"),
+    ("RT-5", "lx_p1", "(int-to-string (one-char-bad 65))",
+     "string-code-at: pre-condition failed: index 1 out of bounds for a string of length 1"),
+    ("RT-6", "mk_at_len", "(int-to-string (mk-at-len 0))",
+     "bytes-get: pre-condition failed: index 0 out of bounds for bytes of length 0"),
 ]
 
 

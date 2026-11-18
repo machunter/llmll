@@ -32,7 +32,7 @@ import LLMLL.ObligationAssembly
 import LLMLL.ObligationMining (mineObligations, formatObligations, formatObligationsJson, ObligationSuggestion(..), SuggestionStrength(..), isQfLia, isSigmaAuto, clauseStrength, generateCandidates, CandidateExpr(..))
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), FQVerifyResult(..), parseFQResult, parseFQResultJSON, parseFQOutcome, fqPathFor, runDirFor, fqResultToReport, fqResultToReportWD, WdReportCtx(..), WdFailKind(..), emptyWdReportCtx, isWdClause, runFQSolver, resourceStopText, resourceStopValue, parseFQNumCstr, decideSolved, solveFQText)
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, renderLimits, parseLimits, StopKind(..), ResourceStop(..), runSolverGuarded, sumGroupRssKb, QualSyntax(..), decideQualSyntax)
-import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..), selfEqReft, arrayTheorySyms, abstractedBuiltins, exactSealedBuiltins, flattenBodyVCTagged)
+import LLMLL.FixpointEmit (bodyToPredFrom, BodyVC(..), LetBinding(..), SortEnv, flattenBodyVC, countPathsBounded, EmitResult(..), FallbackCause(..), renderFallbackCause, emitFixpoint, emitFixpointWith, emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, exprToPred, strlitConst, strlitLen, ContractEnv, buildContractEnv, applySubst, isConstructorDependent, collectCallPreObligations, buildAliasMap, isIntLike, bodyHasOverflowArith, augmentContractPost, desugarCtorValues, buildCtorTagMap, pathBranchSides, collectBranchBinders, bodyToPredFromR, cacheAwareContractEnv, renderCallSite, BuiltinAxiom(..), payloadRefinement, payloadArms, admissibleDatatype, sortableComponent, resultReturnUnsafe, typeToSortA, typeToSort, typeSorts, fieldSort, buildCtorSums, sealedAxiomBuiltins, buildSortEnv, contractSigGuardsBlock, contractArrGuardsBlock, contractMentionsArrOp, exprMentionsArrOp, hasHole, refusedConstructs, buildKeyEnv, injectRangeFactsLabeled, pairParamSorts, bodyRefusalLabels, aNormalizeBody, exprToPredWD, WDObl(..), PartialOp(..), partialPre, bytesSetSpec, mapRetChain, MapRetTree(..), MapRetStep(..), selfEqReft, arrayTheorySyms, abstractedBuiltins, exactSealedBuiltins, flattenBodyVCTagged, collectLenDefs)
 import LLMLL.FixpointIR (FQPred(..), FQBinOp(..), FQSort(..), FQDataDecl(..), emitPred, emitDisclosure, emitFQFile, FQFile(..), FQQualifier(..), emptyFQFile, qualifiersToBraces, FQConstant(..), fqCtorSym, emitSort, FQConstraint(..), FQReft(..), FQBind(..), fqNameCollisions, fqFreeSymbols)
 import LLMLL.Feasibility (feasibilityOf, FeasVerdict(..), renderWitness, fqPredToSMT, minimizeWitness, buildQuery, Query(..), scriptOf, scriptOfOpt)
 import LLMLL.RefineReuse (ReuseSuggestion(..), reuseRetrieval, signatureCompatible, canonicalContractKey, buildSubsumptionFQ)
@@ -74,7 +74,7 @@ import System.Directory (removeFile, doesFileExist, doesDirectoryExist, createDi
 import System.Environment (setEnv, unsetEnv, lookupEnv, getEnvironment)
 import System.Process (callProcess, readProcessWithExitCode, readCreateProcessWithExitCode, createProcess, waitForProcess, proc, StdStream(..))
 import qualified System.Process as SP
-import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, intercalate, (\\))
+import Data.List (isSuffixOf, isInfixOf, isPrefixOf, sort, find, nub, intercalate, (\\), permutations)
 import Data.Char (isAlphaNum, isLower)
 import LLMLL.RegexPattern (validatePattern, rxMeaningfulEscapes, RegexProblem(..))
 import qualified Text.Regex.TDFA as RX
@@ -95,7 +95,7 @@ import LLMLL.DivergenceCheck
   , verdictLabel, probeSet )
 import LLMLL.PatchApply (applyOp, applyOps, validateScope, parsePatchOp, PatchOp(..), toPatchOpInfos, PatchResult(..), PatchedFn(..), VerifyUnavailable(..), PatchRequest(..), CalleePreUnmet(..), applyPatch, applyPatchWithMode, PatchScopeMode(..), hasContracts, patchTargetFns, notProvedMessage)
 import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, aoFallbackFns, aoReportCtx, aoCitedResult)
-import LLMLL.AbstractionCone (ConeRec(..), emptyConeRec, coneHits, clause1SeedUFs, coneFrozenHeads)
+import LLMLL.AbstractionCone (ConeRec(..), emptyConeRec, coneHits, clause1SeedUFs, coneFrozenHeads, exactLengthBuiltins)
 import System.FilePath ((</>))
 import LLMLL.WeaknessCheck (generateWeaknessCandidates, generateCDPCandidates, WeaknessCandidate(..), TrivialBody(..), wcSyntheticName)
 import LLMLL.CDP
@@ -29173,12 +29173,15 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- the verifier's consumer: crc-loop's guard translates, so the function is body-faithful
       er <- emitS (crcLoop "(= i (bytes-length buf))")
       erBodyFaithfulFns er `shouldSatisfy` elem "crc-loop"
-    it "T-V12 a constraint that holds a product and a slice result keeps the abstraction mark" $ do
+    -- ABSTRACTION-LEN-EXACT-1: the slice's length is exact over the
+    -- parameter b, so the post no longer reads the partial result: the
+    -- abstraction mark goes, and the product mark stays.
+    it "T-V12 a constraint that holds a product and an exact-length slice keeps the product mark only" $ do
       er <- emitS "(def-shell f [b: bytes x: int y: int] -> int (pre (and (>= x 0) (>= y 0))) (post (>= result 1)) (+ (* x y) (bytes-length (bytes-slice b 0 (bytes-length b)))))"
-      let marked = Map.keys (erAbstracted er)
-      marked `shouldSatisfy` (not . null)
-      [ c | c <- marked, c `Set.member` erProductMarked er ] `shouldSatisfy` (not . null)
-      Map.elems (erAbstracted er) `shouldSatisfy` all (== "bytes-slice")
+      let posts = [ i | (i, o) <- Map.toList (erConstraintTable er), coClause o == "body-post" ]
+      posts `shouldSatisfy` (not . null)
+      [ c | c <- posts, c `Map.member` erAbstracted er ] `shouldBe` []
+      [ c | c <- posts, c `Set.member` erProductMarked er ] `shouldSatisfy` (not . null)
     it "T-V13 a widened let-bound value gets no bytesLen(r) = n fact of its own (FACT-AG-LEN, P2)" $ do
       er <- emitS "(def-shell w [k: bytes[8]] -> int (post (= result 8)) (let [(z (bytes-set k 0 1))] (bytes-length (bytes-widen z))))"
       erBodyFaithfulFns er `shouldBe` ["w"]
@@ -29215,7 +29218,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- returns 8, and (= result 1) solved Safe). Each make is now a fresh term with
     -- its length lemma, and the constraint is marked abstracted, so the UNSAFE
     -- answer falls back (abstraction:app:bytes-make) rather than refuting.
-    it "T-V17 two makes with one fill are two terms: no Map_default in the .fq, and the wrong post is Unsafe" $ do
+    it "T-V17 two makes with one fill are two terms: no Map_default in the .fq, the wrong post is Unsafe and unmarked" $ do
       let src p v = "(def-shell two-makes [n: int] -> int (pre (>= n 0)) (post (= result " ++ show (p :: Int)
                     ++ ")) (let [(a (bytes-make 3 0)) (c (bytes-make 5 " ++ show (v :: Int)
                     ++ "))] (+ (bytes-length a) (bytes-length c))))"
@@ -29226,8 +29229,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       T.isInfixOf "Map_default" (erFQText er) `shouldBe` False
       T.isInfixOf "(bytesLen _bv_call_bytes_make_0) = 3" (erFQText er) `shouldBe` True
       T.isInfixOf "(bytesLen _bv_call_bytes_make_1) = 5" (erFQText er) `shouldBe` True
-      Map.elems (erAbstracted er) `shouldSatisfy` (\cs -> not (null cs) && all (== "bytes-make") cs)
-      Map.elems (erAbstracted er2) `shouldSatisfy` (\cs -> not (null cs) && all (== "bytes-make") cs)
+      -- ABSTRACTION-LEN-EXACT-1: each make's length is exact (3 and 5), so
+      -- the wrong post is no longer marked: an UNSAFE answer here refutes.
+      erAbstracted er `shouldBe` Map.empty
+      erAbstracted er2 `shouldBe` Map.empty
       expectSolveS er "Unsafe"
       expectSolveS er2 "Unsafe"
       expectSolveS erOk "Safe"
@@ -29429,6 +29434,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
 
   -- CALL-RESULT-MARK-1: the clause-1 cone and the H4 rendering
   callResultMarkSpec
+  -- ABSTRACTION-LEN-EXACT-1: the length of a partial result
+  lenExactSpec
 
 -- | GENERIC-COMPARE-PAIR-1 (GP-2..GP-4): a value of the test-only evaluator
 -- over the compare unfolding.
@@ -29694,3 +29701,115 @@ callResultMarkSpec = describe "CALL-RESULT-MARK-1 cone (Rev 2b)" $ do
   where
     citedIds av = case aoCitedResult av of { FQUnsafe c -> c; _ -> [] }
     one xs = case xs of { [x] -> x; _ -> error ("expected one id, got " ++ show xs) }
+
+-- ---------------------------------------------------------------------------
+-- ABSTRACTION-LEN-EXACT-1 (byte-io-proposal Rev 2b item 7, with the bytes-make
+-- and bytes-set rows): the length of a partial result is its own symbol L_x,
+-- outside D when its recorded exact equation reads no D symbol; one monotone
+-- fixpoint; the equation defines L_x only.
+-- ---------------------------------------------------------------------------
+lenExactSpec :: Spec
+lenExactSpec = describe "ABSTRACTION-LEN-EXACT-1" $ do
+  let parsedOk src = case parseStatements GrammarCoreInversion "<t>" (T.pack src) of
+        Left e   -> error (show e)
+        Right ss -> ss
+      emitSrc src = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty (parsedOk src)
+      fixture n = T.unpack <$> TIO.readFile ("../scripts/tests/fixtures/call_result_mark_1/" ++ n ++ ".llmll")
+      solved src k = do
+        er <- emitSrc src
+        tmp <- getTemporaryDirectory
+        (fqPath, h) <- SIO.openTempFile tmp "len-exact.fq"
+        SIO.hClose h
+        TIO.writeFile fqPath (erFQText er)
+        mLF <- do a <- findExecutable "liquid-fixpoint"
+                  maybe (findExecutable "fixpoint") (pure . Just) a
+        case mLF of
+          Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+          Just lf -> do
+            (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
+            removeFile fqPath
+            k er (applyAbstractionVerdict Set.empty er (parseFQOutcome code (T.pack out <> T.pack err)))
+      v = FQVar
+      eq = FQBinPred FQEq
+      lt a b = FQBinPred FQLt a b
+      len x = FQApp "bytesLen" [v x]
+      sub a b = FQBinArith FQSub a b
+      con lhs rhs = FQConstraint 0 [] (FQReft "v" FQInt (FQAnd lhs)) (FQReft "v" FQInt rhs) ["f", "body-post"]
+      recP = emptyConeRec { crParams = Set.fromList ["b", "s", "e", "s2", "e2", "i", "n", "w", "vv"] }
+      -- every def is a recorded call-post fact of the constraint, in its lhs
+      withDefs defs facts = recP { crFacts = map snd defs ++ facts, crLenDefs = Map.fromList defs }
+      hits r seeds c = coneHits Map.empty (Just r) (Set.fromList seeds) c
+      sliceDef x hi lo = (x, eq (len x) (sub hi lo))
+      goalAt x = lt (v "i") (len x)
+
+  -- U. the pure rule
+  it "LX-U1 the slice length equation does not pull its bounds into D" $ do
+    let d = sliceDef "x" (v "k") (FQLit 0)
+    hits (withDefs [d] []) ["x"] (con [snd d] (FQBinPred FQGt (v "k") (FQLit 0))) `shouldBe` False
+    hits (withDefs [d] []) ["x"] (con [snd d] (goalAt "x")) `shouldBe` False
+  it "LX-U2 a right side that names a D symbol puts L_x in D (LX-N1)" $ do
+    let d = sliceDef "x" (v "k") (FQLit 0)
+        f = eq (v "k") (FQApp "Map_select" [v "y", FQLit 0])
+    hits (withDefs [d] [f]) ["x", "y"] (con [snd d, f] (goalAt "x")) `shouldBe` True
+  it "LX-U3 a concat of two parameter-bounded slices (E11): unmarked in every atom order" $ do
+    let d1 = sliceDef "x1" (v "e") (v "s")
+        d2 = sliceDef "x2" (v "e2") (v "s2")
+        dz = ("z", eq (len "z") (FQBinArith FQAdd (len "x1") (len "x2")))
+        defs = [d1, d2, dz]
+    forM_ (permutations (map snd defs)) $ \atoms ->
+      hits (withDefs defs []) ["x1", "x2", "z"] (con atoms (goalAt "z")) `shouldBe` False
+  it "LX-U4 a slice bound that reads a D symbol puts the concat length in D in every order (E11-D)" $ do
+    let d1 = sliceDef "x1" (v "k") (FQLit 0)
+        d2 = sliceDef "x2" (v "e2") (v "s2")
+        dz = ("z", eq (len "z") (FQBinArith FQAdd (len "x1") (len "x2")))
+        f  = eq (v "k") (FQApp "Map_select" [v "y", FQLit 0])
+        defs = [d1, d2, dz]
+    forM_ (permutations (f : map snd defs)) $ \atoms ->
+      hits (withDefs defs [f]) ["x1", "x2", "z", "y"] (con atoms (goalAt "z")) `shouldBe` True
+  it "LX-U5 a length known only by congruence (an alias y = x) is not a symbol: y stays in D" $ do
+    let d = (T.pack "x", eq (len "x") (FQLit 4))
+        a = eq (v "y") (v "x")
+    hits (withDefs [d] [a]) ["x"] (con [snd d, a] (goalAt "y")) `shouldBe` True
+  it "LX-U6 a Map_select of x keeps x in D while L_x is outside" $ do
+    let d = (T.pack "x", eq (len "x") (FQLit 4))
+    hits (withDefs [d] []) ["x"] (con [snd d] (FQBinPred FQGe (FQApp "Map_select" [v "x", FQLit 0]) (FQLit 0))) `shouldBe` True
+    hits (withDefs [d] []) ["x"] (con [snd d] (goalAt "x")) `shouldBe` False
+  it "LX-U7 the bytes-make row: bytesLen(r) = n is exact unless n reads D" $ do
+    let d  = (T.pack "r", eq (len "r") (v "n"))
+        d' = (T.pack "r", eq (len "r") (v "k"))
+        f  = eq (v "k") (FQApp "Map_select" [v "y", FQLit 0])
+    hits (withDefs [d] []) ["r"] (con [snd d] (goalAt "r")) `shouldBe` False
+    hits (withDefs [d'] [f]) ["r", "y"] (con [snd d', f] (goalAt "r")) `shouldBe` True
+  it "LX-U8 the bytes-set row: L_r is outside D exactly when L_b is" $ do
+    let dx = (T.pack "x", eq (len "x") (FQLit 4))
+        dr = (T.pack "r", eq (len "r") (len "x"))
+        st = eq (v "r") (FQApp "Map_store" [v "x", v "i", v "vv"])
+    hits (withDefs [dx, dr] [st]) ["x"] (con [snd dx, snd dr, st] (goalAt "r")) `shouldBe` False
+    hits (withDefs [dr] [st]) ["x"] (con [snd dr, st] (goalAt "r")) `shouldBe` True
+  it "LX-U9 bytes-concat-many and bytes-from-string lemmas are not length definitions" $ do
+    let r = FQVar "r"
+        call c parts = CallVC c [] [] Nothing (Just (FQAnd (map snd parts))) parts "r" FQInt (SimpleVC [] r) Nothing False
+    collectLenDefs (call "bytes-concat-many" [("lemma", FQBinPred FQGe (len "r") (FQLit 0))]) `shouldBe` Map.empty
+    collectLenDefs (call "bytes-from-string" [("lemma", FQBinPred FQLe (FQApp "strLen" [v "s"]) (len "r"))]) `shouldBe` Map.empty
+    collectLenDefs (call "bytes-slice" [("lemma", eq (len "r") (sub (v "e") (v "s")))]) `shouldBe` Map.fromList [("r", eq (len "r") (sub (v "e") (v "s")))]
+  it "LX-U10 a length equation that is not a call-post fact of this constraint does not count" $ do
+    let d = sliceDef "x" (v "e") (v "s")
+    hits (recP { crLenDefs = Map.fromList [d] }) ["x"] (con [snd d] (goalAt "x")) `shouldBe` True
+
+  it "LX-C1 exactLengthBuiltins is the six rows and excludes the inexact four" $ do
+    exactLengthBuiltins `shouldBe` Set.fromList ["bytes-slice", "bytes-concat", "bytes-to-list", "string-from-code", "bytes-make", "bytes-set"]
+    Set.toList (Set.intersection exactLengthBuiltins (Set.fromList ["bytes-concat-many", "bytes-from-string", "string-code-at", "bytes-widen"])) `shouldBe` []
+
+  -- S. solver-backed verdicts
+  forM_ [ ("LX-S1", "n3_len_let", "via-len"), ("LX-S2", "n4_slice_index", "row-at")
+        , ("LX-S3", "lx_p1", "one-char-bad"), ("LX-S4", "mk_at_len", "mk-at-len")
+        , ("LX-S5", "set_at_len", "set-at"), ("LX-S6", "e11_cat", "cat-at")
+        , ("LX-S7", "e11_cat_rev", "cat-at"), ("LX-S8", "g1_two_reads_param", "two-reads") ] $ \(cell, n, fn) ->
+    it (cell ++ " " ++ n ++ " is refuted") $ fixture n >>= \src -> solved src $ \_ av -> do
+      Set.toList (aoRefuted av) `shouldBe` [T.pack fn]
+      aoReclassified av `shouldBe` []
+  forM_ [ ("LX-S9", "lx_n1", "dep-len"), ("LX-S10", "mk_dep_len", "dep-make")
+        , ("LX-S11", "e11_dep", "cat-dep"), ("LX-S12", "g1_two_reads", "two-reads") ] $ \(cell, n, fn) ->
+    it (cell ++ " " ++ n ++ " stays a fallback") $ fixture n >>= \src -> solved src $ \_ av -> do
+      map fst (aoReclassified av) `shouldBe` [T.pack fn]
+      aoRefuted av `shouldBe` Set.empty

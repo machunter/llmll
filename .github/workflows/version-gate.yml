@@ -644,15 +644,16 @@ jobs:
           grep -q ' 44 passed' "$RUNNER_TEMP/byte-io-1.log" \
             || { echo "BYTE-IO: expected 44 passed cells"; exit 1; }
 
-      # CALL-RESULT-MARK-1 (byte-io-proposal Amendment Rev 2b): the clause-1
-      # cone of influence. The witnesses in fixtures/call_result_mark_1 get
+      # CALL-RESULT-MARK-1 and ABSTRACTION-LEN-EXACT-1 (byte-io-proposal
+      # Amendment Rev 2b): the clause-1 cone of influence and the exact length
+      # of a partial result. The witnesses in fixtures/call_result_mark_1 get
       # their stated verdicts (V cells, fixpoint): a failure that does not
       # depend on a partially known result is refuted, and the must-not-refute
       # witnesses stay fallbacks. A refuted function cites only its unmarked
       # failing check and prints the marked one as lh-may-fail (H cells); the
       # strict core names the refutation (S1); three built programs stop on
       # the counterexample input with the named pre-condition error (RT cells,
-      # GHC). 14 V, 2 H, 1 S and 3 RT cells; no skip allowed.
+      # GHC). 24 V, 2 H, 1 S and 6 RT cells; no skip allowed.
       - name: Run CALL-RESULT-MARK-1 cells (pytest, needs the toolchain and the solver)
         run: |
           set -euo pipefail
@@ -662,8 +663,8 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/call-result-mark-1.log"; then
             echo "a CALL-RESULT-MARK-1 cell skipped; LLMLL_BIN, Stack and fixpoint must be present here"; exit 1
           fi
-          grep -q ' 20 passed' "$RUNNER_TEMP/call-result-mark-1.log" \
-            || { echo "CALL-RESULT-MARK-1: expected 20 passed cells"; exit 1; }
+          grep -q ' 33 passed' "$RUNNER_TEMP/call-result-mark-1.log" \
+            || { echo "CALL-RESULT-MARK-1: expected 33 passed cells"; exit 1; }
 
       # REGEX-CAPTURE-1 / REGEX-CASE-1's end-to-end cells. They build and run one
       # program with GHC (needs the toolchain), run `check` per agreement row,

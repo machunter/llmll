@@ -1,4 +1,4 @@
-;; ABSTRACTION-LEN-EXACT-1 witness g1_two_reads_param (crm plan Rev 2); a fallback after CALL-RESULT-MARK-1.
+;; ABSTRACTION-LEN-EXACT-1 witness G1-P: two reads of a slice at a parameter index; bug at x = w - 1, refuted.
 (def-shell two-reads [b: bytes w: int x: int] -> int
   (pre (and (and (>= w 1) (<= w (bytes-length b))) (and (>= x 0) (< x w))))
   (post (>= result 0))

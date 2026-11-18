@@ -1,4 +1,4 @@
-;; ABSTRACTION-LEN-EXACT-1 witness g1_two_reads (crm plan Rev 2); a fallback after CALL-RESULT-MARK-1.
+;; ABSTRACTION-LEN-EXACT-1 witness G1: as G1-P with a let-bound index; stays a fallback (precision gap, CONE-DEF-DIRECTION-1).
 (def-shell two-reads [b: bytes w: int x: int] -> int
   (pre (and (and (>= w 1) (<= w (bytes-length b))) (and (>= x 0) (< x w))))
   (post (>= result 0))
