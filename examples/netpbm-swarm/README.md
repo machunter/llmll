@@ -54,7 +54,7 @@ main IN TRANSFORM OUT [N ...]
 ## Build and run
 
 ```sh
-./build.sh            # verify leaf-first (blur skipped), test, build, cross-check
+./build.sh            # verify leaf-first, test, build, cross-check
 ./build.sh --refill   # first fill binfmt's holes again with checkout + patch
 ./build.sh --mutants  # also verify 4 wrong binfmt bodies (all must be refuted)
 EXE=$(cd build && stack path --local-install-root)/bin/main
@@ -66,9 +66,11 @@ $EXE samples/feep.pgm crop /tmp/feep-crop.pgm 1 1 6 5
 
 1. `llmll verify --trust-report` on every module, leaf-first. An importer
    cannot be checked until each module it imports has a `.verified.json`.
-   **`blur.llmll` is skipped**, with a `SKIPPED:` line in the log: on v0.41.0
-   its verify stops at the 120 s solver time limit (EXAMPLES-VERIFY-REGRESS-1).
-   It verified in 18 s on v0.33.2.
+   From v0.37.0 to v0.41.0 `blur.llmll` did not verify: it stopped at the
+   solver's time or memory limit, and `build.sh` skipped it. The cause was
+   142 definedness obligations for `map-get` reads that their own `map-has`
+   guards already discharge (EXAMPLES-VERIFY-REGRESS-1); since the fix it
+   verifies in about 1 s.
 2. `llmll test` on every module that has `check` properties.
 3. `llmll build main.llmll -o build`.
 4. It generates a 256x256 P3 image with `tools/gen256.py`, and the binary
@@ -89,9 +91,11 @@ transform runs end to end (read, decode, transform, encode, write) in
 0.4-0.9 s, with about 106 MB maximum RSS. Blur is the slowest, at 0.8-0.9 s.
 On v0.41.0 a 256x256 `copy` takes 0.16 s and 46 MB as P6, against 1.85 s and
 118 MB as P3.
-`llmll verify` takes about 136 s across all ten modules. Most of that is
-rules (50 s), kernel (45 s), blur (18 s) and lex (15 s); the shell modules
-take under 3 s each. The build takes about 17 s.
+`llmll verify` takes about 6 s across all eleven modules with liquid-fixpoint
+0.9.6.3.7 (2026-11-18, after EXAMPLES-VERIFY-REGRESS-1): lex 2.1 s, kernel
+0.9 s, blur 0.9 s, every other module under 0.6 s. On v0.33.2 it took about
+136 s; on v0.41.0 kernel took 18 s and blur did not finish. The build takes
+about 17 s.
 
 ## Module structure
 
@@ -127,9 +131,9 @@ kernel, then blur, then codec, image, main.
 measure verifies. `tools/mutants.py` refutes all 4 wrong `binfmt` bodies. The
 seven new codec functions are shells; codec stays 6 of 15 verified, with 19
 fallbacks (14 before). `blur` was not verified on v0.41.0
-(EXAMPLES-VERIFY-REGRESS-1). The other modules did not change. So the
-program has 105 functions, and 58 of them verify on v0.41.0; `blur-sample`,
-which verified on 2026-10-31, would make 59. The tables below are the 2026-10-31 run and do not list `binfmt`
+(EXAMPLES-VERIFY-REGRESS-1) and verifies again since its fix. The other
+modules did not change. So the program has 105 functions, and 59 of them
+verify. The tables below are the 2026-10-31 run and do not list `binfmt`
 or the new codec functions.
 
 All figures below are from a fresh `./build.sh` run on 2026-10-31, using
