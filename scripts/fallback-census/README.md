@@ -34,6 +34,18 @@ own directory, inside a copy of the tracked tree. Each worker gets its own copy
 and each run deletes the sidecar it creates, so the result does not depend on
 `--jobs` and the measured tree is never modified.
 
+Before that run, each module the file imports from its own directory is
+verified first, leaf first, with a plain `llmll --json verify`, and the
+sidecars this writes are removed with the file's own. `--strict-verified-core`
+refuses a proof that uses an imported contract whose level, read from that
+module's sidecar, is below `verified` (`STRICT-XMOD-1`, v0.26.5). Without this
+step every import would read as unproved and a file that imports a proved
+sibling could never pass, which is what took the two `*-emergent/work/spine`
+files out of the strict-pass set (`CENSUS-BASELINE-1`). An import that fails or
+runs out of time is not an error; the strict run then names it. A file and its
+imports share one `--timeout` budget. Imports that name no file there, such as
+`wasi.*` capabilities and hub modules, are skipped.
+
 A negative verdict is re-run once, alone, before it is believed. One file has
 been seen to report `refuted` during a loaded census and `pass` on five
 isolated runs and eight concurrent ones. A file that disagrees with itself is

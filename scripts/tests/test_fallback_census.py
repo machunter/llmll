@@ -42,6 +42,27 @@ verdict = table.get(name)
 if verdict is None:
     print("error: no canned verdict for " + name)
     sys.exit(1)
+# CENSUS-BASELINE-1: record every call, and let a verdict depend on whether
+# the sidecars of the modules it names exist, the way `--strict-verified-core`
+# reads an import's level from its sidecar.
+strict = "--strict-verified-core" in sys.argv
+if os.environ.get("STUB_LOG"):
+    with open(os.environ["STUB_LOG"], "a") as fh:
+        fh.write(name + (" strict" if strict else " plain") + "\\n")
+missing = [m for m in verdict.get("needs", []) if not os.path.exists(m + ".verified.json")]
+if strict and missing:
+    print(json.dumps({"body_faithful": ["f"], "body_fallback": [], "body_fallback_causes": {},
+                      "fn_kinds": {"f": "def"}, "body_fallback_constructs": {},
+                      "strict_errors": [{"cause": "import_assumed", "fns": ["f"],
+                                         "msg": "unproved import " + missing[0]}]}))
+    open(name + ".verified.json", "w").write("{}\\n")
+    sys.exit(1)
+if verdict.get("bare"):
+    # A check that stops early prints bare diagnostic lines, no verify document.
+    for msg in verdict["bare"]:
+        print(json.dumps({"kind": "core-membership-violation", "message": msg,
+                          "severity": "error", "holeSensitive": False}))
+    sys.exit(1)
 if verdict.get("sleep"):
     time.sleep(verdict["sleep"])
 if verdict.get("exit") == 3:
@@ -69,13 +90,15 @@ sys.exit(verdict.get("exit", 0))
 '''
 
 
-def make_repo(tmp_path: Path, files: dict[str, dict], extra: dict[str, str] | None = None) -> Path:
+def make_repo(tmp_path: Path, files: dict[str, dict], extra: dict[str, str] | None = None,
+              sources: dict[str, str] | None = None) -> Path:
     """A git repository with the named LLMLL files and a canned verdict for each."""
     repo = tmp_path / "repo"
     (repo / "examples").mkdir(parents=True)
     (repo / "LLMLL.md").write_text("# LLMLL — v0.0.0\n", encoding="utf-8")
     for name in files:
-        (repo / "examples" / name).write_text(";; census fixture\n", encoding="utf-8")
+        body = (sources or {}).get(name, ";; census fixture\n")
+        (repo / "examples" / name).write_text(body, encoding="utf-8")
     for rel, body in (extra or {}).items():
         target = repo / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -510,3 +533,66 @@ def test_real_compiler_keeps_a_body_faithful_file_faithful():
     payload = verify_report("--strict-verified-core", "census-pass.llmll")
     assert "strict_errors" not in payload
     assert sorted(payload["body_faithful"]) == ["clamp", "nonneg"]
+
+
+# ---------------------------------------------------------------------------
+# CENSUS-BASELINE-1: imports are verified before the file that uses them
+# ---------------------------------------------------------------------------
+
+IMPORTING = {
+    # `top` imports `mid` (S-expression form), `mid` imports `leaf` (JSON-AST
+    # form). `top` passes strict only if both sidecars exist when it runs.
+    "top.llmll": {**ok(["f"], {}, {"f": "def"}), "needs": ["mid.llmll", "leaf.ast.json"]},
+    "mid.llmll": ok(["g"], {}, {"g": "def"}),
+    "leaf.ast.json": ok(["h"], {}, {"h": "def"}),
+    # Imports nothing, yet needs `mid`'s sidecar: it must NOT pass, which shows
+    # that no sidecar written for another file's imports survives that run.
+    "loner.llmll": {**ok(["k"], {}, {"k": "def"}), "needs": ["mid.llmll"]},
+}
+IMPORTING_SOURCES = {
+    "top.llmll": "(import mid)\n(import wasi.io)\n(import hub.pkg.x)\n",
+    "mid.llmll": '(import leaf)\n',
+    "leaf.ast.json": json.dumps({"statements": []}),
+}
+
+
+def test_a_files_imports_are_verified_leaf_first_before_it(tmp_path):
+    repo = make_repo(tmp_path, IMPORTING, sources=dict(IMPORTING_SOURCES))
+    log = tmp_path / "calls.log"
+    out = tmp_path / "record.json"
+    r = run_census(tmp_path, repo, "--no-ratchet", "--jobs", "1", "--out", str(out),
+                   env_extra={"STUB_LOG": str(log)})
+    assert r.returncode == 0, r.stdout
+    calls = log.read_text().splitlines()
+    i = calls.index("top.llmll strict")
+    assert calls[i - 2:i] == ["leaf.ast.json plain", "mid.llmll plain"], calls
+    # `wasi.io` and `hub.pkg.x` name no file and are never run.
+    assert not any(c.startswith(("io", "x.", "wasi", "hub")) for c in calls), calls
+    rec = json.loads(out.read_text())
+    assert rec["files"]["examples/top.llmll"]["outcome"] == "pass"
+    assert "examples/top.llmll" in rec["strict_pass"]
+
+
+def test_sidecars_written_for_imports_do_not_reach_another_file(tmp_path):
+    repo = make_repo(tmp_path, IMPORTING, sources=dict(IMPORTING_SOURCES))
+    out = tmp_path / "record.json"
+    r = run_census(tmp_path, repo, "--no-ratchet", "--jobs", "1", "--out", str(out))
+    assert r.returncode == 0, r.stdout
+    rec = json.loads(out.read_text())
+    assert rec["files"]["examples/loner.llmll"]["outcome"] == "fallback"
+    assert "examples/loner.llmll" not in rec["strict_pass"]
+    # And the measured tree gained no sidecar.
+    assert not list((repo / "examples").glob("*.verified.json"))
+
+
+
+def test_bare_diagnostic_lines_are_check_failed_not_a_pass(tmp_path):
+    msg = "def 'f': callee 'g' is not body-faithful and not in the trusted prelude"
+    repo = make_repo(tmp_path, {"early.llmll": {"bare": [msg, msg]}})
+    out = tmp_path / "record.json"
+    r = run_census(tmp_path, repo, "--no-ratchet", "--out", str(out))
+    assert r.returncode == 0, r.stdout
+    rec = json.loads(out.read_text())
+    assert rec["files"]["examples/early.llmll"]["outcome"] == "check-failed"
+    assert msg in rec["files"]["examples/early.llmll"]["detail"]
+    assert rec["strict_pass"] == []

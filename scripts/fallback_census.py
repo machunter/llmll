@@ -27,6 +27,11 @@ own directory, over a COPY of the tree. The copy is not a convenience: `llmll
 verify` writes a `.verified.json` sidecar beside every file it reads, and this
 script must not modify the tree it measures.
 
+Before that run, the file's local imports are verified, leaf first, with a
+plain `llmll --json verify`, and the sidecars they write are removed with the
+file's own. `--strict-verified-core` reads an import's level from its sidecar,
+so without this step every import would read as unproved (CENSUS-BASELINE-1).
+
 THE RATCHET
 
 `scripts/fallback-census/BASELINE.json` records the set of files that pass
@@ -49,6 +54,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -103,6 +109,11 @@ KNOWN_CAUSES = (
 # disagree with itself under load.
 # VERDICT-UNSTABLE-1: a solver error is re-run too. A transient one that
 # passes alone becomes `unstable` through the machinery already here.
+# Keys only a verify document (or the `check` diagnostics object) carries. A
+# JSON line with none of them and a `severity` is a bare diagnostic.
+VERIFY_KEYS = frozenset({"verify_json_version", "body_faithful", "fn_kinds",
+                         "strict_errors", "success", "diagnostics", "solver_verdict"})
+
 RECHECK_OUTCOMES = frozenset({"refuted", "timeout", "run-failed", "solver-error"})
 
 EXIT_OK = 0
@@ -140,6 +151,88 @@ def population(files: list[Path]) -> list[Path]:
     ]
 
 
+_SEXP_IMPORT = re.compile(r"\(import\s+([A-Za-z0-9_.\-]+)")
+
+
+def local_imports(source: Path, root: Path) -> list[Path]:
+    """The imports of `source` that resolve to a file under `root`, in source order.
+
+    Mirrors `Module.resolveModulePath`: `(import a.b)` names `<root>/a/b.llmll`,
+    then `<root>/a/b.ast.json`, where `<root>` is the entry file's directory. An
+    import that names no file there (a `wasi.*` capability, a hub module) is not
+    a sibling the census can verify, and is skipped.
+    """
+    names: list[str] = []
+    try:
+        text = source.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    if source.name.endswith(".ast.json"):
+        try:
+            doc = json.loads(text)
+        except json.JSONDecodeError:
+            return []
+        for st in (doc.get("statements") or []) if isinstance(doc, dict) else []:
+            if isinstance(st, dict) and st.get("kind") == "import" and isinstance(st.get("path"), str):
+                names.append(st["path"])
+    else:
+        names = _SEXP_IMPORT.findall(text)
+    found: list[Path] = []
+    for name in names:
+        if name.split(".")[0] == "hub":
+            continue
+        stem = root.joinpath(*name.split("."))
+        for cand in (stem.with_name(stem.name + ".llmll"), stem.with_name(stem.name + ".ast.json")):
+            if cand.is_file() and cand not in found:
+                found.append(cand)
+                break
+    return found
+
+
+def verify_imports(llmll: list[str], target: Path, deadline: float) -> list[Path]:
+    """Verify the target's local imports, leaf first, and return the sidecars written.
+
+    CENSUS-BASELINE-1. `--strict-verified-core` refuses a proof that uses an
+    imported contract whose level, read from that module's sidecar, is below
+    `verified` (STRICT-XMOD-1, v0.26.5). The census removes every sidecar its
+    runs write, so without this step every import reads as unproved and a file
+    that imports a proved sibling can never pass. Verifying the imports first,
+    the way a user would, lets the strict run read their real level. A failed
+    or slow import is not an error here: its sidecar records what it reached,
+    and the strict run reports the import it could not rely on.
+    """
+    root = target.parent
+    order: list[Path] = []
+    seen: set[Path] = {target}
+
+    def visit(src: Path) -> None:
+        for dep in local_imports(src, root):
+            if dep in seen:
+                continue
+            seen.add(dep)
+            visit(dep)
+            order.append(dep)
+
+    visit(target)
+    written: list[Path] = []
+    for dep in order:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        sidecar = dep.with_name(dep.name + ".verified.json")
+        existed = sidecar.exists()
+        try:
+            subprocess.run(
+                llmll + ["--json", "verify", dep.name],
+                cwd=str(dep.parent), capture_output=True, text=True, timeout=left,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        if not existed and sidecar.exists():
+            written.append(sidecar)
+    return written
+
+
 def run_one(llmll: list[str], workdir: Path, rel: Path, timeout: int) -> dict:
     """Verify one file and classify the run. Never raises on a compiler failure."""
     target = workdir / rel
@@ -150,13 +243,17 @@ def run_one(llmll: list[str], workdir: Path, rel: Path, timeout: int) -> dict:
     # creates is removed again; one that came from the repository stays.
     sidecar = target.with_name(target.name + ".verified.json")
     sidecar_existed = sidecar.exists()
+    # The imports share the file's budget: a file is never given more than
+    # `timeout` seconds in all.
+    imported: list[Path] = []
     try:
+        imported = verify_imports(llmll, target, started + timeout)
         proc = subprocess.run(
             llmll + ["--json", "verify", "--strict-verified-core", target.name],
             cwd=str(target.parent),
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=max(1, timeout - (time.monotonic() - started)),
         )
     except subprocess.TimeoutExpired:
         return {"outcome": "timeout", "detail": f"exceeded {timeout}s"}
@@ -165,18 +262,36 @@ def run_one(llmll: list[str], workdir: Path, rel: Path, timeout: int) -> dict:
     finally:
         if not sidecar_existed and sidecar.exists():
             sidecar.unlink()
+        for written in imported:
+            if written.exists():
+                written.unlink()
 
     if proc.returncode == 3:
         return {"outcome": "solver-missing", "detail": proc.stdout.strip()[:200]}
 
     payload = None
+    bare: list[dict] = []
     for line in proc.stdout.splitlines():
         line = line.strip()
         if line.startswith("{") and line.endswith("}"):
             try:
-                payload = json.loads(line)
+                obj = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(obj, dict):
+                continue
+            # CENSUS-BASELINE-1: a check that stops early (for example a
+            # strict-core def whose imported callee is not body-faithful)
+            # prints one bare diagnostic per line and no verify document. Such
+            # a line used to become the payload, carried no failure key, and
+            # was read as a pass that proved nothing.
+            if "severity" in obj and "message" in obj and not (VERIFY_KEYS & obj.keys()):
+                bare.append(obj)
+                continue
+            payload = obj
+    if payload is None and bare:
+        errs = [d for d in bare if d.get("severity") == "error"] or bare
+        return {"outcome": "check-failed", "detail": f"error: {errs[0].get('message', '')}"[:200]}
     if (payload is not None and payload.get("success") is False and "diagnostics" in payload
             and "body_faithful" not in payload and "fn_kinds" not in payload):
         # A type error under --json prints the diagnostics object `llmll --json
