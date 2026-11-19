@@ -671,7 +671,9 @@ jobs:
       # abstraction:app:bytes-* fallback, and their wrong bodies get their
       # stated verdicts: refuted, except the two length-only errors in a
       # returned slice (y4m M3, M4B), pinned as fallbacks (ABSTRACTION-RESULT-LEN-1).
-      # 8 y4m, 5 netpbm-swarm and 5 netpbm cells; no skip allowed.
+      # 8 y4m, 5 netpbm-swarm and 5 netpbm cells, and one cell that verifies
+      # netpbm-swarm's blur under a 60 s limit (EXAMPLES-VERIFY-REGRESS-1);
+      # no skip allowed.
       - name: Run EXAMPLES-BYTES-1 cells (pytest, needs the solver)
         run: |
           set -euo pipefail
@@ -681,8 +683,8 @@ jobs:
           if grep -q SKIPPED "$RUNNER_TEMP/examples-bytes-1.log"; then
             echo "an EXAMPLES-BYTES-1 cell skipped; LLMLL_BIN and fixpoint must be present here"; exit 1
           fi
-          grep -q ' 18 passed' "$RUNNER_TEMP/examples-bytes-1.log" \
-            || { echo "EXAMPLES-BYTES-1: expected 18 passed cells"; exit 1; }
+          grep -q ' 19 passed' "$RUNNER_TEMP/examples-bytes-1.log" \
+            || { echo "EXAMPLES-BYTES-1: expected 19 passed cells"; exit 1; }
 
       # REGEX-CAPTURE-1 / REGEX-CASE-1's end-to-end cells. They build and run one
       # program with GHC (needs the toolchain), run `check` per agreement row,

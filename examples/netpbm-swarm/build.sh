@@ -22,10 +22,6 @@ if [ "$1" = "--refill" ]; then
   python3 -I tools/fill.py binfmt --source
 fi
 for m in types lex sample binfmt rules geom kernel blur codec image main; do
-  if [ "$m" = "blur" ]; then
-    echo "SKIPPED: verify blur.llmll (EXAMPLES-VERIFY-REGRESS-1: stops at the solver time limit on v0.41.0)"
-    continue
-  fi
   "$LLMLL" verify --trust-report "$m.llmll"
 done
 for m in lex sample binfmt rules geom kernel blur codec image main; do

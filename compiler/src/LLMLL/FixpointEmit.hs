@@ -130,6 +130,7 @@ module LLMLL.FixpointEmit
   , exprToPredWD
   , isWdClause                   -- CLAUSE-WELLDEF-1: re-exported from LLMLL.DiagnosticFQ
   , wdSiteText
+  , wdGoalInContext              -- EXAMPLES-VERIFY-REGRESS-1
   , WDObl(..)
   , PartialOp(..)
   , partialPre
@@ -1960,6 +1961,12 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
             let wdPtr k = "/statements/" <> T.pack (show stmtIdx) <> "/" <> k
                 emitWd tag envs hyps o = case evalClosedFQ (woGoal o) of
                   Just True -> pure ()
+                  -- EXAMPLES-VERIFY-REGRESS-1: a goal that is already a
+                  -- conjunct of its hypotheses or context (the guarded
+                  -- `(and (map-has m k) ... (map-get m k))` shape) is a
+                  -- propositional tautology; emitting it made blur.llmll's
+                  -- .fq 800x larger and the solver run out of memory.
+                  _ | wdGoalInContext (hyps ++ woCtx o) (woGoal o) -> pure ()
                   closed -> do
                     wcid <- freshCid
                     let goal = if closed == Just False then FQFalse else woGoal o
@@ -4582,6 +4589,21 @@ wdArgs c es = do
   pure (map fst rs, concatMap snd rs)
 
 -- | CLAUSE-WELLDEF-1: a total unary application.
+-- | EXAMPLES-VERIFY-REGRESS-1: whether every conjunct of a definedness goal
+-- is syntactically one of the conjuncts of the given facts (after flattening
+-- `and` and removing double negation, which the `=>` and `or` walk adds).
+-- Then @facts ⟹ goal@ holds propositionally, so the obligation needs no
+-- solver call. Syntactic only: a goal entailed in any other way is emitted.
+wdGoalInContext :: [FQPred] -> FQPred -> Bool
+wdGoalInContext facts goal = all (`elem` known) (conjunctsOf goal)
+  where
+    known = concatMap conjunctsOf facts
+    conjunctsOf p = case p of
+      FQAnd ps         -> concatMap conjunctsOf ps
+      FQNot (FQNot q)  -> conjunctsOf q
+      FQTrue           -> []
+      _                -> [p]
+
 wd1 :: [FQPred] -> Expr -> (FQPred -> FQPred) -> Maybe (FQPred, [WDObl])
 wd1 c a f = (\(x, os) -> (f x, os)) <$> exprToPredWD c a
 
@@ -5426,9 +5448,13 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
                 -- (map-has, bounds), never reads, so H gains no partial read.
                 -- A post that does not translate gives nothing here; the
                 -- post-unassumed mark covers it.
+                -- EXAMPLES-VERIFY-REGRESS-1: a fact whose goal is already a
+                -- conjunct of its own context is the tautology C ⟹ π with π
+                -- in C; it adds nothing, and blur.llmll assumed 135 of them.
                 postWithWD e = do
-                  (p, obls) <- exprToPredWD [] e
-                  let wdFact o = case woCtx o of
+                  (p, obls0) <- exprToPredWD [] e
+                  let obls = filter (\o -> not (wdGoalInContext (woCtx o) (woGoal o))) obls0
+                      wdFact o = case woCtx o of
                         [] -> woGoal o
                         cs -> FQOr [FQNot (conjoinAll cs), woGoal o]
                   pure (if null obls then p else conjoinAll (p : map wdFact obls))
