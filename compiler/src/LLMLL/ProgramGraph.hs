@@ -12,6 +12,7 @@ module LLMLL.ProgramGraph
   ( qualifiedCallGraph
   , undischargedCycleMembers
   , cachedDischargedFns
+  , withImportDischarge
   , importUnprovedFns
   , callerClosure
   ) where
@@ -43,6 +44,17 @@ cachedDischargedFns cache = Set.unions
       , positiveTier (erDisplayLevel er)
       , erTerminationVerified er ]
   | (p, m) <- Map.toList cache ]
+
+-- | XMOD-TERM-REPORT-1: a descent-discharged set widened with the imports'
+-- own discharge ('cachedDischargedFns'). The entry's set comes from this run's
+-- solver, or from its sidecar on a render-only path; an import's comes only
+-- from its staleness-gated sidecar. Every 'markDescentDischarged' call and
+-- 'termClosureOf' read this one union, so the trust report's @partial_fns@
+-- and the headline's @termination_assumed_fns@ cannot disagree about an
+-- imported function. Before this the report subtracted only the entry's set
+-- and listed an imported function whose own module proved it terminates.
+withImportDischarge :: ModuleCache -> Set Name -> Set Name
+withImportDischarge cache entry = Set.union entry (cachedDischargedFns cache)
 
 -- | Contracted functions of the cached modules whose post is not proved
 -- (asserted or tested), qualified. The staleness gate applies, so a missing

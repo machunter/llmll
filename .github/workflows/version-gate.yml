@@ -686,6 +686,23 @@ jobs:
           grep -q ' 19 passed' "$RUNNER_TEMP/examples-bytes-1.log" \
             || { echo "EXAMPLES-BYTES-1: expected 19 passed cells"; exit 1; }
 
+      # XMOD-TERM-REPORT-1's cells: an importer's trust report reads an import's
+      # own termination proof from its staleness-gated sidecar. Two cells pin
+      # the fix (trust-report, verify --trust-report) and fail on v0.41.0; two
+      # are negative controls (an import never verified, an import edited after
+      # its sidecar). No skip allowed.
+      - name: Run XMOD-TERM-REPORT-1 cells (pytest, needs the solver)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_xmod_term_report_1.py -v -rs \
+            | tee "$RUNNER_TEMP/xmod-term-report-1.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/xmod-term-report-1.log"; then
+            echo "an XMOD-TERM-REPORT-1 cell skipped; LLMLL_BIN and fixpoint must be present here"; exit 1
+          fi
+          grep -q ' 4 passed' "$RUNNER_TEMP/xmod-term-report-1.log" \
+            || { echo "XMOD-TERM-REPORT-1: expected 4 passed cells"; exit 1; }
+
       # REGEX-CAPTURE-1 / REGEX-CASE-1's end-to-end cells. They build and run one
       # program with GHC (needs the toolchain), run `check` per agreement row,
       # and run `verify` once (needs fixpoint), so they sit after the solver is

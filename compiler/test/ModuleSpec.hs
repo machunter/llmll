@@ -45,9 +45,9 @@ import LLMLL.PBT
   , pbtTrustWriteback
   , canonicalDefEvidenceHash
   )
-import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..), injectOpenedAliases)
+import LLMLL.TrustReport (buildTrustReport, TrustReport(..), TrustEntry(..), TrustDependency(..), injectOpenedAliases, markDescentDischarged)
 import LLMLL.EvidenceKey (evidenceKey, moduleKeyEnv)  -- HASH-PRE-ASYM
-import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
+import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, withImportDischarge, importUnprovedFns, callerClosure)
 import LLMLL.CallGraph (resolveIn)
 import qualified Data.Set as Set
 import LLMLL.FixpointEmit (emitFixpointWith, emitFixpointWithCache, EmitOptions(..), EmitResult(..), buildContractEnv, cacheAwareAliasMap, cacheAwareContractEnv, FallbackCause(..), renderFallbackCause, arrayTheorySyms)
@@ -1231,6 +1231,47 @@ moduleSpec = describe "Module System" $ do
     it "HT-G6: an import with no sidecar is unproved and not discharged" $ do
       importUnprovedFns cache `shouldBe` Set.fromList ["loop.spin", "modb.spin"]
       cachedDischargedFns cache `shouldBe` Set.empty
+
+    -- XMOD-TERM-REPORT-1: the trust report subtracts an import's own
+    -- descent discharge, read from its staleness-gated sidecar, so an imported
+    -- recursive function whose module proved it terminates is not listed.
+    let walkSrc k = "(def-shell walk [n: int] -> int (pre (>= n 0)) (post (>= result 0))"
+                    <> " (decreases n) (if (<= n " <> k <> ") 0 (walk (- n 1))))"
+        libWith k mkEr =
+          let base = modEnv ["lib"] (walkSrc k)
+              c0   = Map.fromList [(["lib"], base)]
+              key  t = snd <$> evidenceKey (moduleKeyEnv c0 base) t (head (meStatements base))
+          in Map.fromList [(["lib"], base { meContractStatus =
+               Map.singleton "walk" (ContractStatus Nothing (Just (mkEr key)) []) })]
+        verifiedEr term key = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False Nothing False []
+                                `withKey` (key term, term)
+        withKey er (h, t) = er { erVerifiedHash = h, erTerminationVerified = t }
+        entrySrc = parseSrc (T.unlines
+          [ "(import lib)"
+          , "(def-shell top [x: int] -> int (pre (>= x 0)) (post (>= result 0)) (lib.walk x))"
+          , "(def-shell spin2 [x: int] -> int (post (= result 0)) (spin2 x))" ])
+        partialOf c = trPartialFns (markDescentDischarged (withImportDischarge c Set.empty)
+                                      (buildTrustReport c entrySrc Map.empty))
+
+    it "XTR-1: an import whose sidecar proves termination is not termination-unverified" $ do
+      let c = libWith "0" (verifiedEr True)
+      cachedDischargedFns c `shouldBe` Set.fromList ["lib.walk"]
+      Set.member "lib.walk" (partialOf c) `shouldBe` False
+
+    it "XTR-2: an import whose body changed since its sidecar stays listed" $ do
+      -- The record carries the key of the body with bound 0; the live body has 1.
+      let stale = libWith "0" (verifiedEr True)
+          edited = Map.adjust (\m -> (modEnv ["lib"] (walkSrc "1")) { meContractStatus = meContractStatus m }) ["lib"] stale
+      cachedDischargedFns edited `shouldBe` Set.empty
+      Set.member "lib.walk" (partialOf edited) `shouldBe` True
+
+    it "XTR-3: an import verified without termination_verified stays listed" $ do
+      let c = libWith "0" (verifiedEr False)
+      cachedDischargedFns c `shouldBe` Set.empty
+      Set.member "lib.walk" (partialOf c) `shouldBe` True
+
+    it "XTR-4: the entry's own undischarged cycle stays listed beside a discharged import" $ do
+      partialOf (libWith "0" (verifiedEr True)) `shouldBe` Set.fromList ["spin2"]
 
     it "HT-C1: callerClosure is reflexive and follows chains and diamonds" $ do
       let g = Map.fromList [("a", ["b"]), ("b", ["c"]), ("c", []), ("d", ["b", "e"]), ("e", [])]

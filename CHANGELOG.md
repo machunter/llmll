@@ -6,9 +6,9 @@
 
 ## Unreleased (on `main` after v0.41.0)
 
-**Measured on liquid-fixpoint 0.9.6.3.7, Apple Silicon. One compiler change
-(`EXAMPLES-VERIFY-REGRESS-1`), which changes no verdict; no schema, sidecar, stamp or version
-change.**
+**Measured on liquid-fixpoint 0.9.6.3.7, Apple Silicon. Two compiler changes
+(`EXAMPLES-VERIFY-REGRESS-1`, `XMOD-TERM-REPORT-1`), neither of which changes a verdict; no
+schema, sidecar, stamp or version change.**
 
 - **`blur.llmll` verifies again: from the solver's resource limit to SAFE in 0.9 s.** Every
   netpbm-swarm module verifies in about 6 s in all.
@@ -19,7 +19,32 @@ change.**
 - **The fallback census passes its ratchet again** and stops counting a pass that proved
   nothing (`CENSUS-BASELINE-1`). Its baseline is refreshed: strict-pass 98 → 123, ratio
   0.984 → 0.920 (980 of 1065).
-- **Tests:** hspec 3407 → 3412, pytest 933 → 955 passed (10 skipped).
+- **An importer's trust report no longer lists an imported function as termination-unverified
+  when that function's own module proved its `decreases`** (`XMOD-TERM-REPORT-1`).
+- **Tests:** hspec 3407 → 3416, pytest 933 → 959 passed (10 skipped).
+
+### Trust report: an imported function's termination proof is read from its sidecar — `XMOD-TERM-REPORT-1`
+
+`11ae21b0`. The trust report lists every member of a recursive cycle across the program, entry
+and imports, under `partial_fns` and the text section `Termination-unverified`, then removes the
+members whose `(decreases …)` was proved. That removal used only the entry module's proofs. An
+imported function whose own sidecar records `termination_verified: true` stayed listed, while the
+`verify` headline, which already read the import's sidecar, did not name it.
+`trust-report y4m.llmll` listed `ybuf.find-lf` and `ybuf.marker-end`.
+
+- **Fix:** every place that removes the proved members now also removes the imports' proved
+  members, read from each module's sidecar after the staleness check (the set the headline
+  already used). An import with no sidecar, an edited body, or a record without
+  `termination_verified` is still listed. The report only stops under-claiming; it cannot
+  over-claim.
+- **Measured:** `trust-report y4m.llmll` and `verify --trust-report y4m.llmll` list only
+  `frames-from`, y4m's own function without a measure. The fallback census has 0 per-file
+  differences.
+- **Tests:** hspec XTR-1..4 in `ModuleSpec` (3412 → 3416). `scripts/tests/test_xmod_term_report_1.py`,
+  4 cells; the `trust-report` and `verify --trust-report` cells fail on v0.41.0. A new CI step
+  pins the file at 4 cells with no skip.
+- **Spec:** `LLMLL.md`'s `termination_unverified` paragraph says how an imported member's proof
+  is read.
 
 ### Tooling: the fallback census verifies imports first and reads a stopped check as a failure — `CENSUS-BASELINE-1`
 
