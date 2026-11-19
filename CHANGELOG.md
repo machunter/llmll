@@ -6,13 +6,47 @@
 
 ## Unreleased (on `main` after v0.41.0)
 
-**Measured on v0.41.0 (liquid-fixpoint 0.9.6.3.7, Apple Silicon). No compiler change; no schema,
-sidecar, stamp or version change.**
+**Measured on liquid-fixpoint 0.9.6.3.7, Apple Silicon. One compiler change
+(`EXAMPLES-VERIFY-REGRESS-1`), which changes no verdict; no schema, sidecar, stamp or version
+change.**
 
+- **`blur.llmll` verifies again: from the solver's resource limit to SAFE in 0.9 s.** Every
+  netpbm-swarm module verifies in about 6 s in all.
 - **`abstraction:app:bytes-*` fallbacks on correct code: 0** in every module of the three
   examples.
-- **Witnesses:** `scripts/tests/test_examples_bytes_1.py` (18 cells: 8 y4m, 5 netpbm-swarm,
-  5 netpbm), run by the new CI step `EXAMPLES-BYTES-1`, pinned at 18 cells with no skip.
+- **Witnesses:** `scripts/tests/test_examples_bytes_1.py` (19 cells: 8 y4m, 6 netpbm-swarm,
+  5 netpbm), run by the new CI step `EXAMPLES-BYTES-1`, pinned at 19 cells with no skip.
+- **Tests:** hspec 3407 → 3412, pytest 933 → 952 passed (10 skipped).
+
+### Verifier: no definedness obligation that its own guard already proves — `EXAMPLES-VERIFY-REGRESS-1`
+
+`e8ab91f7` (fix), `8f39ca9a` (example). From v0.37.0 to v0.41.0,
+`examples/netpbm-swarm/blur.llmll` stopped at the solver's time limit (exit 5) on liquid-fixpoint
+0.9.6.3.7, and at its memory limit on 0.9.6.3.1. It verified in 15 s on v0.33.2. No test
+verified an example module, so the regression was found only when `EXAMPLES-BYTES-1` ran the
+example's `build.sh`.
+
+- **Cause, by `git bisect`** over the 209 commits from v0.33.2 to v0.41.0, with the solver held
+  fixed: `271080cb`, CLAUSE-WELLDEF-1 commit 2 of 3. It emits one `wd-post` obligation
+  `C ⟹ π` per partial read on each path, and a caller assumes one such fact per read of the
+  callee's post. `blur-sample`'s post guards each of its 142 `map-get` reads with `map-has` on
+  the same map and key, earlier in the same clause, so every `π` was already a conjunct of `C`.
+  Each of the 142 constraints still repeated the whole path hypothesis: the `.fq` grew from
+  36 KB to 28 MB. Each of the three `row-sum3` calls also assumed 45 such facts.
+- **Fix:** `verify` does not emit a definedness obligation when every conjunct of `π` is
+  already a conjunct of `C` or of the path's hypotheses, and a caller does not assume a fact
+  whose `π` is in its own `C`. The check is syntactic: it flattens `and` and removes double
+  negation, and anything else is emitted as before. Both skipped forms are tautologies, so no
+  verdict can change.
+- **Measured:** blur SAFE, 1 of 1 proved, in 0.9 s (0.5 s on 0.9.6.3.1); its `.fq` is 34 KB.
+  kernel 18.4 s → 0.9 s. The fallback census over 298 files has 0 per-file differences
+  against v0.41.0. Wrong blur bodies get the same verdicts as on `7dcc9236`, the commit before
+  the change.
+- **Tests:** hspec G14-G18 in the CLAUSE-WELLDEF-1 block (3407 → 3412). The pytest cell
+  SWARM-BLUR verifies blur and its imports under a 60 s limit; it fails on v0.41.0. CI pins the
+  file at 19 cells.
+- **Example:** `examples/netpbm-swarm/build.sh` no longer skips blur, and the README gives the
+  cause and the new times.
 
 ### Examples: Y4M and both Netpbm tools read and write bytes — `EXAMPLES-BYTES-1`
 
