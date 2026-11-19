@@ -4,7 +4,7 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.41.0)
+## v0.41.1: the examples verify again, the census stops counting empty passes, and imported termination proofs reach the trust report (2026-11-19)
 
 **Measured on liquid-fixpoint 0.9.6.3.7, Apple Silicon. Two compiler changes
 (`EXAMPLES-VERIFY-REGRESS-1`, `XMOD-TERM-REPORT-1`), neither of which changes a verdict; no
