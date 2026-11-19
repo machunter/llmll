@@ -90,7 +90,7 @@ import LLMLL.Replay (parseEventLog, EventLogEntry(..), runReplay, ReplayResult(.
 import LLMLL.LeanTranslate (translateObligation, TranslateResult(..))
 import LLMLL.MCPClient (MCPResult(..), callLeanstral, proveWithLeanstral, sanitizeProof, defaultMCPConfig, MCPConfig(..))
 import LLMLL.ProofCache (loadProofCache, saveProofCache, lookupProof, insertProof, ProofEntry(..), computeObligationHash, upgradeLeanstralPosts, liveObligationHashes)
-import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, importUnprovedFns, callerClosure)
+import LLMLL.ProgramGraph (qualifiedCallGraph, undischargedCycleMembers, cachedDischargedFns, withImportDischarge, importUnprovedFns, callerClosure)
 import LLMLL.TrustReport (downgradeStaleVerifiedSidecarIn, carryForwardTested, markBodyFallback, markBuiltinAxioms, markInheritedAxioms, markGroundFacts, buildTrustReport, buildTrustReportWithCDP, formatTrustReport, formatTrustReportJson, formatTrustReportWith, formatTrustReportJsonWith, TrustReport(..), TrustEntry(..), CallerObligation(..), markRefuted, markMeasureNotDecreasing, markIllDefined, markDescentDischarged, markTerminationAssumed, sidecarDischargedSet, uncheckedCallPres, refutedClosure, downgradeContradictedTiers, callerObligationJson, injectOpenedAliases, entryHeadlineLevel)
 import LLMLL.ProofArtifact
 import qualified Crypto.Hash.SHA256 as PASHA
@@ -1886,7 +1886,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- post-solver gate so a refuted result fails closed.
           when obligationReport $ do
             (oblSidecar, _stale, oblContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
-            let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReport _cache trStmts oblSidecar))))))))
+            let trustRpt = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged (withImportDischarge _cache descentDischargedSet) (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReport _cache trStmts oblSidecar))))))))
                 -- CALL-RESULT-MARK-1 (H4): the report cites only the
                 -- failing ids that carry no mark.
                 reportText = assembleReport fp stmts _cache emitR (Just (aoCitedResult avOut)) trustRpt
@@ -1913,7 +1913,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               (paSidecar, _stale, paContra) <- loadCheckedSidecar _cache verifyKe fp stmts bodyFallbackMarks
               meta      <- captureSolverMeta lfBin
               srcHash   <- sourceHashOf fp
-              let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReport _cache trStmts paSidecar))))))))
+              let paTrust = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged (withImportDischarge _cache descentDischargedSet) (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReport _cache trStmts paSidecar))))))))
               -- ABSTRACTION-VERDICT-1: the artifact records the RAW solver
               -- result, because 'classifyReplay' re-runs the stored .fq and
               -- compares the raw answer; the functions come from 'emitR'.
@@ -2246,7 +2246,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- so 'refuted_fns' / per-entry 'refuted' are populated (the field
             -- emitters already exist; they were being fed an unmarked report).
             let report = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks
-                           (markDescentDischarged descentDischargedSet
+                           (markDescentDischarged (withImportDischarge _cache descentDischargedSet)
                              (markMeasureNotDecreasing measureNotDecreasingSet
                               (markIllDefined illDefinedSet
                                (markRefuted refutedSet
@@ -2281,7 +2281,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             -- even pre-existing/untouched functions. The sibling non-strict
             -- branch above (not strictCore) already threads 'cdpResults'
             -- correctly; this branch just never did.
-            let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged descentDischargedSet (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReportWithCDP _cache trStmts stSidecar cdpResults))))))))
+            let stReport = markTerminationAssumed termClosure $ markGroundFacts (erGroundFactFamilies emitR) (markInheritedAxioms recordedAxiomMap (markBuiltinAxioms (erBuiltinAxioms emitR) (markBodyFallback bodyFallbackMarks (markDescentDischarged (withImportDischarge _cache descentDischargedSet) (markMeasureNotDecreasing measureNotDecreasingSet (markIllDefined illDefinedSet (markRefuted refutedSet (buildTrustReportWithCDP _cache trStmts stSidecar cdpResults))))))))
                 refusal  = refutedClosure refutedSet stReport
                 -- ABSTRACTION-VERDICT-1: a function the rule reclassified fell
                 -- back AFTER the pre-solver gate read the fallback list, so
@@ -2406,7 +2406,7 @@ doTrustReport json gm fp = do
   -- TERM-REPORT-PLAIN: honor the sidecar's persisted descent discharge, as the
   -- strict/CDP paths do.
   let report = markTerminationAssumed (termClosureOf cache stmts (sidecarDischargedSet entrySidecar))
-             $ markDescentDischarged (sidecarDischargedSet entrySidecar)
+             $ markDescentDischarged (withImportDischarge cache (sidecarDischargedSet entrySidecar))
                  (buildTrustReport cache stmts (upgradeLeanstralPosts (liveObligationHashes stmts) leanCache entrySidecar))
   if json
     then TIO.putStrLn (formatTrustReportJsonWith discarded report)
@@ -3435,7 +3435,7 @@ termClosureOf :: ModuleCache -> [Statement] -> Set.Set Name -> Map.Map Name Name
 termClosureOf cache stmts entryDischarged =
   let g = qualifiedCallGraph cache stmts
   in callerClosure g (undischargedCycleMembers g
-                        (Set.union entryDischarged (cachedDischargedFns cache)))
+                        (withImportDischarge cache entryDischarged))
 
 -- | STRICT-XMOD-1: the given entry functions whose proof uses an unproved
 -- imported contract, each with the import it reaches, in the given order.
