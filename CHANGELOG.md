@@ -16,7 +16,36 @@ change.**
   examples.
 - **Witnesses:** `scripts/tests/test_examples_bytes_1.py` (19 cells: 8 y4m, 6 netpbm-swarm,
   5 netpbm), run by the new CI step `EXAMPLES-BYTES-1`, pinned at 19 cells with no skip.
-- **Tests:** hspec 3407 → 3412, pytest 933 → 952 passed (10 skipped).
+- **The fallback census passes its ratchet again** and stops counting a pass that proved
+  nothing (`CENSUS-BASELINE-1`). Its baseline is refreshed: strict-pass 98 → 123, ratio
+  0.984 → 0.920 (980 of 1065).
+- **Tests:** hspec 3407 → 3412, pytest 933 → 955 passed (10 skipped).
+
+### Tooling: the fallback census verifies imports first and reads a stopped check as a failure — `CENSUS-BASELINE-1`
+
+`f154f262`. No compiler change. `make fallback-census` failed on `main` from v0.26.5 on, and CI
+runs only its unit tests, so no gate saw it.
+
+- **Imports are verified first.** Since `STRICT-XMOD-1` (v0.26.5), `--strict-verified-core`
+  reads an import's level from its sidecar. The census deletes every sidecar its runs write, so
+  every import read as unproved and a file importing a proved sibling could never pass. The
+  census now verifies a file's local imports first, leaf first, with a plain `verify`, and
+  removes those sidecars with the file's own. A file and its imports share one `--timeout`
+  budget. `secure-channel-emergent/work/spine.ast.json` and
+  `token-revocation-emergent/work/spine.ast.json` pass strict again.
+- **A stopped check is `check-failed`, not a pass.** A check that stops early prints bare
+  diagnostic lines and no verify document. The census read the last such line as the result,
+  found no failure in it, and counted a pass that proved nothing. Eight netpbm, netpbm-swarm
+  and y4m modules were reported so. With their imports verified first they read `fallback` (5)
+  and `no-goal` (3).
+- **Baseline refreshed:** strict-pass 98 → 123. The ratio falls from 0.984 to 0.920 because
+  the false passes hid 145 contracted functions, 71 of them fallbacks; no verdict changed.
+  `examples/delegate_demo/program.ast.json` leaves the set: its pass in September proved
+  nothing (its params used `type` keys until `33596bea`), and the example has no contracts by
+  design.
+- **Measured:** 298 files in about 30 s, ratchet passes.
+- **Tests:** `scripts/tests/test_fallback_census.py` +3. The import-order and bare-diagnostic
+  tests fail on the old script.
 
 ### Verifier: no definedness obligation that its own guard already proves — `EXAMPLES-VERIFY-REGRESS-1`
 
