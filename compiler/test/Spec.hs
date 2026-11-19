@@ -131,7 +131,7 @@ import LLMLL.HoleAnalysis (extractCallsScoped)
 import LLMLL.TrustReport (uncheckedCallPres)
 import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames, sigmaAutoPred)
 import LLMLL.FixpointEmit (addCongruence, congruenceFact, conjoinAll)
-import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText, bytesCallNames, bytesParamSorts)
+import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText, wdGoalInContext, bytesCallNames, bytesParamSorts)
 import LLMLL.Checkout (bitCharFuncEntries)
 import LLMLL.AbstractionVerdict (abstractionRepair)
 import LLMLL.Contracts (clauseGuardedOps)
@@ -27864,6 +27864,46 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let wds = wdOf er "g" "wd-post"
       wds `shouldSatisfy` (not . null)
       [ Map.lookup i (erPostUnassumed er) | i <- wds ] `shouldBe` map (const (Just "flag")) wds
+
+    -- EXAMPLES-VERIFY-REGRESS-1: an obligation whose goal is already a
+    -- conjunct of its context is a tautology and is not emitted (blur.llmll:
+    -- 142 such wd-post constraints, a 28 MB .fq, the solver out of memory).
+    it "G14 E2 (read after its map-has guard in one and): no wd-post" $ do
+      er <- emitSrc e2
+      wdOf er "mk" "wd-post" `shouldBe` []
+
+    it "G15 E3 (read before its guard): the wd-post is still emitted" $ do
+      er <- emitSrc e3
+      length (wdOf er "mk" "wd-post") `shouldBe` 1
+
+    it "G16 a guard in an => antecedent discharges the read only for the same map and key" $ do
+      same <- emitSrc "(def-shell g [m: map[int,int] n: int] -> int (post (=> (and (> n 0) (map-has m 3)) (>= (map-get m 3) 0))) 1)"
+      wdOf same "g" "wd-post" `shouldBe` []
+      other <- emitSrc "(def-shell g [m: map[int,int] n: int] -> int (post (=> (and (> n 0) (map-has m 4)) (>= (map-get m 3) 0))) 1)"
+      length (wdOf other "g" "wd-post") `shouldBe` 1
+
+    it "G17 a callee post's guarded read adds no C => pi fact at the call; an unguarded one still does" $ do
+      let isHasFact p = case p of
+            FQOr ps | not (null ps), FQBinPred FQEq (FQApp "Map_select" _) (FQLit 1) <- last ps -> True
+            _ -> False
+          caller = "\n(def-shell cr [m: map[int,int] n: int] -> int (post (>= result 0)) (+ (cg m n) 1))"
+          hasFacts er = [ p | i <- idsOf er "cr" (const True), p <- lhsOf er i, isHasFact p ]
+      guarded <- emitSrc ("(def-shell cg [m: map[int,int] n: int] -> int (post (=> (map-has m 3) (>= (map-get m 3) 0))) 1)" ++ caller)
+      hasFacts guarded `shouldBe` []
+      unguarded <- emitSrc ("(def-shell cg [m: map[int,int] n: int] -> int (post (or (= n 0) (>= (map-get m 3) 0))) 1)" ++ caller)
+      hasFacts unguarded `shouldSatisfy` (not . null)
+
+    it "G18 wdGoalInContext: and-flattening, double negation, every goal conjunct required" $ do
+      let a = FQBinPred FQGe (FQVar "x") (FQLit 0)
+          b = FQBinPred FQLt (FQVar "x") (FQVar "n")
+          c = FQBinPred FQEq (FQVar "y") (FQLit 1)
+      wdGoalInContext [FQAnd [c, FQAnd [a, b]]] a `shouldBe` True
+      wdGoalInContext [FQNot (FQNot (FQAnd [a, c]))] a `shouldBe` True
+      wdGoalInContext [a, b] (FQAnd [a, b]) `shouldBe` True
+      wdGoalInContext [a] (FQAnd [a, b]) `shouldBe` False
+      wdGoalInContext [FQNot a] a `shouldBe` False
+      wdGoalInContext [FQOr [a, c]] a `shouldBe` False
+      wdGoalInContext [] a `shouldBe` False
 
     -- D. Verdict rows (solver-backed)
     it "V1 E2 (guarded read): no WD failure, SAFE" $

@@ -34,6 +34,11 @@ these cells check.
 * NETPBM-B1 .. B4: the same four wrong bodies are refuted in that copy,
   naming the function. They are spelled out again, so a change to the
   netpbm-swarm cells cannot change what these check.
+
+* SWARM-BLUR (EXAMPLES-VERIFY-REGRESS-1): examples/netpbm-swarm/blur.llmll
+  verifies after its imports, each under a 60 s solver limit: 1 of 1 proved,
+  body-faithful. Nothing else verified an example module in CI, so its
+  v0.37.0 regression went unseen for four releases.
 """
 
 import json
@@ -297,3 +302,26 @@ def test_netpbm_mutant_refuted(tmp_path, cell, fn, old, new):
     unsafe = [x["message"] for x in doc["diagnostics"] if x.get("kind") == "lh-unsafe"]
     assert any(f"'{fn}'" in m for m in unsafe), doc["diagnostics"]
     assert fn not in doc.get("body_fallback_constructs", {}), doc
+
+
+# ─── EXAMPLES-VERIFY-REGRESS-1 ──────────────────────────────────────────
+
+def test_swarm_blur_verifies_within_the_time_limit(tmp_path):
+    """SWARM-BLUR: examples/netpbm-swarm/blur.llmll verifies after its
+    imports (types, sample, geom, kernel), each under a 60 s solver limit.
+    From v0.37.0 to v0.41.0 blur stopped at the time or memory limit: 142
+    wd-post obligations whose goal was a conjunct of their own context made
+    a 28 MB .fq. With the fix each module takes about 1 s."""
+    d = tmp_path / "swarm-blur"
+    d.mkdir()
+    for m in ("types", "sample", "geom", "kernel", "blur"):
+        shutil.copyfile(SWARM / f"{m}.llmll", d / f"{m}.llmll")
+    for m in ("types", "sample", "geom", "kernel", "blur"):
+        p = _llmll(["--json", "--time-limit", "60", "verify", f"{m}.llmll"], d)
+        doc = _json_line(p.stdout)
+        assert p.returncode == 0, (m, p.stdout[-3000:] + p.stderr[-2000:])
+        assert doc["solver_verdict"] == "safe", (m, doc)
+        assert doc["proved_count"] == doc["contracted_count"], (m, doc)
+    assert doc["proved_count"] == 1, doc
+    assert doc["body_faithful"] == ["blur-sample"], doc
+    assert doc["body_fallback"] == [], doc
