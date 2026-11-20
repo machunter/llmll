@@ -1,7 +1,7 @@
 ---
 name: image-library-proposal
 title: "IMAGE-LIB-1: an image library whose functions verify, with bytes-tabulate and variable divisors"
-status: "Rev 3, DRAFT 2026-11-20. Folds the security review of Rev 1 and the professor review of Rev 2 (image-library-review.md); dispositions in the appendix. Part B is ready to settle. Part C awaits its witness table. Part D is ready to settle. Five user decisions are open. No compiler code exists for Part B or Part C."
+status: "Rev 3. Parts A, B and D SETTLED 2026-11-20 (user accepted decisions 1 to 5). Part C DRAFT, awaiting its witness table. Folds the security review of Rev 1 and the professor review of Rev 2 (image-library-review.md); dispositions in the appendix. No compiler code exists for Part B or Part C."
 date: 2026-11-20
 author: language-team
 rows: "Proposes IMAGE-LIB-1 and BYTES-TABULATE-1 (not filed). Gives DIV-VAR-1 (G7, DECIDE) its encoding record. Related: MUL-VAR-1 (shipped v0.39.0), CLAUSE-WELLDEF-1 (shipped v0.37.0), CALL-RESULT-MARK-1 and ABSTRACTION-LEN-EXACT-1 (shipped v0.41.0), BYTES-MAKE-ALIAS-1 (shipped v0.40.1), INT-INDEX-WRAP-1 (shipped), CALLEE-POST-UNASSUMED-1 (shipped v0.36.0), ABSTRACTION-RESULT-LEN-1 (G1, DECIDE), CONE-DEF-DIRECTION-1 (DECIDE), POST-CALL-XMOD-1 (G1, DECIDE), SIG-SCALAR-ARM-1 (G1, DECIDE), PAIR-NEST-PROJ-1 (G1, PLAN), POST-CONJ-SPLIT-1 (G1, PLAN), FFI-KERNEL-1 (G7, PLAN), WEAKNESS-MUTANT-1 (G1), PERF-TEXT-1 (G8, MEASURE)."
@@ -10,7 +10,9 @@ consumers: [user, professor, compiler-engineer, documentation-lead]
 
 # IMAGE-LIB-1: an image library whose functions verify
 
-**Status: Rev 3, DRAFT 2026-11-20.** The governing criterion is verified function coverage. A core function is covered when the trust report gives it the effective level `verified` and its post is proved to determine the result (Part D). Parts B and C are language additions, each with its soundness argument here.
+**Settlement (2026-11-20).** The user accepted decisions 1 to 5 as recommended. Parts A, B and D are settled at Rev 3, and BYTES-TABULATE-1 goes to the compiler-engineer. Part C stays a draft until its witness table runs; decision 2 (the `d ≥ 1` rule) is settled independently of the fact set.
+
+**Status: Rev 3.** The governing criterion is verified function coverage. A core function is covered when the trust report gives it the effective level `verified` and its post is proved to determine the result (Part D). Parts B and C are language additions, each with its soundness argument here.
 
 **Changes from Rev 2,** after the professor review (findings P1 to P9, `image-library-review.md`):
 
