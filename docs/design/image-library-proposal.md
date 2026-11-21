@@ -1,7 +1,7 @@
 ---
 name: image-library-proposal
 title: "IMAGE-LIB-1: an image library whose functions verify, with bytes-tabulate and variable divisors"
-status: "Rev 4, SETTLED 2026-11-20. Parts A, B and D settled at Rev 3 (user accepted decisions 1 to 5); Part C settled at Rev 4 after its witness table (166 of 166 as expected). Rev 4 also folds the BYTES-TABULATE-1 engineer plan's findings. Folds the security review of Rev 1 and the professor review of Rev 2 (image-library-review.md); dispositions in the appendix. No compiler code exists for Part C; BYTES-TABULATE-1 step 1 is in progress."
+status: "Rev 4a, SETTLED 2026-11-20 (4a: three clarifications from the DIV-VAR-1 engineer plan). Parts A, B and D settled at Rev 3 (user accepted decisions 1 to 5); Part C settled at Rev 4 after its witness table (166 of 166 as expected). Rev 4 also folds the BYTES-TABULATE-1 engineer plan's findings. Folds the security review of Rev 1 and the professor review of Rev 2 (image-library-review.md); dispositions in the appendix. No compiler code exists for Part C; BYTES-TABULATE-1 step 1 is in progress."
 date: 2026-11-20
 author: language-team
 rows: "Proposes IMAGE-LIB-1 and BYTES-TABULATE-1 (not filed). Gives DIV-VAR-1 (G7, DECIDE) its encoding record. Related: MUL-VAR-1 (shipped v0.39.0), CLAUSE-WELLDEF-1 (shipped v0.37.0), CALL-RESULT-MARK-1 and ABSTRACTION-LEN-EXACT-1 (shipped v0.41.0), BYTES-MAKE-ALIAS-1 (shipped v0.40.1), INT-INDEX-WRAP-1 (shipped), CALLEE-POST-UNASSUMED-1 (shipped v0.36.0), ABSTRACTION-RESULT-LEN-1 (G1, DECIDE), CONE-DEF-DIRECTION-1 (DECIDE), POST-CALL-XMOD-1 (G1, DECIDE), SIG-SCALAR-ARM-1 (G1, DECIDE), PAIR-NEST-PROJ-1 (G1, PLAN), POST-CONJ-SPLIT-1 (G1, PLAN), FFI-KERNEL-1 (G7, PLAN), WEAKNESS-MUTANT-1 (G1), PERF-TEXT-1 (G8, MEASURE)."
@@ -186,7 +186,7 @@ Let `ι` be a fresh integer constant for the call site.
 - **T2, the generator's `pre` over the range.** `0 ≤ ι < n ⟹ pre_gen(a, ι)`.
 - **T3, the byte range.** `0 ≤ ι < n ∧ pre_gen(a, ι) ∧ post_gen(a, ι, v) ⟹ 0 ≤ v ≤ 255`, with `v` fresh.
 
-A fresh constant stands for an arbitrary index, so one proof covers all of them. This is ∀-introduction. It holds because `ι` occurs in no hypothesis except its range, and the body VCs have no kvars that could capture it. If kvars ever return to body VCs, this argument must be restated. T2 means the run-time `pre` check of `gen` never fails inside a verified caller. T3 means guard 3 never fires.
+A fresh constant stands for an arbitrary index, so one proof covers all of them. This is ∀-introduction. It holds because `ι` occurs in no hypothesis except its range and theorem instances (such as MUL-VAR-1 or DIV-VAR-1 facts, which are valid for every value of `ι`), and the body VCs have no kvars that could capture it. If kvars ever return to body VCs, this argument must be restated. T2 means the run-time `pre` check of `gen` never fails inside a verified caller. T3 means guard 3 never fires.
 
 ### Fact for the caller
 
@@ -241,8 +241,12 @@ This extends the MUL-VAR-1 normal form. Each distinct pair `(e, d)`, after norma
 The passes run in this order:
 
 1. Callee-post substitution.
-2. The division pass: atoms, then the facts below.
-3. The MUL-VAR-1 product pass. Every monomial that a division fact creates, such as `d·q` or `d·t`, enters the product pass's pair set `P`, so the F facts apply to it.
+2. The division facts: atoms, then the facts below.
+3. The MUL-VAR-1 product facts. Every monomial that a division fact creates, such as `d·q` or `d·t`, enters the product pass's pair set `P`, so the F facts apply to it.
+
+**Steps 2 and 3 are one pass over one normal form (Rev 4a).** A division atom is an atom inside the MUL-VAR-1 normal form, so the rules and the closure reach it and F9 links it. The division facts are generated first within that pass. A separate rewrite of each division to a fresh variable before the product pass would lose those F9 links, and the round-trip witnesses need them. The witness-table script works this way.
+
+**Pairs that a rule creates are pairs (Rev 4a).** The pair set is closed under the MUL-VAR-1 rules to a fixed point. Each image pair gets its own atoms, D0 and G, and counts toward the limit of 32. The rule's link to the original pair is F9. The round-trip witnesses need D0 on the image pair.
 
 ### Facts
 
@@ -293,7 +297,7 @@ The largest witness, `hflip-at`, used 13 VCs, 17489 facts, at most 14 pairs and 
 
 ### Refutation
 
-As MUL-VAR-1 decision 2. A `sat` answer is checked again by native z3, and the model is validated with `/` and `mod` read as Haskell `div` and `mod`. Only a validated `sat` gives `refuted`. An `unknown` from the recheck gives the fallback outcome.
+As MUL-VAR-1 decision 2. A `sat` answer is checked again by native z3, and the model is validated with `/` and `mod` read as Haskell `div` and `mod` for every divisor other than 0, negative divisors included (Rev 4a). A model that divides by 0 cannot be evaluated, and gives the fallback outcome. Only a validated `sat` gives `refuted`. An `unknown` from the recheck gives the fallback outcome.
 
 **`d ≥ 1` in the native query.** The query asserts `d ≥ 1` only for a pair whose definedness obligation was proved. The validator evaluates `div` and `mod` itself, so the assertion only steers z3, and it can never make a false `refuted`. Asserting it for every pair is wrong: the witness table's first run did that, the query for edge case 6's `wd-post` became `unsat`, and an `ill-defined` clause fell back instead.
 
