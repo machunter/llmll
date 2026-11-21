@@ -5,6 +5,11 @@
 -- @test/fixtures/mul_var_1/witnesses.json@. Each row is an s-expression VC
 -- (hypotheses as rev3's VC holds them, ground facts included) and what the
 -- rev3.py generator gave for it.
+--
+-- DIV-VAR-1 step 1a: the division pass. @scripts/divvar/export_witnesses.py@
+-- writes @test/fixtures/div_var_1/witnesses.json@, the VCs of the witness
+-- table with what @divvar_core.py@ gives for them; the DV-* examples below
+-- compare the port with it.
 module ProductSpec (productSpec) where
 
 import Test.Hspec
@@ -119,10 +124,21 @@ loadRows = do
     Just (A.Object o) -> pure (rowsOf (AKM.lookup "witnesses" o), rowsOf (AKM.lookup "extra" o))
     _ -> fail "witnesses.json does not parse"
   where
-    rowsOf (Just (A.Array xs)) = mapMaybe row (V.toList xs)
+    rowsOf (Just (A.Array xs)) = mapMaybe rowOf (V.toList xs)
     rowsOf _ = []
+
+-- | One exported row. A DIV-VAR-1 VC row has no @name@; it is named
+-- @label / tag@.
+rowOf :: A.Value -> Maybe Row
+rowOf = row
+  where
     row (A.Object o) = do
-      A.String n <- AKM.lookup "name" o
+      A.String n <- case AKM.lookup "name" o of
+        Just v -> Just v
+        Nothing -> do
+          A.String l <- AKM.lookup "label" o
+          A.String t <- AKM.lookup "tag" o
+          Just (A.String (l <> " / " <> t))
       A.Array hs <- AKM.lookup "hyps" o
       A.String g <- AKM.lookup "goal" o
       A.Array vs <- AKM.lookup "vars" o
@@ -181,6 +197,8 @@ rev3Atom a = case atomKind a of
   AVar v -> v
   ADiv p k -> "div(" <> rev3Poly p <> "," <> T.pack (show k) <> ")"
   AMod p k -> "mod(" <> rev3Poly p <> "," <> T.pack (show k) <> ")"
+  ADivV e d -> "vdiv[" <> rev3Poly e <> "|" <> rev3Poly d <> "]"
+  AModV e d -> "vmod[" <> rev3Poly e <> "|" <> rev3Poly d <> "]"
   AIte c p q -> "ite(" <> rev3Cond c <> "," <> rev3Poly p <> "," <> rev3Poly q <> ")"
   AApp f as -> f <> "(" <> T.intercalate "," (map arg as) <> ")"
   AOpaque p -> "opaque:" <> emitPred p
@@ -346,6 +364,8 @@ evalAtom env a = case atomKind a of
   AVar v -> Map.findWithDefault 0 v env
   ADiv f k -> evalPoly env f `div` k
   AMod f k -> evalPoly env f `mod` k
+  ADivV f d -> let k = evalPoly env d in if k == 0 then 0 else evalPoly env f `div` k
+  AModV f d -> let k = evalPoly env d in if k == 0 then 0 else evalPoly env f `mod` k
   AIte c x y -> if evalCond env c then evalPoly env x else evalPoly env y
   _ -> 0
 
@@ -417,6 +437,127 @@ smtScript qs = T.unlines $ concat
   | (_, s, body) <- qs ]
 
 -- ---------------------------------------------------------------------------
+-- DIV-VAR-1: the exported division table
+-- ---------------------------------------------------------------------------
+
+-- | A row of @test/fixtures/div_var_1/witnesses.json@: the VC and the script's
+-- statistics ('Row'), with the division pairs and the trigger sets.
+data DivRow = DivRow
+  { dvRow       :: Row
+  , dvGroup     :: Text                 -- ^ the table row (1 to 7), or the kind of an extra row
+  , dvLabel     :: Text
+  , dvDPairs    :: Int                  -- ^ pairs of the division pass
+  , dvDPairsAll :: Int                  -- ^ pairs after the whole generator
+  , dvTriggers  :: Map.Map Text [Text]  -- ^ per pair @pkey e|pkey d@, the trigger keys
+  }
+
+loadDivRows :: IO ([DivRow], [DivRow], [DivRow])
+loadDivRows = do
+  bs <- BL.readFile "test/fixtures/div_var_1/witnesses.json"
+  case A.decode bs of
+    Just (A.Object o) -> pure (rs "vcs" o, rs "probes" o, rs "extra" o)
+    _ -> fail "div_var_1/witnesses.json does not parse"
+  where
+    rs k o = case AKM.lookup k o of
+      Just (A.Array xs) -> mapMaybe dv (V.toList xs)
+      _ -> []
+    dv v@(A.Object o) = do
+      r <- rowOf v
+      let txt k = case AKM.lookup k o of
+            Just (A.String t) -> t
+            _ -> ""
+          int k = case AKM.lookup k o of
+            Just (A.Number x) -> round x
+            _ -> 0 :: Int
+          trig = case AKM.lookup "triggers" o of
+            Just (A.Object to) -> Map.fromList
+              [ (AK.toText k, [ t | A.String t <- V.toList ts ]) | (k, A.Array ts) <- AKM.toList to ]
+            _ -> Map.empty
+      Just DivRow
+        { dvRow = r
+        , dvGroup = if T.null (txt "row") then txt "kind" else txt "row"
+        , dvLabel = txt "label"
+        , dvDPairs = int "dpairs_pass"
+        , dvDPairsAll = int "dpairs"
+        , dvTriggers = trig
+        }
+    dv _ = Nothing
+
+lookupDiv :: [DivRow] -> Text -> DivRow
+lookupDiv rs n = case filter ((== n) . rowName . dvRow) rs of
+  (r : _) -> r
+  [] -> error ("no division row " <> T.unpack n)
+
+-- | The trigger sets in the script's keys.
+divTrigText :: FactResult -> Map.Map Text [Text]
+divTrigText fr = Map.fromList
+  [ (rev3Poly e <> "|" <> rev3Poly d, sort (map rev3Poly ts)) | ((e, d), ts) <- frDivTriggers fr ]
+
+-- | Every difference between the port and the script on these rows: the
+-- refusal construct, or the counts, the per-family digests, the division
+-- pairs and the trigger sets.
+portDiffs :: [DivRow] -> [(Text, String)]
+portDiffs = concatMap one
+  where
+    one dr =
+      let r = dvRow dr in
+      case (rowRefused r, factsOf r) of
+        (Just c, Left e) | refConstruct e == c -> []
+        (Nothing, Right fr) ->
+          let got = rev3Digests (frFacts fr)
+              fams = Set.toList (Set.fromList (Map.keys got ++ Map.keys (rowDigests r)))
+          in [ (rowName r, "counts " <> show (summarize fr) <> " vs " <> show (expectedOf r)) | summarize fr /= expectedOf r ]
+             ++ [ (rowName r, "digest " <> T.unpack fam) | fam <- fams, Map.lookup fam got /= Map.lookup fam (rowDigests r) ]
+             ++ [ (rowName r, "division pairs " <> show (frDivPairs fr) <> " vs " <> show (dvDPairs dr, dvDPairsAll dr))
+                | frDivPairs fr /= dvDPairs dr || frDivPairs fr /= dvDPairsAll dr ]
+             ++ [ (rowName r, "triggers " <> show (divTrigText fr) <> " vs " <> show (dvTriggers dr))
+                | divTrigText fr /= dvTriggers dr ]
+        (want, got) -> [(rowName r, "script " <> show want <> ", here " <> either show (show . summarize) got)]
+
+-- | Eight variants of a row, as the witness table's invariance run has: two
+-- reorderings, a reversal, an equation flip, two renamings and two
+-- compositions.
+divVariants :: Row -> [(Text, [FQPred], FQPred, Map.Map Text Text)]
+divVariants r =
+  let hs = flatConjuncts (rowHyps r)
+      g = rowGoal r
+      m1 = renaming "v" (rowVars r)
+      m2 = renaming "u" (reverse (rowVars r))
+  in [ ("reversed", reverse hs, g, Map.empty)
+     , ("rotated-3", rotate 3 hs, g, Map.empty)
+     , ("rotated-5-reversed", rotate 5 (reverse hs), g, Map.empty)
+     , ("flipped", map flipEq hs, flipEq g, Map.empty)
+     , ("renamed-v", map (renameP m1) hs, renameP m1 g, m1)
+     , ("renamed-u", map (renameP m2) hs, renameP m2 g, m2)
+     , ("combined-u", map (renameP m2 . flipEq) (rotate 2 (reverse hs)), renameP m2 (flipEq g), m2)
+     , ("combined-v", map (renameP m1 . flipEq) (rotate 1 hs), renameP m1 (flipEq g), m1)
+     ]
+
+-- | The normal form of one variable.
+polyAtom' :: Text -> Poly
+polyAtom' v = either (error . show) id (toPoly (FQVar v))
+
+-- | The variable names in a predicate.
+predVars :: FQPred -> [Text]
+predVars = \case
+  FQVar v -> [v]
+  FQBinArith _ l r -> predVars l ++ predVars r
+  FQBinPred _ l r -> predVars l ++ predVars r
+  FQAnd ps -> concatMap predVars ps
+  FQOr ps -> concatMap predVars ps
+  FQNot p -> predVars p
+  FQImplies p q -> predVars p ++ predVars q
+  FQApp _ as -> concatMap predVars as
+  FQIte c a b -> predVars c ++ predVars a ++ predVars b
+  _ -> []
+
+-- | The fact block with @mul##k@, @div##k@ and @mod##k@ names.
+divBlock :: FactResult -> Text
+divBlock fr =
+  let names = Map.union (monoNames (factMonos (frFacts fr))) (divAtomNames (frDivPairList fr))
+  in T.unlines (map emitPred (renderFacts names (frFacts fr)))
+
+-- ---------------------------------------------------------------------------
 -- The spec
 -- ---------------------------------------------------------------------------
 
@@ -485,17 +626,27 @@ productSpec = describe "MUL-VAR-1 normal form and fact set (ProductNF, ProductFa
           [ f | f <- frFacts fr, factFamily f `elem` [F4, F5, F10] ] `shouldSatisfy` null
         Left e -> expectationFailure (show e)
 
-  describe "refusal scan (design measurement 6)" $ do
-    it "refuses a variable or non-positive divisor before cancellation, with its operator" $ do
-      forM_ ["C1", "C2", "C3", "C4", "C5", "C6"] $ \n -> do
+  describe "refusal scan (design measurement 6; DIV-VAR-1 admits a variable divisor)" $ do
+    it "refuses a non-positive ground divisor before cancellation (C4, C5); admits a variable one with its pair's facts (C1, C2, C3, C6)" $ do
+      forM_ ["C4", "C5"] $ \n -> do
         let r = lookupRow extra n
+        rowRefused r `shouldSatisfy` (/= Nothing)
         fmap refConstruct (either Just (const Nothing) (factsOf r)) `shouldBe` rowRefused r
-    it "names / first in (* 0 (/ x y)), and mod in (* 0 (mod x y))" $ do
+      forM_ ["C1", "C2", "C3", "C6"] $ \n -> do
+        let r = lookupRow extra n
+        rowRefused r `shouldBe` Nothing
+        fmap summarize (factsOf r) `shouldBe` Right (expectedOf r)
+        fmap (rev3Digests . frFacts) (factsOf r) `shouldBe` Right (rowDigests r)
+        fmap frDivPairs (factsOf r) `shouldBe` Right 1
+    it "names / in (* 0 (/ x 0)) and mod in (* 0 (mod x (- 2 2))); keeps the pair of a cancelled (* 0 (/ x y))" $ do
       let x = FQVar "x"; y = FQVar "y"
-      fmap refConstruct (refusalScan (FQBinArith FQMul (FQLit 0) (FQBinArith FQDiv x y))) `shouldBe` Just "nonlinear:/"
-      fmap refConstruct (refusalScan (FQBinArith FQMul (FQLit 0) (FQBinArith FQMod x y))) `shouldBe` Just "nonlinear:mod"
-      -- the normal form alone would cancel the term
+      fmap refConstruct (refusalScan (FQBinArith FQMul (FQLit 0) (FQBinArith FQDiv x (FQLit 0)))) `shouldBe` Just "nonlinear:/"
+      fmap refConstruct (refusalScan (FQBinArith FQMul (FQLit 0) (FQBinArith FQMod x (FQBinArith FQSub (FQLit 2) (FQLit 2))))) `shouldBe` Just "nonlinear:mod"
+      refusalScan (FQBinArith FQMul (FQLit 0) (FQBinArith FQDiv x y)) `shouldBe` Nothing
+      -- the normal form alone cancels the term; the division pass reads it as written
       toPoly (FQBinArith FQMul (FQLit 0) (FQBinArith FQDiv x (FQLit 2))) `shouldBe` Right Map.empty
+      toPoly (FQBinArith FQMul (FQLit 0) (FQBinArith FQDiv x y)) `shouldBe` Right Map.empty
+      fmap frDivPairs (productFacts [] (FQBinPred FQEq (FQBinArith FQMul (FQLit 0) (FQBinArith FQDiv x y)) (FQLit 0))) `shouldBe` Right 1
     it "accepts the controls: (* 0 (/ x 2)) cancels to 0 facts; a ground divisor (+ 1 2) gives 10" $ do
       forM_ ["C7", "C8"] $ \n -> do
         let r = lookupRow extra n
@@ -653,3 +804,160 @@ productSpec = describe "MUL-VAR-1 normal form and fact set (ProductNF, ProductFa
                   queryNames = [ l | (l, _, _) <- schemaQueries ++ controlQueries ]
                   want = map (const "unsat") schemaQueries ++ map (const "sat") controlQueries
               zip queryNames answers `shouldBe` zip queryNames want
+
+  -- -------------------------------------------------------------------------
+  -- DIV-VAR-1 step 1a: the division pass (image-library-proposal.md Rev 4a,
+  -- Part C; scripts/divvar/divvar_core.py with D4rule=False)
+  -- -------------------------------------------------------------------------
+  describe "DIV-VAR-1 division pass (ProductNF, ProductFacts)" $ do
+    (dvs, probes, dextra) <- runIO loadDivRows
+    let grp p = [ dr | dr <- dvs, p dr ]
+        geomLabels = ["row-of", "col-of", "chan-of", "scale-src"]
+
+    describe "DV-PORT: the port equals divvar_core.py, family by family" $ do
+      it "DV-PORT-1 the table has the 44 VCs of rows 1 to 4 (27 with a division pair) and the probe VCs of rows 5 to 7" $ do
+        length dvs `shouldBe` 44
+        length [ () | dr <- dvs, dvDPairs dr > 0 ] `shouldBe` 27
+        length probes `shouldSatisfy` (>= 20)
+      it "DV-PORT-2 row 1, row-of, col-of, chan-of, scale-src: facts, P, cap, closure, degree, families, digests, pairs, triggers" $ do
+        let rs = grp (\dr -> dvGroup dr == "1" && dvLabel dr `elem` geomLabels)
+        length rs `shouldSatisfy` (>= 12)
+        portDiffs rs `shouldBe` []
+      it "DV-PORT-3 row 1, hflip-at (13 VCs and the wd-post(pre-only) forms)" $ do
+        let rs = grp (\dr -> dvLabel dr == "hflip-at")
+        length rs `shouldSatisfy` (>= 13)
+        portDiffs rs `shouldBe` []
+      it "DV-PORT-4 row 2, scale-src at sw = 1" $ do
+        let rs = grp ((== "2") . dvGroup)
+        length rs `shouldSatisfy` (>= 4)
+        portDiffs rs `shouldBe` []
+      it "DV-PORT-5 row 3, the let-bound stride" $ do
+        let rs = grp ((== "3") . dvGroup)
+        length rs `shouldSatisfy` (>= 3)
+        portDiffs rs `shouldBe` []
+      it "DV-PORT-6 row 4, the three round trips through offset" $ do
+        let rs = grp ((== "4") . dvGroup)
+        length rs `shouldSatisfy` (>= 9)
+        portDiffs rs `shouldBe` []
+      it "DV-PORT-7 rows 5 to 7, the shadowing, clause and divisor probes" $ do
+        portDiffs probes `shouldBe` []
+      it "DV-PORT-8 control: one division fact dropped changes the digest; D0, G and D4 are all exercised" $ do
+        let r = dvRow (lookupDiv dvs "col-of / truth")
+        case factsOf r of
+          Right fr -> do
+            let ds = [ f | f <- frFacts fr, factFamily f `elem` [D0, G, D4] ]
+                rest = [ f | f <- frFacts fr, factFamily f `notElem` [D0, G, D4] ]
+            rev3Digests (drop 1 ds ++ rest) `shouldNotBe` rowDigests r
+            frDivFacts fr `shouldBe` length ds
+          Left e -> expectationFailure (show e)
+        let famsUsed = Set.fromList [ familyName (factFamily f) | dr <- dvs ++ probes, Right fr <- [factsOf (dvRow dr)], f <- frFacts fr ]
+        [ x | x <- ["D0", "G", "D4"], not (Set.member x famsUsed) ] `shouldBe` []
+
+    describe "DV-INV: invariance (Part C \"Invariance\")" $ do
+      it "DV-INV-1 F(pi C) = F(C), F(phi C) = F(C), F(rho C) = rho(F(C)) and compositions: 352 comparisons on the 44 VCs, none differ" $ do
+        let cmp = [ (rowName r, lbl, ok)
+                  | dr <- dvs, let r = dvRow dr, Right base <- [factsOf r]
+                  , (lbl, hs, g, m) <- divVariants r
+                  , let ok = case productFacts hs g of
+                          Right fr -> factSet Map.empty (frFacts fr) == factSet m (frFacts base)
+                          Left _ -> False ]
+        length cmp `shouldBe` 352
+        [ (n, l) | (n, l, False) <- cmp ] `shouldBe` []
+      it "DV-INV-2 the fact block, with div##k and mod##k, is byte-identical under pi and phi on the 44 VCs" $ do
+        let bad = [ (rowName r, lbl)
+                  | dr <- dvs, let r = dvRow dr, Right base <- [factsOf r]
+                  , (lbl, hs, g, m) <- divVariants r, Map.null m
+                  , Right fr <- [productFacts hs g]
+                  , divBlock fr /= divBlock base ]
+        bad `shouldBe` []
+      it "DV-INV-3 control: the order-dependent trigger reading (first literal, first cofactor) fails the same comparison" $ do
+        let ctl = productFactsOpts AllRules FirstTriggerControl
+            bad = [ (rowName r, lbl)
+                  | dr <- dvs, let r = dvRow dr
+                  , Right base <- [ctl (rowHyps r) (rowGoal r)]
+                  , (lbl, hs, g, m) <- divVariants r
+                  , Right fr <- [ctl hs g]
+                  , factSet Map.empty (frFacts fr) /= factSet m (frFacts base) ]
+        bad `shouldSatisfy` (not . null)
+
+    describe "DV-LIM: the limit of 32 division pairs" $ do
+      it "DV-LIM-1 32 written pairs pass, with the script's facts" $ do
+        let dr = lookupDiv dextra "lim-32"
+        fmap frDivPairs (factsOf (dvRow dr)) `shouldBe` Right 32
+        portDiffs [dr] `shouldBe` []
+      it "DV-LIM-2 33 written pairs refuse the constraint whole with nonlinear:/" $ do
+        let dr = lookupDiv dextra "lim-33"
+        rowRefused (dvRow dr) `shouldBe` Just "nonlinear:/"
+        case factsOf (dvRow dr) of
+          Left e -> do
+            refConstruct e `shouldBe` "nonlinear:/"
+            refWhy e `shouldBe` "more than 32 division pairs"
+          Right fr -> expectationFailure ("admitted with " <> show (frDivPairs fr) <> " pairs")
+      it "DV-LIM-3 a pair a rule creates counts (A2): 31 written and 1 image pass with 32; 32 written and 1 image refuse" $ do
+        let ok = lookupDiv dextra "lim-31-image"
+            no = lookupDiv dextra "lim-32-image"
+        fmap frDivPairs (factsOf (dvRow ok)) `shouldBe` Right 32
+        portDiffs [ok, no] `shouldBe` []
+        fmap refConstruct (either Just (const Nothing) (factsOf (dvRow no))) `shouldBe` Just "nonlinear:/"
+
+    describe "DV-REF: ground divisors and degenerate pairs" $ do
+      it "DV-REF-1 the seven ground divisors <= 0 of row 7 refuse with their operator, as in the script" $ do
+        let rs = [ lookupDiv dextra ("R" <> T.pack (show i)) | i <- [1 .. 7 :: Int] ]
+        map (rowRefused . dvRow) rs `shouldBe`
+          map Just ["nonlinear:/", "nonlinear:mod", "nonlinear:/", "nonlinear:mod", "nonlinear:/", "nonlinear:mod", "nonlinear:/"]
+        portDiffs rs `shouldBe` []
+        -- rem and quot (R8, R9) never reach the normal form: the emitter
+        -- refuses them before a constraint is built
+        map (rowRefused . dvRow . lookupDiv dextra) ["R8", "R9"] `shouldBe` [Just "nonlinear:rem", Just "nonlinear:quot"]
+      it "DV-REF-2 a divisor (- w w) is a pair with no D0 or G fact (its premise 0 >= 1 is false)" $ do
+        let rs = [ dr | dr <- probes, "(- w w)" `T.isInfixOf` dvLabel dr ]
+        length rs `shouldSatisfy` (>= 1)
+        portDiffs rs `shouldBe` []
+        let frs = [ fr | dr <- rs, Right fr <- [factsOf (dvRow dr)], frDivPairs fr >= 1 ]
+        length frs `shouldSatisfy` (>= 1)
+        [ f | fr <- frs, f <- frFacts fr, factFamily f `elem` [D0, G] ] `shouldBe` []
+      it "DV-REF-3 (/ x (/ 1 2)) is ground and refused (A11); (/ x (- (+ w 2) w)) stays a pair, apart from (/ x 2) (A10)" $ do
+        let x = FQVar "x"; w = FQVar "w"
+            dW = FQBinArith FQSub (FQBinArith FQAdd w (FQLit 2)) w
+        fmap refWhy (refusalScan (FQBinArith FQDiv x (FQBinArith FQDiv (FQLit 1) (FQLit 2))))
+          `shouldBe` Just "divisor (1 / 2) is a ground constant that is not positive"
+        isGroundSyntax dW `shouldBe` False
+        let pv = toPoly (FQBinArith FQDiv x dW)
+            pc = toPoly (FQBinArith FQDiv x (FQLit 2))
+        pv `shouldNotBe` pc
+        fmap (fmap isDivAtom . singleAtom) pv `shouldBe` Right (Just (Just (polyAtom' "x", polyConst 2)))
+        fmap frDivPairs (productFacts [] (FQBinPred FQGe (FQBinArith FQDiv x dW) (FQLit 0))) `shouldBe` Right 1
+
+    describe "DV-TRIG: the trigger set" $ do
+      it "DV-TRIG-1 T-literal reads literals as written (A1): scale-src's truth VC gives t in {0, result}, not sw - 1" $ do
+        let dr = lookupDiv dvs "scale-src / truth"
+        case factsOf (dvRow dr) of
+          Right fr -> do
+            divTrigText fr `shouldBe` Map.fromList [("1*sw.x|1*dw", ["0", "1*result"])]
+            divTrigText fr `shouldBe` dvTriggers dr
+          Left e -> expectationFailure (show e)
+      it "DV-TRIG-2 T-cofactor reads the closure as written and not G's monomials (A3): d*a from G gives no a - 1; a written a*d does" $ do
+        let a3 = lookupDiv dextra "trig-a3"
+            a3w = lookupDiv dextra "trig-a3-written"
+        fmap divTrigText (factsOf (dvRow a3)) `shouldBe` Right (Map.fromList [("1*e|1*d", ["0", "1*a"])])
+        fmap divTrigText (factsOf (dvRow a3w)) `shouldBe` Right (Map.fromList [("1*e|1*d", ["-1*+1*a", "0", "1*a"])])
+        portDiffs [a3, a3w] `shouldBe` []
+
+    it "DV-PRINT a division atom prints as div##k and mod##k by sorted pair index, and as (e / d) with no name" $ do
+      -- the names are checked on the predicates: emitPred prints div##k as
+      -- div__k until sanitizeFQId passes the prefix (step 1b, FixpointIR)
+      let dr = lookupDiv dvs "col-of / truth"
+      case factsOf (dvRow dr) of
+        Right fr -> do
+          let names = divAtomNames (frDivPairList fr)
+          sort (Map.elems names) `shouldBe` ["div##0", "div##1", "mod##0", "mod##1"]
+          let allNames = Map.union (monoNames (factMonos (frFacts fr))) names
+              vars = Set.fromList (concatMap predVars (renderFacts allNames (frFacts fr)))
+              named = divBlock fr
+              bare = T.unlines (map emitPred (renderFacts (monoNames (factMonos (frFacts fr))) (frFacts fr)))
+          [ n | n <- ["div##0", "div##1", "mod##0", "mod##1"], not (Set.member n vars) ] `shouldBe` []
+          T.isInfixOf " / " named `shouldBe` False
+          bare `shouldSatisfy` T.isInfixOf " / "
+          bare `shouldSatisfy` T.isInfixOf " mod "
+          T.isInfixOf "div##" bare `shouldBe` False
+        Left e -> expectationFailure (show e)

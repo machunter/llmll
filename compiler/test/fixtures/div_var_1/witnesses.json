@@ -1,0 +1,4810 @@
+{
+ "source": "scripts/divvar/divvar_core.py on scripts/mulvar/rev3.py sha256 14e9441d20f55f4025ae33eb5029114e0ef1fb5ac59a90efa33b884c6b4cda12, D4rule=False",
+ "vcs": [
+  {
+   "row": "1",
+   "label": "row-of",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))"
+   ],
+   "goal": "(>= (* w c) 1)",
+   "facts": 276,
+   "T": 6,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102
+   },
+   "fact_digests": {
+    "F1": "dccde78e4e66f2d7053215cfa88bb358dd1de860314126390ec288d4f46b5aa9",
+    "F10": "4a105eec6ba8e41b3477f0cdd228ee49bddc464cdb71e81c65a79d1d4b67a917",
+    "F2": "376aa64ad6d4b48da5ce8ad379a5347fefc9c336e372e5fdd2f55dfc7f45185b",
+    "F3": "ae2e30595c4b5dd8caee7f8b039e2a2f9d43ffd1de28a84bbf33cc7b71156e4c",
+    "F4": "75fa5ace76cb7ae38a98436644214519c28ded656cbeadb68a83fd3a8074c83e",
+    "F5": "ba242f8095136580b9a6c2f61377a43d6f3fdb566058a0d0338597d38d3b54cf"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "row-of",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "result",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))",
+    "(= result (/ i (* w c)))"
+   ],
+   "goal": "(and (= result (/ i (* w c))) (and (>= result 0) (< result h)))",
+   "facts": 1007,
+   "T": 11,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 3,
+   "families": {
+    "D0": 3,
+    "F1": 33,
+    "F10": 98,
+    "F11": 16,
+    "F2": 44,
+    "F3": 22,
+    "F4": 392,
+    "F5": 386,
+    "F9": 1,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "c750e2f3d90bc2c8e4636eccff7e22942a64848ae856746f1f7fdb66546dff6d",
+    "F1": "c63bc11c6ebf7511d2e27dd977db95b980c17b6d1b512a0ab4ee21291184a304",
+    "F10": "8d918e9182ea9fd817e480f87a041ab0077cc55a24d7b010cfdfaaa1345e1356",
+    "F11": "daf7e71a3fa4139703b706b0d550b021c496fb97a62e7b560629f53e0d14a508",
+    "F2": "229d035c873ac1cf554a08fa868cef1b46aeb9fbe850b5c52682110046b51782",
+    "F3": "21b6f048bb8ddaf8c622b49538698ba94164ae43404a76ba0ad11dad0ed39024",
+    "F4": "283247acd4fab609f87650d73f7bfec5d8079b3da99a119a412750c3aa793ddc",
+    "F5": "16a690eb13a858cc611e239e64c85f1052b873b591e0138b86513cefcbaee4c4",
+    "F9": "e2de83bef361b8f30e79a5c31e0caf963ba37d01f715a58b7d3002414111e045",
+    "G": "99829cf421a96816737e26f790f88cdea882214cbd8af1e2b7d996269b490756"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "row-of",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "result",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))",
+    "(= result (/ i (* w c)))"
+   ],
+   "goal": "(>= (* w c) 1)",
+   "facts": 1007,
+   "T": 11,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 3,
+   "families": {
+    "D0": 3,
+    "F1": 33,
+    "F10": 98,
+    "F11": 16,
+    "F2": 44,
+    "F3": 22,
+    "F4": 392,
+    "F5": 386,
+    "F9": 1,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "c750e2f3d90bc2c8e4636eccff7e22942a64848ae856746f1f7fdb66546dff6d",
+    "F1": "c63bc11c6ebf7511d2e27dd977db95b980c17b6d1b512a0ab4ee21291184a304",
+    "F10": "8d918e9182ea9fd817e480f87a041ab0077cc55a24d7b010cfdfaaa1345e1356",
+    "F11": "daf7e71a3fa4139703b706b0d550b021c496fb97a62e7b560629f53e0d14a508",
+    "F2": "229d035c873ac1cf554a08fa868cef1b46aeb9fbe850b5c52682110046b51782",
+    "F3": "21b6f048bb8ddaf8c622b49538698ba94164ae43404a76ba0ad11dad0ed39024",
+    "F4": "283247acd4fab609f87650d73f7bfec5d8079b3da99a119a412750c3aa793ddc",
+    "F5": "16a690eb13a858cc611e239e64c85f1052b873b591e0138b86513cefcbaee4c4",
+    "F9": "e2de83bef361b8f30e79a5c31e0caf963ba37d01f715a58b7d3002414111e045",
+    "G": "99829cf421a96816737e26f790f88cdea882214cbd8af1e2b7d996269b490756"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "col-of",
+   "tag": "div:mod",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))"
+   ],
+   "goal": "(>= (* w c) 1)",
+   "facts": 276,
+   "T": 6,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102
+   },
+   "fact_digests": {
+    "F1": "dccde78e4e66f2d7053215cfa88bb358dd1de860314126390ec288d4f46b5aa9",
+    "F10": "4a105eec6ba8e41b3477f0cdd228ee49bddc464cdb71e81c65a79d1d4b67a917",
+    "F2": "376aa64ad6d4b48da5ce8ad379a5347fefc9c336e372e5fdd2f55dfc7f45185b",
+    "F3": "ae2e30595c4b5dd8caee7f8b039e2a2f9d43ffd1de28a84bbf33cc7b71156e4c",
+    "F4": "75fa5ace76cb7ae38a98436644214519c28ded656cbeadb68a83fd3a8074c83e",
+    "F5": "ba242f8095136580b9a6c2f61377a43d6f3fdb566058a0d0338597d38d3b54cf"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "col-of",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))"
+   ],
+   "goal": "(>= c 1)",
+   "facts": 276,
+   "T": 6,
+   "capped": false,
+   "closure": 1,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102
+   },
+   "fact_digests": {
+    "F1": "dccde78e4e66f2d7053215cfa88bb358dd1de860314126390ec288d4f46b5aa9",
+    "F10": "4a105eec6ba8e41b3477f0cdd228ee49bddc464cdb71e81c65a79d1d4b67a917",
+    "F2": "376aa64ad6d4b48da5ce8ad379a5347fefc9c336e372e5fdd2f55dfc7f45185b",
+    "F3": "ae2e30595c4b5dd8caee7f8b039e2a2f9d43ffd1de28a84bbf33cc7b71156e4c",
+    "F4": "75fa5ace76cb7ae38a98436644214519c28ded656cbeadb68a83fd3a8074c83e",
+    "F5": "ba242f8095136580b9a6c2f61377a43d6f3fdb566058a0d0338597d38d3b54cf"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "col-of",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "result",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))",
+    "(= result (/ (mod i (* w c)) c))"
+   ],
+   "goal": "(and (= result (/ (mod i (* w c)) c)) (and (>= result 0) (< result w)))",
+   "facts": 1223,
+   "T": 12,
+   "capped": false,
+   "closure": 10,
+   "maxdeg": 3,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 36,
+    "F10": 120,
+    "F11": 18,
+    "F2": 48,
+    "F3": 24,
+    "F4": 480,
+    "F5": 464,
+    "F9": 1,
+    "G": 24
+   },
+   "fact_digests": {
+    "D0": "a5850da52bb6628cac64e6b9265e649007bee350192963be0e1b5f521428bd7e",
+    "D4": "3655fb9696ab7b219b3967896107ab496eadd7843cc1b597a6fc7001c28bc28e",
+    "F1": "f8ed68528c023487c458ca70325621f80fbb37b39b1a1f7728ee543608b5fef0",
+    "F10": "0a0f126beeeac36afaa0769c157bfaed985e40937a5b35d79e615fdc6fd4ffa6",
+    "F11": "5c67355dc5f5a93408aa2260911a647b8d8889af5e4acd2c7b83beef0ed82ba8",
+    "F2": "8031eeb07ce7793247841187e66576c1b230d30ff797a8254a472be789046044",
+    "F3": "5338b31772ed13bf97494fabed651d8719d526e720b7a06dff08a2f11fe4d0f9",
+    "F4": "380d9ba0dbec01f0c235a62b0b630132ce03fb93689fc4d709f45c19644d0d1b",
+    "F5": "ae94bacdb99a13e3a9a1ee128be8001ca60f4b487d91eda1dc728bfeaec7701d",
+    "F9": "a4631e5a85ca937f532e2903e5741f4586c8a920fcfad5bd3f150764b4f4496c",
+    "G": "be7163ba3c6db571ce8c86b8d705118fa3458711d93e6cfb95459a28b437af6b"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "col-of",
+   "tag": "wd-post:mod",
+   "kind": "WD",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "result",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))",
+    "(= result (/ (mod i (* w c)) c))"
+   ],
+   "goal": "(>= (* w c) 1)",
+   "facts": 1223,
+   "T": 12,
+   "capped": false,
+   "closure": 10,
+   "maxdeg": 3,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 36,
+    "F10": 120,
+    "F11": 18,
+    "F2": 48,
+    "F3": 24,
+    "F4": 480,
+    "F5": 464,
+    "F9": 1,
+    "G": 24
+   },
+   "fact_digests": {
+    "D0": "a5850da52bb6628cac64e6b9265e649007bee350192963be0e1b5f521428bd7e",
+    "D4": "3655fb9696ab7b219b3967896107ab496eadd7843cc1b597a6fc7001c28bc28e",
+    "F1": "f8ed68528c023487c458ca70325621f80fbb37b39b1a1f7728ee543608b5fef0",
+    "F10": "0a0f126beeeac36afaa0769c157bfaed985e40937a5b35d79e615fdc6fd4ffa6",
+    "F11": "5c67355dc5f5a93408aa2260911a647b8d8889af5e4acd2c7b83beef0ed82ba8",
+    "F2": "8031eeb07ce7793247841187e66576c1b230d30ff797a8254a472be789046044",
+    "F3": "5338b31772ed13bf97494fabed651d8719d526e720b7a06dff08a2f11fe4d0f9",
+    "F4": "380d9ba0dbec01f0c235a62b0b630132ce03fb93689fc4d709f45c19644d0d1b",
+    "F5": "ae94bacdb99a13e3a9a1ee128be8001ca60f4b487d91eda1dc728bfeaec7701d",
+    "F9": "a4631e5a85ca937f532e2903e5741f4586c8a920fcfad5bd3f150764b4f4496c",
+    "G": "be7163ba3c6db571ce8c86b8d705118fa3458711d93e6cfb95459a28b437af6b"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "col-of",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "result",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))",
+    "(= result (/ (mod i (* w c)) c))"
+   ],
+   "goal": "(>= c 1)",
+   "facts": 1223,
+   "T": 12,
+   "capped": false,
+   "closure": 10,
+   "maxdeg": 3,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 36,
+    "F10": 120,
+    "F11": 18,
+    "F2": 48,
+    "F3": 24,
+    "F4": 480,
+    "F5": 464,
+    "F9": 1,
+    "G": 24
+   },
+   "fact_digests": {
+    "D0": "a5850da52bb6628cac64e6b9265e649007bee350192963be0e1b5f521428bd7e",
+    "D4": "3655fb9696ab7b219b3967896107ab496eadd7843cc1b597a6fc7001c28bc28e",
+    "F1": "f8ed68528c023487c458ca70325621f80fbb37b39b1a1f7728ee543608b5fef0",
+    "F10": "0a0f126beeeac36afaa0769c157bfaed985e40937a5b35d79e615fdc6fd4ffa6",
+    "F11": "5c67355dc5f5a93408aa2260911a647b8d8889af5e4acd2c7b83beef0ed82ba8",
+    "F2": "8031eeb07ce7793247841187e66576c1b230d30ff797a8254a472be789046044",
+    "F3": "5338b31772ed13bf97494fabed651d8719d526e720b7a06dff08a2f11fe4d0f9",
+    "F4": "380d9ba0dbec01f0c235a62b0b630132ce03fb93689fc4d709f45c19644d0d1b",
+    "F5": "ae94bacdb99a13e3a9a1ee128be8001ca60f4b487d91eda1dc728bfeaec7701d",
+    "F9": "a4631e5a85ca937f532e2903e5741f4586c8a920fcfad5bd3f150764b4f4496c",
+    "G": "be7163ba3c6db571ce8c86b8d705118fa3458711d93e6cfb95459a28b437af6b"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "chan-of",
+   "tag": "div:mod",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "i"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= c 1)",
+    "(>= i 0)"
+   ],
+   "goal": "(>= c 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "chan-of",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "c",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= c 1)",
+    "(>= i 0)",
+    "(= result (mod i c))"
+   ],
+   "goal": "(and (= result (mod i c)) (and (>= result 0) (< result c)))",
+   "facts": 18,
+   "T": 1,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "G": 4
+   },
+   "fact_digests": {
+    "D0": "8d84b666a8c495a6c4cd2e3ffd712b00a8ffa715c6a455bef60b691eeff56f6e",
+    "F1": "17e77480be2d9f635ae87876ea1e40c44d19d649cf7a2ccd504f474e6f70d99d",
+    "F11": "234f7cdb0abd1104df8e92822a9cfd1bde5a07782c73b06fb83e0ae92c367ac9",
+    "F2": "3929c2f7b7a37a1d9936d4aa0de154fc7c60be376fb8325875306e1ca2c86b3e",
+    "F3": "9cf24dfc08aa58848c550b8eaa9fd0059e251dfd5045aff457436c5b32d9088a",
+    "G": "ff7639bd80b378155dfdf2576a26e70c042d4c7439067cd05b5e8c3562b6f979"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*i|1*c": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "chan-of",
+   "tag": "wd-post:mod",
+   "kind": "WD",
+   "vars": [
+    "c",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= c 1)",
+    "(>= i 0)",
+    "(= result (mod i c))"
+   ],
+   "goal": "(>= c 1)",
+   "facts": 18,
+   "T": 1,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "G": 4
+   },
+   "fact_digests": {
+    "D0": "8d84b666a8c495a6c4cd2e3ffd712b00a8ffa715c6a455bef60b691eeff56f6e",
+    "F1": "17e77480be2d9f635ae87876ea1e40c44d19d649cf7a2ccd504f474e6f70d99d",
+    "F11": "234f7cdb0abd1104df8e92822a9cfd1bde5a07782c73b06fb83e0ae92c367ac9",
+    "F2": "3929c2f7b7a37a1d9936d4aa0de154fc7c60be376fb8325875306e1ca2c86b3e",
+    "F3": "9cf24dfc08aa58848c550b8eaa9fd0059e251dfd5045aff457436c5b32d9088a",
+    "G": "ff7639bd80b378155dfdf2576a26e70c042d4c7439067cd05b5e8c3562b6f979"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*i|1*c": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "scale-src",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "dw",
+    "sw",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= sw 1)",
+    "(>= dw 1)",
+    "(>= x 0)",
+    "(< x dw)"
+   ],
+   "goal": "(>= dw 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "scale-src",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "dw",
+    "result",
+    "sw",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= sw 1)",
+    "(>= dw 1)",
+    "(>= x 0)",
+    "(< x dw)",
+    "(= result (/ (* x sw) dw))"
+   ],
+   "goal": "(and (= result (/ (* x sw) dw)) (and (>= result 0) (< result sw)))",
+   "facts": 52,
+   "T": 2,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8,
+    "F9": 1,
+    "G": 8
+   },
+   "fact_digests": {
+    "D0": "5595e3af2cb09b6f48ebe379d66b818199ac39a458782096eb22ca07374641b0",
+    "F1": "7bf60d799544fa76afc9543cabb08666e41b18ae0f4b8503fa9d66f0a9244615",
+    "F10": "32ac094c42128301697f8ba0ea769a8f57a1e4f5d1ada9aea20cd1edc1f3c57a",
+    "F11": "378cc65950bd8f3c5f3b82e36e0bc197d902dc9158eab4fe71bbadc626bced98",
+    "F2": "2a0842cbd85a19a39fbdac0137c0f28d5b5ee2d64c6ffce4e6608fd5ba63e3f9",
+    "F3": "9827c1b420c7f3893b40db2383440a82b94afbef8562a8309f2758e6f3644848",
+    "F4": "164b584d64fd77b9969f8150709a21ace9c9a6863b4649199b60a9ccd4e3b88c",
+    "F5": "2dbc566eb6d2243a1fd970990145845eb0ce9d9b55ca5713bd23cb0e26a92bef",
+    "F9": "9e1732fd8f41f4c43381e064540674deb3f6ab44e2d4f3a765c4e2f7e685c196",
+    "G": "8cab56e3f67a7baed7a653a219e86b0d0a6206eced4e84e872812c810caeb321"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*sw.x|1*dw": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "scale-src",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "dw",
+    "result",
+    "sw",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= sw 1)",
+    "(>= dw 1)",
+    "(>= x 0)",
+    "(< x dw)",
+    "(= result (/ (* x sw) dw))"
+   ],
+   "goal": "(>= dw 1)",
+   "facts": 52,
+   "T": 2,
+   "capped": false,
+   "closure": 5,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 8,
+    "F9": 1,
+    "G": 8
+   },
+   "fact_digests": {
+    "D0": "5595e3af2cb09b6f48ebe379d66b818199ac39a458782096eb22ca07374641b0",
+    "F1": "7bf60d799544fa76afc9543cabb08666e41b18ae0f4b8503fa9d66f0a9244615",
+    "F10": "32ac094c42128301697f8ba0ea769a8f57a1e4f5d1ada9aea20cd1edc1f3c57a",
+    "F11": "378cc65950bd8f3c5f3b82e36e0bc197d902dc9158eab4fe71bbadc626bced98",
+    "F2": "2a0842cbd85a19a39fbdac0137c0f28d5b5ee2d64c6ffce4e6608fd5ba63e3f9",
+    "F3": "9827c1b420c7f3893b40db2383440a82b94afbef8562a8309f2758e6f3644848",
+    "F4": "164b584d64fd77b9969f8150709a21ace9c9a6863b4649199b60a9ccd4e3b88c",
+    "F5": "2dbc566eb6d2243a1fd970990145845eb0ce9d9b55ca5713bd23cb0e26a92bef",
+    "F9": "9e1732fd8f41f4c43381e064540674deb3f6ab44e2d4f3a765c4e2f7e685c196",
+    "G": "8cab56e3f67a7baed7a653a219e86b0d0a6206eced4e84e872812c810caeb321"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*sw.x|1*dw": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "call-pre:row-of",
+   "kind": "BODY",
+   "vars": [
+    "buf",
+    "c",
+    "h",
+    "i",
+    "w"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(and (>= w 1) (and (>= c 1) (and (>= h 1) (and (>= i 0) (< i (* (* w h) c))))))",
+   "facts": 295,
+   "T": 6,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F11": 18,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102,
+    "F9": 1
+   },
+   "fact_digests": {
+    "F1": "dccde78e4e66f2d7053215cfa88bb358dd1de860314126390ec288d4f46b5aa9",
+    "F10": "4a105eec6ba8e41b3477f0cdd228ee49bddc464cdb71e81c65a79d1d4b67a917",
+    "F11": "3656a378ce2845323e31489086e62638cc86832df0b31a9cc33a30bb68b93728",
+    "F2": "376aa64ad6d4b48da5ce8ad379a5347fefc9c336e372e5fdd2f55dfc7f45185b",
+    "F3": "ae2e30595c4b5dd8caee7f8b039e2a2f9d43ffd1de28a84bbf33cc7b71156e4c",
+    "F4": "75fa5ace76cb7ae38a98436644214519c28ded656cbeadb68a83fd3a8074c83e",
+    "F5": "ba242f8095136580b9a6c2f61377a43d6f3fdb566058a0d0338597d38d3b54cf",
+    "F9": "7eaf82fb921651eebfe9b354cc585038e3bee513b6b6a7b99da9df683b2a958e"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "call-pre:col-of",
+   "kind": "BODY",
+   "vars": [
+    "buf",
+    "c",
+    "call_row_of_1",
+    "h",
+    "i",
+    "w",
+    "y"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(= call_row_of_1 (/ i (* w c)))",
+    "(>= call_row_of_1 0)",
+    "(< call_row_of_1 h)",
+    "(= y call_row_of_1)",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(and (>= w 1) (and (>= c 1) (and (>= h 1) (and (>= i 0) (< i (* (* w h) c))))))",
+   "facts": 1041,
+   "T": 11,
+   "capped": false,
+   "closure": 8,
+   "maxdeg": 3,
+   "families": {
+    "D0": 3,
+    "F1": 33,
+    "F10": 98,
+    "F11": 48,
+    "F2": 44,
+    "F3": 22,
+    "F4": 392,
+    "F5": 386,
+    "F9": 3,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "c750e2f3d90bc2c8e4636eccff7e22942a64848ae856746f1f7fdb66546dff6d",
+    "F1": "c63bc11c6ebf7511d2e27dd977db95b980c17b6d1b512a0ab4ee21291184a304",
+    "F10": "8d918e9182ea9fd817e480f87a041ab0077cc55a24d7b010cfdfaaa1345e1356",
+    "F11": "432e359616f1d1d4e9230b5a706637cf851049720430d57f83446ded0a81c884",
+    "F2": "229d035c873ac1cf554a08fa868cef1b46aeb9fbe850b5c52682110046b51782",
+    "F3": "21b6f048bb8ddaf8c622b49538698ba94164ae43404a76ba0ad11dad0ed39024",
+    "F4": "283247acd4fab609f87650d73f7bfec5d8079b3da99a119a412750c3aa793ddc",
+    "F5": "16a690eb13a858cc611e239e64c85f1052b873b591e0138b86513cefcbaee4c4",
+    "F9": "5e401ea8731f11331bafc7cd9cf49f9e1ba20aef772c417874b3aa89405cfb90",
+    "G": "3efce496c3a53fcf907ffe94aec7a944006d667d60350ef01e303f1e3f8e571a"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0",
+     "1*call_row_of_1"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "call-pre:chan-of",
+   "kind": "BODY",
+   "vars": [
+    "buf",
+    "c",
+    "call_col_of_3",
+    "call_row_of_1",
+    "h",
+    "i",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(= call_row_of_1 (/ i (* w c)))",
+    "(>= call_row_of_1 0)",
+    "(< call_row_of_1 h)",
+    "(= y call_row_of_1)",
+    "(= call_col_of_3 (/ (mod i (* w c)) c))",
+    "(>= call_col_of_3 0)",
+    "(< call_col_of_3 w)",
+    "(= x call_col_of_3)",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(and (>= c 1) (>= i 0))",
+   "facts": 1267,
+   "T": 12,
+   "capped": false,
+   "closure": 14,
+   "maxdeg": 3,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 36,
+    "F10": 120,
+    "F11": 54,
+    "F2": 48,
+    "F3": 24,
+    "F4": 480,
+    "F5": 464,
+    "F9": 5,
+    "G": 28
+   },
+   "fact_digests": {
+    "D0": "a5850da52bb6628cac64e6b9265e649007bee350192963be0e1b5f521428bd7e",
+    "D4": "3655fb9696ab7b219b3967896107ab496eadd7843cc1b597a6fc7001c28bc28e",
+    "F1": "f8ed68528c023487c458ca70325621f80fbb37b39b1a1f7728ee543608b5fef0",
+    "F10": "0a0f126beeeac36afaa0769c157bfaed985e40937a5b35d79e615fdc6fd4ffa6",
+    "F11": "983a04e010525007850ea50de24cdb9901967b5c73d307f1be0aa390ffc625a5",
+    "F2": "8031eeb07ce7793247841187e66576c1b230d30ff797a8254a472be789046044",
+    "F3": "5338b31772ed13bf97494fabed651d8719d526e720b7a06dff08a2f11fe4d0f9",
+    "F4": "380d9ba0dbec01f0c235a62b0b630132ce03fb93689fc4d709f45c19644d0d1b",
+    "F5": "ae94bacdb99a13e3a9a1ee128be8001ca60f4b487d91eda1dc728bfeaec7701d",
+    "F9": "84f66988a0ac52d7de957448f5d764ef6df4d241fdf2f77571999a9dc34a7a59",
+    "G": "67f00d45cb73fe62961360c36a1dc629d34dd287db204e42028c05f665d91f34"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0",
+     "1*call_row_of_1"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "0",
+     "1*call_col_of_3"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "call-pre:hflip-x",
+   "kind": "BODY",
+   "vars": [
+    "buf",
+    "c",
+    "call_chan_of_5",
+    "call_col_of_3",
+    "call_row_of_1",
+    "h",
+    "i",
+    "k",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(= call_row_of_1 (/ i (* w c)))",
+    "(>= call_row_of_1 0)",
+    "(< call_row_of_1 h)",
+    "(= y call_row_of_1)",
+    "(= call_col_of_3 (/ (mod i (* w c)) c))",
+    "(>= call_col_of_3 0)",
+    "(< call_col_of_3 w)",
+    "(= x call_col_of_3)",
+    "(= call_chan_of_5 (mod i c))",
+    "(>= call_chan_of_5 0)",
+    "(< call_chan_of_5 c)",
+    "(= k call_chan_of_5)",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(and (>= w 1) (and (>= x 0) (< x w)))",
+   "facts": 1505,
+   "T": 13,
+   "capped": false,
+   "closure": 17,
+   "maxdeg": 3,
+   "families": {
+    "D0": 9,
+    "D4": 6,
+    "F1": 39,
+    "F10": 144,
+    "F11": 60,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548,
+    "F9": 5,
+    "G": 40
+   },
+   "fact_digests": {
+    "D0": "87aa9d69b41a186ead4c9791075cc46cd351793b40273f71986bde38bfccccca",
+    "D4": "d25b66b196cad86d927e860ffb75b9aed4f7ba714155e07267be512bd105b603",
+    "F1": "5ed52b987de080d99c6fe20947b4655a9c71902db88e87346bc07ff8aaa0d421",
+    "F10": "b1d6e11469d546834c970ba9013fb03d634a19c4b5d7a226facef9f1d9fd04c1",
+    "F11": "e223eeae46c076172f419fc3bca09a9092c093109a9f897c004a530ae180dcea",
+    "F2": "0bdb69fdb3dff65c7851c58b17de34d1ffd5d4d4f175df59f4f04fed6882b52d",
+    "F3": "70c9e7c1e9d01e3ff3a48972bcaac18721836746e021879f2df5e8781edcab14",
+    "F4": "f11ca06d3a2fb131e0891a1fc319345ab136058648d26ea8f9076654456b00b8",
+    "F5": "469105d5964ffc7c9810400b10a25d8548123deb2d2bb48de2e51f831fc27df9",
+    "F9": "84f66988a0ac52d7de957448f5d764ef6df4d241fdf2f77571999a9dc34a7a59",
+    "G": "9f76be4b6aeaf4e2f326a5465e6576e4465950d1807b1548ecbfad73cc767cd3"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "0"
+    ],
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0",
+     "1*call_row_of_1"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "0",
+     "1*call_col_of_3"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "call-pre:offset",
+   "kind": "BODY",
+   "vars": [
+    "buf",
+    "c",
+    "call_chan_of_5",
+    "call_col_of_3",
+    "call_hflip_x_7",
+    "call_row_of_1",
+    "h",
+    "i",
+    "k",
+    "w",
+    "x",
+    "xf",
+    "y"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(= call_row_of_1 (/ i (* w c)))",
+    "(>= call_row_of_1 0)",
+    "(< call_row_of_1 h)",
+    "(= y call_row_of_1)",
+    "(= call_col_of_3 (/ (mod i (* w c)) c))",
+    "(>= call_col_of_3 0)",
+    "(< call_col_of_3 w)",
+    "(= x call_col_of_3)",
+    "(= call_chan_of_5 (mod i c))",
+    "(>= call_chan_of_5 0)",
+    "(< call_chan_of_5 c)",
+    "(= k call_chan_of_5)",
+    "(= call_hflip_x_7 (- (- w 1) x))",
+    "(= xf call_hflip_x_7)",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(and (>= w 1) (and (>= h 1) (and (>= c 1) (and (>= y 0) (and (< y h) (and (>= xf 0) (and (< xf w) (and (>= k 0) (< k c)))))))))",
+   "facts": 1505,
+   "T": 13,
+   "capped": false,
+   "closure": 17,
+   "maxdeg": 3,
+   "families": {
+    "D0": 9,
+    "D4": 6,
+    "F1": 39,
+    "F10": 144,
+    "F11": 60,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548,
+    "F9": 5,
+    "G": 40
+   },
+   "fact_digests": {
+    "D0": "87aa9d69b41a186ead4c9791075cc46cd351793b40273f71986bde38bfccccca",
+    "D4": "d25b66b196cad86d927e860ffb75b9aed4f7ba714155e07267be512bd105b603",
+    "F1": "5ed52b987de080d99c6fe20947b4655a9c71902db88e87346bc07ff8aaa0d421",
+    "F10": "b1d6e11469d546834c970ba9013fb03d634a19c4b5d7a226facef9f1d9fd04c1",
+    "F11": "e223eeae46c076172f419fc3bca09a9092c093109a9f897c004a530ae180dcea",
+    "F2": "0bdb69fdb3dff65c7851c58b17de34d1ffd5d4d4f175df59f4f04fed6882b52d",
+    "F3": "70c9e7c1e9d01e3ff3a48972bcaac18721836746e021879f2df5e8781edcab14",
+    "F4": "f11ca06d3a2fb131e0891a1fc319345ab136058648d26ea8f9076654456b00b8",
+    "F5": "469105d5964ffc7c9810400b10a25d8548123deb2d2bb48de2e51f831fc27df9",
+    "F9": "84f66988a0ac52d7de957448f5d764ef6df4d241fdf2f77571999a9dc34a7a59",
+    "G": "9f76be4b6aeaf4e2f326a5465e6576e4465950d1807b1548ecbfad73cc767cd3"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "0"
+    ],
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0",
+     "1*call_row_of_1"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "0",
+     "1*call_col_of_3"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "read",
+   "kind": "BODY",
+   "vars": [
+    "buf",
+    "c",
+    "call_chan_of_5",
+    "call_col_of_3",
+    "call_hflip_x_7",
+    "call_offset_9",
+    "call_row_of_1",
+    "h",
+    "i",
+    "j",
+    "k",
+    "w",
+    "x",
+    "xf",
+    "y"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(= call_row_of_1 (/ i (* w c)))",
+    "(>= call_row_of_1 0)",
+    "(< call_row_of_1 h)",
+    "(= y call_row_of_1)",
+    "(= call_col_of_3 (/ (mod i (* w c)) c))",
+    "(>= call_col_of_3 0)",
+    "(< call_col_of_3 w)",
+    "(= x call_col_of_3)",
+    "(= call_chan_of_5 (mod i c))",
+    "(>= call_chan_of_5 0)",
+    "(< call_chan_of_5 c)",
+    "(= k call_chan_of_5)",
+    "(= call_hflip_x_7 (- (- w 1) x))",
+    "(= xf call_hflip_x_7)",
+    "(= call_offset_9 (+ (* (+ (* y w) xf) c) k))",
+    "(>= call_offset_9 0)",
+    "(< call_offset_9 (* (* w h) c))",
+    "(= j call_offset_9)",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(and (>= j 0) (< j (bytesLen buf)))",
+   "facts": 1813,
+   "T": 14,
+   "capped": false,
+   "closure": 22,
+   "maxdeg": 3,
+   "families": {
+    "D0": 9,
+    "D4": 6,
+    "F1": 42,
+    "F10": 170,
+    "F11": 63,
+    "F2": 56,
+    "F3": 28,
+    "F4": 680,
+    "F5": 638,
+    "F9": 9,
+    "G": 112
+   },
+   "fact_digests": {
+    "D0": "87aa9d69b41a186ead4c9791075cc46cd351793b40273f71986bde38bfccccca",
+    "D4": "d25b66b196cad86d927e860ffb75b9aed4f7ba714155e07267be512bd105b603",
+    "F1": "c2ee4d1411e4c7958e413f5544d1bf71a0473d810b9a3e0ea2ab2b5ff80830b5",
+    "F10": "3c7b6dc2ddf4b805044a2f1a2501474141096fa07273b15f9c77cdb2656efd6c",
+    "F11": "304eb279bbdc26cc13b1b6ab2ca74c3d3aa12c75ead3d41aeed41c2c6dc840b6",
+    "F2": "b330b52165e4001fbc2e02a4d76150d58f26b360246c848bc3ce9d1f2545e2c5",
+    "F3": "2ec1f1366124ba9cd3a8b728eee3a236ae9bef92340c637c880c001598613d35",
+    "F4": "e47db71770e3a9b705b849e3693d706309f47118b59e117a5033bca28be85703",
+    "F5": "c4318a9cd5a4e8fb486fc069911e65997920c4297d6e12d3fbcf08191de41052",
+    "F9": "14d54e6f4cb2330f3d38eddc75f06017a4e4cd959433f27c8d0ebdb4d28d8a9a",
+    "G": "c901ed0a0b75528985045d57b426034990294defbccb0bf9d6410c517055b2ce"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0"
+    ],
+    "1*i|1*c.w": [
+     "-1*+1*call_row_of_1",
+     "-1*+1*h",
+     "-1*+1*vdiv[1*i|1*c.w]",
+     "-1*+1*y",
+     "0",
+     "1*call_row_of_1"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0",
+     "1*call_col_of_3"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "buf",
+    "c",
+    "call_chan_of_5",
+    "call_col_of_3",
+    "call_hflip_x_7",
+    "call_offset_9",
+    "call_row_of_1",
+    "h",
+    "i",
+    "j",
+    "k",
+    "result",
+    "w",
+    "x",
+    "xf",
+    "y"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(= call_row_of_1 (/ i (* w c)))",
+    "(>= call_row_of_1 0)",
+    "(< call_row_of_1 h)",
+    "(= y call_row_of_1)",
+    "(= call_col_of_3 (/ (mod i (* w c)) c))",
+    "(>= call_col_of_3 0)",
+    "(< call_col_of_3 w)",
+    "(= x call_col_of_3)",
+    "(= call_chan_of_5 (mod i c))",
+    "(>= call_chan_of_5 0)",
+    "(< call_chan_of_5 c)",
+    "(= k call_chan_of_5)",
+    "(= call_hflip_x_7 (- (- w 1) x))",
+    "(= xf call_hflip_x_7)",
+    "(= call_offset_9 (+ (* (+ (* y w) xf) c) k))",
+    "(>= call_offset_9 0)",
+    "(< call_offset_9 (* (* w h) c))",
+    "(= j call_offset_9)",
+    "(= result (select buf j))",
+    "(>= (select buf j) 0)",
+    "(<= (select buf j) 255)",
+    "(>= (select buf (+ (* (+ (* (/ i (* w c)) w) (- (- w 1) (/ (mod i (* w c)) c))) c) (mod i c))) 0)",
+    "(<= (select buf (+ (* (+ (* (/ i (* w c)) w) (- (- w 1) (/ (mod i (* w c)) c))) c) (mod i c))) 255)",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(= result (select buf (+ (* (+ (* (/ i (* w c)) w) (- (- w 1) (/ (mod i (* w c)) c))) c) (mod i c))))",
+   "facts": 1933,
+   "T": 14,
+   "capped": false,
+   "closure": 69,
+   "maxdeg": 3,
+   "families": {
+    "D0": 9,
+    "D4": 6,
+    "F1": 42,
+    "F10": 170,
+    "F11": 84,
+    "F2": 56,
+    "F3": 28,
+    "F4": 680,
+    "F5": 638,
+    "F9": 108,
+    "G": 112
+   },
+   "fact_digests": {
+    "D0": "87aa9d69b41a186ead4c9791075cc46cd351793b40273f71986bde38bfccccca",
+    "D4": "d25b66b196cad86d927e860ffb75b9aed4f7ba714155e07267be512bd105b603",
+    "F1": "c2ee4d1411e4c7958e413f5544d1bf71a0473d810b9a3e0ea2ab2b5ff80830b5",
+    "F10": "3c7b6dc2ddf4b805044a2f1a2501474141096fa07273b15f9c77cdb2656efd6c",
+    "F11": "e22c03834de0eae29c6892f9ba03658aded98f992786a6e8e631825b67c26378",
+    "F2": "b330b52165e4001fbc2e02a4d76150d58f26b360246c848bc3ce9d1f2545e2c5",
+    "F3": "2ec1f1366124ba9cd3a8b728eee3a236ae9bef92340c637c880c001598613d35",
+    "F4": "e47db71770e3a9b705b849e3693d706309f47118b59e117a5033bca28be85703",
+    "F5": "c4318a9cd5a4e8fb486fc069911e65997920c4297d6e12d3fbcf08191de41052",
+    "F9": "a923c10e32dd6f6ceb91922964fe9346bf6efc7d6453da8dfc3f8bb2870871c0",
+    "G": "c901ed0a0b75528985045d57b426034990294defbccb0bf9d6410c517055b2ce"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0"
+    ],
+    "1*i|1*c.w": [
+     "-1*+1*call_row_of_1",
+     "-1*+1*h",
+     "-1*+1*vdiv[1*i|1*c.w]",
+     "-1*+1*y",
+     "0",
+     "1*call_row_of_1"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0",
+     "1*call_col_of_3"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "buf",
+    "c",
+    "call_chan_of_5",
+    "call_col_of_3",
+    "call_hflip_x_7",
+    "call_offset_9",
+    "call_row_of_1",
+    "h",
+    "i",
+    "j",
+    "k",
+    "result",
+    "w",
+    "x",
+    "xf",
+    "y"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(= call_row_of_1 (/ i (* w c)))",
+    "(>= call_row_of_1 0)",
+    "(< call_row_of_1 h)",
+    "(= y call_row_of_1)",
+    "(= call_col_of_3 (/ (mod i (* w c)) c))",
+    "(>= call_col_of_3 0)",
+    "(< call_col_of_3 w)",
+    "(= x call_col_of_3)",
+    "(= call_chan_of_5 (mod i c))",
+    "(>= call_chan_of_5 0)",
+    "(< call_chan_of_5 c)",
+    "(= k call_chan_of_5)",
+    "(= call_hflip_x_7 (- (- w 1) x))",
+    "(= xf call_hflip_x_7)",
+    "(= call_offset_9 (+ (* (+ (* y w) xf) c) k))",
+    "(>= call_offset_9 0)",
+    "(< call_offset_9 (* (* w h) c))",
+    "(= j call_offset_9)",
+    "(= result (select buf j))",
+    "(>= (select buf j) 0)",
+    "(<= (select buf j) 255)",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(>= (* w c) 1)",
+   "facts": 1933,
+   "T": 14,
+   "capped": false,
+   "closure": 69,
+   "maxdeg": 3,
+   "families": {
+    "D0": 9,
+    "D4": 6,
+    "F1": 42,
+    "F10": 170,
+    "F11": 84,
+    "F2": 56,
+    "F3": 28,
+    "F4": 680,
+    "F5": 638,
+    "F9": 108,
+    "G": 112
+   },
+   "fact_digests": {
+    "D0": "87aa9d69b41a186ead4c9791075cc46cd351793b40273f71986bde38bfccccca",
+    "D4": "d25b66b196cad86d927e860ffb75b9aed4f7ba714155e07267be512bd105b603",
+    "F1": "c2ee4d1411e4c7958e413f5544d1bf71a0473d810b9a3e0ea2ab2b5ff80830b5",
+    "F10": "3c7b6dc2ddf4b805044a2f1a2501474141096fa07273b15f9c77cdb2656efd6c",
+    "F11": "e22c03834de0eae29c6892f9ba03658aded98f992786a6e8e631825b67c26378",
+    "F2": "b330b52165e4001fbc2e02a4d76150d58f26b360246c848bc3ce9d1f2545e2c5",
+    "F3": "2ec1f1366124ba9cd3a8b728eee3a236ae9bef92340c637c880c001598613d35",
+    "F4": "e47db71770e3a9b705b849e3693d706309f47118b59e117a5033bca28be85703",
+    "F5": "c4318a9cd5a4e8fb486fc069911e65997920c4297d6e12d3fbcf08191de41052",
+    "F9": "a923c10e32dd6f6ceb91922964fe9346bf6efc7d6453da8dfc3f8bb2870871c0",
+    "G": "c901ed0a0b75528985045d57b426034990294defbccb0bf9d6410c517055b2ce"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0"
+    ],
+    "1*i|1*c.w": [
+     "-1*+1*call_row_of_1",
+     "-1*+1*h",
+     "-1*+1*vdiv[1*i|1*c.w]",
+     "-1*+1*y",
+     "0",
+     "1*call_row_of_1"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0",
+     "1*call_col_of_3"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "wd-post(pre-only):/",
+   "kind": "WD",
+   "vars": [
+    "buf",
+    "c",
+    "h",
+    "i",
+    "w"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(>= (* w c) 1)",
+   "facts": 295,
+   "T": 6,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F11": 18,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102,
+    "F9": 1
+   },
+   "fact_digests": {
+    "F1": "dccde78e4e66f2d7053215cfa88bb358dd1de860314126390ec288d4f46b5aa9",
+    "F10": "4a105eec6ba8e41b3477f0cdd228ee49bddc464cdb71e81c65a79d1d4b67a917",
+    "F11": "3656a378ce2845323e31489086e62638cc86832df0b31a9cc33a30bb68b93728",
+    "F2": "376aa64ad6d4b48da5ce8ad379a5347fefc9c336e372e5fdd2f55dfc7f45185b",
+    "F3": "ae2e30595c4b5dd8caee7f8b039e2a2f9d43ffd1de28a84bbf33cc7b71156e4c",
+    "F4": "75fa5ace76cb7ae38a98436644214519c28ded656cbeadb68a83fd3a8074c83e",
+    "F5": "ba242f8095136580b9a6c2f61377a43d6f3fdb566058a0d0338597d38d3b54cf",
+    "F9": "7eaf82fb921651eebfe9b354cc585038e3bee513b6b6a7b99da9df683b2a958e"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "wd-post:mod",
+   "kind": "WD",
+   "vars": [
+    "buf",
+    "c",
+    "call_chan_of_5",
+    "call_col_of_3",
+    "call_hflip_x_7",
+    "call_offset_9",
+    "call_row_of_1",
+    "h",
+    "i",
+    "j",
+    "k",
+    "result",
+    "w",
+    "x",
+    "xf",
+    "y"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(= call_row_of_1 (/ i (* w c)))",
+    "(>= call_row_of_1 0)",
+    "(< call_row_of_1 h)",
+    "(= y call_row_of_1)",
+    "(= call_col_of_3 (/ (mod i (* w c)) c))",
+    "(>= call_col_of_3 0)",
+    "(< call_col_of_3 w)",
+    "(= x call_col_of_3)",
+    "(= call_chan_of_5 (mod i c))",
+    "(>= call_chan_of_5 0)",
+    "(< call_chan_of_5 c)",
+    "(= k call_chan_of_5)",
+    "(= call_hflip_x_7 (- (- w 1) x))",
+    "(= xf call_hflip_x_7)",
+    "(= call_offset_9 (+ (* (+ (* y w) xf) c) k))",
+    "(>= call_offset_9 0)",
+    "(< call_offset_9 (* (* w h) c))",
+    "(= j call_offset_9)",
+    "(= result (select buf j))",
+    "(>= (select buf j) 0)",
+    "(<= (select buf j) 255)",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(>= (* w c) 1)",
+   "facts": 1933,
+   "T": 14,
+   "capped": false,
+   "closure": 69,
+   "maxdeg": 3,
+   "families": {
+    "D0": 9,
+    "D4": 6,
+    "F1": 42,
+    "F10": 170,
+    "F11": 84,
+    "F2": 56,
+    "F3": 28,
+    "F4": 680,
+    "F5": 638,
+    "F9": 108,
+    "G": 112
+   },
+   "fact_digests": {
+    "D0": "87aa9d69b41a186ead4c9791075cc46cd351793b40273f71986bde38bfccccca",
+    "D4": "d25b66b196cad86d927e860ffb75b9aed4f7ba714155e07267be512bd105b603",
+    "F1": "c2ee4d1411e4c7958e413f5544d1bf71a0473d810b9a3e0ea2ab2b5ff80830b5",
+    "F10": "3c7b6dc2ddf4b805044a2f1a2501474141096fa07273b15f9c77cdb2656efd6c",
+    "F11": "e22c03834de0eae29c6892f9ba03658aded98f992786a6e8e631825b67c26378",
+    "F2": "b330b52165e4001fbc2e02a4d76150d58f26b360246c848bc3ce9d1f2545e2c5",
+    "F3": "2ec1f1366124ba9cd3a8b728eee3a236ae9bef92340c637c880c001598613d35",
+    "F4": "e47db71770e3a9b705b849e3693d706309f47118b59e117a5033bca28be85703",
+    "F5": "c4318a9cd5a4e8fb486fc069911e65997920c4297d6e12d3fbcf08191de41052",
+    "F9": "a923c10e32dd6f6ceb91922964fe9346bf6efc7d6453da8dfc3f8bb2870871c0",
+    "G": "c901ed0a0b75528985045d57b426034990294defbccb0bf9d6410c517055b2ce"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0"
+    ],
+    "1*i|1*c.w": [
+     "-1*+1*call_row_of_1",
+     "-1*+1*h",
+     "-1*+1*vdiv[1*i|1*c.w]",
+     "-1*+1*y",
+     "0",
+     "1*call_row_of_1"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0",
+     "1*call_col_of_3"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "wd-post(pre-only):mod",
+   "kind": "WD",
+   "vars": [
+    "buf",
+    "c",
+    "h",
+    "i",
+    "w"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(>= (* w c) 1)",
+   "facts": 295,
+   "T": 6,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F11": 18,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102,
+    "F9": 1
+   },
+   "fact_digests": {
+    "F1": "dccde78e4e66f2d7053215cfa88bb358dd1de860314126390ec288d4f46b5aa9",
+    "F10": "4a105eec6ba8e41b3477f0cdd228ee49bddc464cdb71e81c65a79d1d4b67a917",
+    "F11": "3656a378ce2845323e31489086e62638cc86832df0b31a9cc33a30bb68b93728",
+    "F2": "376aa64ad6d4b48da5ce8ad379a5347fefc9c336e372e5fdd2f55dfc7f45185b",
+    "F3": "ae2e30595c4b5dd8caee7f8b039e2a2f9d43ffd1de28a84bbf33cc7b71156e4c",
+    "F4": "75fa5ace76cb7ae38a98436644214519c28ded656cbeadb68a83fd3a8074c83e",
+    "F5": "ba242f8095136580b9a6c2f61377a43d6f3fdb566058a0d0338597d38d3b54cf",
+    "F9": "7eaf82fb921651eebfe9b354cc585038e3bee513b6b6a7b99da9df683b2a958e"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "wd-post:read",
+   "kind": "WD",
+   "vars": [
+    "buf",
+    "c",
+    "call_chan_of_5",
+    "call_col_of_3",
+    "call_hflip_x_7",
+    "call_offset_9",
+    "call_row_of_1",
+    "h",
+    "i",
+    "j",
+    "k",
+    "result",
+    "w",
+    "x",
+    "xf",
+    "y"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(= call_row_of_1 (/ i (* w c)))",
+    "(>= call_row_of_1 0)",
+    "(< call_row_of_1 h)",
+    "(= y call_row_of_1)",
+    "(= call_col_of_3 (/ (mod i (* w c)) c))",
+    "(>= call_col_of_3 0)",
+    "(< call_col_of_3 w)",
+    "(= x call_col_of_3)",
+    "(= call_chan_of_5 (mod i c))",
+    "(>= call_chan_of_5 0)",
+    "(< call_chan_of_5 c)",
+    "(= k call_chan_of_5)",
+    "(= call_hflip_x_7 (- (- w 1) x))",
+    "(= xf call_hflip_x_7)",
+    "(= call_offset_9 (+ (* (+ (* y w) xf) c) k))",
+    "(>= call_offset_9 0)",
+    "(< call_offset_9 (* (* w h) c))",
+    "(= j call_offset_9)",
+    "(= result (select buf j))",
+    "(>= (select buf j) 0)",
+    "(<= (select buf j) 255)",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(and (>= (+ (* (+ (* (/ i (* w c)) w) (- (- w 1) (/ (mod i (* w c)) c))) c) (mod i c)) 0) (< (+ (* (+ (* (/ i (* w c)) w) (- (- w 1) (/ (mod i (* w c)) c))) c) (mod i c)) (bytesLen buf)))",
+   "facts": 1933,
+   "T": 14,
+   "capped": false,
+   "closure": 69,
+   "maxdeg": 3,
+   "families": {
+    "D0": 9,
+    "D4": 6,
+    "F1": 42,
+    "F10": 170,
+    "F11": 84,
+    "F2": 56,
+    "F3": 28,
+    "F4": 680,
+    "F5": 638,
+    "F9": 108,
+    "G": 112
+   },
+   "fact_digests": {
+    "D0": "87aa9d69b41a186ead4c9791075cc46cd351793b40273f71986bde38bfccccca",
+    "D4": "d25b66b196cad86d927e860ffb75b9aed4f7ba714155e07267be512bd105b603",
+    "F1": "c2ee4d1411e4c7958e413f5544d1bf71a0473d810b9a3e0ea2ab2b5ff80830b5",
+    "F10": "3c7b6dc2ddf4b805044a2f1a2501474141096fa07273b15f9c77cdb2656efd6c",
+    "F11": "e22c03834de0eae29c6892f9ba03658aded98f992786a6e8e631825b67c26378",
+    "F2": "b330b52165e4001fbc2e02a4d76150d58f26b360246c848bc3ce9d1f2545e2c5",
+    "F3": "2ec1f1366124ba9cd3a8b728eee3a236ae9bef92340c637c880c001598613d35",
+    "F4": "e47db71770e3a9b705b849e3693d706309f47118b59e117a5033bca28be85703",
+    "F5": "c4318a9cd5a4e8fb486fc069911e65997920c4297d6e12d3fbcf08191de41052",
+    "F9": "a923c10e32dd6f6ceb91922964fe9346bf6efc7d6453da8dfc3f8bb2870871c0",
+    "G": "c901ed0a0b75528985045d57b426034990294defbccb0bf9d6410c517055b2ce"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0"
+    ],
+    "1*i|1*c.w": [
+     "-1*+1*call_row_of_1",
+     "-1*+1*h",
+     "-1*+1*vdiv[1*i|1*c.w]",
+     "-1*+1*y",
+     "0",
+     "1*call_row_of_1"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*call_col_of_3",
+     "-1*+1*call_hflip_x_7",
+     "-1*+1*call_row_of_1.w",
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "-1*+1*xf",
+     "0",
+     "1*call_col_of_3"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "1",
+   "label": "hflip-at",
+   "tag": "wd-post(pre-only):read",
+   "kind": "WD",
+   "vars": [
+    "buf",
+    "c",
+    "h",
+    "i",
+    "w"
+   ],
+   "sorts": {
+    "buf": "bytes"
+   },
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(or (= c 1) (= c 3))",
+    "(<= (* (* w h) c) 268435456)",
+    "(= (bytesLen buf) (* (* w h) c))",
+    "(>= i 0)",
+    "(< i (bytesLen buf))",
+    "(>= (bytesLen buf) 0)"
+   ],
+   "goal": "(and (>= (+ (* (+ (* (/ i (* w c)) w) (- (- w 1) (/ (mod i (* w c)) c))) c) (mod i c)) 0) (< (+ (* (+ (* (/ i (* w c)) w) (- (- w 1) (/ (mod i (* w c)) c))) c) (mod i c)) (bytesLen buf)))",
+   "facts": 1741,
+   "T": 14,
+   "capped": false,
+   "closure": 14,
+   "maxdeg": 3,
+   "families": {
+    "D0": 9,
+    "D4": 6,
+    "F1": 42,
+    "F10": 170,
+    "F11": 63,
+    "F2": 56,
+    "F3": 28,
+    "F4": 680,
+    "F5": 638,
+    "F9": 1,
+    "G": 48
+   },
+   "fact_digests": {
+    "D0": "87aa9d69b41a186ead4c9791075cc46cd351793b40273f71986bde38bfccccca",
+    "D4": "d25b66b196cad86d927e860ffb75b9aed4f7ba714155e07267be512bd105b603",
+    "F1": "c2ee4d1411e4c7958e413f5544d1bf71a0473d810b9a3e0ea2ab2b5ff80830b5",
+    "F10": "3c7b6dc2ddf4b805044a2f1a2501474141096fa07273b15f9c77cdb2656efd6c",
+    "F11": "304eb279bbdc26cc13b1b6ab2ca74c3d3aa12c75ead3d41aeed41c2c6dc840b6",
+    "F2": "b330b52165e4001fbc2e02a4d76150d58f26b360246c848bc3ce9d1f2545e2c5",
+    "F3": "2ec1f1366124ba9cd3a8b728eee3a236ae9bef92340c637c880c001598613d35",
+    "F4": "e47db71770e3a9b705b849e3693d706309f47118b59e117a5033bca28be85703",
+    "F5": "c4318a9cd5a4e8fb486fc069911e65997920c4297d6e12d3fbcf08191de41052",
+    "F9": "7eaf82fb921651eebfe9b354cc585038e3bee513b6b6a7b99da9df683b2a958e",
+    "G": "3e37d6ceffabd17bc31910aec971c1eae11ef2fe2e1aed86fe5aa1cf3f5ce2ff"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "0"
+    ],
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "-1*+1*vdiv[1*i|1*c.w]",
+     "0"
+    ],
+    "1*vmod[1*i|1*c.w]|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*vdiv[1*i|1*c.w].w",
+     "-1*+1*vdiv[1*vmod[1*i|1*c.w]|1*c]",
+     "-1*+1*w",
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "2",
+   "label": "scale-src sw=1, post as written",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "dw",
+    "sw",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(= sw 1)",
+    "(>= sw 1)",
+    "(>= dw 1)",
+    "(>= x 0)",
+    "(< x dw)"
+   ],
+   "goal": "(>= dw 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "2",
+   "label": "scale-src sw=1, post as written",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "dw",
+    "result",
+    "sw",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(= sw 1)",
+    "(>= sw 1)",
+    "(>= dw 1)",
+    "(>= x 0)",
+    "(< x dw)",
+    "(= result (/ (* x sw) dw))"
+   ],
+   "goal": "(and (= result (/ (* x sw) dw)) (and (>= result 0) (< result sw)))",
+   "facts": 36,
+   "T": 1,
+   "capped": false,
+   "closure": 8,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F9": 5,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "74bd3ba96a3acb8247b597f1fce372757b875292679f77f9138be42ee5b8204e",
+    "D4": "f4b962fed1ad3922399ae0ee270b503509b0f93d6c236aa6bcb5ede9e3a2a252",
+    "F1": "d60a952ad6d543f907a04e4f89a438b040e407f50f1cd546bd77b44870f04e9a",
+    "F11": "6b19a45dc00d2713a413e3cf38be3d84d2fee9010ebb85db52e57c701d993862",
+    "F2": "83044394323daa0a83f0401643d43960d5a17cbac46c6c4ff16b994ae625874d",
+    "F3": "57ef4f41e22fdf92c91f0c2b3d01e3a6d94edacbde2330dd81c800793f9cc742",
+    "F9": "c364d838dc09e989a72cb41754b6e6fc5ae07dcb9b128fd60d045b9e3fa9adfc",
+    "G": "f0804d081ea0d0cc0236abbf0493d5ea07c91a92348e9f64dcbba78d949627fd"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*sw.x|1*dw": [
+     "0",
+     "1*result"
+    ],
+    "1*x|1*dw": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "2",
+   "label": "scale-src sw=1, post as written",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "dw",
+    "result",
+    "sw",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(= sw 1)",
+    "(>= sw 1)",
+    "(>= dw 1)",
+    "(>= x 0)",
+    "(< x dw)",
+    "(= result (/ (* x sw) dw))"
+   ],
+   "goal": "(>= dw 1)",
+   "facts": 36,
+   "T": 1,
+   "capped": false,
+   "closure": 8,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F9": 5,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "74bd3ba96a3acb8247b597f1fce372757b875292679f77f9138be42ee5b8204e",
+    "D4": "f4b962fed1ad3922399ae0ee270b503509b0f93d6c236aa6bcb5ede9e3a2a252",
+    "F1": "d60a952ad6d543f907a04e4f89a438b040e407f50f1cd546bd77b44870f04e9a",
+    "F11": "6b19a45dc00d2713a413e3cf38be3d84d2fee9010ebb85db52e57c701d993862",
+    "F2": "83044394323daa0a83f0401643d43960d5a17cbac46c6c4ff16b994ae625874d",
+    "F3": "57ef4f41e22fdf92c91f0c2b3d01e3a6d94edacbde2330dd81c800793f9cc742",
+    "F9": "c364d838dc09e989a72cb41754b6e6fc5ae07dcb9b128fd60d045b9e3fa9adfc",
+    "G": "f0804d081ea0d0cc0236abbf0493d5ea07c91a92348e9f64dcbba78d949627fd"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*sw.x|1*dw": [
+     "0",
+     "1*result"
+    ],
+    "1*x|1*dw": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "2",
+   "label": "scale-src sw=1, (= result 0)",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "dw",
+    "sw",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(= sw 1)",
+    "(>= sw 1)",
+    "(>= dw 1)",
+    "(>= x 0)",
+    "(< x dw)"
+   ],
+   "goal": "(>= dw 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "2",
+   "label": "scale-src sw=1, (= result 0)",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "dw",
+    "result",
+    "sw",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(= sw 1)",
+    "(>= sw 1)",
+    "(>= dw 1)",
+    "(>= x 0)",
+    "(< x dw)",
+    "(= result (/ (* x sw) dw))"
+   ],
+   "goal": "(= result 0)",
+   "facts": 36,
+   "T": 1,
+   "capped": false,
+   "closure": 8,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F9": 5,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "74bd3ba96a3acb8247b597f1fce372757b875292679f77f9138be42ee5b8204e",
+    "D4": "f4b962fed1ad3922399ae0ee270b503509b0f93d6c236aa6bcb5ede9e3a2a252",
+    "F1": "d60a952ad6d543f907a04e4f89a438b040e407f50f1cd546bd77b44870f04e9a",
+    "F11": "6b19a45dc00d2713a413e3cf38be3d84d2fee9010ebb85db52e57c701d993862",
+    "F2": "83044394323daa0a83f0401643d43960d5a17cbac46c6c4ff16b994ae625874d",
+    "F3": "57ef4f41e22fdf92c91f0c2b3d01e3a6d94edacbde2330dd81c800793f9cc742",
+    "F9": "c364d838dc09e989a72cb41754b6e6fc5ae07dcb9b128fd60d045b9e3fa9adfc",
+    "G": "f0804d081ea0d0cc0236abbf0493d5ea07c91a92348e9f64dcbba78d949627fd"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*sw.x|1*dw": [
+     "0",
+     "1*result"
+    ],
+    "1*x|1*dw": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "3",
+   "label": "row-of, body (let ((stride (* w c))) (/ i stride))",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "stride",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))",
+    "(= stride (* w c))"
+   ],
+   "goal": "(>= stride 1)",
+   "facts": 276,
+   "T": 6,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 3,
+   "families": {
+    "F1": 18,
+    "F10": 24,
+    "F2": 24,
+    "F3": 12,
+    "F4": 96,
+    "F5": 102
+   },
+   "fact_digests": {
+    "F1": "dccde78e4e66f2d7053215cfa88bb358dd1de860314126390ec288d4f46b5aa9",
+    "F10": "4a105eec6ba8e41b3477f0cdd228ee49bddc464cdb71e81c65a79d1d4b67a917",
+    "F2": "376aa64ad6d4b48da5ce8ad379a5347fefc9c336e372e5fdd2f55dfc7f45185b",
+    "F3": "ae2e30595c4b5dd8caee7f8b039e2a2f9d43ffd1de28a84bbf33cc7b71156e4c",
+    "F4": "75fa5ace76cb7ae38a98436644214519c28ded656cbeadb68a83fd3a8074c83e",
+    "F5": "ba242f8095136580b9a6c2f61377a43d6f3fdb566058a0d0338597d38d3b54cf"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "3",
+   "label": "row-of, body (let ((stride (* w c))) (/ i stride))",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "result",
+    "stride",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))",
+    "(= stride (* w c))",
+    "(= result (/ i stride))"
+   ],
+   "goal": "(and (= result (/ i (* w c))) (and (>= result 0) (< result h)))",
+   "facts": 1024,
+   "T": 11,
+   "capped": false,
+   "closure": 11,
+   "maxdeg": 3,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 33,
+    "F10": 98,
+    "F11": 16,
+    "F2": 44,
+    "F3": 22,
+    "F4": 392,
+    "F5": 386,
+    "F9": 5,
+    "G": 20
+   },
+   "fact_digests": {
+    "D0": "5d05a713534258314bc8cd722f009ed1e509584730ad5d7c0eece53df2f8e1e8",
+    "D4": "45d200c6a8c0116153922ce9669b5adf3104d222b8ba93c2920380d31a6ff586",
+    "F1": "c63bc11c6ebf7511d2e27dd977db95b980c17b6d1b512a0ab4ee21291184a304",
+    "F10": "8d918e9182ea9fd817e480f87a041ab0077cc55a24d7b010cfdfaaa1345e1356",
+    "F11": "daf7e71a3fa4139703b706b0d550b021c496fb97a62e7b560629f53e0d14a508",
+    "F2": "229d035c873ac1cf554a08fa868cef1b46aeb9fbe850b5c52682110046b51782",
+    "F3": "21b6f048bb8ddaf8c622b49538698ba94164ae43404a76ba0ad11dad0ed39024",
+    "F4": "283247acd4fab609f87650d73f7bfec5d8079b3da99a119a412750c3aa793ddc",
+    "F5": "16a690eb13a858cc611e239e64c85f1052b873b591e0138b86513cefcbaee4c4",
+    "F9": "ee140abe1831621e3ca8daf7902fee580a87bf5bb1cb18ba57c848f6914f8c8c",
+    "G": "660b7d1c3e5bbfe3848681c4087b8d43655ded528d6ddd1bdf51d5f5ab282c0a"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0",
+     "1*result"
+    ],
+    "1*i|1*stride": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "3",
+   "label": "row-of, body (let ((stride (* w c))) (/ i stride))",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "c",
+    "h",
+    "i",
+    "result",
+    "stride",
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= c 1)",
+    "(>= h 1)",
+    "(>= i 0)",
+    "(< i (* (* w h) c))",
+    "(= stride (* w c))",
+    "(= result (/ i stride))"
+   ],
+   "goal": "(>= (* w c) 1)",
+   "facts": 1020,
+   "T": 11,
+   "capped": false,
+   "closure": 11,
+   "maxdeg": 3,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 33,
+    "F10": 98,
+    "F11": 16,
+    "F2": 44,
+    "F3": 22,
+    "F4": 392,
+    "F5": 386,
+    "F9": 5,
+    "G": 16
+   },
+   "fact_digests": {
+    "D0": "5d05a713534258314bc8cd722f009ed1e509584730ad5d7c0eece53df2f8e1e8",
+    "D4": "45d200c6a8c0116153922ce9669b5adf3104d222b8ba93c2920380d31a6ff586",
+    "F1": "c63bc11c6ebf7511d2e27dd977db95b980c17b6d1b512a0ab4ee21291184a304",
+    "F10": "8d918e9182ea9fd817e480f87a041ab0077cc55a24d7b010cfdfaaa1345e1356",
+    "F11": "daf7e71a3fa4139703b706b0d550b021c496fb97a62e7b560629f53e0d14a508",
+    "F2": "229d035c873ac1cf554a08fa868cef1b46aeb9fbe850b5c52682110046b51782",
+    "F3": "21b6f048bb8ddaf8c622b49538698ba94164ae43404a76ba0ad11dad0ed39024",
+    "F4": "283247acd4fab609f87650d73f7bfec5d8079b3da99a119a412750c3aa793ddc",
+    "F5": "16a690eb13a858cc611e239e64c85f1052b873b591e0138b86513cefcbaee4c4",
+    "F9": "ee140abe1831621e3ca8daf7902fee580a87bf5bb1cb18ba57c848f6914f8c8c",
+    "G": "6dde24bd72e9bafe60bbc9a964022f99c88c0ba433c04cc51bf0faafb57de5d7"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*i|1*c.w": [
+     "-1*+1*h",
+     "0"
+    ],
+    "1*i|1*stride": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "4",
+   "label": "row-of(offset(y,x,k)) = y",
+   "tag": "call-pre:offset",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "h",
+    "k",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k c)"
+   ],
+   "goal": "(and (>= w 1) (and (>= h 1) (and (>= c 1) (and (>= y 0) (and (< y h) (and (>= x 0) (and (< x w) (and (>= k 0) (< k c)))))))))",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "4",
+   "label": "row-of(offset(y,x,k)) = y",
+   "tag": "call-pre:row-of",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "call_offset_1",
+    "h",
+    "k",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k c)",
+    "(= call_offset_1 (+ (* (+ (* y w) x) c) k))",
+    "(>= call_offset_1 0)",
+    "(< call_offset_1 (* (* w h) c))"
+   ],
+   "goal": "(and (>= w 1) (and (>= c 1) (and (>= h 1) (and (>= call_offset_1 0) (< call_offset_1 (* (* w h) c))))))",
+   "facts": 1383,
+   "T": 13,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 142,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548
+   },
+   "fact_digests": {
+    "F1": "2b17d700e5d9d227cb21db48c4c007be2bdfb95e49f9c48cb805d1f17d6a7d32",
+    "F10": "e5cfaddff2ef65d0d6c4e5d296b31ed50692abf63ed42c473add75f5f93c8c34",
+    "F2": "cec90af0b8494eefe28ea5afe5ce6cbb663d418d13e3e65a87efa30d6bd9e46a",
+    "F3": "7b8d01b88d87a0f8a6fe732d79e390fc52221567ec3b029d34615eb8e6767498",
+    "F4": "78cf865b8cac94cdf82bc50d7a440898712bd7b0e5b7f015d9511274ca66bf5a",
+    "F5": "a104472d22b25b275d485bb6c084570249b55e4e0279aad3b87e1bb65c1eae72"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "4",
+   "label": "row-of(offset(y,x,k)) = y",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "c",
+    "call_offset_1",
+    "call_row_of_2",
+    "h",
+    "k",
+    "result",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k c)",
+    "(= call_offset_1 (+ (* (+ (* y w) x) c) k))",
+    "(>= call_offset_1 0)",
+    "(< call_offset_1 (* (* w h) c))",
+    "(= call_row_of_2 (/ call_offset_1 (* w c)))",
+    "(>= call_row_of_2 0)",
+    "(< call_row_of_2 h)",
+    "(= result call_row_of_2)"
+   ],
+   "goal": "(= result y)",
+   "facts": 2751,
+   "T": 18,
+   "capped": false,
+   "closure": 12,
+   "maxdeg": 3,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 54,
+    "F10": 286,
+    "F11": 26,
+    "F2": 72,
+    "F3": 36,
+    "F4": 1152,
+    "F5": 1086,
+    "F9": 3,
+    "G": 28
+   },
+   "fact_digests": {
+    "D0": "172408bbd0de72a4f27d8e882ea33d2015c93ff575e475c83293047f3cdb5488",
+    "D4": "d45028385c8fac9191914f9d80476479ead8148ab09e4cdfe2569c037a044610",
+    "F1": "9d8a0e6fecb4805f8116810578f8bff2e657f32bd9d96082d63e01d0bb1253c2",
+    "F10": "54c1144cf67841f07e2c9886ae918619aa20d1fbbb4594a2e21dddf5836fe8a2",
+    "F11": "b6d062c7dfa0aad9bb1d9c0be551fd8d3e0ff6abf96c1c3c67340269fe6af1c3",
+    "F2": "bb1aacc157e8aee56af7b68f58a08493f1e03b0c7b32e579538cfeb4f08c3beb",
+    "F3": "ea1b7e85704eebe11d9b2cdd689e2a732953ff4fa9981e74cfa3247fd403d0f8",
+    "F4": "62234c5f56516d14a80e73e2438fcfba0176615ac8f840275c33e8c5e451139f",
+    "F5": "5decb4fff67fcaf40f31ba44b33d7b0b5531341b806214407581c1bd495917a2",
+    "F9": "3e91d8bb9778809c4c2d17ad3d780217d4025ca83c03afafed0547e98fc08fc3",
+    "G": "451d0fb65ad7d594e8a66931a63647e558a8fabb59b97ad8a68f0811ce6afd42"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*c.w.y+1*c.x+1*k|1*c.w": [
+     "-1*+1*h",
+     "-1*+1*y",
+     "0"
+    ],
+    "1*call_offset_1|1*c.w": [
+     "-1*+1*h",
+     "-1*+1*y",
+     "0",
+     "1*call_row_of_2"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "4",
+   "label": "col-of(offset(y,x,k)) = x (extra)",
+   "tag": "call-pre:offset",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "h",
+    "k",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k c)"
+   ],
+   "goal": "(and (>= w 1) (and (>= h 1) (and (>= c 1) (and (>= y 0) (and (< y h) (and (>= x 0) (and (< x w) (and (>= k 0) (< k c)))))))))",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "4",
+   "label": "col-of(offset(y,x,k)) = x (extra)",
+   "tag": "call-pre:col-of",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "call_offset_1",
+    "h",
+    "k",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k c)",
+    "(= call_offset_1 (+ (* (+ (* y w) x) c) k))",
+    "(>= call_offset_1 0)",
+    "(< call_offset_1 (* (* w h) c))"
+   ],
+   "goal": "(and (>= w 1) (and (>= c 1) (and (>= h 1) (and (>= call_offset_1 0) (< call_offset_1 (* (* w h) c))))))",
+   "facts": 1383,
+   "T": 13,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 142,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548
+   },
+   "fact_digests": {
+    "F1": "2b17d700e5d9d227cb21db48c4c007be2bdfb95e49f9c48cb805d1f17d6a7d32",
+    "F10": "e5cfaddff2ef65d0d6c4e5d296b31ed50692abf63ed42c473add75f5f93c8c34",
+    "F2": "cec90af0b8494eefe28ea5afe5ce6cbb663d418d13e3e65a87efa30d6bd9e46a",
+    "F3": "7b8d01b88d87a0f8a6fe732d79e390fc52221567ec3b029d34615eb8e6767498",
+    "F4": "78cf865b8cac94cdf82bc50d7a440898712bd7b0e5b7f015d9511274ca66bf5a",
+    "F5": "a104472d22b25b275d485bb6c084570249b55e4e0279aad3b87e1bb65c1eae72"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "4",
+   "label": "col-of(offset(y,x,k)) = x (extra)",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "c",
+    "call_col_of_2",
+    "call_offset_1",
+    "h",
+    "k",
+    "result",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k c)",
+    "(= call_offset_1 (+ (* (+ (* y w) x) c) k))",
+    "(>= call_offset_1 0)",
+    "(< call_offset_1 (* (* w h) c))",
+    "(= call_col_of_2 (/ (mod call_offset_1 (* w c)) c))",
+    "(>= call_col_of_2 0)",
+    "(< call_col_of_2 w)",
+    "(= result call_col_of_2)"
+   ],
+   "goal": "(= result x)",
+   "facts": 3127,
+   "T": 19,
+   "capped": false,
+   "closure": 20,
+   "maxdeg": 3,
+   "families": {
+    "D0": 12,
+    "D4": 12,
+    "F1": 57,
+    "F10": 322,
+    "F11": 28,
+    "F2": 76,
+    "F3": 38,
+    "F4": 1296,
+    "F5": 1212,
+    "F9": 6,
+    "G": 68
+   },
+   "fact_digests": {
+    "D0": "642e003252248878ba00e776d19688edc9b78c7fed413bef6bf6e1ff05b13e7e",
+    "D4": "e46b53a7632c6e5d5a0e926786c4ced7af429ab03abac93ab0b58d9a3491b599",
+    "F1": "f392596d09f63be72b675012a6ec0396f701ce3c5444f8dfb51532ec45d7603e",
+    "F10": "2ad974206b6947dffcd03e577ed64ca567720c11bb6d4cf9f74b8292d9cc71d0",
+    "F11": "1129a8e953e12643e60a4b97a1f68862cdbb09817ebd0b2e6f15948d22d69cba",
+    "F2": "68ed5c6e1b0a8340f93d0667f1557cbbaa24e101fb2cebbadb7767d99415aa99",
+    "F3": "f93f882dcf36cab1cb98a9721dd63fc32539b58ca0d500b25aab73b947c2f467",
+    "F4": "33a2a9af5d1309bb4b6518f081b693d843dab5412c2fd8278ae42c6e469f23a7",
+    "F5": "5e47817cb3856113d58339a50fa9fc52235bc34a5bf635dfef6ea944f5b9466b",
+    "F9": "b5d449002bacf5fff7c2fe106617cb157664803a19d75f0d917474252bec57ca",
+    "G": "2ac016981b43dce8428d479a18698a6736a563cb0925cc1a15e20c0880047f07"
+   },
+   "dpairs_pass": 4,
+   "dpairs": 4,
+   "triggers": {
+    "1*c.w.y+1*c.x+1*k|1*c.w": [
+     "-1*+1*h",
+     "-1*+1*y",
+     "0"
+    ],
+    "1*call_offset_1|1*c.w": [
+     "-1*+1*h",
+     "-1*+1*y",
+     "0"
+    ],
+    "1*vmod[1*c.w.y+1*c.x+1*k|1*c.w]|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "0"
+    ],
+    "1*vmod[1*call_offset_1|1*c.w]|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "0",
+     "1*call_col_of_2"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "4",
+   "label": "chan-of(offset(y,x,k)) = k (extra)",
+   "tag": "call-pre:offset",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "h",
+    "k",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k c)"
+   ],
+   "goal": "(and (>= w 1) (and (>= h 1) (and (>= c 1) (and (>= y 0) (and (< y h) (and (>= x 0) (and (< x w) (and (>= k 0) (< k c)))))))))",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "4",
+   "label": "chan-of(offset(y,x,k)) = k (extra)",
+   "tag": "call-pre:chan-of",
+   "kind": "BODY",
+   "vars": [
+    "c",
+    "call_offset_1",
+    "h",
+    "k",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k c)",
+    "(= call_offset_1 (+ (* (+ (* y w) x) c) k))",
+    "(>= call_offset_1 0)",
+    "(< call_offset_1 (* (* w h) c))"
+   ],
+   "goal": "(and (>= c 1) (>= call_offset_1 0))",
+   "facts": 1383,
+   "T": 13,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 3,
+   "families": {
+    "F1": 39,
+    "F10": 142,
+    "F2": 52,
+    "F3": 26,
+    "F4": 576,
+    "F5": 548
+   },
+   "fact_digests": {
+    "F1": "2b17d700e5d9d227cb21db48c4c007be2bdfb95e49f9c48cb805d1f17d6a7d32",
+    "F10": "e5cfaddff2ef65d0d6c4e5d296b31ed50692abf63ed42c473add75f5f93c8c34",
+    "F2": "cec90af0b8494eefe28ea5afe5ce6cbb663d418d13e3e65a87efa30d6bd9e46a",
+    "F3": "7b8d01b88d87a0f8a6fe732d79e390fc52221567ec3b029d34615eb8e6767498",
+    "F4": "78cf865b8cac94cdf82bc50d7a440898712bd7b0e5b7f015d9511274ca66bf5a",
+    "F5": "a104472d22b25b275d485bb6c084570249b55e4e0279aad3b87e1bb65c1eae72"
+   },
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "4",
+   "label": "chan-of(offset(y,x,k)) = k (extra)",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "c",
+    "call_chan_of_2",
+    "call_offset_1",
+    "h",
+    "k",
+    "result",
+    "w",
+    "x",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(>= h 1)",
+    "(>= c 1)",
+    "(>= y 0)",
+    "(< y h)",
+    "(>= x 0)",
+    "(< x w)",
+    "(>= k 0)",
+    "(< k c)",
+    "(= call_offset_1 (+ (* (+ (* y w) x) c) k))",
+    "(>= call_offset_1 0)",
+    "(< call_offset_1 (* (* w h) c))",
+    "(= call_chan_of_2 (mod call_offset_1 c))",
+    "(>= call_chan_of_2 0)",
+    "(< call_chan_of_2 c)",
+    "(= result call_chan_of_2)"
+   ],
+   "goal": "(= result k)",
+   "facts": 1674,
+   "T": 14,
+   "capped": false,
+   "closure": 11,
+   "maxdeg": 3,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 42,
+    "F10": 168,
+    "F11": 21,
+    "F2": 56,
+    "F3": 28,
+    "F4": 680,
+    "F5": 638,
+    "F9": 1,
+    "G": 32
+   },
+   "fact_digests": {
+    "D0": "bc9c7a0e1e4ca1f98b4026a5cf8712a834935845f393f2c1cd942d105fc39f3f",
+    "D4": "8f204591ba1027876fa99259924d87000a593bd8f34fab8925cbfb2cf2e5427d",
+    "F1": "b34764ffff87cb6846e012db83e7d6c111e5bbc74a00975fdf5498363dfd43c9",
+    "F10": "3349d5c1cafb041a082f7b5c0df22fce655dcf7f1f6e397618139fdbf42d4bc4",
+    "F11": "f1764e74fe2a7da56d7ea38d455c3fadc16297cfa60002a7c3e2ccc1ca114fd0",
+    "F2": "2823aaa7fc2fef0c63d0c2bef2ad93cf093a9b1e9bd9ce4c99bf15b87a6fe640",
+    "F3": "a706e645657854e7570b5d5291ce75104eb088e212f3e7f7c2e62b4bdcc54e18",
+    "F4": "f3374bae2c22dc2d2ae9e620088e600813fb86854333e40af1943094fb7fc3aa",
+    "F5": "3ec61ca3bad0d06193e5436b6b73bfe252453f925b291111975bfff4164f7e8b",
+    "F9": "49293e1e8fcf00308e5cceda5e8e3abeda52d378a6d0a5e5313146fe05cb44f4",
+    "G": "272e0e4a247ef246b78f6df8df13d2422bf3fb52b21fc7a80c2be3ed64c8bfde"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*c.w.y+1*c.x+1*k|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "0"
+    ],
+    "1*call_offset_1|1*c": [
+     "-1*+1*h.w",
+     "-1*+1*w.y",
+     "-1*+1*x",
+     "0"
+    ]
+   },
+   "a6_same": true
+  }
+ ],
+ "probes": [
+  {
+   "row": "5",
+   "label": "shadow d: post (/ i d), body (let ((d (+ d 1))) (/ i d))",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "_bv_d_0",
+    "d",
+    "i"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_d_0 (+ d 1))"
+   ],
+   "goal": "(>= _bv_d_0 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow d: post (/ i d), body (let ((d (+ d 1))) (/ i d))",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "_bv_d_0",
+    "d",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_d_0 (+ d 1))",
+    "(= result (/ i _bv_d_0))"
+   ],
+   "goal": "(= result (/ i d))",
+   "facts": 76,
+   "T": 2,
+   "capped": false,
+   "closure": 12,
+   "maxdeg": 2,
+   "families": {
+    "D0": 9,
+    "D4": 4,
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 5,
+    "G": 20
+   },
+   "fact_digests": {
+    "D0": "86de5ae2dadae617cc0b111a67303e45863bed1deeb0e272d4915a0161d49c77",
+    "D4": "52ac850bb87ffa9a9930be818ae0b591de2d86be2858b7dc315a314629c09ecb",
+    "F1": "a12dc4bebcc0351be178775519921c131ce3636847f46cf7c7e011ff8a070509",
+    "F10": "1922b5a527aa30f36bc42a788986188895d7a99e50d1c0c8559401d9abb4cb5f",
+    "F11": "ba5efe765ea8fe5fdd632a168f48d0b9e2eb8955973606e0fa048497d30c37b6",
+    "F2": "ccf7ccb60e82bf991126127ce60f616433046491dbc795cb13c59c7ab7f61cb1",
+    "F3": "8da41067f47313610bef022bd96b08e1f4757aeabb380f8081e04220c2187e4d",
+    "F4": "8950a4535ac24be43ffc85fb1317d4628a42c5daa40a50327a3fe4bba2e5d5d5",
+    "F5": "208a83ca73cdc6c03c48d206cad85095ed619e4a2e7d4b7c6923857d113c5b6c",
+    "F9": "44429c62a82dcfb26a9e9105de64893872d84096fdcac610be974f44641cf745",
+    "G": "a9796110c70c3e0214940837483b1cba16af1f40a04172ffe4942b1dccf0eda1"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*+1*d": [
+     "0"
+    ],
+    "1*i|1*_bv_d_0": [
+     "0",
+     "1*result"
+    ],
+    "1*i|1*d": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow d: post (/ i d), body (let ((d (+ d 1))) (/ i d))",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "_bv_d_0",
+    "d",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_d_0 (+ d 1))",
+    "(= result (/ i _bv_d_0))"
+   ],
+   "goal": "(>= d 1)",
+   "facts": 36,
+   "T": 1,
+   "capped": false,
+   "closure": 9,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F9": 5,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "e68574be136fa1f163cbc400ba89afa662b107920c20af55bf4e8a17aabcb783",
+    "D4": "1c0ccb5d19132f1db5f9ac34edd99ddc75f3e4887eb5a8587d9add8e0d931f44",
+    "F1": "21b26908500e755605c9fcd1f6c231651c79d7f80ccd71435a7026682f9b6188",
+    "F11": "445f8132df82e5f8b20e8e562b7b42728760111c08787d3b6fcaf4ab838a2b79",
+    "F2": "dd6d8d40c293bec5373973cbffb1fdf46dc32df0a6ebf4e8d814f9c0e56c44ac",
+    "F3": "118af9c702668900600f4a5c8874fb9d84144a9ebade3e0032813dc91b2ecf12",
+    "F9": "44429c62a82dcfb26a9e9105de64893872d84096fdcac610be974f44641cf745",
+    "G": "caa1f9d790f3d77b6db1558cd02648b71ccd6eaecf8874c0a148eadbf9f41138"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*i|1*+1*d": [
+     "0"
+    ],
+    "1*i|1*_bv_d_0": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow d: post (mod i d), body (let ((d (+ d 1))) (mod i d))",
+   "tag": "div:mod",
+   "kind": "BODY",
+   "vars": [
+    "_bv_d_0",
+    "d",
+    "i"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_d_0 (+ d 1))"
+   ],
+   "goal": "(>= _bv_d_0 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow d: post (mod i d), body (let ((d (+ d 1))) (mod i d))",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "_bv_d_0",
+    "d",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_d_0 (+ d 1))",
+    "(= result (mod i _bv_d_0))"
+   ],
+   "goal": "(= result (mod i d))",
+   "facts": 64,
+   "T": 2,
+   "capped": false,
+   "closure": 9,
+   "maxdeg": 2,
+   "families": {
+    "D0": 9,
+    "D4": 4,
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 1,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "86de5ae2dadae617cc0b111a67303e45863bed1deeb0e272d4915a0161d49c77",
+    "D4": "52ac850bb87ffa9a9930be818ae0b591de2d86be2858b7dc315a314629c09ecb",
+    "F1": "a12dc4bebcc0351be178775519921c131ce3636847f46cf7c7e011ff8a070509",
+    "F10": "1922b5a527aa30f36bc42a788986188895d7a99e50d1c0c8559401d9abb4cb5f",
+    "F11": "ba5efe765ea8fe5fdd632a168f48d0b9e2eb8955973606e0fa048497d30c37b6",
+    "F2": "ccf7ccb60e82bf991126127ce60f616433046491dbc795cb13c59c7ab7f61cb1",
+    "F3": "8da41067f47313610bef022bd96b08e1f4757aeabb380f8081e04220c2187e4d",
+    "F4": "8950a4535ac24be43ffc85fb1317d4628a42c5daa40a50327a3fe4bba2e5d5d5",
+    "F5": "208a83ca73cdc6c03c48d206cad85095ed619e4a2e7d4b7c6923857d113c5b6c",
+    "F9": "44dde58e46d8b5076b76ca0c39f43fdca0fb0eef4f281e892353bf68bfe93838",
+    "G": "db9d353dc083e4155757b1e3b264d2a047c1f4c74fdfaf26777920a4b02049fe"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*i|1*+1*d": [
+     "0"
+    ],
+    "1*i|1*_bv_d_0": [
+     "0"
+    ],
+    "1*i|1*d": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow d: post (mod i d), body (let ((d (+ d 1))) (mod i d))",
+   "tag": "wd-post:mod",
+   "kind": "WD",
+   "vars": [
+    "_bv_d_0",
+    "d",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_d_0 (+ d 1))",
+    "(= result (mod i _bv_d_0))"
+   ],
+   "goal": "(>= d 1)",
+   "facts": 28,
+   "T": 1,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F9": 1,
+    "G": 8
+   },
+   "fact_digests": {
+    "D0": "e68574be136fa1f163cbc400ba89afa662b107920c20af55bf4e8a17aabcb783",
+    "D4": "1c0ccb5d19132f1db5f9ac34edd99ddc75f3e4887eb5a8587d9add8e0d931f44",
+    "F1": "21b26908500e755605c9fcd1f6c231651c79d7f80ccd71435a7026682f9b6188",
+    "F11": "445f8132df82e5f8b20e8e562b7b42728760111c08787d3b6fcaf4ab838a2b79",
+    "F2": "dd6d8d40c293bec5373973cbffb1fdf46dc32df0a6ebf4e8d814f9c0e56c44ac",
+    "F3": "118af9c702668900600f4a5c8874fb9d84144a9ebade3e0032813dc91b2ecf12",
+    "F9": "44dde58e46d8b5076b76ca0c39f43fdca0fb0eef4f281e892353bf68bfe93838",
+    "G": "58eaf369e8fdd9d77f4d9ce974eb7b6a9dec957a299d953a0710c53d0206270a"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*i|1*+1*d": [
+     "0"
+    ],
+    "1*i|1*_bv_d_0": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow i: post (/ i d), body (let ((i (+ i 1))) (/ i d))",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "_bv_i_0",
+    "d",
+    "i"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_i_0 (+ i 1))"
+   ],
+   "goal": "(>= d 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow i: post (/ i d), body (let ((i (+ i 1))) (/ i d))",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "_bv_i_0",
+    "d",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_i_0 (+ i 1))",
+    "(= result (/ _bv_i_0 d))"
+   ],
+   "goal": "(= result (/ i d))",
+   "facts": 77,
+   "T": 2,
+   "capped": false,
+   "closure": 10,
+   "maxdeg": 2,
+   "families": {
+    "D0": 9,
+    "D4": 4,
+    "F1": 6,
+    "F10": 2,
+    "F11": 8,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 2,
+    "G": 20
+   },
+   "fact_digests": {
+    "D0": "9b1a7aad502d8d9a0dcdc98b8ab34e2f16da1c2d01b3ea4aa6a575e6d27c99b9",
+    "D4": "56b997e9b380ce3ec68aae3fb78bbe9699be8b70bed58bb8a56d0f68c58e34ec",
+    "F1": "7b9c2432a4cf85438709d2ff34e934ebe53d85398cd5626c7ba0ad442746df5e",
+    "F10": "1449bb7219627c95fd1d2b3dc32a9b41713ca406838d7c441ee347a627672684",
+    "F11": "35b84c95effb33febcc5cffd5422449be100d8f91a1484f89f8f0737e0898c24",
+    "F2": "29a331c75e571cae92fea8dfb10cb8a4ba0068920332739453b6d888291cba8b",
+    "F3": "9f6ad7059e80ae6b84b9a4dda9ee0e72dc57e8622e84616abd90f9537d5a733a",
+    "F4": "bbd9225e985afa7db5a4c71e8adcddc7e2dad6eba32456bb020ad1db079c339b",
+    "F5": "689186041cf105c696e0e658d2ab0221f8f7eaa58e17e04cc6d65c21c6c3be96",
+    "F9": "d298fc0e295ca32a95740cb7536d8d6536032f22e32e3d4bdaca179d22fafc9b",
+    "G": "a854fb732c2d4ea776db202e0778fceb7e5b91fd5ee15eecc56db8d82c6b7cf2"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*+1*i|1*d": [
+     "0"
+    ],
+    "1*_bv_i_0|1*d": [
+     "0",
+     "1*result"
+    ],
+    "1*i|1*d": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow i: post (/ i d), body (let ((i (+ i 1))) (/ i d))",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "_bv_i_0",
+    "d",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_i_0 (+ i 1))",
+    "(= result (/ _bv_i_0 d))"
+   ],
+   "goal": "(>= d 1)",
+   "facts": 35,
+   "T": 1,
+   "capped": false,
+   "closure": 7,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 3,
+    "F11": 4,
+    "F2": 4,
+    "F3": 2,
+    "F9": 2,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "cb924ffb235110fa2dc1d5d4295c76ffc5cdbfc787e59b6d9030211737a4fd41",
+    "D4": "fad5314d2967ad171ca3093159bc8a669566338a88b863d2995015f2b9045d2d",
+    "F1": "76444f21ca44ab84bb148202cafc1232bc07cd84458b3e4ed3bc60a5fb946193",
+    "F11": "e2dfbc37bf23c176926bc47c4e53155461cb20d39dc44e16ae3098c78ed117b4",
+    "F2": "e8d5350fd528b9e4f073ce01171334a6f4400844b1e41deb7a9f5bac4dbf97fe",
+    "F3": "ffd5196a5c1d89789707cee256c64cb1467be3c50266897048c7faee1c1cb71b",
+    "F9": "d298fc0e295ca32a95740cb7536d8d6536032f22e32e3d4bdaca179d22fafc9b",
+    "G": "7f8ef9873d50fb488a36a9e02fa17508421b69fa67ccb3755a0c82b91c62d5ef"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*+1*i|1*d": [
+     "0"
+    ],
+    "1*_bv_i_0|1*d": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow i, equivalent: post (mod i d), body (let ((i (+ i d))) (mod i d)) (info)",
+   "tag": "div:mod",
+   "kind": "BODY",
+   "vars": [
+    "_bv_i_0",
+    "d",
+    "i"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_i_0 (+ i d))"
+   ],
+   "goal": "(>= d 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow i, equivalent: post (mod i d), body (let ((i (+ i d))) (mod i d)) (info)",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "_bv_i_0",
+    "d",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_i_0 (+ i d))",
+    "(= result (mod _bv_i_0 d))"
+   ],
+   "goal": "(= result (mod i d))",
+   "facts": 66,
+   "T": 2,
+   "capped": false,
+   "closure": 9,
+   "maxdeg": 2,
+   "families": {
+    "D0": 9,
+    "D4": 6,
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 1,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "1b558703e5f8dda20abab864fbe3fab6bde18b60104e7b8333e6742aa0a4c2c3",
+    "D4": "4edd4d3ea493c03b90fe50ba1ccd9828207b5a41b0fdfb808cfa3b9c0bebb13f",
+    "F1": "6ea386ee79e4d002125ad83acc9ad6d7f18b25df042a68225d0f09645418e4b1",
+    "F10": "17f118b1291b6c0107eb0cbbd7e57225894d060be2db9c46c50aca6bacd83e9a",
+    "F11": "82a96d9b1d91fe08762606d2c08a6f94ee9df766db3b85466fad00a1230b8c61",
+    "F2": "f571a3303ee3483c84830294b83596bbdbfb187931a28c1fe00b85001e43e21d",
+    "F3": "197f9f934cb83039c9d38fef4b7f5a7f81eb03863d787e0e55149574c0526252",
+    "F4": "03ee98f1e19899c6e835faede5520691f95c3c4c313dfac1123af2ded9a69e18",
+    "F5": "f4810f0f38fbfe4e8225b11ca4e985eda29eba7414cdbd48d770bc8c1e62a89f",
+    "F9": "9a215f1eeb4d856c2a744c421d82d15bb3df7940c2441ec5a16ed194785094a5",
+    "G": "e0cd5d244f08047a7adc5289a212021348724d938c13a3943903ce5c3dbf0c23"
+   },
+   "dpairs_pass": 3,
+   "dpairs": 3,
+   "triggers": {
+    "1*_bv_i_0|1*d": [
+     "0"
+    ],
+    "1*d+1*i|1*d": [
+     "0"
+    ],
+    "1*i|1*d": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "5",
+   "label": "shadow i, equivalent: post (mod i d), body (let ((i (+ i d))) (mod i d)) (info)",
+   "tag": "wd-post:mod",
+   "kind": "WD",
+   "vars": [
+    "_bv_i_0",
+    "d",
+    "i",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= i 0)",
+    "(= _bv_i_0 (+ i d))",
+    "(= result (mod _bv_i_0 d))"
+   ],
+   "goal": "(>= d 1)",
+   "facts": 28,
+   "T": 1,
+   "capped": false,
+   "closure": 6,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F9": 1,
+    "G": 8
+   },
+   "fact_digests": {
+    "D0": "9390cefb873b945f920d209b80c20c6e1d2179251ea6f8bab954078bda32095b",
+    "D4": "dbeead8f2883bde93581d0bee6f4a4a0a08f56cb07f0c79b0bf43368a4099ca8",
+    "F1": "334787b5dd09a5c722febc0dc1c963bb52fa6d99f69e5c28c1e9fbf3f10ffbc0",
+    "F11": "c93c285ff701ea6e4881d7927a9458e57af1d976c7cc657a1fdcdcc670c858e5",
+    "F2": "72d18f3240f4e2e7901e4beac8bb02f0fbc6819a1fc320d375fcb5821209ef8d",
+    "F3": "5c9d3b309596365a336f05c15945c7ab0f04d582500a4fb5fc84f54fee762ef7",
+    "F9": "9a215f1eeb4d856c2a744c421d82d15bb3df7940c2441ec5a16ed194785094a5",
+    "G": "c58c80a6ab98e5bc79cceb23ab7e3076fc1e871a46d43e11ae15246373cf90ea"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*_bv_i_0|1*d": [
+     "0"
+    ],
+    "1*d+1*i|1*d": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "6",
+   "label": "pre (=> (>= d 1) (= (/ e d) q))",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "d",
+    "e",
+    "q",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(=> (>= d 1) (= (/ e d) q))",
+    "(= result e)"
+   ],
+   "goal": "(= result e)",
+   "facts": 102,
+   "T": 3,
+   "capped": false,
+   "closure": 7,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 9,
+    "F10": 6,
+    "F11": 6,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 18,
+    "F9": 1,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "64dda9ba93cd53be477a2e459954536be47598963dc8c2d8a4880659a953edb0",
+    "D4": "adecbfcff88fec78c0c8ccf59a852c6091b0394c55b480aac7e84ef7b844ea11",
+    "F1": "e78a910543aa6ff054f8669fb3dfe03fd35997625044314f4be935a4ea950c5a",
+    "F10": "31ea0b22eb2437bfd4d25ab309cf8326de3106c3f82945fa1c8e55476fe08798",
+    "F11": "fabd347566d19ae86dc97abd250483dd4ce064216cb260b8eff7d064c3faaa45",
+    "F2": "1b2f79be31e7021920c6effa2a48900cb00a6c1ca6fc8860db9015cebcb8ee7e",
+    "F3": "af5be0fa15391027fc7b362cdc3a4144a48146d1b88cfdf36110faf097abe3fd",
+    "F4": "374610fa91de4ce578e01c03922c9b1b76605dac7fcb5fee8da29cc3fedf7ed6",
+    "F5": "105bc219911a4c64ef03c85e2ccb7edd4218b10e6c1a759b22bd38d750672bc3",
+    "F9": "0852816ef1d1344a1854b457fbbeb1a88567df06c18a8828e5ab622b218ca74f",
+    "G": "2940fe5dd84ccdb166d5c1024d164ef4ef64499131a11442c0e211a2032f02f5"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*e|1*d": [
+     "0",
+     "1*q"
+    ],
+    "1*result|1*d": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "6",
+   "label": "pre (=> (>= d 1) (= (/ e d) q))",
+   "tag": "wd-pre:/",
+   "kind": "WD",
+   "vars": [
+    "d"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= d 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "6",
+   "label": "pre (= (/ e d) q), unguarded",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "d",
+    "e",
+    "q",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(= (/ e d) q)",
+    "(= result e)"
+   ],
+   "goal": "(= result e)",
+   "facts": 60,
+   "T": 2,
+   "capped": false,
+   "closure": 7,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "F9": 2,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "64dda9ba93cd53be477a2e459954536be47598963dc8c2d8a4880659a953edb0",
+    "D4": "adecbfcff88fec78c0c8ccf59a852c6091b0394c55b480aac7e84ef7b844ea11",
+    "F1": "061b8ab1b2e016e2d7aaca65852aae469fcc4fb83df57314c5e4ea1ddf9a4fec",
+    "F10": "bf42c8629bf788703abca091a9ff76b18e563286019280223da029be4a3b7591",
+    "F11": "af84181dc064aca9fe44725751cd808f1c78e35507bfc2fbbed3deffd26256ef",
+    "F2": "3c8ec41f1673782ae3539bef038106eaa4ce43fc1af2d4df625844d0320906b2",
+    "F3": "757debbd8dc2fe30262debf12e8583f8d318cefd743608b86775de6278db6058",
+    "F4": "e17fddb07a8ced572abaa5379c04823838b9bec389ea43467bb1abbb0f0c6023",
+    "F5": "5aef72d605e2090b8c57770ab151bc7070a5e5e53b8d6c8f6fcd916bb8e30dc6",
+    "F9": "87b8727ba9df0dc220d7d42cb60251b46f289bd413d79a0a17cc3972149e16fa",
+    "G": "2940fe5dd84ccdb166d5c1024d164ef4ef64499131a11442c0e211a2032f02f5"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*e|1*d": [
+     "0",
+     "1*q"
+    ],
+    "1*result|1*d": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "6",
+   "label": "pre (= (/ e d) q), unguarded",
+   "tag": "wd-pre:/",
+   "kind": "WD",
+   "vars": [
+    "d"
+   ],
+   "sorts": {},
+   "hyps": [],
+   "goal": "(>= d 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "6",
+   "label": "guarded use: pre (and (>= e 0) (=> (>= d 1) (= (/ e d) q))), post (=> (>= d 1) (>= q 0))",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "d",
+    "e",
+    "q",
+    "result"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= e 0)",
+    "(=> (>= d 1) (= (/ e d) q))",
+    "(= result e)"
+   ],
+   "goal": "(=> (>= d 1) (>= q 0))",
+   "facts": 102,
+   "T": 3,
+   "capped": false,
+   "closure": 7,
+   "maxdeg": 2,
+   "families": {
+    "D0": 6,
+    "D4": 2,
+    "F1": 9,
+    "F10": 6,
+    "F11": 6,
+    "F2": 12,
+    "F3": 6,
+    "F4": 24,
+    "F5": 18,
+    "F9": 1,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "64dda9ba93cd53be477a2e459954536be47598963dc8c2d8a4880659a953edb0",
+    "D4": "adecbfcff88fec78c0c8ccf59a852c6091b0394c55b480aac7e84ef7b844ea11",
+    "F1": "e78a910543aa6ff054f8669fb3dfe03fd35997625044314f4be935a4ea950c5a",
+    "F10": "31ea0b22eb2437bfd4d25ab309cf8326de3106c3f82945fa1c8e55476fe08798",
+    "F11": "fabd347566d19ae86dc97abd250483dd4ce064216cb260b8eff7d064c3faaa45",
+    "F2": "1b2f79be31e7021920c6effa2a48900cb00a6c1ca6fc8860db9015cebcb8ee7e",
+    "F3": "af5be0fa15391027fc7b362cdc3a4144a48146d1b88cfdf36110faf097abe3fd",
+    "F4": "374610fa91de4ce578e01c03922c9b1b76605dac7fcb5fee8da29cc3fedf7ed6",
+    "F5": "105bc219911a4c64ef03c85e2ccb7edd4218b10e6c1a759b22bd38d750672bc3",
+    "F9": "0852816ef1d1344a1854b457fbbeb1a88567df06c18a8828e5ab622b218ca74f",
+    "G": "2940fe5dd84ccdb166d5c1024d164ef4ef64499131a11442c0e211a2032f02f5"
+   },
+   "dpairs_pass": 2,
+   "dpairs": 2,
+   "triggers": {
+    "1*e|1*d": [
+     "0",
+     "1*q"
+    ],
+    "1*result|1*d": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "6",
+   "label": "guarded use: pre (and (>= e 0) (=> (>= d 1) (= (/ e d) q))), post (=> (>= d 1) (>= q 0))",
+   "tag": "wd-pre:/",
+   "kind": "WD",
+   "vars": [
+    "d",
+    "e"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= e 0)",
+    "(>= d 1)"
+   ],
+   "goal": "(>= d 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "7",
+   "label": "edge case 6: (/ x (- 0 w)), pre (>= w 1)",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)"
+   ],
+   "goal": "(>= (- 0 w) 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "7",
+   "label": "edge case 6: (/ x (- 0 w)), pre (>= w 1)",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "result",
+    "w",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(= result (/ x (- 0 w)))"
+   ],
+   "goal": "(= result (/ x (- 0 w)))",
+   "facts": 23,
+   "T": 1,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F9": 1,
+    "G": 8
+   },
+   "fact_digests": {
+    "D0": "e7b462585c4e6a628839d68235c17708934ada668e9c36452b237ecb2f3c8540",
+    "F1": "c95ac0e6b79bcf2da13bab6015ef7be628b624f979e62629c7b335f0b40e697c",
+    "F11": "7126c39db00ae5200d7aa64db62d8ce9f85eee4b7290c93b9fa5c51e28949e2a",
+    "F2": "d81927bd4dba2e83c4fcc4577e8ed5e8fc570487635ea3d3cd520ac43f3b1313",
+    "F3": "a30f133af85290a9d320542d3ce4dae5efe4ac692f472f9cfcb12bd945afb2eb",
+    "F9": "aaec5d939978f42da63a9b6a00d7d95e96f3524b5f7901810785c07e959a0c76",
+    "G": "40aba5bf13a5924068f85530479fb7d23da562fa803be1bbb7b7afe42b86fda8"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*x|-1*w": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "7",
+   "label": "edge case 6: (/ x (- 0 w)), pre (>= w 1)",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "result",
+    "w",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(= result (/ x (- 0 w)))"
+   ],
+   "goal": "(>= (- 0 w) 1)",
+   "facts": 23,
+   "T": 1,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "F9": 1,
+    "G": 8
+   },
+   "fact_digests": {
+    "D0": "e7b462585c4e6a628839d68235c17708934ada668e9c36452b237ecb2f3c8540",
+    "F1": "c95ac0e6b79bcf2da13bab6015ef7be628b624f979e62629c7b335f0b40e697c",
+    "F11": "7126c39db00ae5200d7aa64db62d8ce9f85eee4b7290c93b9fa5c51e28949e2a",
+    "F2": "d81927bd4dba2e83c4fcc4577e8ed5e8fc570487635ea3d3cd520ac43f3b1313",
+    "F3": "a30f133af85290a9d320542d3ce4dae5efe4ac692f472f9cfcb12bd945afb2eb",
+    "F9": "aaec5d939978f42da63a9b6a00d7d95e96f3524b5f7901810785c07e959a0c76",
+    "G": "40aba5bf13a5924068f85530479fb7d23da562fa803be1bbb7b7afe42b86fda8"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*x|-1*w": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "7",
+   "label": "divisor (- w w)",
+   "tag": "div:/",
+   "kind": "BODY",
+   "vars": [
+    "w"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)"
+   ],
+   "goal": "(>= (- w w) 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 0,
+   "maxdeg": 0,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 0,
+   "dpairs": 0,
+   "triggers": {},
+   "a6_same": true
+  },
+  {
+   "row": "7",
+   "label": "divisor (- w w)",
+   "tag": "truth",
+   "kind": "TRUTH",
+   "vars": [
+    "result",
+    "w",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(= result (/ x (- w w)))"
+   ],
+   "goal": "(= result (/ x (- w w)))",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 1,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*x|0": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "row": "7",
+   "label": "divisor (- w w)",
+   "tag": "wd-post:/",
+   "kind": "WD",
+   "vars": [
+    "result",
+    "w",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= w 1)",
+    "(= result (/ x (- w w)))"
+   ],
+   "goal": "(>= (- w w) 1)",
+   "facts": 0,
+   "T": 0,
+   "capped": false,
+   "closure": 2,
+   "maxdeg": 1,
+   "families": {},
+   "fact_digests": {},
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*x|0": [
+     "0",
+     "1*result"
+    ]
+   },
+   "a6_same": true
+  }
+ ],
+ "extra": [
+  {
+   "name": "R1",
+   "kind": "refusal",
+   "term": "(/ x 0)",
+   "vars": [
+    "d",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (/ x 0) 0)",
+   "refused": "nonlinear:/",
+   "why": "divisor 0 is a ground constant <= 0"
+  },
+  {
+   "name": "R2",
+   "kind": "refusal",
+   "term": "(mod x 0)",
+   "vars": [
+    "d",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (mod x 0) 0)",
+   "refused": "nonlinear:mod",
+   "why": "divisor 0 is a ground constant <= 0"
+  },
+  {
+   "name": "R3",
+   "kind": "refusal",
+   "term": "(/ x -2)",
+   "vars": [
+    "d",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (/ x -2) 0)",
+   "refused": "nonlinear:/",
+   "why": "divisor -2 is a ground constant <= 0"
+  },
+  {
+   "name": "R4",
+   "kind": "refusal",
+   "term": "(mod x -3)",
+   "vars": [
+    "d",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (mod x -3) 0)",
+   "refused": "nonlinear:mod",
+   "why": "divisor -3 is a ground constant <= 0"
+  },
+  {
+   "name": "R5",
+   "kind": "refusal",
+   "term": "(/ x (- 0 2))",
+   "vars": [
+    "d",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (/ x (- 0 2)) 0)",
+   "refused": "nonlinear:/",
+   "why": "divisor ['-', '0', '2'] is a ground constant <= 0"
+  },
+  {
+   "name": "R6",
+   "kind": "refusal",
+   "term": "(mod x (- 2 2))",
+   "vars": [
+    "d",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (mod x (- 2 2)) 0)",
+   "refused": "nonlinear:mod",
+   "why": "divisor ['-', '2', '2'] is a ground constant <= 0"
+  },
+  {
+   "name": "R7",
+   "kind": "refusal",
+   "term": "(/ x (/ 1 2))",
+   "vars": [
+    "d",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (/ x (/ 1 2)) 0)",
+   "refused": "nonlinear:/",
+   "why": "divisor ['/', '1', '2'] is a ground constant <= 0"
+  },
+  {
+   "name": "R8",
+   "kind": "refusal",
+   "term": "(rem x d)",
+   "vars": [
+    "d",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (rem x d) 0)",
+   "refused": "nonlinear:rem",
+   "why": "rem and quot stay refused"
+  },
+  {
+   "name": "R9",
+   "kind": "refusal",
+   "term": "(quot x d)",
+   "vars": [
+    "d",
+    "x"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (quot x d) 0)",
+   "refused": "nonlinear:quot",
+   "why": "rem and quot stay refused"
+  },
+  {
+   "name": "lim-32",
+   "kind": "limit",
+   "vars": [
+    "d",
+    "x1",
+    "x10",
+    "x11",
+    "x12",
+    "x13",
+    "x14",
+    "x15",
+    "x16",
+    "x17",
+    "x18",
+    "x19",
+    "x2",
+    "x20",
+    "x21",
+    "x22",
+    "x23",
+    "x24",
+    "x25",
+    "x26",
+    "x27",
+    "x28",
+    "x29",
+    "x3",
+    "x30",
+    "x31",
+    "x32",
+    "x4",
+    "x5",
+    "x6",
+    "x7",
+    "x8",
+    "x9"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (+ (/ x1 d) (/ x2 d) (/ x3 d) (/ x4 d) (/ x5 d) (/ x6 d) (/ x7 d) (/ x8 d) (/ x9 d) (/ x10 d) (/ x11 d) (/ x12 d) (/ x13 d) (/ x14 d) (/ x15 d) (/ x16 d) (/ x17 d) (/ x18 d) (/ x19 d) (/ x20 d) (/ x21 d) (/ x22 d) (/ x23 d) (/ x24 d) (/ x25 d) (/ x26 d) (/ x27 d) (/ x28 d) (/ x29 d) (/ x30 d) (/ x31 d) (/ x32 d)) 0)",
+   "facts": 9632,
+   "T": 32,
+   "capped": false,
+   "closure": 96,
+   "maxdeg": 2,
+   "families": {
+    "D0": 96,
+    "D4": 992,
+    "F1": 96,
+    "F10": 992,
+    "F11": 64,
+    "F2": 128,
+    "F3": 64,
+    "F4": 3968,
+    "F5": 2976,
+    "G": 256
+   },
+   "fact_digests": {
+    "D0": "d5716637832e505ecc61c1e4cf8a180229d1aba921c15238282523bcea508837",
+    "D4": "c8f5e8b27984d20ccb7cefb4fb4e8e8fc46eb12366bed113a01e849dfda575e6",
+    "F1": "ae2d99e5d2b8baafff58307d5d76a96cf9d5fdb10777b415374061d0ee339fc1",
+    "F10": "5bbde7fa8605a48c870bc05daa20f971d95ba9441c9886a791f05b84e992e2d9",
+    "F11": "1c32dfcca73c680354c71d7dcd2352ac01580afd5914096eab81c62a554be067",
+    "F2": "72c52321782fea8cf85f3b93c798c22a6c647f0064d3dc71954233b0cfc578df",
+    "F3": "8233a11ab259a79c48059028bc87ee63297f71e7a89d31589c8443fe0aa4195e",
+    "F4": "4d8a4943487ba607ead506cfe6b1ef7c0260bbc331c154ae6c0fb8234d4b7b7e",
+    "F5": "a39c2fcd5e61608a7e806ef250d4369c8551a3baaef717a26453c5fc98444f5b",
+    "G": "98ade8339b6785766c0994ddcefd3a647d5947d0896b573bc271a3797a47a2d4"
+   },
+   "dpairs_pass": 32,
+   "dpairs": 32,
+   "triggers": {
+    "1*x1|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x10|1*d": [
+     "-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x11|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x12|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x13|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x14|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x15|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x16|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x17|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x18|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x19|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x2|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x20|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x21|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x22|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x23|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x24|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x25|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x26|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x27|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x28|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x29|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x3|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x30|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x31|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x32|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x4|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x5|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x6|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x7|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x8|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x9|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x32|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]",
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "name": "lim-33",
+   "kind": "limit",
+   "vars": [
+    "d",
+    "x1",
+    "x10",
+    "x11",
+    "x12",
+    "x13",
+    "x14",
+    "x15",
+    "x16",
+    "x17",
+    "x18",
+    "x19",
+    "x2",
+    "x20",
+    "x21",
+    "x22",
+    "x23",
+    "x24",
+    "x25",
+    "x26",
+    "x27",
+    "x28",
+    "x29",
+    "x3",
+    "x30",
+    "x31",
+    "x32",
+    "x33",
+    "x4",
+    "x5",
+    "x6",
+    "x7",
+    "x8",
+    "x9"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(>= (+ (/ x1 d) (/ x2 d) (/ x3 d) (/ x4 d) (/ x5 d) (/ x6 d) (/ x7 d) (/ x8 d) (/ x9 d) (/ x10 d) (/ x11 d) (/ x12 d) (/ x13 d) (/ x14 d) (/ x15 d) (/ x16 d) (/ x17 d) (/ x18 d) (/ x19 d) (/ x20 d) (/ x21 d) (/ x22 d) (/ x23 d) (/ x24 d) (/ x25 d) (/ x26 d) (/ x27 d) (/ x28 d) (/ x29 d) (/ x30 d) (/ x31 d) (/ x32 d) (/ x33 d)) 0)",
+   "refused": "nonlinear:/",
+   "why": "more than 32 division pairs"
+  },
+  {
+   "name": "lim-31-image",
+   "kind": "limit",
+   "vars": [
+    "d",
+    "x1",
+    "x10",
+    "x11",
+    "x12",
+    "x13",
+    "x14",
+    "x15",
+    "x16",
+    "x17",
+    "x18",
+    "x19",
+    "x2",
+    "x20",
+    "x21",
+    "x22",
+    "x23",
+    "x24",
+    "x25",
+    "x26",
+    "x27",
+    "x28",
+    "x29",
+    "x3",
+    "x30",
+    "x31",
+    "x4",
+    "x5",
+    "x6",
+    "x7",
+    "x8",
+    "x9",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(= x1 y)"
+   ],
+   "goal": "(>= (+ (/ x1 d) (/ x2 d) (/ x3 d) (/ x4 d) (/ x5 d) (/ x6 d) (/ x7 d) (/ x8 d) (/ x9 d) (/ x10 d) (/ x11 d) (/ x12 d) (/ x13 d) (/ x14 d) (/ x15 d) (/ x16 d) (/ x17 d) (/ x18 d) (/ x19 d) (/ x20 d) (/ x21 d) (/ x22 d) (/ x23 d) (/ x24 d) (/ x25 d) (/ x26 d) (/ x27 d) (/ x28 d) (/ x29 d) (/ x30 d) (/ x31 d)) 0)",
+   "facts": 9629,
+   "T": 32,
+   "capped": false,
+   "closure": 96,
+   "maxdeg": 2,
+   "families": {
+    "D0": 96,
+    "D4": 992,
+    "F1": 96,
+    "F10": 992,
+    "F11": 64,
+    "F2": 128,
+    "F3": 64,
+    "F4": 3968,
+    "F5": 2976,
+    "F9": 1,
+    "G": 252
+   },
+   "fact_digests": {
+    "D0": "4df95bc35daf20f30f26a3b846d22ca9f0400dba3c1ad43ef58a7c3b64ca3439",
+    "D4": "87a925ab2d28665ba2225f240ea395cb2febfe16bb5d1511c65034b584c4d807",
+    "F1": "936374022fba2d7cac3e1a1eef9ab2972f1801dd60623f2401a72c9bc14d2ff7",
+    "F10": "8d10a15504c2e526a258d70dd81d7df8d842ce0331f44bba2da6ad7766fc59a7",
+    "F11": "3db2c6053a4d7c485fc6d6140c63851a4d1a8baaba15b05e6945de11aaaaba4a",
+    "F2": "64b14b167552fe744f3e35e4562ca15e67891f37c62853b76155060a986f9863",
+    "F3": "c2c0f50232e0e1655248df20bd8a540201db54091e88554168d71833d3f8b4b9",
+    "F4": "012c4df9beb8e65447d5ed374087256ab3a1cc05d8f33b4b0d64bc4230710189",
+    "F5": "7e5f66b69dd12df30adc56ded95537df15160d51b77a76b15120d15376cbcb12",
+    "F9": "f02e90b683b3e448644d5c0619c6696575ae6213eb0fe52b4f1791349b5de20d",
+    "G": "710b4f000120388cb421f06d972e2b7320bc95c5437000955dbcd5214d4cab62"
+   },
+   "dpairs_pass": 32,
+   "dpairs": 32,
+   "triggers": {
+    "1*x1|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x10|1*d": [
+     "-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x11|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x12|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x13|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x14|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x15|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x16|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x17|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x18|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x19|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x2|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x20|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x21|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x22|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x23|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x24|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x25|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x26|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x27|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x28|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x29|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x3|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x30|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x31|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x4|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x5|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x6|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x7|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x8|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x8|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x9|1*d]",
+     "0"
+    ],
+    "1*x9|1*d": [
+     "-1*vdiv[1*x10|1*d]+-1*vdiv[1*x11|1*d]+-1*vdiv[1*x12|1*d]+-1*vdiv[1*x13|1*d]+-1*vdiv[1*x14|1*d]+-1*vdiv[1*x15|1*d]+-1*vdiv[1*x16|1*d]+-1*vdiv[1*x17|1*d]+-1*vdiv[1*x18|1*d]+-1*vdiv[1*x19|1*d]+-1*vdiv[1*x1|1*d]+-1*vdiv[1*x20|1*d]+-1*vdiv[1*x21|1*d]+-1*vdiv[1*x22|1*d]+-1*vdiv[1*x23|1*d]+-1*vdiv[1*x24|1*d]+-1*vdiv[1*x25|1*d]+-1*vdiv[1*x26|1*d]+-1*vdiv[1*x27|1*d]+-1*vdiv[1*x28|1*d]+-1*vdiv[1*x29|1*d]+-1*vdiv[1*x2|1*d]+-1*vdiv[1*x30|1*d]+-1*vdiv[1*x31|1*d]+-1*vdiv[1*x3|1*d]+-1*vdiv[1*x4|1*d]+-1*vdiv[1*x5|1*d]+-1*vdiv[1*x6|1*d]+-1*vdiv[1*x7|1*d]+-1*vdiv[1*x8|1*d]",
+     "0"
+    ],
+    "1*y|1*d": [
+     "0"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "name": "lim-32-image",
+   "kind": "limit",
+   "vars": [
+    "d",
+    "x1",
+    "x10",
+    "x11",
+    "x12",
+    "x13",
+    "x14",
+    "x15",
+    "x16",
+    "x17",
+    "x18",
+    "x19",
+    "x2",
+    "x20",
+    "x21",
+    "x22",
+    "x23",
+    "x24",
+    "x25",
+    "x26",
+    "x27",
+    "x28",
+    "x29",
+    "x3",
+    "x30",
+    "x31",
+    "x32",
+    "x4",
+    "x5",
+    "x6",
+    "x7",
+    "x8",
+    "x9",
+    "y"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(= x1 y)"
+   ],
+   "goal": "(>= (+ (/ x1 d) (/ x2 d) (/ x3 d) (/ x4 d) (/ x5 d) (/ x6 d) (/ x7 d) (/ x8 d) (/ x9 d) (/ x10 d) (/ x11 d) (/ x12 d) (/ x13 d) (/ x14 d) (/ x15 d) (/ x16 d) (/ x17 d) (/ x18 d) (/ x19 d) (/ x20 d) (/ x21 d) (/ x22 d) (/ x23 d) (/ x24 d) (/ x25 d) (/ x26 d) (/ x27 d) (/ x28 d) (/ x29 d) (/ x30 d) (/ x31 d) (/ x32 d)) 0)",
+   "refused": "nonlinear:/",
+   "why": "more than 32 division pairs"
+  },
+  {
+   "name": "trig-a3",
+   "kind": "trigger",
+   "vars": [
+    "a",
+    "d",
+    "e"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)"
+   ],
+   "goal": "(= (/ e d) a)",
+   "facts": 49,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "G": 8
+   },
+   "fact_digests": {
+    "D0": "8a9d37cf99076d386e59bfa63a0aa2d837f1a2c2d9e9b931ab2521613e405850",
+    "F1": "b59b2ebc1a2b2b4cd637544f9584b38b9426a57b3c93f1c4b5f71e4d79d926c6",
+    "F10": "8194ca7da072984c621113a6df9a95c0a8424dea0d4b6716b0b236b3067c84f4",
+    "F11": "58388b861352277f1b7c563cfae620164a4017812c4d3b3df199ccf9755b0745",
+    "F2": "7e11c031fc3c522828c6ac6f4b300da5eb404c8e44a3d575066a4dba7fc98ffd",
+    "F3": "52d5a8a5feea663f737113fb06ee97a508d5e1910861b49b8f458f0186a3ec07",
+    "F4": "3da77bccb0f404bb8fb1e14f4b4976d472cb9a092fcafa15eec45e809b554828",
+    "F5": "7d426fafc0d9c3bb8afab29142e2eead1d065c53bf50a413706513fada349cc2",
+    "G": "782dfc862726771d2823e22aac354e74d536228b71a6217d65d1581cf3e17a60"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*e|1*d": [
+     "0",
+     "1*a"
+    ]
+   },
+   "a6_same": true
+  },
+  {
+   "name": "trig-a3-written",
+   "kind": "trigger",
+   "vars": [
+    "a",
+    "d",
+    "e"
+   ],
+   "sorts": {},
+   "hyps": [
+    "(>= d 1)",
+    "(>= (* a d) 0)"
+   ],
+   "goal": "(= (/ e d) a)",
+   "facts": 53,
+   "T": 2,
+   "capped": false,
+   "closure": 4,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 6,
+    "F10": 2,
+    "F11": 4,
+    "F2": 8,
+    "F3": 4,
+    "F4": 8,
+    "F5": 6,
+    "G": 12
+   },
+   "fact_digests": {
+    "D0": "8a9d37cf99076d386e59bfa63a0aa2d837f1a2c2d9e9b931ab2521613e405850",
+    "F1": "b59b2ebc1a2b2b4cd637544f9584b38b9426a57b3c93f1c4b5f71e4d79d926c6",
+    "F10": "8194ca7da072984c621113a6df9a95c0a8424dea0d4b6716b0b236b3067c84f4",
+    "F11": "58388b861352277f1b7c563cfae620164a4017812c4d3b3df199ccf9755b0745",
+    "F2": "7e11c031fc3c522828c6ac6f4b300da5eb404c8e44a3d575066a4dba7fc98ffd",
+    "F3": "52d5a8a5feea663f737113fb06ee97a508d5e1910861b49b8f458f0186a3ec07",
+    "F4": "3da77bccb0f404bb8fb1e14f4b4976d472cb9a092fcafa15eec45e809b554828",
+    "F5": "7d426fafc0d9c3bb8afab29142e2eead1d065c53bf50a413706513fada349cc2",
+    "G": "998f7728c352881e69276c0b78d2789196c85e7c0f7481104882e438cdc9a9cf"
+   },
+   "dpairs_pass": 1,
+   "dpairs": 1,
+   "triggers": {
+    "1*e|1*d": [
+     "-1*+1*a",
+     "0",
+     "1*a"
+    ]
+   },
+   "a6_same": true
+  }
+ ]
+}

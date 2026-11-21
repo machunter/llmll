@@ -23,6 +23,25 @@
 -- false constant premise, or a true constant conclusion, is dropped. Facts are
 -- deduplicated on their canonical relations; the first family to add one
 -- names it.
+--
+-- DIV-VAR-1 (@docs/design/image-library-proposal.md@ Rev 4a, Part C) adds a
+-- division pass inside the same function, before the product facts. It is a
+-- port of @pre_facts()@ in @scripts/divvar/divvar_core.py@, read with
+-- @D4rule=False@ (Rev 4: D4's rule clause is F9 at a division atom):
+--
+-- * Pairs: each @(/ e d)@ and @(mod e d)@ written with a divisor that is not
+--   ground, then closed under the rules to a fixed point (A2). Over
+--   'divPairLimit' pairs the constraint refuses with @nonlinear:/@.
+-- * Per pair, with @q@ = @div##k@ and @r@ = @mod##k@: D0 as three
+--   implications (A5); G as four implications for each trigger @t@ of
+--   T-zero, T-literal (literals as written, A1) and T-cofactor (monomials of
+--   the closure of the constraint as written, A3; only for a divisor that is
+--   one monomial with coefficient 1, A4).
+-- * D4 for each two pairs.
+--
+-- The division facts come first in the fact list, and their polynomials join
+-- the occurrences before the closure, @P@ and the literal set, so the product
+-- pass reaches their monomials.
 module LLMLL.ProductFacts
   ( Family(..)
   , familyName
@@ -31,7 +50,10 @@ module LLMLL.ProductFacts
   , Rule(..)
   , productFacts
   , productFactsWith
+  , productFactsOpts
   , RuleReading(..)
+  , TriggerReading(..)
+  , divAtomNames
   , flatConjuncts
   , factPred
   , monoNames
@@ -39,6 +61,7 @@ module LLMLL.ProductFacts
   , factMonos
   , canonRel
   , hasProduct
+  , hasVarDiv
   ) where
 
 import qualified Data.Map.Strict as Map
@@ -57,6 +80,9 @@ import LLMLL.ProductNF
 -- ---------------------------------------------------------------------------
 
 data Family = F1 | F2 | F3 | F4 | F5 | F7 | F7b | F8 | F9 | F10 | F11
+  | D0  -- ^ DIV-VAR-1: @d >= 1 => e = d*q + r@, @r >= 0@, @r <= d - 1@
+  | G   -- ^ DIV-VAR-1: the Galois connection at a trigger @t@, four implications
+  | D4  -- ^ DIV-VAR-1: congruence of two pairs
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 familyName :: Family -> Text
@@ -84,12 +110,27 @@ data FactResult = FactResult
   , frMaxDeg   :: !Int
   , frSettled  :: !Int
   , frRules    :: [Rule]
+  , frDivPairs :: !Int       -- ^ division pairs, written and rule-created (DIV-VAR-1)
+  , frDivFacts :: !Int       -- ^ facts of the families D0, G and D4 after dedup
+  , frDivPairList :: [(Poly, Poly)]
+    -- ^ the pairs @(e, d)@ in sorted order; @k@ in @div##k@ is the index here
+  , frDivTriggers :: [((Poly, Poly), [Poly])]
+    -- ^ per pair, the trigger set of G (sorted)
   } deriving (Show)
 
 -- | How rules are read. 'AllRules' is the language. 'FirstRulePerAtom' is
 -- Rev 2's reading (one rule per atom, in conjunct order); it exists only as the
 -- control that the invariance test must be able to fail.
 data RuleReading = AllRules | FirstRulePerAtom
+  deriving (Show, Eq)
+
+-- | How the G triggers are read. 'AllTriggers' is the language.
+-- 'FirstTriggerControl' takes, for T-literal, only the first matching literal
+-- in conjunct order and, for T-cofactor, only the first divisible monomial of
+-- higher degree in the literals' order (@ctl_first@ and @ctl_first_lit@ in
+-- @divvar_core.py@). It exists only as the control that the invariance test
+-- must be able to fail.
+data TriggerReading = AllTriggers | FirstTriggerControl
   deriving (Show, Eq)
 
 -- | The top-level conjuncts of a predicate list, with nested 'FQAnd' spliced.
@@ -120,6 +161,22 @@ hasProduct = \case
       Just _ -> False
       Nothing -> True
 
+-- | Does the predicate hold a @/@ or @mod@ whose divisor is not ground
+-- (DIV-VAR-1)?
+hasVarDiv :: FQPred -> Bool
+hasVarDiv = \case
+  FQBinArith op _ r | op `elem` [FQDiv, FQMod], not (isGroundSyntax r) -> True
+  FQBinArith _ l r -> hasVarDiv l || hasVarDiv r
+  FQBinPred _ l r -> hasVarDiv l || hasVarDiv r
+  FQAnd ps -> any hasVarDiv ps
+  FQOr ps -> any hasVarDiv ps
+  FQNot p -> hasVarDiv p
+  FQApp _ as -> any hasVarDiv as
+  FQKVar _ as -> any hasVarDiv as
+  FQIte c a b -> hasVarDiv c || hasVarDiv a || hasVarDiv b
+  FQImplies p q -> hasVarDiv p || hasVarDiv q
+  _ -> False
+
 -- | The fact set of one constraint, from its hypotheses (binder refinements
 -- and @lhs@ conjuncts, with the ground-fact families the emitter adds) and its
 -- goal. A refusal refuses the whole constraint.
@@ -127,12 +184,19 @@ productFacts :: [FQPred] -> FQPred -> Either Refusal FactResult
 productFacts = productFactsWith AllRules
 
 productFactsWith :: RuleReading -> [FQPred] -> FQPred -> Either Refusal FactResult
-productFactsWith reading hyps0 goal = do
+productFactsWith reading = productFactsOpts reading AllTriggers
+
+productFactsOpts :: RuleReading -> TriggerReading -> [FQPred] -> FQPred -> Either Refusal FactResult
+productFactsOpts reading treading hyps0 goal = do
   let hyps = flatConjuncts hyps0
   forM_ (hyps ++ [goal]) $ \t -> maybe (Right ()) Left (refusalScan t)
   rules <- readRules reading hyps
   -- occurrences: the two sides of each relation, and each written product
-  (polys, written) <- collect (hyps ++ [goal])
+  (polys0, written) <- collect (hyps ++ [goal])
+  -- DIV-VAR-1: the division pass, first; its polynomials join the occurrences
+  dp <- divisionPass treading rules (hyps ++ [goal]) polys0
+  let polys = polys0 ++ concat [ map snd ps ++ [snd c] | (_, ps, c) <- dpFacts dp ]
+      divFacts = [ mk fam ps c | (fam, ps, c) <- dpFacts dp ]
   let seeds = monosDeep polys
   graph <- closure rules (Set.toList seeds)
   let closureSize = Map.size graph
@@ -234,7 +298,7 @@ productFactsWith reading hyps0 goal = do
           , all (>= 0) combo ]
         | m <- Set.toAscList done
         , all (not . Set.null . ub) (monoAtoms m) ]
-  let facts = dedupe (f9 ++ pairFacts ++ crossFacts ++ f7b ++ f7)
+  let facts = dedupe (divFacts ++ f9 ++ pairFacts ++ crossFacts ++ f7b ++ f7)
   Right FactResult
     { frFacts = facts
     , frPairs = nPairs
@@ -243,6 +307,10 @@ productFactsWith reading hyps0 goal = do
     , frMaxDeg = maxDeg
     , frSettled = Set.size settled
     , frRules = rules
+    , frDivPairs = length (dpPairs dp)
+    , frDivFacts = length [ () | f <- facts, factFamily f `elem` [D0, G, D4] ]
+    , frDivPairList = dpPairs dp
+    , frDivTriggers = dpTriggers dp
     }
   where
     isSingle x = case Map.toList x of
@@ -297,6 +365,194 @@ dedupe = go Set.empty
       in if Set.member k seen then go seen rest else f : go (Set.insert k seen) rest
 
 -- ---------------------------------------------------------------------------
+-- The division pass (DIV-VAR-1)
+-- ---------------------------------------------------------------------------
+
+-- | A fact before 'mk': family, premises, conclusion, each @op p 0@.
+type RawFact = (Family, [(RelOp, Poly)], (RelOp, Poly))
+
+data DivPass = DivPass
+  { dpPairs    :: [(Poly, Poly)]
+  , dpFacts    :: [RawFact]
+  , dpTriggers :: [((Poly, Poly), [Poly])]
+  }
+
+-- | @div##k@ and @mod##k@ for the one-atom monomial of each pair's quotient
+-- and remainder, @k@ the pair's index in the given (sorted) list.
+divAtomNames :: [(Poly, Poly)] -> Map.Map Mono Text
+divAtomNames prs = Map.fromList $ concat
+  [ [ (Mono [divAtomV e d], divSymPrefix <> T.pack (show k))
+    , (Mono [modAtomV e d], modSymPrefix <> T.pack (show k)) ]
+  | (k, (e, d)) <- zip [0 :: Int ..] prs ]
+
+-- | The pass: the pairs, then D0, G and D4 (port of @pre_facts()@).
+-- @terms@ are the hypotheses and the goal; @polys@ the relation sides.
+divisionPass :: TriggerReading -> [Rule] -> [FQPred] -> [Poly] -> Either Refusal DivPass
+divisionPass treading rules terms polys = do
+  written <- fmap concat $ mapM (\(l, r) -> do
+      e <- toPoly l
+      d <- toPoly r
+      Right [ (e, d) | Just _ <- [singleAtom (mkDivV e d)] ]) (concatMap divTerms terms)
+  if null written then Right (DivPass [] [] []) else do
+    keys <- Set.toAscList <$> closePairs rules written
+    -- T-cofactor reads the closure of the constraint as written (A3)
+    let seeds0 = monosDeep polys
+    graph0 <- closure rules (Set.toList seeds0)
+    let monos = Set.toAscList (Set.union (Map.keysSet graph0) seeds0)
+    lits <- relLiterals terms
+    let zero = Map.empty
+        one = polyConst 1
+        rel o l r = (o, psub l r)
+    perPair <- mapM (\(e, d) -> do
+        let q = polyAtom (divAtomV e d)
+            r = polyAtom (modAtomV e d)
+            qm = Mono [divAtomV e d]
+            dge1 = rel RGe d one
+        dq <- pmulRaw d q
+        let d0 = [ (D0, [dge1], rel REq e (padd dq r))
+                 , (D0, [dge1], rel RGe r zero)
+                 , (D0, [dge1], rel RLe r (psub d one)) ]
+            -- T-literal: each relation that has q with coefficient +1 or -1
+            matching = [ (o, c, p) | (o, p) <- lits, let c = Map.findWithDefault 0 qm p, c == 1 || c == -1 ]
+            litSel = case treading of
+              AllTriggers -> matching
+              FirstTriggerControl -> take 1 matching
+            tLit = concat
+              [ u : [ psub u one | o `elem` [RLt, RGt] ]
+              | (o, c, p) <- litSel
+              , let u = pscale (negate c) (psub p (pscale c (Map.singleton qm 1))) ]
+            -- T-cofactor: only for a divisor that is one monomial, coefficient 1 (A4)
+            tCof = case Map.toList d of
+              [(Mono das@(_ : _), 1)] ->
+                let cands = case treading of
+                      AllTriggers -> monos
+                      FirstTriggerControl ->
+                        take 1 [ m | m <- nubOrd (concatMap (Map.keys . snd) lits)
+                                   , monoDegree m > length das, isJust (msub (monoAtoms m) das) ]
+                in [ psub (Map.singleton (Mono rest) 1) one | m <- cands, Just rest <- [msub (monoAtoms m) das] ]
+              _ -> []
+            trig = Set.toAscList (Set.fromList (zero : tLit ++ tCof))
+        gs <- fmap concat $ mapM (\t -> do
+            dt <- pmulRaw d t
+            let hi = psub (padd dt d) one
+            Right [ (G, [dge1, rel RLe dt e], rel RLe t q)
+                  , (G, [dge1, rel RLe t q], rel RLe dt e)
+                  , (G, [dge1, rel RLe q t], rel RLe e hi)
+                  , (G, [dge1, rel RLe e hi], rel RLe q t) ]) trig
+        Right (d0 ++ gs, ((e, d), trig))) keys
+    let d4 = concat
+          [ [ (D4, prem, rel REq (polyAtom (divAtomV e1 d1)) (polyAtom (divAtomV e2 d2)))
+            , (D4, prem, rel REq (polyAtom (modAtomV e1 d1)) (polyAtom (modAtomV e2 d2))) ]
+          | (i, (e1, d1)) <- zip [0 :: Int ..] keys, (j, (e2, d2)) <- zip [0 ..] keys, i < j
+          , let prem = [rel REq e1 e2, rel REq d1 d2] ]
+    Right DivPass
+      { dpPairs = keys
+      , dpFacts = concatMap fst perPair ++ d4
+      , dpTriggers = map snd perPair
+      }
+  where
+    nubOrd = go Set.empty
+      where go _ [] = []
+            go seen (x : xs) | Set.member x seen = go seen xs
+                             | otherwise = x : go (Set.insert x seen) xs
+    isJust = maybe False (const True)
+
+-- | Remove each atom of the second list from the first, once; 'Nothing' when
+-- one is missing. The result stays sorted.
+msub :: [Atom] -> [Atom] -> Maybe [Atom]
+msub m [] = Just m
+msub m (a : as) = case break (== a) m of
+  (pre, _ : post) -> msub (pre ++ post) as
+  _ -> Nothing
+
+-- | The pairs closed under the rules to a fixed point (A2). Every pair a
+-- substitution creates counts, the inner pairs of an image too; over
+-- 'divPairLimit' the constraint refuses.
+closePairs :: [Rule] -> [(Poly, Poly)] -> Either Refusal (Set.Set (Poly, Poly))
+closePairs rules written = do
+  let start = Set.fromList written
+  limit start
+  go start (Set.toAscList start) Set.empty
+  where
+    limit s = when (Set.size s > divPairLimit) $
+      Left (Refusal "nonlinear:/" ("more than " <> tshow divPairLimit <> " division pairs"))
+    go set [] _ = Right set
+    go set (p@(e, d) : todo) done
+      | Set.member p done = go set todo done
+      | otherwise = do
+          let rs = [ r | r <- rules, polyContains (ruleAtom r) e || polyContains (ruleAtom r) d ]
+          imgs <- fmap concat $ mapM (\r -> do
+              e2 <- subst e (ruleAtom r) (ruleRhs r)
+              d2 <- subst d (ruleAtom r) (ruleRhs r)
+              Right (pairsIn [mkDivV e2 d2, e2, d2])) rs
+          let new = Set.toAscList (Set.fromList [ x | x <- imgs, not (Set.member x set) ])
+              set' = foldl' (flip Set.insert) set new
+          limit set'
+          go set' (todo ++ new) (Set.insert p done)
+    pairsIn ps = [ pr | m <- Set.toList (monosDeep ps), a <- monoAtoms m, Just pr <- [isDivAtom a] ]
+
+-- | Each @(/ e d)@ and @(mod e d)@ with a divisor that is not ground, inside a
+-- relation side or a product factor, at any depth (where @divvar_core.py@
+-- builds a normal form, and so registers a pair).
+divTerms :: FQPred -> [(FQPred, FQPred)]
+divTerms = boolW
+  where
+    boolW t = case t of
+      FQBinPred op l r | isRelOp op -> arithW l ++ arithW r
+      FQBinArith FQMul l r -> arithW l ++ arithW r
+      FQBinArith _ l r -> boolW l ++ boolW r
+      FQBinPred _ l r -> boolW l ++ boolW r
+      FQAnd ps -> concatMap boolW ps
+      FQOr ps -> concatMap boolW ps
+      FQNot p -> boolW p
+      FQImplies p q -> boolW p ++ boolW q
+      FQApp _ as -> concatMap boolW as
+      FQIte c a b -> boolW c ++ boolW a ++ boolW b
+      _ -> []
+    arithW t = here ++ concatMap arithW (children t)
+      where
+        here = case t of
+          FQBinArith op l r | op `elem` [FQDiv, FQMod], not (isGroundSyntax r) -> [(l, r)]
+          _ -> []
+
+-- | Every relation of the constraint, at any depth, as @(op, l - r)@, in
+-- conjunct order (the literals of T-literal; @literals()@ in @divvar_core.py@).
+relLiterals :: [FQPred] -> Either Refusal [(RelOp, Poly)]
+relLiterals = fmap concat . mapM go
+  where
+    go t = do
+      here <- case t of
+        FQBinPred op l r | Just o <- relOpOf op -> (\a b -> [(o, psub a b)]) <$> toPoly l <*> toPoly r
+        _ -> Right []
+      rest <- fmap concat (mapM go (children t))
+      Right (here ++ rest)
+
+children :: FQPred -> [FQPred]
+children = \case
+  FQBinArith _ l r -> [l, r]
+  FQBinPred _ l r -> [l, r]
+  FQAnd ps -> ps
+  FQOr ps -> ps
+  FQNot p -> [p]
+  FQImplies p q -> [p, q]
+  FQApp _ as -> as
+  FQIte c a b -> [c, a, b]
+  _ -> []
+
+isRelOp :: FQBinOp -> Bool
+isRelOp op = op `elem` [FQGe, FQGt, FQLe, FQLt, FQEq, FQNeq]
+
+relOpOf :: FQBinOp -> Maybe RelOp
+relOpOf = \case
+  FQLt -> Just RLt
+  FQLe -> Just RLe
+  FQGt -> Just RGt
+  FQGe -> Just RGe
+  FQEq -> Just REq
+  FQNeq -> Just RNe
+  _ -> Nothing
+
+-- ---------------------------------------------------------------------------
 -- Rules
 -- ---------------------------------------------------------------------------
 
@@ -337,6 +593,8 @@ substAtom a x e
   | otherwise = case atomKind a of
       ADiv f k -> (`mkDiv` k) <$> subst f x e
       AMod f k -> (`mkMod` k) <$> subst f x e
+      ADivV f d -> mkDivV <$> subst f x e <*> subst d x e
+      AModV f d -> mkModV <$> subst f x e <*> subst d x e
       AApp g as -> mkApp g <$> mapM substArg as
       _ -> Right (polyAtom a)
   where

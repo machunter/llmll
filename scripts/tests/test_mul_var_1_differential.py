@@ -16,6 +16,11 @@ halves, because one side is Python and the other Haskell:
 This file holds the Python half: the committed table is what the pinned
 rev3.py gives today. Without it, a change to rev3.py or to the exporter could
 leave the hspec half comparing against a stale table.
+
+Since DIV-VAR-1 the compiler's generator has the division pass, so the table is
+exported with `--divvar` (rev3.py plus `scripts/divvar/divvar_core.py`). Only
+the refusal rows C1, C2, C3 and C6, which divide by a variable, differ from
+rev3.py alone.
 """
 
 from __future__ import annotations
@@ -38,7 +43,7 @@ def test_mv_rev3_is_the_corrected_oracle() -> None:
 
 def test_mv_witness_table_regenerates_from_rev3_byte_for_byte(tmp_path: Path) -> None:
     out = tmp_path / "witnesses.json"
-    p = subprocess.run([sys.executable, "-I", str(EXPORT), str(out)], capture_output=True, text=True, timeout=300)
+    p = subprocess.run([sys.executable, "-I", str(EXPORT), "--divvar", str(out)], capture_output=True, text=True, timeout=300)
     assert p.returncode == 0, p.stdout + p.stderr
     assert out.read_bytes() == TABLE.read_bytes(), "witnesses.json is stale: rerun scripts/mulvar/export_witnesses.py"
 

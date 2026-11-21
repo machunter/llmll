@@ -1,5 +1,5 @@
 {
- "source": "scripts/mulvar/rev3.py sha256 14e9441d20f55f4025ae33eb5029114e0ef1fb5ac59a90efa33b884c6b4cda12",
+ "source": "scripts/mulvar/rev3.py sha256 14e9441d20f55f4025ae33eb5029114e0ef1fb5ac59a90efa33b884c6b4cda12, with the DIV-VAR-1 division pass (scripts/divvar, D4rule=False)",
  "witnesses": [
   {
    "name": "W1",
@@ -5597,8 +5597,27 @@
    ],
    "hyps": [],
    "goal": "(= (* 0 (/ x y)) 0)",
-   "refused": "nonlinear:/",
-   "why": "divisor y is not a positive ground constant"
+   "facts": 18,
+   "T": 1,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "G": 4
+   },
+   "fact_digests": {
+    "D0": "fe2a10efd3788b0b486b5a7faf3915b87a84a01b4b595a3f6d23bdfa2b20e5fa",
+    "F1": "6545444c94383f2fd8cb49603aa39f3b53d35de4f30d19e202860aeb4a1a4093",
+    "F11": "ad4805db2772f619c9df10a7afe4f76c2d2e040358e69df92c093f3eb9db496d",
+    "F2": "aa5a60cb1fd8c36617ece41ad438ea652905e01638257ad25a2d929565a1c0df",
+    "F3": "fdd981a11f730ae4ee723522c8d743d5f2a56d1b0e65a1e565705859c02ae17b",
+    "G": "af9bd2265d04a06b6d26caca1b16c035915d80bff3aca1a0ff8c2b962c1ddf72"
+   }
   },
   {
    "name": "C2",
@@ -5609,8 +5628,27 @@
    ],
    "hyps": [],
    "goal": "(= (- (/ x y) (/ x y)) 0)",
-   "refused": "nonlinear:/",
-   "why": "divisor y is not a positive ground constant"
+   "facts": 18,
+   "T": 1,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "G": 4
+   },
+   "fact_digests": {
+    "D0": "fe2a10efd3788b0b486b5a7faf3915b87a84a01b4b595a3f6d23bdfa2b20e5fa",
+    "F1": "6545444c94383f2fd8cb49603aa39f3b53d35de4f30d19e202860aeb4a1a4093",
+    "F11": "ad4805db2772f619c9df10a7afe4f76c2d2e040358e69df92c093f3eb9db496d",
+    "F2": "aa5a60cb1fd8c36617ece41ad438ea652905e01638257ad25a2d929565a1c0df",
+    "F3": "fdd981a11f730ae4ee723522c8d743d5f2a56d1b0e65a1e565705859c02ae17b",
+    "G": "af9bd2265d04a06b6d26caca1b16c035915d80bff3aca1a0ff8c2b962c1ddf72"
+   }
   },
   {
    "name": "C3",
@@ -5621,8 +5659,27 @@
    ],
    "hyps": [],
    "goal": "(= (* 0 (mod x y)) 0)",
-   "refused": "nonlinear:mod",
-   "why": "divisor y is not a positive ground constant"
+   "facts": 18,
+   "T": 1,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "G": 4
+   },
+   "fact_digests": {
+    "D0": "fe2a10efd3788b0b486b5a7faf3915b87a84a01b4b595a3f6d23bdfa2b20e5fa",
+    "F1": "6545444c94383f2fd8cb49603aa39f3b53d35de4f30d19e202860aeb4a1a4093",
+    "F11": "ad4805db2772f619c9df10a7afe4f76c2d2e040358e69df92c093f3eb9db496d",
+    "F2": "aa5a60cb1fd8c36617ece41ad438ea652905e01638257ad25a2d929565a1c0df",
+    "F3": "fdd981a11f730ae4ee723522c8d743d5f2a56d1b0e65a1e565705859c02ae17b",
+    "G": "af9bd2265d04a06b6d26caca1b16c035915d80bff3aca1a0ff8c2b962c1ddf72"
+   }
   },
   {
    "name": "C4",
@@ -5633,7 +5690,7 @@
    "hyps": [],
    "goal": "(= (* 0 (/ x 0)) 0)",
    "refused": "nonlinear:/",
-   "why": "divisor 0 is not a positive ground constant"
+   "why": "divisor 0 is a ground constant <= 0"
   },
   {
    "name": "C5",
@@ -5644,7 +5701,7 @@
    "hyps": [],
    "goal": "(>= (* x (/ x (- 0 2))) 0)",
    "refused": "nonlinear:/",
-   "why": "divisor ['-', '0', '2'] is not a positive ground constant"
+   "why": "divisor ['-', '0', '2'] is a ground constant <= 0"
   },
   {
    "name": "C6",
@@ -5658,8 +5715,27 @@
     "(= w (* 0 (/ x y)))"
    ],
    "goal": "(= w 0)",
-   "refused": "nonlinear:/",
-   "why": "divisor y is not a positive ground constant"
+   "facts": 18,
+   "T": 1,
+   "capped": false,
+   "closure": 3,
+   "maxdeg": 2,
+   "families": {
+    "D0": 3,
+    "F1": 3,
+    "F11": 2,
+    "F2": 4,
+    "F3": 2,
+    "G": 4
+   },
+   "fact_digests": {
+    "D0": "fe2a10efd3788b0b486b5a7faf3915b87a84a01b4b595a3f6d23bdfa2b20e5fa",
+    "F1": "6545444c94383f2fd8cb49603aa39f3b53d35de4f30d19e202860aeb4a1a4093",
+    "F11": "ad4805db2772f619c9df10a7afe4f76c2d2e040358e69df92c093f3eb9db496d",
+    "F2": "aa5a60cb1fd8c36617ece41ad438ea652905e01638257ad25a2d929565a1c0df",
+    "F3": "fdd981a11f730ae4ee723522c8d743d5f2a56d1b0e65a1e565705859c02ae17b",
+    "G": "af9bd2265d04a06b6d26caca1b16c035915d80bff3aca1a0ff8c2b962c1ddf72"
+   }
   },
   {
    "name": "C7",

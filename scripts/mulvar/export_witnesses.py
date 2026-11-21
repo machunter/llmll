@@ -10,8 +10,13 @@ largest degree, the facts per family, and per family a SHA-256 of the fact
 lines (see `fact_line`), which the hspec differential compares fact for fact;
 or the refusal construct.
 
-Usage: python3 scripts/mulvar/export_witnesses.py [out.json]
+Usage: python3 scripts/mulvar/export_witnesses.py [--divvar] [out.json]
 Default out: compiler/test/fixtures/mul_var_1/witnesses.json
+
+--divvar runs the generator with the DIV-VAR-1 division pass
+(scripts/divvar/divvar_core.py, D4rule=False), as the compiler has it since
+DIV-VAR-1. Only rows that hold a division by a variable change: the refusal
+rows C1, C2, C3 and C6 become admitted rows.
 """
 import hashlib
 import json
@@ -19,8 +24,17 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-import rev3  # noqa: E402
+DIVVAR = "--divvar" in sys.argv
+if DIVVAR:
+    sys.argv.remove("--divvar")
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "divvar"))
+    import divvar_core  # noqa: E402,F401  (installs the division pass)
+    import mulvar_rev3 as rev3  # noqa: E402
+    divvar_core.CFG.update(D4rule=False)
+else:
+    sys.path.insert(0, HERE)
+    import rev3  # noqa: E402
+MKVC = getattr(rev3, "mkvc", rev3.VC)
 
 REPO = os.path.dirname(os.path.dirname(HERE))
 DEFAULT_OUT = os.path.join(REPO, "compiler", "test", "fixtures", "mul_var_1", "witnesses.json")
@@ -58,7 +72,7 @@ def fact_digests(fx):
 
 def stats(vs, h, g, sorts=None):
     try:
-        vc = rev3.VC(h, g, sorts)
+        vc = MKVC(h, g, sorts)
         hyps = [sx(x) for x in vc.hyps]
         fx = vc.facts()
     except rev3.Refused as e:
@@ -118,7 +132,10 @@ def main():
         extra.append(r)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:
-        json.dump(dict(source="scripts/mulvar/rev3.py sha256 14e9441d20f55f4025ae33eb5029114e0ef1fb5ac59a90efa33b884c6b4cda12",
+        src = "scripts/mulvar/rev3.py sha256 14e9441d20f55f4025ae33eb5029114e0ef1fb5ac59a90efa33b884c6b4cda12"
+        if DIVVAR:
+            src += ", with the DIV-VAR-1 division pass (scripts/divvar, D4rule=False)"
+        json.dump(dict(source=src,
                        witnesses=rows, extra=extra), f, indent=1)
         f.write("\n")
     print(f"{len(rows)} witnesses, {len(extra)} extra rows -> {out}")

@@ -3,8 +3,15 @@
 -- Design record: @docs/design/mul-var-proposal.md@ (Rev 3a), sections
 -- "Refusal scan", "Normal form" and "Limits". This module is pure.
 --
+-- DIV-VAR-1 (@docs/design/image-library-proposal.md@ Rev 4a, Part C) adds the
+-- variable-divisor atoms 'ADivV' and 'AModV': @(/ e d)@ and @(mod e d)@ with a
+-- divisor that is not a ground term. Both sides are kept in normal form, the
+-- rules reach them, and the division pass of "LLMLL.ProductFacts" gives each
+-- distinct pair @(e, d)@ its facts.
+--
 -- An 'Atom' is a variable, a function application, @(/ e k)@ or @(mod e k)@
--- with @k@ a positive ground constant, or an 'FQIte'. Anything else that the
+-- with @k@ a positive ground constant, @(/ e d)@ or @(mod e d)@ with @d@ not
+-- ground, or an 'FQIte'. Anything else that the
 -- emitter can put in an integer position (a boolean predicate, a @$k@
 -- variable) is an opaque atom: it is never a rule's head and never split.
 -- Each atom is keyed by its printed 'FQPred' text, rebuilt from the normal
@@ -25,10 +32,12 @@ module LLMLL.ProductNF
   , maxPolySize
   , maxForms
   , maxPairs
+  , divPairLimit
     -- * Refusals
   , Refusal(..)
   , refusalScan
   , groundValue
+  , isGroundSyntax
     -- * Atoms, monomials, polynomials
   , Atom(..)
   , AtomKind(..)
@@ -55,6 +64,11 @@ module LLMLL.ProductNF
   , toCond
   , mkDiv
   , mkMod
+  , mkDivV
+  , mkModV
+  , divAtomV
+  , modAtomV
+  , isDivAtom
   , mkApp
   , mkIte
   , relHolds
@@ -71,6 +85,8 @@ module LLMLL.ProductNF
   , relPred
   , relOpBin
   , mulSymPrefix
+  , divSymPrefix
+  , modSymPrefix
   ) where
 
 import qualified Data.Map.Strict as Map
@@ -105,9 +121,21 @@ maxForms = 32
 maxPairs :: Int
 maxPairs = 64
 
+-- | Division pairs @(e, d)@ with a non-ground divisor in one constraint,
+-- written and rule-created together (DIV-VAR-1). Over it, the whole constraint
+-- refuses with @nonlinear:/@.
+divPairLimit :: Int
+divPairLimit = 32
+
 -- | The prefix of a monomial binder, @mul##k@. A source name cannot hold @#@.
 mulSymPrefix :: Text
 mulSymPrefix = "mul##"
+
+-- | The prefixes of the quotient and remainder binders of a division pair,
+-- @div##k@ and @mod##k@ (DIV-VAR-1).
+divSymPrefix, modSymPrefix :: Text
+divSymPrefix = "div##"
+modSymPrefix = "mod##"
 
 -- ---------------------------------------------------------------------------
 -- Refusals
@@ -140,10 +168,22 @@ groundValue (FQBinArith op l r) = do
     _ -> Nothing
 groundValue _ = Nothing
 
+-- | A closed arithmetic term: an integer literal, or @+@, @-@, @*@, @/@ or
+-- @mod@ of closed terms (DIV-VAR-1, A11). A ground divisor keeps the MUL-VAR-1
+-- treatment; any other divisor is a variable divisor.
+isGroundSyntax :: FQPred -> Bool
+isGroundSyntax = \case
+  FQLit _ -> True
+  FQBinArith op l r -> op `elem` [FQAdd, FQSub, FQMul, FQDiv, FQMod] && isGroundSyntax l && isGroundSyntax r
+  _ -> False
+
 -- | The refusal scan, on the term as written, before any expansion. A @/@ or
--- @mod@ whose divisor is not a positive ground constant refuses the constraint,
--- so a cancellation (@(* 0 (/ x y))@) cannot delete a refused term. The first
--- refusal in a left-to-right walk is returned.
+-- @mod@ whose divisor is a ground term that is not a positive constant
+-- (@0@, @-2@, @(- 2 2)@, @(/ 1 2)@) refuses the constraint, so a cancellation
+-- (@(* 0 (/ x 0))@) cannot delete a refused term. A divisor that is not
+-- ground is admitted (DIV-VAR-1): its @d >= 1@ is a separate definedness
+-- obligation, built from the source term. The first refusal in a
+-- left-to-right walk is returned.
 refusalScan :: FQPred -> Maybe Refusal
 refusalScan = go
   where
@@ -160,10 +200,12 @@ refusalScan = go
       FQIte c a b          -> firstOf [go c, go a, go b]
       _                    -> Nothing
     firstOf = foldr (\x acc -> maybe acc Just x) Nothing
-    divisor nm r = case groundValue r of
-      Just k | k > 0 -> Nothing
-      _ -> Just (Refusal ("nonlinear:" <> nm)
-                 ("divisor " <> emitPred r <> " is not a positive ground constant"))
+    divisor nm r
+      | not (isGroundSyntax r) = Nothing
+      | otherwise = case groundValue r of
+          Just k | k > 0 -> Nothing
+          _ -> Just (Refusal ("nonlinear:" <> nm)
+                     ("divisor " <> emitPred r <> " is a ground constant that is not positive"))
 
 -- ---------------------------------------------------------------------------
 -- Atoms, monomials, polynomials
@@ -192,6 +234,8 @@ data AtomKind
   | AApp Text [Arg]
   | ADiv Poly Integer
   | AMod Poly Integer
+  | ADivV Poly Poly    -- ^ @(/ e d)@, @d@ not ground (DIV-VAR-1)
+  | AModV Poly Poly    -- ^ @(mod e d)@, @d@ not ground (DIV-VAR-1)
   | AIte Cond Poly Poly
   | AOpaque FQPred
   deriving (Show, Eq)
@@ -283,8 +327,9 @@ tshow = T.pack . show
 -- ---------------------------------------------------------------------------
 
 -- | The normal form of an integer term. Run 'refusalScan' first: a @/@ or
--- @mod@ with a divisor that is not a positive ground constant is refused here
--- too, with the same construct.
+-- @mod@ with a ground divisor that is not a positive constant is refused here
+-- too, with the same construct. A divisor that is not ground gives a
+-- variable-divisor atom (DIV-VAR-1).
 toPoly :: FQPred -> Either Refusal Poly
 toPoly p = case p of
   FQLit n -> Right (polyConst n)
@@ -295,14 +340,18 @@ toPoly p = case p of
     a <- toPoly l
     b <- toPoly r
     pmul a b
-  FQBinArith FQDiv l r -> do
-    k <- divisorOf "/" r
-    a <- toPoly l
-    Right (mkDiv a k)
-  FQBinArith FQMod l r -> do
-    k <- divisorOf "mod" r
-    a <- toPoly l
-    Right (mkMod a k)
+  FQBinArith FQDiv l r
+    | not (isGroundSyntax r) -> mkDivV <$> toPoly l <*> toPoly r
+    | otherwise -> do
+        k <- divisorOf "/" r
+        a <- toPoly l
+        Right (mkDiv a k)
+  FQBinArith FQMod l r
+    | not (isGroundSyntax r) -> mkModV <$> toPoly l <*> toPoly r
+    | otherwise -> do
+        k <- divisorOf "mod" r
+        a <- toPoly l
+        Right (mkMod a k)
   FQApp f as -> mkApp f <$> mapM toArg as
   FQIte c a b -> mkIte <$> toCond c <*> toPoly a <*> toPoly b
   _ -> Right (polyAtom (opaque p))
@@ -369,7 +418,15 @@ opaque :: FQPred -> Atom
 opaque p = Atom (emitPred p) (AOpaque p)
 
 mkAtom :: AtomKind -> Atom
-mkAtom k = Atom (emitPred (kindPred keyMono k)) k
+mkAtom k = Atom (keyPrefix <> emitPred (kindPred keyMono k)) k
+  where
+    -- A variable-divisor atom whose divisor normalizes to a constant
+    -- (@(- (+ w 2) w)@) prints as a constant-divisor atom does. The prefix
+    -- keeps the two atoms apart: the first is a division pair (A10).
+    keyPrefix = case k of
+      ADivV _ _ -> "divv:"
+      AModV _ _ -> "modv:"
+      _ -> ""
 
 -- | @(/ f k)@, folded when @f@ is constant.
 mkDiv :: Poly -> Integer -> Poly
@@ -382,6 +439,35 @@ mkMod :: Poly -> Integer -> Poly
 mkMod f k
   | isConstPoly f = polyConst (constOf f `mod` k)
   | otherwise     = polyAtom (mkAtom (AMod f k))
+
+-- | @(/ e d)@ with a divisor that is not ground (DIV-VAR-1). It folds only when
+-- both sides are constant and the divisor is at least 1. A divisor that
+-- normalizes to a constant but was not written as one stays a pair (A10).
+mkDivV :: Poly -> Poly -> Poly
+mkDivV e d
+  | isConstPoly e, isConstPoly d, constOf d >= 1 = polyConst (constOf e `div` constOf d)
+  | otherwise = polyAtom (divAtomV e d)
+
+-- | @(mod e d)@ with a divisor that is not ground, folded as 'mkDivV' folds.
+mkModV :: Poly -> Poly -> Poly
+mkModV e d
+  | isConstPoly e, isConstPoly d, constOf d >= 1 = polyConst (constOf e `mod` constOf d)
+  | otherwise = polyAtom (modAtomV e d)
+
+-- | The quotient atom of a pair, never folded.
+divAtomV :: Poly -> Poly -> Atom
+divAtomV e d = mkAtom (ADivV e d)
+
+-- | The remainder atom of a pair, never folded.
+modAtomV :: Poly -> Poly -> Atom
+modAtomV e d = mkAtom (AModV e d)
+
+-- | The pair of a variable-divisor atom.
+isDivAtom :: Atom -> Maybe (Poly, Poly)
+isDivAtom a = case atomKind a of
+  ADivV e d -> Just (e, d)
+  AModV e d -> Just (e, d)
+  _ -> Nothing
 
 mkApp :: Text -> [Arg] -> Poly
 mkApp f as = polyAtom (mkAtom (AApp f as))
@@ -403,6 +489,8 @@ innerPolys :: Atom -> [Poly]
 innerPolys a = case atomKind a of
   ADiv f _ -> [f]
   AMod f _ -> [f]
+  ADivV e d -> [e, d]
+  AModV e d -> [e, d]
   AApp _ as -> concatMap argPolys as
   AIte c x y -> [x, y] ++ condPolys c
   _ -> []
@@ -438,6 +526,8 @@ atomContains :: Atom -> Atom -> Bool
 atomContains v a = case atomKind a of
   ADiv f _ -> polyContains v f
   AMod f _ -> polyContains v f
+  ADivV e d -> polyContains v e || polyContains v d
+  AModV e d -> polyContains v e || polyContains v d
   AApp _ as -> any argHas as
   _ -> False
   where
@@ -456,9 +546,14 @@ keyMono (Mono (a : b : rest)) =
 keyMono _ = Nothing
 
 -- | An atom as a predicate. The first argument names a monomial of degree 2 or
--- more (with @mul##k@ at emission).
+-- more (with @mul##k@ at emission), and a variable-divisor atom as the
+-- one-atom monomial @Mono [a]@ (with @div##k@ or @mod##k@). Without a name, a
+-- variable-divisor atom prints as @(e / d)@ or @(e mod d)@, for the recheck.
 atomPred :: (Mono -> Maybe FQPred) -> Atom -> FQPred
-atomPred nm a = kindPred nm (atomKind a)
+atomPred nm a = case atomKind a of
+  k@(ADivV _ _) -> maybe (kindPred nm k) id (nm (Mono [a]))
+  k@(AModV _ _) -> maybe (kindPred nm k) id (nm (Mono [a]))
+  k -> kindPred nm k
 
 kindPred :: (Mono -> Maybe FQPred) -> AtomKind -> FQPred
 kindPred nm = \case
@@ -466,6 +561,8 @@ kindPred nm = \case
   AApp f as -> FQApp f (map argPred as)
   ADiv f k -> FQBinArith FQDiv (polyPred nm f) (FQLit k)
   AMod f k -> FQBinArith FQMod (polyPred nm f) (FQLit k)
+  ADivV e d -> FQBinArith FQDiv (polyPred nm e) (polyPred nm d)
+  AModV e d -> FQBinArith FQMod (polyPred nm e) (polyPred nm d)
   AIte c x y -> FQIte (condPred nm c) (polyPred nm x) (polyPred nm y)
   AOpaque p -> p
   where
