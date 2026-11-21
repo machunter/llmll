@@ -23,7 +23,7 @@ import LLMLL.TypeAdmissibility (builtinAliases)
 import LLMLL.ObligationAssembly
   ( exprToSExpr, deriveBacking, collectHoleGuards, collectHoleGuardsWith, holeGuardMark, PathEntry(..), holeContractBrief, normalizeForFingerprint
   , obligationStatus, classifyContractFragment, classifyContractFragmentTyped, classifyBodyFragment
-  , recursiveNames, descentDischargedFns, ObligationKind(..), patternBindings, isTypeCompatible
+  , recursiveNames, recursiveSCCs, descentDischargedFns, ObligationKind(..), patternBindings, isTypeCompatible
   , ContractChannel(..)
   , trustLabel
   , computeEffectSummary, primEffect, encodeEff, effectLabelText, EffectSummary(..), EffectLabel(..)
@@ -129,6 +129,7 @@ import qualified LLMLL.ProgramGraph as PG
 import qualified LLMLL.CallGraph as FSCG
 import LLMLL.HoleAnalysis (extractCallsScoped)
 import LLMLL.TrustReport (uncheckedCallPres)
+import qualified LLMLL.TrustReport as BTTR (TrustDependency(..))  -- BYTES-TABULATE-1 step 2
 import LLMLL.FixpointEmit (scopedContractEnv, localBinderNames, sigmaAutoPred)
 import LLMLL.FixpointEmit (addCongruence, congruenceFact, conjoinAll)
 import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText, wdGoalInContext, bytesCallNames, bytesParamSorts)
@@ -29121,6 +29122,114 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let row = find ((== "bytes-tabulate") . beName) (asBuiltins agentSpec)
       fmap (map fst . beParams) row `shouldBe` Just ["n", "gen", "a1 … ak"]
       fmap beReturns row `shouldBe` Just "bytes"
+
+  -- -----------------------------------------------------------------------
+  -- BYTES-TABULATE-1 step 2 (image-library-proposal Part B, "The generator is
+  -- a callee"): passing gen to bytes-tabulate is a callee edge with the effect
+  -- of a direct call. Both call extractors yield it, so every call graph and
+  -- callee set sees it (plan, "Callee-set computations"). The generator slot
+  -- is not an unproved edge (T2 proves gen's pre in step 3; until then every
+  -- tabulating caller falls back, so it is never body-faithful and its full
+  -- edge set is reported). A recursive group that a tabulate edge closes is
+  -- never descent-discharged: the edge emits no descent constraint.
+  -- -----------------------------------------------------------------------
+  describe "BYTES-TABULATE-1 step 2: the generator is a callee edge" $ do
+    let parsedG src = case parseStatements GrammarCoreInversion "<bt2>" (T.unlines src) of
+          Left err -> error ("BYTES-TABULATE-1 step 2 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        invAt  = [ "(def inv-at [buf: bytes i: int] -> int"
+                 , "  (pre (and (>= i 0) (< i (bytes-length buf))))"
+                 , "  (post (= result (- 255 (bytes-get buf i))))"
+                 , "  (- 255 (bytes-get buf i)))" ]
+        invert = [ "(def-shell invert [buf: bytes] -> bytes"
+                 , "  (post (= (bytes-length result) (bytes-length buf)))"
+                 , "  (bytes-tabulate (bytes-length buf) inv-at buf))" ]
+        tabBody = EApp "bytes-tabulate" [EApp "bytes-length" [EVar "buf"], EVar "inv-at", EVar "buf"]
+        er lvl ok = EvidenceRecord lvl ok Nothing [] False Nothing Nothing False Nothing False []
+        verifiedPost = ContractStatus Nothing (Just (er (DLVerified "liquid-fixpoint") True)) []
+        entryOf n rep = [ e | e <- trEntries rep, teName e == n ]
+    it "BT-G-1 both call extractors yield the generator of a bytes-tabulate call" $ do
+      HA.extractCallsScoped ["buf"] tabBody `shouldSatisfy` elem "inv-at"
+      HA.extractCalls tabBody `shouldSatisfy` elem "inv-at"
+      HA.tabulateGensScoped ["buf"] tabBody `shouldBe` ["inv-at"]
+      -- the generator slot of any other call is a value, not a call head
+      HA.extractCallsScoped ["xs"] (EApp "list-map" [EVar "xs", EVar "inv-at"]) `shouldNotSatisfy` elem "inv-at"
+    it "BT-G-2 a binder that shadows the generator's name gives no edge" $ do
+      HA.extractCallsScoped ["buf", "inv-at"] tabBody `shouldNotSatisfy` elem "inv-at"
+      HA.extractCallsScoped ["buf"] (ELet [(PVar "inv-at", Nothing, ELit (LitInt 0))] tabBody)
+        `shouldNotSatisfy` elem "inv-at"
+      HA.tabulateGensScoped ["buf", "inv-at"] tabBody `shouldBe` []
+    it "BT-G-3 buildCallGraph and the qualified graph have the caller -> generator edge" $ do
+      let ss = parsedG (invAt ++ invert)
+      Map.lookup "invert" (HA.buildCallGraph ss) `shouldSatisfy` maybe False (elem "inv-at")
+      Map.lookup "invert" (FSCG.qualifiedCallGraph Map.empty ss) `shouldSatisfy` maybe False (elem "inv-at")
+    it "BT-G-4 unprovedEdges drops the generator slot; a caller that fell back still reports it" $ do
+      let ss = parsedG (invAt ++ invert)
+      Map.lookup "invert" (FSCG.unprovedEdges Map.empty ss) `shouldBe` Just []
+      uncheckedCallPres Map.empty ss ["inv-at", "invert"] `shouldBe` []
+      -- step 2 has no emitter arm, so invert is never body-faithful: the full
+      -- edge set is read and the generator's pre is reported unchecked
+      uncheckedCallPres Map.empty ss ["inv-at"] `shouldBe` [("invert", "inv-at")]
+    it "BT-G-5 a generator also passed as a value, or called or tabulated inside a lambda, stays unproved" $ do
+      let ss = parsedG (invAt ++
+            [ "(def id-at [i: int] -> int (pre (>= i 0)) (post (= result i)) i)"
+            , "(def-shell passed [xs: list[int] n: int] -> bytes"
+            , "  (let [(ys (list-map xs id-at))] (bytes-tabulate n id-at)))"
+            , "(def-shell called [buf: bytes xs: list[int]] -> list[int]"
+            , "  (let [(b (bytes-tabulate (bytes-length buf) inv-at buf))]"
+            , "    (list-map xs (fn [i: int] (inv-at b i)))))"
+            , "(def-shell inlam [buf: bytes xs: list[int]] -> list[bytes]"
+            , "  (list-map xs (fn [k: int] (bytes-tabulate (bytes-length buf) inv-at buf))))" ])
+          up = FSCG.unprovedEdges Map.empty ss
+      Map.lookup "passed" up `shouldBe` Just ["id-at"]
+      Map.lookup "called" up `shouldBe` Just ["inv-at"]
+      Map.lookup "inlam" up `shouldBe` Just ["inv-at"]
+    it "BT-G-6 the caller's trust entry lists the generator in dependencies, and an asserted generator lowers its effective level" $ do
+      let ss  = parsedG (invAt ++ invert)
+          rep = buildTrustReport Map.empty ss (Map.fromList [("invert", verifiedPost)])
+      case entryOf "invert" rep of
+        [e] -> do
+          map BTTR.tdName (teDeps e) `shouldBe` ["inv-at"]
+          -- invert's own post is verified; inv-at's post is asserted (no evidence)
+          fmap erDisplayLevel (tePost e) `shouldBe` Just (DLVerified "liquid-fixpoint")
+          teEffectiveLevel e `shouldBe` Just DLAsserted
+        es -> expectationFailure ("invert entries: " ++ show (length es))
+      -- with the generator verified too, the caller keeps verified
+      let rep2 = buildTrustReport Map.empty ss (Map.fromList [("invert", verifiedPost), ("inv-at", verifiedPost)])
+      map teEffectiveLevel (entryOf "invert" rep2) `shouldBe` [Just (DLVerified "liquid-fixpoint")]
+    it "BT-G-7 refutedClosure and markRefuted reach a caller through a refuted generator" $ do
+      let rep = buildTrustReport Map.empty (parsedG (invAt ++ invert)) Map.empty
+      refutedClosure (Set.fromList ["inv-at"]) rep `shouldSatisfy` Set.member "invert"
+      concat [ teDrifts e | e <- trEntries (markRefuted (Set.fromList ["inv-at"]) rep), teName e == "invert" ]
+        `shouldSatisfy` any (T.isInfixOf "depends-on-refuted")
+    it "BT-G-8 a measured cycle closed by a tabulate edge is a recursive group and is never descent-discharged (edge case 12)" $ do
+      -- f tabulates over g, g calls f with an INCREASING argument: it does not
+      -- terminate. Both are measured, body-faithful and the verify is SAFE (as
+      -- given), with uniform arity. The tabulate edge emits no descent
+      -- constraint, so a discharge would be vacuous. (The type checker refuses
+      -- a def-shell generator; this pins the gate itself.)
+      let cyc = parsedG
+            [ "(def-shell f [n: int] -> bytes (pre (>= n 0)) (decreases n) (bytes-tabulate 1 g n))"
+            , "(def-shell g [n: int i: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n)"
+            , "  (bytes-length (f (+ n 1))))" ]
+      recursiveSCCs cyc `shouldSatisfy` any (\scc -> sort scc == ["f", "g"])
+      descentDischargedFns cyc ["f", "g"] (Set.fromList ["f", "g"]) True `shouldBe` Set.empty
+      -- control: the same group with a direct call in place of the tabulate discharges
+      let direct = parsedG
+            [ "(def-shell f [n: int] -> int (pre (>= n 0)) (decreases n) (g n 0))"
+            , "(def-shell g [n: int i: int] -> int (pre (>= n 0)) (post (>= result 0)) (decreases n)"
+            , "  (f (+ n 1)))" ]
+      descentDischargedFns direct ["f", "g"] (Set.fromList ["f", "g"]) True `shouldBe` Set.fromList ["f", "g"]
+      -- a tabulate edge OUTSIDE the group does not block the group's discharge
+      let outside = parsedG (invAt ++
+            [ "(def-shell h [n: int buf: bytes] -> int (pre (>= n 0)) (decreases n)"
+            , "  (if (= n 0) (bytes-length (bytes-tabulate (bytes-length buf) inv-at buf)) (h (- n 1) buf)))" ])
+      descentDischargedFns outside ["h"] (Set.fromList ["h"]) True `shouldBe` Set.fromList ["h"]
+    it "BT-G-9 the recursion test sees a cycle f -> tabulate over g -> f (edge case 12)" $ do
+      let cyc = parsedG
+            [ "(def g [n: int i: int] -> int (post (>= result 0)) (bytes-length (f n)))"
+            , "(def-shell f [n: int] -> bytes (bytes-tabulate 1 g n))" ]
+      recursiveNames cyc `shouldBe` Set.fromList ["f", "g"]
 
   -- -----------------------------------------------------------------------
   -- BYTE-IO step 3, S4 (BYTES-UNSIZED-1): the evaluator and the generator.
