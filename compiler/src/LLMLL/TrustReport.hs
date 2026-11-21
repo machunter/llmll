@@ -472,8 +472,12 @@ data TierProfile = TierProfile
 -- CLAUSE-WELLDEF-1 (1.11.0): additive per-entry 'ill_defined' (only-on-true)
 -- and top-level 'ill_defined_fns' (only when non-empty), and the
 -- 'body_fallback' cause @clause-welldef-unproved@.
+-- BYTES-TABULATE-1 (1.12.0): no new key. A caller's 'dependencies' now names
+-- each 'bytes-tabulate' generator, so a closure or effective level a consumer
+-- computes from them changes; and the 'body_fallback' cause
+-- @tabulate-gen-unverified@.
 trustReportEmitVersion :: Text
-trustReportEmitVersion = "1.11.0"
+trustReportEmitVersion = "1.12.0"
 
 -- | EFFECT-RESP: the harness-level residue a console program carries.
 --

@@ -329,7 +329,7 @@ def test_mv_trust_report_discloses_the_product_facts_family(tmp_path: Path) -> N
     tr = _nested(doc, "trust_report")
     entry = next(e for e in tr["entries"] if e["name"] == "mv-w3")
     assert "product-facts" in entry.get("ground_fact_families", []), entry
-    assert tr["trust_report_version"] == "1.11.0", tr.get("trust_report_version")
+    assert tr["trust_report_version"] == "1.12.0", tr.get("trust_report_version")
 
 
 AREA = """(module area

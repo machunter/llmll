@@ -254,6 +254,9 @@ def test_bt_b4_a_value_past_255_stops_at_its_index_with_contracts_stripped(tmp_p
 # * BT-T1, BT-T2, BT-T3: the trust report lists the bytes-tabulate lemma and
 #   the generator as a dependency; the proof artifact gives BT-V7's caller
 #   fallback_reason tabulate-gen-unverified.
+# * BT-T4 (step 4): the proof-artifact schema's closed fallback_reason enum
+#   holds tabulate-gen-unverified, its $id names v0.4, and a written artifact
+#   carries proof_artifact_version 0.4.0.
 # ---------------------------------------------------------------------------
 
 FIX = Path(__file__).resolve().parent / "fixtures" / "bytes_tabulate_1"
@@ -422,6 +425,22 @@ def test_bt_t3_proof_artifact_gives_the_fallback_reason(fx):
     schema = json.loads((FIX.parents[3] / "docs" / "proof-artifact.schema.json").read_text())
     jsonschema = pytest.importorskip("jsonschema")
     jsonschema.Draft202012Validator(schema).validate(art)
+
+
+def test_bt_t4_proof_artifact_schema_admits_the_cause_at_0_4_0(fx):
+    # Step 4: a new fallback_reason value raises proof_artifact_version
+    # (0.3.0 -> 0.4.0). The schema's closed enum holds the value, its $id names
+    # v0.4, and an artifact the compiler writes carries 0.4.0.
+    schema = json.loads((FIX.parents[3] / "docs" / "proof-artifact.schema.json").read_text())
+    assert schema["properties"]["functions"]["items"] == {"$ref": "#/definitions/functionRecord"}
+    fn_props = schema["definitions"]["functionRecord"]["properties"]
+    assert "tabulate-gen-unverified" in fn_props["fallback_reason"]["enum"]
+    assert "/proof-artifact/v0.4/" in schema["$id"], schema["$id"]
+    _gen_verified(fx)
+    p = _llmll_run(fx, "verify", "ops.llmll", "--proof-artifact", "ops.pa.json")
+    assert p.returncode == 0, p.stdout[-3000:]
+    art = json.loads((fx / "ops.pa.json").read_text())
+    assert art["proof_artifact_version"] == "0.4.0", art["proof_artifact_version"]
 
 
 def test_bt_v13_a_generator_pre_outside_the_fragment_sends_the_caller_to_fallback(fx):

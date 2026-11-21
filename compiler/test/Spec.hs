@@ -5496,8 +5496,8 @@ main = hspec $ do
           report   = buildTrustReport Map.empty [withdrawStmt] sidecar
           jsonText = formatTrustReportJson report
           jsonV    = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
-      -- trust_report_version now 1.11.0 (CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK)
-      jsonText `shouldSatisfy` T.isInfixOf "\"1.11.0\""
+      -- trust_report_version now 1.12.0 (BYTES-TABULATE-1; 1.11.0 CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK)
+      jsonText `shouldSatisfy` T.isInfixOf "\"1.12.0\""
       case jsonV of
         Just (Object o) -> case KM.lookup "entries" o of
           Just (Array es) -> case [ ent | Object ent <- foldr (:) [] es
@@ -5787,8 +5787,8 @@ main = hspec $ do
           decoded  = decode (BLC.pack (T.unpack jsonText)) :: Maybe Value
       case decoded of
         Just (Object o) -> do
-          -- trust_report_version now 1.11.0 (CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
-          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.11.0")
+          -- trust_report_version now 1.12.0 (BYTES-TABULATE-1; 1.11.0 CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+          KM.lookup "trust_report_version" o `shouldBe` Just (String "1.12.0")
           case KM.lookup "tier_profile" o of
             Just (Object tp) -> do
               -- All required fields present
@@ -15632,8 +15632,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             jsonText = formatTrustReportJson report
         case decode (BLC.pack (T.unpack jsonText)) :: Maybe Value of
           Just (Object o) -> do
-            -- trust_report_version now 1.11.0 (CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
-            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.11.0")
+            -- trust_report_version now 1.12.0 (BYTES-TABULATE-1; 1.11.0 CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; 1.6.0 REC-PARTIAL-MARK; was 1.4.0 TRUST-PRE).
+            KM.lookup "trust_report_version" o `shouldBe` Just (String "1.12.0")
             -- Scalar tier_profile unchanged in shape (six Int fields)
             case KM.lookup "tier_profile" o of
               Just (Object tp) -> do
@@ -15945,8 +15945,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       it "J6 JSON emit additive: trust_report_version unchanged, joint_pbt_witnesses key present" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        -- trust_report_version now 1.11.0 (CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; TRUST-PRE was the 1.4.0 additive axis).
-        T.isInfixOf "\"trust_report_version\":\"1.11.0\"" jsonTxt `shouldBe` True
+        -- trust_report_version now 1.12.0 (BYTES-TABULATE-1; 1.11.0 CLAUSE-WELLDEF-1; 1.10.0 TRUST-REPORT-GATE-1; 1.9.0 MODE-CLI-1; 1.8.0 PARTIAL-FNS-GRAPH-1; 1.7.0 HEADLINE-TERM-1; TRUST-PRE was the 1.4.0 additive axis).
+        T.isInfixOf "\"trust_report_version\":\"1.12.0\"" jsonTxt `shouldBe` True
         T.isInfixOf "\"joint_pbt_witnesses\":"          jsonTxt `shouldBe` True
 
       -- J7 (OBLIG-PBT-5b): a joint-only clause renders the distinct 'tested-joint'
@@ -16500,10 +16500,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"headline\":\"measured\"" (formatTrustReportJson (buildTrustReportWithCDP Map.empty stmts Map.empty noWarning)) `shouldBe` True
         T.isInfixOf "\"headline\":\"not-requested\"" (formatTrustReportJson notRequested) `shouldBe` True
 
-      it "C18 trust_report_version is 1.11.0 (CLAUSE-WELLDEF-1 bump)" $ do
+      it "C18 trust_report_version is 1.12.0 (BYTES-TABULATE-1 bump)" $ do
         let report  = buildTrustReport Map.empty [] Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.11.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.12.0\"" jsonTxt `shouldBe` True
 
       -- REC-PARTIAL-MARK (increment 2/(a) of REC-BODY-VC): recursive-cycle
       -- members carry a derived 'termination_unverified' marker + a top-level
@@ -16715,10 +16715,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         T.isInfixOf "\"over_annotation\":{" jsonTxt `shouldBe` True
         T.isInfixOf "\"warning\":false" jsonTxt `shouldBe` True
 
-      it "C27e over_annotation is an additive field (did not itself bump the version); version is 1.11.0 (CLAUSE-WELLDEF-1)" $ do
+      it "C27e over_annotation is an additive field (did not itself bump the version); version is 1.12.0 (BYTES-TABULATE-1)" $ do
         let report  = buildTrustReport Map.empty stmtsAboveThreshold Map.empty
             jsonTxt = formatTrustReportJson report
-        T.isInfixOf "\"trust_report_version\":\"1.11.0\"" jsonTxt `shouldBe` True
+        T.isInfixOf "\"trust_report_version\":\"1.12.0\"" jsonTxt `shouldBe` True
 
     -- F6-1 through F6-6: F-006 / F-005 ancillary fixes
     describe "F6-1–F6-6 candidate generation (F-006 type-alias fix / F-005 unannotated-return fix)" $ do
@@ -20823,8 +20823,9 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- unbounded_entry_loop field (docs/design/entry-mode-implementation-plan.md).
     -- TRUST-REPORT-GATE-1 moved it to 1.10.0 deliberately, for discarded_records.
     -- CLAUSE-WELLDEF-1 moved it to 1.11.0 deliberately, for ill_defined_fns.
+    -- BYTES-TABULATE-1 moved it to 1.12.0 deliberately, for generator dependencies.
     it "the additive key does not bump trust_report_version" $
-      trustReportEmitVersion `shouldBe` "1.11.0"
+      trustReportEmitVersion `shouldBe` "1.12.0"
 
   describe "CodegenHs: wasi.http.post codegen warning (WASI-RT)" $ do
 
@@ -28060,8 +28061,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let js = BLC.unpack (encode liveComposedVersions)
       js `shouldSatisfy` isInfixOf "\"checker_soundness_version\":\"9\""
 
-    it "A5 proof_artifact_version is 0.3.0 (FQ-NAME-COLLIDE-1)" $
-      proofArtifactVersion `shouldBe` "0.3.0"
+    it "A5 proof_artifact_version is 0.4.0 (BYTES-TABULATE-1)" $
+      proofArtifactVersion `shouldBe` "0.4.0"
 
     it "A6 the kernel refuses a positive tier flagged ill_defined, on mint and on read" $ do
       mkFnRecord pos { fiIllDefined = True } `shouldSatisfy` isLeft
@@ -28106,8 +28107,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- MUL-VAR-1: verify_json_version 1.2.0 (abstraction:nonlinear:*); the
     -- trust report version does not move (design decision 4).
     -- CALL-RESULT-MARK-1: 1.3.0 (the lh-may-fail diagnostics kind).
-    it "H-3 trust_report_version is 1.11.0 and verify_json_version is 1.3.0" $ do
-      trustReportEmitVersion `shouldBe` "1.11.0"
+    it "H-3 trust_report_version is 1.12.0 and verify_json_version is 1.3.0" $ do
+      trustReportEmitVersion `shouldBe` "1.12.0"
       verifyJsonVersion `shouldBe` "1.3.0"
 
   -- CLAUSE-WELLDEF-1 (commit 3 of 3): the run-time guard (clause-welldef-
