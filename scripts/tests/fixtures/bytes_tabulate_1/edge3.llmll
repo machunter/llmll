@@ -1,0 +1,5 @@
+;; V3, edge case 3: bad-at's post does not bound its value, so T3 fails at v = 256.
+(import gen)
+(def-shell bump [buf: bytes] -> bytes
+  (post (= (bytes-length result) (bytes-length buf)))
+  (bytes-tabulate (bytes-length buf) gen.bad-at buf))

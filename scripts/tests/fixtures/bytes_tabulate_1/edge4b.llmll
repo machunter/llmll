@@ -1,0 +1,7 @@
+;; V5, edge case 4b: the same two tabulates under the post false.
+(def id-at [i: int] -> int (pre (and (>= i 0) (< i 256))) (post (= result i)) i)
+(def-shell f [u: int] -> int
+  (post false)
+  (let [(r1 (bytes-tabulate 3 id-at))]
+    (let [(r2 (bytes-tabulate 5 id-at))]
+      (+ (bytes-length r1) (bytes-length r2)))))

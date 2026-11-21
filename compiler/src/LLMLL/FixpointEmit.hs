@@ -70,6 +70,7 @@ module LLMLL.FixpointEmit
   , isIntLike
     -- * Body-VC types (exported for testing)
   , BodyVC(..)
+  , PreObl(..)   -- BYTES-TABULATE-1: the extra call-site obligations of a CallVC
   , LetBinding(..)
   , FlatPath
   , SortEnv
@@ -188,7 +189,7 @@ import LLMLL.ProductFacts (hasProduct)
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, isWdClause)
 import LLMLL.AbstractionCone (ConeRec(..), emptyConeRec, coneHits, atomsOf, exactLengthBuiltins, lengthHeads)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkError, mkBodyFallbackWarning, mkDecreasesUndischarged, mkBodyFallbackProduct, ProductWhy(..))
-import LLMLL.HoleAnalysis (buildCallGraph)
+import LLMLL.HoleAnalysis (buildCallGraph, tabulateGensScoped)
 import LLMLL.GuardClassifier (classifyGuardM, lookupPredOp, lookupArithOp, constArithTerm, intBuiltinTag, reflectCompare, isReflectedCompare, reflectMinMaxAbs)
 -- RESP-FACT-1: the control-tag fact plan (refinement entries per requesting
 -- def, premise sites, warnings). Pure; the checker already raised every error.
@@ -293,6 +294,15 @@ data FallbackCause
   -- program values being identified. Decided over the assembled file, beside
   -- 'FallbackUnboundSymbols', and it takes the cause when both fire.
   | FallbackNameCollision  -- ^ an emitted constraint names two values with one solver symbol
+  -- BYTES-TABULATE-1 (image-library-proposal Part B, "The generator is a
+  -- callee"): the function's VC was answered, but it tabulates over a
+  -- generator that is not body-faithful and verified (an imported one whose
+  -- gated evidence is not fully verified, or a local one that fell back, was
+  -- refuted, ill-defined or moved itself). T2 and T3 rest on the generator's
+  -- contract and the buffer's content is the generator's, so the caller is not
+  -- reported verified. Decided after the solver ('LLMLL.AbstractionVerdict',
+  -- 'applyTabulateGenVerdict'); the construct is @tabulate-gen:<g>@.
+  | FallbackTabulateGenUnverified -- ^ tabulates over a generator that is not verified
   deriving (Show, Eq, Ord, Enum, Bounded)
 
 renderFallbackCause :: FallbackCause -> Text
@@ -310,6 +320,7 @@ renderFallbackCause FallbackAbstraction      = "abstraction-unsafe"
 renderFallbackCause FallbackCalleePostUnassumed = "callee-post-unassumed"
 renderFallbackCause FallbackClauseWelldefUnproved = "clause-welldef-unproved"
 renderFallbackCause FallbackNameCollision = "fq-name-collision"
+renderFallbackCause FallbackTabulateGenUnverified = "tabulate-gen-unverified"
 
 -- | LEVER-A1: the array-theory operation symbols are INTERPRETED by the solver
 -- (native map theory). Declaring them as UF constants would shadow the theory,
@@ -390,6 +401,14 @@ data EmitResult = EmitResult
     -- measure, with their statement index. A function the verdict layer moves
     -- to the fallback outcome gets the W-DECREASES-UNDISCHARGED warning the
     -- emitter gives every other fallback of such a function (DECREASES-LEN-1).
+  , erTabulateGens       :: Map Name [(Name, Maybe Bool)]
+    -- ^ BYTES-TABULATE-1: per entry function, the generators its body passes
+    -- to bytes-tabulate (scoped, from the source body, so a superset of the
+    -- call sites the VC translated). 'Nothing' marks a generator defined in
+    -- the entry module, whose verdict is known only after the solver; @Just
+    -- ok@ marks an imported one, @ok@ being 'erFullyVerifiedAdmissible' on its
+    -- staleness-gated post evidence (False when it cannot be resolved).
+    -- 'LLMLL.AbstractionVerdict.applyTabulateGenVerdict' reads it.
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
@@ -431,7 +450,8 @@ data BuiltinAxiom = BuiltinAxiom
 -- | TRUST-AXIOM: the builtins whose 'cvPostAssumption' is an axiom rather than
 -- a discharged contract. These are the sealed builtin 'CallVC' arms of
 -- 'bodyToPredM': the four array arms, since CHAR-CODE-1 the two character
--- arms, and since BYTES-UNSIZED-1 the seven step-3 byte arms (thirteen). The exact bit forms are NOT here ('exactBitBuiltins'): each result is the
+-- arms, since BYTES-UNSIZED-1 the seven step-3 byte arms (thirteen), and since
+-- BYTES-TABULATE-1 bytes-tabulate (fourteen). The exact bit forms are NOT here ('exactBitBuiltins'): each result is the
 -- arithmetic term itself, which assumes nothing about the operation. A user
 -- function's 'CallVC' is NOT here: its post is the callee's own contract,
 -- discharged by the callee's body VC under assume-guarantee (LLMLL.md §5.3.4).
@@ -447,7 +467,9 @@ sealedAxiomBuiltins = Set.fromList
   -- exact; the other six, bytes-make among them since BYTES-MAKE-ALIAS-1, are
   -- partial ('abstractedBuiltins').
   , "bytes-make", "bytes-widen", "bytes-slice", "bytes-concat", "bytes-concat-many"
-  , "bytes-to-list", "bytes-from-string" ]
+  , "bytes-to-list", "bytes-from-string"
+  -- BYTES-TABULATE-1: a length lemma on a fresh term, no reflection; partial.
+  , "bytes-tabulate" ]
 
 -- | ABSTRACTION-VERDICT-1, clause 1 of docs/design/byte-io-proposal.md Rev 2
 -- (Part 0): the builtins whose result the VC reflects only PARTIALLY, so an UNSAFE
@@ -465,7 +487,10 @@ abstractedBuiltins = Set.fromList
   -- its length, so two makes of different lengths forced @bytesLen@ to two
   -- values and every post was proved (v0.40.0). It now states the length only.
   , "bytes-make"
-  , "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-to-list", "bytes-from-string" ]
+  , "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-to-list", "bytes-from-string"
+  -- BYTES-TABULATE-1: the length only; the content (the generator's values)
+  -- is not reflected.
+  , "bytes-tabulate" ]
 
 -- | CALL-RESULT-MARK-1 (byte-io-proposal Rev 2b item 10, condition C6): the
 -- sealed builtins whose result an exact reflection pins: a read (@bytes-get@,
@@ -632,8 +657,28 @@ data BodyVC
       -- through, never reset it. A future drop site added after the node is
       -- built must set it too. False for the sealed builtins and for a callee
       -- with no post (no authored hypothesis was dropped).
+    , cvPreParts       :: [PreObl]
+      -- ^ BYTES-TABULATE-1: PROVE-polarity obligations of this call beyond
+      -- 'cvPreObligation', each its own constraint (so a failure names which
+      -- one) with constants declared in that constraint's environment only.
+      -- Empty for every arm but bytes-tabulate (T2 and T3). Like
+      -- 'cvPostUnassumed', every rebuild must pass it through: a lost part is
+      -- a lost proof obligation.
     }
   deriving (Show, Eq)
+
+-- | BYTES-TABULATE-1 (image-library-proposal Part B, "Obligations at a call
+-- site"): one extra call-site obligation. Its clause tag is
+-- @call-pre:<callee>:<poTag>@, so 'classifyClause' and every @call-pre:@
+-- reader keep working. 'poBinders' are fresh constants, declared at @true@ in
+-- this constraint's environment and nowhere else: they never enter a prior-call
+-- context, a body-post environment or a later constraint, so the index occurs
+-- in no hypothesis but its range and the clause (the ∀-introduction condition).
+data PreObl = PreObl
+  { poTag     :: Text               -- ^ e.g. @gen-pre:<g>@ (T2), @byte-range:<g>@ (T3)
+  , poBinders :: [(Name, FQSort)]   -- ^ fresh constants, universally read
+  , poPred    :: FQPred             -- ^ the goal (PROVE polarity)
+  } deriving (Show, Eq)
 
 -- | CALL-CONGRUENCE-1: a call's congruence key, the callee's alpha-renamed
 -- binder and the sort of each parameter (int, bool or string only).
@@ -1478,7 +1523,38 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
     , erProductPairs       = Map.restrictKeys (ppPairs pp) keptIds
     , erMeasuredRecursive  =
         [ (n, i) | (n, i) <- Map.toList measuredIdx, n `Set.member` recursiveNames ]
+    , erTabulateGens       = tabulateGensOf cache stmts
     }
+
+-- | BYTES-TABULATE-1 ('erTabulateGens'): each entry function's generators.
+-- A generator defined in the entry module is marked 'Nothing'; its verdict is
+-- decided after the solver. An imported one is marked by its gated post
+-- evidence ('erFullyVerifiedAdmissible'), resolved as 'seedImportedContracts'
+-- keys it (qualified by module path, or bare); every module that resolves the
+-- name must hold verified evidence, and a name no module resolves is False.
+tabulateGensOf :: ModuleCache -> [Statement] -> Map Name [(Name, Maybe Bool)]
+tabulateGensOf cache stmts = Map.fromList
+  [ (nm, [ (g, status g) | g <- nub gs ])
+  | Just (nm, ps, body) <- map fnOf stmts
+  , let gs = tabulateGensScoped (map fst ps) body
+  , not (null gs) ]
+  where
+    fnOf st = case st of
+      SDefLogic n ps _ _ b       -> Just (n, ps, b)
+      SLetrec n ps _ _ _ b       -> Just (n, ps, b)
+      SDef n ps _ _ b            -> Just (n, ps, b)
+      SDefShell n ps _ _ b _ _   -> Just (n, ps, b)
+      SDefInvariant n ps _ _ b   -> Just (n, ps, b)
+      _                          -> Nothing
+    localDefs = Set.fromList [ n | Just (n, _, _) <- map fnOf stmts ]
+    status g
+      | g `Set.member` localDefs = Nothing
+      | otherwise = Just (case [ cs | menv <- Map.elems cache, Just cs <- [lookupIn menv g] ] of
+                            []  -> False
+                            css -> all (erFullyVerifiedAdmissible . csPost) css)
+    lookupIn menv g =
+      let prefix = T.intercalate "." (mePath menv) <> "."
+      in Map.lookup (fromMaybe g (T.stripPrefix prefix g)) (meContractStatus menv)
 
 -- ---------------------------------------------------------------------------
 -- Per-function constraint emission
@@ -2482,7 +2558,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                     let callObligations = collectCallPreObligations bvc
                     unless (null callObligations) $ do
                       addCallPre name
-                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred0, pathGuard, ctxCalls, pathLbs, cpArgEs)) ->
+                      forM_ (zip [0::Int ..] callObligations) $ \(cpIdx, (callee, prePred0, pathGuard, ctxCalls, pathLbs, cpArgEs, cpBinders)) ->
                        -- RESP-FACT-1 (§16 item 7, cell c38; §8 item 21): a callee
                        -- precondition that is CLOSED after argument substitution and
                        -- constructor lowering — `(= p Ran)` at `(h Ran x)` becomes
@@ -2525,6 +2601,13 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                           bid <- freshBid
                           addBind (FQBind bid (lbName lb) (selfEqReft (lbSort lb) (lbRhs lb)))
                           return bid) usableLbs
+                        -- BYTES-TABULATE-1: the obligation's own constants (the
+                        -- index and value of T2 and T3), declared at true in this
+                        -- constraint's environment only.
+                        poBindIds <- mapM (\(dv, ds) -> do
+                          bid <- freshBid
+                          addBind (FQBind bid dv (FQReft "v" ds FQTrue))
+                          return bid) cpBinders
                         cid <- freshCid
                         let cpTag = "call-pre:" <> callee
                             ctxPosts = [ post | (_, _, post) <- ctxCalls, post /= FQTrue ]
@@ -2535,7 +2618,7 @@ emitFnConstraints opts srcFile freshCid freshBid addBind addConst0 addQuals
                             lhs = FQReft "v" FQInt lhsPred
                             -- RHS: callee's precondition (PROVE polarity — caller must prove this)
                             rhs = FQReft "v" FQInt prePred
-                            c = FQConstraint cid (envIds ++ ctxBindIds ++ lbCtxBindIds) lhs rhs [name, cpTag]
+                            c = FQConstraint cid (envIds ++ ctxBindIds ++ lbCtxBindIds ++ poBindIds) lhs rhs [name, cpTag]
                         -- CALL-RESULT-MARK-1 (C1): the walk already keeps the
                         -- path guard apart from the prior calls' posts.
                         addConeRec cid emptyConeRec
@@ -4252,6 +4335,7 @@ data PartialOp
   | PStringFromCode FQPred           -- ^ CHAR-CODE-1: code (body only, D4)
   | PBytesMake FQPred FQPred         -- ^ BYTES-UNSIZED-1: length, value (body only)
   | PBytesSlice FQPred FQPred FQPred -- ^ BYTES-UNSIZED-1: bytes, start, end (body only)
+  | PBytesTabulate FQPred            -- ^ BYTES-TABULATE-1: length (body only); T1
   deriving (Show, Eq)
 
 -- | CLAUSE-WELLDEF-1: the ONE table of partial-builtin preconditions π_f.
@@ -4287,6 +4371,10 @@ partialPre (PBytesSlice b st en) =
   FQAnd [ FQBinPred FQGe st (FQLit 0)
         , FQBinPred FQLe st en
         , FQBinPred FQLe en (FQApp "bytesLen" [b]) ]
+-- BYTES-TABULATE-1 (image-library-proposal Part B): T1, the length guard of
+-- the runtime body ('LLMLL.RuntimePure.bytes_tabulate'). T2 and T3 are the
+-- arm's 'cvPreParts'.
+partialPre (PBytesTabulate n) = FQBinPred FQGe n (FQLit 0)
 
 -- | CLAUSE-WELLDEF-1: one definedness obligation of a clause, @C ⟹ π_f@.
 data WDObl = WDObl
@@ -4318,6 +4406,19 @@ wdSiteText o = exprToSExpr (woOp o) <> " needs " <> exprToSExpr (surfacePre (woO
 -- is lazy, so a caller here never forces the obligation list.
 exprToPred :: Expr -> Maybe FQPred
 exprToPred = fmap fst . exprToPredWD []
+
+-- | CLAUSE-WELLDEF-1 (A2S-13), EXAMPLES-VERIFY-REGRESS-1: a callee post as a
+-- caller assumes it, with its non-tautological definedness facts @C ⟹ π@.
+-- Factored out of the user-call arm of 'bodyToPredM' unchanged, so the
+-- bytes-tabulate arm assumes a generator's post exactly as a call does.
+assumedPostWD :: Expr -> Maybe FQPred
+assumedPostWD e = do
+  (p, obls0) <- exprToPredWD [] e
+  let obls = filter (\o -> not (wdGoalInContext (woCtx o) (woGoal o))) obls0
+      wdFact o = case woCtx o of
+        [] -> woGoal o
+        cs -> FQOr [FQNot (conjoinAll cs), woGoal o]
+  pure (if null obls then p else conjoinAll (p : map wdFact obls))
 
 -- | MUL-VAR-1 (design edge case 16): a decreases measure with a product of
 -- two non-constant terms stays refused. Descent is proved over exact terms,
@@ -5455,13 +5556,9 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
                 -- EXAMPLES-VERIFY-REGRESS-1: a fact whose goal is already a
                 -- conjunct of its own context is the tautology C ⟹ π with π
                 -- in C; it adds nothing, and blur.llmll assumed 135 of them.
-                postWithWD e = do
-                  (p, obls0) <- exprToPredWD [] e
-                  let obls = filter (\o -> not (wdGoalInContext (woCtx o) (woGoal o))) obls0
-                      wdFact o = case woCtx o of
-                        [] -> woGoal o
-                        cs -> FQOr [FQNot (conjoinAll cs), woGoal o]
-                  pure (if null obls then p else conjoinAll (p : map wdFact obls))
+                -- BYTES-TABULATE-1: one definition, shared with the
+                -- bytes-tabulate arm's T3 hypothesis ('assumedPostWD').
+                postWithWD = assumedPostWD
             -- Fresh result variable
             resultVar <- freshName ("call_" <> fname)
             -- LEVER-A2.1: a map-returning callee's post roots result$has/
@@ -5523,6 +5620,7 @@ bodyToPredM env se cenv _sccSet (EApp fname args)
               -- 'mPostSubst' Nothing. Read here, before 'addCongruence' can
               -- fill 'cvPostAssumption' with a congruence fact.
               , cvPostUnassumed  = isJust (contractPost contract) && isNothing mPostSubst
+              , cvPreParts       = []   -- BYTES-TABULATE-1: the bytes-tabulate arm only
               }
 
 -- MINMAX-FRAG-1: `min`, `max` and `abs` reflect as their `if` definitions, as an
@@ -5657,7 +5755,7 @@ bodyToPredM env se cenv sccSet (EApp "bytes-get" [EVar b, iE]) = do
           -- routing the post through the parts changes no emitted constraint.
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-get" [bP, iP] [] (Just pre) (Just post) parts
-                             r FQInt (SimpleVC [] (FQVar r)) Nothing False
+                             r FQInt (SimpleVC [] (FQVar r)) Nothing False []
     _ -> return Nothing
 
 -- `bytes-set b i v` → the same exact-pinning shape at the array sort. The
@@ -5676,7 +5774,7 @@ bodyToPredM env se cenv sccSet (EApp "bytes-set" [EVar b, iE, vE]) = do
       let (pre, parts) = bytesSetSpec bP iP vP (FQVar r)
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-set" [bP, iP, vP] [] (Just pre) (Just post) parts
-                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False []
     _ -> return Nothing
 
 -- FACT-AG-LEN Stage 2 — `(bytes-zero)` at a declared `-> bytes[n]` return: the
@@ -5713,7 +5811,7 @@ bodyToPredM _ _ _ _ (EApp "bytes-zero" [ELit (LitInt n)]) = do
               , ("lemma",      FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQLit n)) ]
       post = conjoinAll (map snd parts)
   return . Just $ CallVC "bytes-zero" [] [] Nothing (Just post) parts
-                         r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+                         r byteArraySort (SimpleVC [] (FQVar r)) Nothing False []
 
 -- Un-reified `(bytes-zero)` → the bare const array (probe p4). Dead on the
 -- PRODUCTION path: 'bodyToPredFromR' has exactly one production caller (the
@@ -5762,7 +5860,7 @@ bodyToPredM env se _ _ (EApp "map-get" [mE, kE]) =
           parts = [("reflection", FQBinPred FQEq (FQVar r) (FQApp "Map_select" [vl, k]))]
           post = conjoinAll (map snd parts)
       return . Just $ CallVC "map-get" [h, vl, k] [] (Just pre) (Just post) parts
-                             r (mapSelValSort se vl) (SimpleVC [] (FQVar r)) Nothing False
+                             r (mapSelValSort se vl) (SimpleVC [] (FQVar r)) Nothing False []
     _ -> return Nothing
 
 -- BITWISE-1: an exact form ('bitExact') in the `bytes-get` shape. The operand's
@@ -5781,7 +5879,7 @@ bodyToPredM env se cenv sccSet (EApp op args)
               parts = [("reflection", FQBinPred FQEq (FQVar r) (bitExactTerm form p))]
               post  = conjoinAll (map snd parts)
           return . Just $ CallVC op [p] [] (Just pre) (Just post) parts
-                                 r FQInt (SimpleVC [] (FQVar r)) Nothing False
+                                 r FQInt (SimpleVC [] (FQVar r)) Nothing False []
         _ -> return Nothing
 
 -- CHAR-CODE-1: `string-code-at s i` as the `strCode` UF with its range fact. A UF,
@@ -5802,7 +5900,7 @@ bodyToPredM env se cenv sccSet (EApp "string-code-at" [sE, iE])
                       , ("lemma",      FQBinPred FQLe (FQVar r) (FQLit 1114111)) ]
               post  = conjoinAll (map snd parts)
           return . Just $ CallVC "string-code-at" [sP, iP] [] (Just pre) (Just post) parts
-                                 r FQInt (SimpleVC [] (FQVar r)) Nothing False
+                                 r FQInt (SimpleVC [] (FQVar r)) Nothing False []
         _ -> return Nothing
 
 -- CHAR-CODE-1: `string-from-code c` as a fresh string of length one.
@@ -5816,7 +5914,7 @@ bodyToPredM env se cenv sccSet (EApp "string-from-code" [cE])
               parts = [("lemma", FQBinPred FQEq (FQApp "strLen" [FQVar r]) (FQLit 1))]
               post  = conjoinAll (map snd parts)
           return . Just $ CallVC "string-from-code" [cP] [] (Just pre) (Just post) parts
-                                 r FQStr (SimpleVC [] (FQVar r)) Nothing False
+                                 r FQStr (SimpleVC [] (FQVar r)) Nothing False []
         _ -> return Nothing
 
 -- BYTES-UNSIZED-1 (byte-io-proposal Part 4; step-3 plan, contract plan). The
@@ -5848,8 +5946,91 @@ bodyToPredM env se cenv sccSet (EApp "bytes-make" [nE, vE])
               parts = [ ("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) nP) ]
               post  = conjoinAll (map snd parts)
           return . Just $ CallVC "bytes-make" [nP, vP] [] (Just pre) (Just post) parts
-                                 r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+                                 r byteArraySort (SimpleVC [] (FQVar r)) Nothing False []
         _ -> return Nothing
+
+-- BYTES-TABULATE-1 (image-library-proposal Part B, "Obligations at a call site"
+-- and "Fact for the caller"). `(bytes-tabulate n g a1 … ak)` over a generator
+-- `g` in the ContractEnv whose post exists. A fresh index ι and value v are
+-- local to the obligations; with R = 0 ≤ ι < n:
+--
+--   T1  n ≥ 0                                     ('cvPreObligation', the table)
+--   T2  R ⟹ pre_g(a, ι)                          (only when g has a pre)
+--   T3  R ∧ pre_g(a, ι) ∧ post_g(a, ι, v) ⟹ 0 ≤ v ≤ 255
+--
+-- T2 and T3 are 'cvPreParts', each its own constraint with ι (and v) declared
+-- in it alone. The caller assumes only L, @bytesLen(r) = n@, on a result @r@
+-- fresh for this AST occurrence, never keyed on text or on (g, args): two
+-- tabulates never share a term (BYTES-MAKE-ALIAS-1), and no content fact is
+-- emitted (design Rev 3, P2), so the name is in 'abstractedBuiltins'.
+--
+-- Soundness of the generator edge (step 2) rests on this arm: 'unprovedEdges'
+-- drops the generator slot because T2 proves g's pre. So every condition below
+-- that cannot be met returns Nothing and the WHOLE caller falls back: an
+-- argument that does not translate, a generator parameter of a sort the arm
+-- does not admit (int, bool, string, bytes only: plan finding 9), a pre or
+-- post outside the fragment, or one that applies a datatype term. Never an
+-- obligation dropped (the three-way rule of the user-call arm).
+bodyToPredM env se cenv sccSet (EApp "bytes-tabulate" (nE : EVar g : aEs))
+  | Map.notMember "bytes-tabulate" env
+  , Map.notMember g env
+  , Just (gParams, gContract, _) <- Map.lookup g cenv
+  , Just gPostE <- contractPost gContract
+  , length gParams == length aEs + 1
+  , all (tabulateParamOk . snd) gParams = do
+      mN <- bodyToPredM env se cenv sccSet nE
+      let translateArg (EVar v) = return (Just (FQVar (fromMaybe v (Map.lookup v env))))
+          translateArg a = do
+            mvc <- bodyToPredM env se cenv sccSet a
+            return $ case mvc of Just (SimpleVC [] p) -> Just p; _ -> Nothing
+      mAs <- mapM translateArg aEs
+      case (mN, sequence mAs) of
+        (Just (SimpleVC [] nP), Just aPs) -> do
+          idx <- freshName "tab_idx"
+          val <- freshName "tab_val"
+          r   <- freshName "call_bytes_tabulate"
+          let subst     = Map.fromList (zip (map fst gParams) (aPs ++ [FQVar idx]))
+              postSubst = Map.insert "result" (FQVar val) subst
+              noData p  = not (predHasDataTerm p)
+              -- Nothing: refuse the call. Just Nothing: g has no pre.
+              mPreG = case contractPre gContract of
+                        Nothing -> Just Nothing
+                        Just pe -> case exprToPred pe of
+                                     Just p | noData p -> Just (Just (applySubst subst p))
+                                     _                 -> Nothing
+              mPostG = case assumedPostWD gPostE of
+                         Just p | noData p -> Just (applySubst postSubst p)
+                         _                 -> Nothing
+          case (mPreG, mPostG) of
+            (Just preG, Just postG) -> do
+              let iV    = FQVar idx
+                  vV    = FQVar val
+                  range = FQAnd [ FQBinPred FQLe (FQLit 0) iV, FQBinPred FQLt iV nP ]
+                  t1    = partialPre (PBytesTabulate nP)
+                  -- `A ⟹ B` as @¬A ∨ B@, the form 'assumedPostWD' uses: every
+                  -- predicate walker (the range-fact collector, the measure
+                  -- and free-symbol sweeps) reads 'FQOr' and 'FQNot', while
+                  -- 'FQImplies' is built only for a product fact and the
+                  -- range-fact collector does not enter it.
+                  implies a b = FQOr [FQNot a, b]
+                  t2    = [ PreObl ("gen-pre:" <> g) [(idx, FQInt)] (implies range p) | Just p <- [preG] ]
+                  t3    = PreObl ("byte-range:" <> g) [(idx, FQInt), (val, FQInt)]
+                            (implies (conjoinAll (range : maybe [] (: []) preG ++ [postG]))
+                                     (FQAnd [ FQBinPred FQLe (FQLit 0) vV, FQBinPred FQLe vV (FQLit 255) ]))
+                  parts = [ ("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) nP) ]
+                  post  = conjoinAll (map snd parts)
+              return . Just $ CallVC "bytes-tabulate" [nP] [] (Just t1) (Just post) parts
+                                     r byteArraySort (SimpleVC [] (FQVar r)) Nothing False (t2 ++ [t3])
+            _ -> return Nothing
+        _ -> return Nothing
+  where
+    tabulateParamOk t = case t of
+      TInt     -> True
+      TBool    -> True
+      TString  -> True
+      TBytes _ -> True
+      TBytesU  -> True
+      _        -> False
 
 -- `bytes-widen b`: the identity on the array (exact, no lemma). The sized
 -- length is not restated, so a widened value has a length only where `b` has
@@ -5861,7 +6042,7 @@ bodyToPredM env _ _ _ (EApp "bytes-widen" [EVar b])
       let parts = [("reflection", FQBinPred FQEq (FQVar r) bP)]
           post  = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-widen" [bP] [] Nothing (Just post) parts
-                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False []
 
 -- `bytes-slice b s e`: the range pre, and the length of the slice (partial).
 bodyToPredM env se cenv sccSet (EApp "bytes-slice" [EVar b, sE, eE])
@@ -5876,7 +6057,7 @@ bodyToPredM env se cenv sccSet (EApp "bytes-slice" [EVar b, sE, eE])
               parts = [("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar r]) (FQBinArith FQSub eP sP))]
               post  = conjoinAll (map snd parts)
           return . Just $ CallVC "bytes-slice" [bP, sP, eP] [] (Just pre) (Just post) parts
-                                 r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+                                 r byteArraySort (SimpleVC [] (FQVar r)) Nothing False []
         _ -> return Nothing
 
 -- `bytes-concat a b`: the sum of the lengths (partial).
@@ -5889,7 +6070,7 @@ bodyToPredM env _ _ _ (EApp "bytes-concat" [EVar a, EVar b])
                                          (FQBinArith FQAdd (FQApp "bytesLen" [aP]) (FQApp "bytesLen" [bP])))]
           post  = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-concat" [aP, bP] [] Nothing (Just post) parts
-                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False []
 
 -- `bytes-concat-many xs`: a length, and nothing more (partial). The list is
 -- not read, so it needs no binder.
@@ -5899,7 +6080,7 @@ bodyToPredM env _ _ _ (EApp "bytes-concat-many" [EVar _])
       let parts = [("lemma", FQBinPred FQGe (FQApp "bytesLen" [FQVar r]) (FQLit 0))]
           post  = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-concat-many" [] [] Nothing (Just post) parts
-                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False []
 
 -- `bytes-to-list b`: a list of the same length (partial).
 bodyToPredM env _ _ _ (EApp "bytes-to-list" [EVar b])
@@ -5909,7 +6090,7 @@ bodyToPredM env _ _ _ (EApp "bytes-to-list" [EVar b])
       let parts = [("lemma", FQBinPred FQEq (FQApp "listLen" [FQVar r]) (FQApp "bytesLen" [bP]))]
           post  = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-to-list" [bP] [] Nothing (Just post) parts
-                             r FQList (SimpleVC [] (FQVar r)) Nothing False
+                             r FQList (SimpleVC [] (FQVar r)) Nothing False []
 
 -- `bytes-from-string s`: one to four bytes per character (partial). `4 * strLen(s)`
 -- is a constant multiplier (SIGMA-CONST-ARITH-1).
@@ -5923,7 +6104,7 @@ bodyToPredM env se _ _ (EApp "bytes-from-string" [sE])
                   , ("lemma", FQBinPred FQLe lenR (FQBinArith FQMul (FQLit 4) lenS)) ]
           post  = conjoinAll (map snd parts)
       return . Just $ CallVC "bytes-from-string" [sP] [] Nothing (Just post) parts
-                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False
+                             r byteArraySort (SimpleVC [] (FQVar r)) Nothing False []
 
 -- Normalize EOp to EApp
 bodyToPredM env se cenv sccSet (EOp name args) = bodyToPredM env se cenv sccSet (EApp name args)
@@ -5986,10 +6167,10 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
         mt <- graftLeaves seB t
         me <- graftLeaves seB e
         return (BranchVC g bs <$> mt <*> me)
-      graftLeaves seAcc (CallVC cal cargs cargEs mPre mPost pParts rVar rSort cont ck pu) = do
+      graftLeaves seAcc (CallVC cal cargs cargEs mPre mPost pParts rVar rSort cont ck pu pp) = do
         let seC = Map.insert rVar rSort seAcc
         mc <- graftLeaves seC cont
-        return ((\k -> CallVC cal cargs cargEs mPre mPost pParts rVar rSort k ck pu) <$> mc)
+        return ((\k -> CallVC cal cargs cargEs mPre mPost pParts rVar rSort k ck pu pp) <$> mc)
   case mRhsVC of
     Nothing -> return Nothing
     Just (SimpleVC [] rhsPred) -> do
@@ -6024,7 +6205,7 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
     -- user-written nested let — has a non-identity continuation; aliasing `v` to
     -- rVar there dropped the continuation and bound `v` to the bare call result
     -- (a false SAFE). Those RHS shapes take the leaf-graft path below.
-    Just (CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort cont ck pu)
+    Just (CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort cont ck pu pp)
       | isIdentityCont rVar cont -> do
       -- LEVER-A2.1: a map-returning callee (rSort == mapArraySort, the
       -- cross-call marker) binds its result as a SPLIT component pair — seed
@@ -6044,7 +6225,7 @@ bodyToPredM env se cenv sccSet (ELet [(PVar v, _mType, rhs)] body) = do
       mBodyVC <- bodyToPredM env' se' cenv sccSet body
       case mBodyVC of
         Nothing -> return Nothing
-        Just bvc -> return $ Just $ CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort bvc ck pu
+        Just bvc -> return $ Just $ CallVC cal callArgs callArgEs mPre mPost postParts rVar rSort bvc ck pu pp
     -- LET-CALL-CONT-1: a call RHS with a non-identity continuation — the call
     -- node stays in place and the let body is grafted at each leaf of its
     -- continuation, each leaf binding `v` to what the RHS actually evaluates to.
@@ -6535,7 +6716,7 @@ flattenBodyVCTagged (BranchVC guard _ thenVC elseVC) =
 -- result variable as let-binding into the continuation paths.
 -- The precondition obligation is emitted separately during constraint
 -- emission — it is NOT folded into the body-post constraint.
-flattenBodyVCTagged (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultSort cont _ _) =
+flattenBodyVCTagged (CallVC _callee _args _argEs _mPre mPost _pParts resultVar resultSort cont _ _ _) =
   let contPaths = flattenBodyVCTagged cont
       -- Add result variable as a let-binding and postcondition as guard
       resultLB = LetBinding resultVar resultSort (FQVar resultVar)
@@ -6588,7 +6769,7 @@ pathBranchSides (SimpleVC _ _)             = [Nothing]
 pathBranchSides (BranchVC _ _ thenVC elseVC) =
   [Just True  | _ <- flattenBodyVC thenVC] ++
   [Just False | _ <- flattenBodyVC elseVC]
-pathBranchSides (CallVC _ _ _ _ _ _ _ _ cont _ _)  = pathBranchSides cont
+pathBranchSides (CallVC _ _ _ _ _ _ _ _ cont _ _ _)  = pathBranchSides cont
 
 -- | Count paths in a BodyVC tree with an upper bound.
 -- Stops counting once the limit is exceeded (avoids state explosion).
@@ -6601,7 +6782,7 @@ countPathsBounded limit = go
       in if tc >= limit then tc
          else let ec = go evc
               in min limit (tc + ec)
-    go (CallVC _ _ _ _ _ _ _ _ cont _ _) = go cont  -- v0.9.0: paths determined by continuation
+    go (CallVC _ _ _ _ _ _ _ _ cont _ _ _) = go cont  -- v0.9.0: paths determined by continuation
 
 -- | v0.9.0: Collect all call-pre obligations from a BodyVC tree.
 -- Returns (calleeName, preconditionPred, pathGuard) for each CallVC
@@ -6621,7 +6802,7 @@ countPathsBounded limit = go
 collectCallSites :: BodyVC -> [(Name, [FQPred])]
 collectCallSites (SimpleVC _ _)               = []
 collectCallSites (BranchVC _ _ t e)           = collectCallSites t ++ collectCallSites e
-collectCallSites (CallVC c args _ _ _ _ _ _ cont _ _) = (c, args) : collectCallSites cont
+collectCallSites (CallVC c args _ _ _ _ _ _ cont _ _ _) = (c, args) : collectCallSites cont
 
 -- | TRUST-AXIOM: the sealed-builtin axioms this body VC assumed.
 --
@@ -6648,7 +6829,7 @@ collectBuiltinAxioms defName = nubBy ((==) `on` baBuiltin) . go
   where
     go (SimpleVC _ _)     = []
     go (BranchVC _ _ t e) = go t ++ go e
-    go (CallVC c _ _ _ mPost pParts rVar _ cont _ _)
+    go (CallVC c _ _ _ mPost pParts rVar _ cont _ _ _)
       | Set.member c sealedAxiomBuiltins
       , Just post <- mPost = row c rVar post pParts : go cont
       | otherwise          = go cont
@@ -6689,7 +6870,7 @@ addCongruence = go []
   where
     go _ vc@(SimpleVC _ _) = vc
     go prior (BranchVC g bs t e) = BranchVC g bs (go prior t) (go prior e)
-    go prior (CallVC c args argEs mPre mPost pParts rv rs cont ck pu) =
+    go prior (CallVC c args argEs mPre mPost pParts rv rs cont ck pu pp) =
       let facts = case ck of
             Nothing -> []
             Just k  -> [ congruenceFact (snd k) args pArgs rv pRv
@@ -6698,7 +6879,7 @@ addCongruence = go []
           mPost' | null facts = mPost
                  | otherwise  = Just (conjoinAll (maybe [] pure mPost ++ facts))
           prior' = maybe prior (\k -> prior ++ [(k, args, rv)]) ck
-      in CallVC c args argEs mPre mPost' pParts rv rs (go prior' cont) ck pu
+      in CallVC c args argEs mPre mPost' pParts rv rs (go prior' cont) ck pu pp
 
 -- | CALL-CONGRUENCE-1: @not (a1 = b1 && ...) || r = r'@. A bool argument is
 -- compared by its iff encoding, because an argument term may be a predicate.
@@ -6750,7 +6931,7 @@ data CallBinder = CallBinder
 collectCallBinders :: BodyVC -> [(Name, CallBinder)]
 collectCallBinders (SimpleVC _ _)     = []
 collectCallBinders (BranchVC _ _ t e) = collectCallBinders t ++ collectCallBinders e
-collectCallBinders (CallVC c _ _ _ _ parts rv rs cont ck pu) =
+collectCallBinders (CallVC c _ _ _ _ parts rv rs cont ck pu _) =
   [ (b, cb) | b <- rv : [ rv <> sfx | isMapArrRetSort rs, sfx <- ["$has", "$val"] ] ]
     ++ collectCallBinders cont
   where
@@ -6772,7 +6953,7 @@ collectCallBinders (CallVC c _ _ _ _ parts rv rs cont ck pu) =
 collectLenDefs :: BodyVC -> Map Name FQPred
 collectLenDefs (SimpleVC _ _)     = Map.empty
 collectLenDefs (BranchVC _ _ t e) = Map.union (collectLenDefs t) (collectLenDefs e)
-collectLenDefs (CallVC c _ _ _ _ parts rv _ cont _ _) =
+collectLenDefs (CallVC c _ _ _ _ parts rv _ cont _ _ _) =
   Map.union here (collectLenDefs cont)
   where
     here = Map.fromList
@@ -6784,21 +6965,28 @@ collectLenDefs (CallVC c _ _ _ _ parts rv _ cont _ _) =
 -- OBLIG-D4: each obligation also carries the call's SURFACE argument vector,
 -- which names the call site (two calls to one callee from one body are
 -- otherwise indistinguishable in the origin table).
-collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, FQPred)], [LetBinding], [Expr])]
+--
+-- BYTES-TABULATE-1: each 'cvPreParts' entry is one more obligation, its callee
+-- slot @<callee>:<poTag>@ (so its clause tag is @call-pre:<callee>:<poTag>@)
+-- and its last component the constants its constraint environment declares.
+-- Every other obligation declares none.
+collectCallPreObligations :: BodyVC -> [(Name, FQPred, FQPred, [(Text, FQSort, FQPred)], [LetBinding], [Expr], [(Name, FQSort)])]
 collectCallPreObligations = go FQTrue []
   where
     go _guard _calls (SimpleVC _ _) = []
     go guard calls (BranchVC g _ thenVC elseVC) =
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
-    go guard calls (CallVC callee _args argEs mPre mPost _pParts rVar rSort cont _ _) =
-      let preObligs = case mPre of
+    go guard calls (CallVC callee _args argEs mPre mPost _pParts rVar rSort cont _ _ preParts) =
+      let preObligs = (case mPre of
             -- F-NIW-4b: attach the path's let-bindings (which prependLB has pushed
             -- into the leaf of `cont`) so a precondition referencing a let-bound
             -- non-call value (e.g. `(g y)` where `y = x+1`) can be proved under
             -- that value's defining equality. The emission filters them to the
             -- subset in scope at the call.
-            Just prePred -> [(callee, prePred, guard, calls, subtreeLbs cont, argEs)]
-            Nothing      -> []
+            Just prePred -> [(callee, prePred, guard, calls, subtreeLbs cont, argEs, [])]
+            Nothing      -> [])
+            ++ [ (callee <> ":" <> poTag po, poPred po, guard, calls, subtreeLbs cont, argEs, poBinders po)
+               | po <- preParts ]
           -- subsequent obligations may assume this call's post over its result var
           calls' = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
           contObligs = go guard calls' cont
@@ -6814,7 +7002,7 @@ collectDescentSites = go FQTrue []
     go _guard _calls (SimpleVC _ _) = []
     go guard calls (BranchVC g _ thenVC elseVC) =
       go (conjoin guard g) calls thenVC ++ go (conjoin guard (FQNot g)) calls elseVC
-    go guard calls (CallVC callee args _argEs _mPre mPost _pParts rVar rSort cont _ _) =
+    go guard calls (CallVC callee args _argEs _mPre mPost _pParts rVar rSort cont _ _ _) =
       let here    = [(callee, args, guard, calls, subtreeLbs cont)]
           calls'  = calls ++ [(rVar, rSort, fromMaybe FQTrue mPost)]
       in here ++ go guard calls' cont
@@ -6869,7 +7057,7 @@ renderCallSite params args =
 subtreeLbs :: BodyVC -> [LetBinding]
 subtreeLbs (SimpleVC lbs _)          = lbs
 subtreeLbs (BranchVC _ _ t e)        = subtreeLbs t ++ subtreeLbs e
-subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont _ _) = subtreeLbs cont
+subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont _ _ _) = subtreeLbs cont
 
 -- | COMP-3b-general: every match-introduced binder (synthetic guard + arm
 -- payloads) carried in a 'BranchVC' binder field across the whole VC tree, so the
@@ -6883,7 +7071,7 @@ subtreeLbs (CallVC _ _ _ _ _ _ _ _ cont _ _) = subtreeLbs cont
 collectBranchBinders :: BodyVC -> [(Name, FQSort, FQPred)]
 collectBranchBinders (SimpleVC _ _)            = []
 collectBranchBinders (BranchVC _ bs t e)       = bs ++ collectBranchBinders t ++ collectBranchBinders e
-collectBranchBinders (CallVC _ _ _ _ _ _ _ _ cont _ _) = collectBranchBinders cont
+collectBranchBinders (CallVC _ _ _ _ _ _ _ _ cont _ _ _) = collectBranchBinders cont
 
 -- | F-NIW-4b: the subset of candidate let-bindings whose RHS free variables are
 -- all already in scope (params ∪ prior-call results ∪ already-included lbs),
@@ -7622,8 +7810,8 @@ congStrArgVars cenv e0 =
 prependLB :: LetBinding -> BodyVC -> BodyVC
 prependLB lb (SimpleVC lbs r) = SimpleVC (lb : lbs) r
 prependLB lb (BranchVC g bs t e) = BranchVC g bs (prependLB lb t) (prependLB lb e)
-prependLB lb (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck pu) =
-  CallVC cal args argEs mPre mPost pParts rVar rSort (prependLB lb cont) ck pu  -- v0.9.0
+prependLB lb (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck pu pp) =
+  CallVC cal args argEs mPre mPost pParts rVar rSort (prependLB lb cont) ck pu pp  -- v0.9.0
 
 prependLBs :: [LetBinding] -> BodyVC -> BodyVC
 prependLBs lbs bvc = foldr prependLB bvc lbs
@@ -7641,9 +7829,9 @@ prependLBs lbs bvc = foldr prependLB bvc lbs
 -- mismatch the input is returned unchanged; the caller checks
 -- 'isIdentityCont' first and falls back.
 setCallVCContinuation :: BodyVC -> BodyVC -> BodyVC
-setCallVCContinuation (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck pu) newCont
+setCallVCContinuation (CallVC cal args argEs mPre mPost pParts rVar rSort cont ck pu pp) newCont
   | isIdentityCont rVar cont =
-  CallVC cal args argEs mPre mPost pParts rVar rSort newCont ck pu
+  CallVC cal args argEs mPre mPost pParts rVar rSort newCont ck pu pp
 setCallVCContinuation bvc _newCont = bvc  -- no-op for non-CallVC (shouldn't happen)
 
 -- | LET-CALL-CONT-1: is this CallVC continuation the identity — no let

@@ -34,6 +34,8 @@ module LLMLL.DiagnosticFQ
   , WdReportCtx(..)
   , emptyWdReportCtx
   , fqResultToReportWD
+    -- * BYTES-TABULATE-1: the T1, T2 and T3 texts
+  , tabulateObligationText
   ) where
 
 import Data.Text (Text)
@@ -497,6 +499,22 @@ fqResultToReportWD _fp _table _ (FQError txt) =
     , reportSuccess     = False
     }
 
+-- | BYTES-TABULATE-1 (image-library-proposal Part B, edge case 3): the text of
+-- a bytes-tabulate obligation, by its clause tag: @call-pre:bytes-tabulate@
+-- (T1), @call-pre:bytes-tabulate:gen-pre:<g>@ (T2) and
+-- @call-pre:bytes-tabulate:byte-range:<g>@ (T3). 'Nothing' for any other tag.
+tabulateObligationText :: Text -> Text -> Maybe Text
+tabulateObligationText fn clause = case T.stripPrefix "call-pre:bytes-tabulate" clause of
+  Just "" -> Just ("the length of bytes-tabulate in '" <> fn <> "' may be negative (T1)")
+  Just rest
+    | Just g <- T.stripPrefix ":gen-pre:" rest ->
+        Just ("the pre of generator '" <> g <> "' is not proved at every index 0 ≤ i < n of bytes-tabulate in '"
+              <> fn <> "' (T2)")
+    | Just g <- T.stripPrefix ":byte-range:" rest ->
+        Just ("a value of generator '" <> g <> "' is not proved to lie in 0..255 at every index of bytes-tabulate in '"
+              <> fn <> "' (T3); its post must bound the result")
+  _ -> Nothing
+
 -- | One Diagnostic per failed constraint id. An unmarked id carries
 -- @diagKind = Just "lh-unsafe"@ (the kind 'fallbackUnsafeDiag' uses), or
 -- @clause-ill-defined@ for a definedness id, as an error. CALL-RESULT-MARK-1:
@@ -521,6 +539,8 @@ toDiag fp table wctx cid =
           msg = case coClause orig of
                   clause | clause `elem` ["body-post", "body-post-then", "body-post-else"] ->
                     "body verification of '" <> fn <> "' may fail" <> tl
+                  -- BYTES-TABULATE-1: T1, T2 and T3 are named here too.
+                  clause | Just t <- tabulateObligationText fn clause -> t <> tl
                   clause | "call-pre:" `T.isPrefixOf` clause ->
                     "call-site precondition of '" <> T.drop 9 clause <> "' may not hold in '" <> fn <> "'" <> tl
                   clause -> clause <> "-condition of '" <> fn <> "' may fail" <> tl
@@ -533,6 +553,8 @@ toDiag fp table wctx cid =
                                       <> "' failed (then-branch does not satisfy postcondition)"
                   "body-post-else" -> "body verification of '" <> coFunction orig
                                       <> "' failed (else-branch does not satisfy postcondition)"
+                  -- BYTES-TABULATE-1: a failed T1, T2 or T3 names which one.
+                  clause | Just t <- tabulateObligationText (coFunction orig) clause -> t
                   clause | "call-pre:" `T.isPrefixOf` clause ->
                     let callee = T.drop 9 clause  -- drop "call-pre:"
                     in "call-site precondition of '" <> callee

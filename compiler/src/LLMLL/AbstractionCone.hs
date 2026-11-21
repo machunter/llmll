@@ -101,15 +101,16 @@
 -- 'LLMLL.FixpointEmit.abstractedBuiltins' does not fail closed, so it is
 -- audited here and by an hspec test (CR-C1):
 --
---   * The builtin 'CallVC' arms of 'bodyToPredM' are thirteen named arms:
+--   * The builtin 'CallVC' arms of 'bodyToPredM' are fourteen named arms:
 --     @bytes-get@, @bytes-set@, @bytes-zero@, @map-get@, @string-code-at@,
 --     @string-from-code@, @bytes-make@, @bytes-widen@, @bytes-slice@,
 --     @bytes-concat@, @bytes-concat-many@, @bytes-to-list@,
---     @bytes-from-string@. Each is in 'sealedAxiomBuiltins'.
+--     @bytes-from-string@ and (BYTES-TABULATE-1) @bytes-tabulate@. Each is in
+--     'sealedAxiomBuiltins'.
 --   * Each sealed name is in exactly one of @abstractedBuiltins@ (the result
 --     is reflected in part: @string-code-at@, @string-from-code@,
 --     @bytes-make@, @bytes-slice@, @bytes-concat@, @bytes-concat-many@,
---     @bytes-to-list@, @bytes-from-string@) and 'exactSealedBuiltins' (the
+--     @bytes-to-list@, @bytes-from-string@, @bytes-tabulate@) and 'exactSealedBuiltins' (the
 --     result is pinned by an exact reflection: @bytes-get@ and @map-get@ a
 --     read, @bytes-set@ a store, @bytes-zero@ the constant array, and
 --     @bytes-widen@ the identity). The CR-C1 test fails CI when a new sealed
@@ -156,7 +157,9 @@
 -- when the pre holds), @bytes-make n v@ (@bytesLen(r) = n@: the runtime builds
 -- exactly @n@ bytes when the pre holds), @bytes-set b i v@
 -- (@bytesLen(r) = bytesLen(b)@: a store keeps the length; @r@ is in D only
--- through its reflection @r = Map_store(b, i, v)@ when @b@ is). Not rows:
+-- through its reflection @r = Map_store(b, i, v)@ when @b@ is), and
+-- @bytes-tabulate n g …@ (@bytesLen(r) = n@: the runtime builds exactly @n@
+-- bytes or stops, when T1 holds; BYTES-TABULATE-1). Not rows:
 -- @bytes-concat-many@ (@bytesLen(r) >= 0@), @bytes-from-string@ (a range),
 -- @string-code-at@ (no length), @bytes-widen@ (no lemma).
 --
@@ -215,10 +218,12 @@ emptyConeRec = ConeRec [] [] Set.empty [] Set.empty Map.empty
 
 -- | ABSTRACTION-LEN-EXACT-1 (Rev 2b item 7): the builtins whose length lemma
 -- is an exact equation. The engineer's adopted rows include @bytes-make@ and
--- @bytes-set@.
+-- @bytes-set@. BYTES-TABULATE-1: @bytes-tabulate n g …@ (@bytesLen(r) = n@),
+-- so L is exact when @n@ is (image-library-proposal edge case 4a).
 exactLengthBuiltins :: Set Text
 exactLengthBuiltins = Set.fromList
-  [ "bytes-slice", "bytes-concat", "bytes-to-list", "string-from-code", "bytes-make", "bytes-set" ]
+  [ "bytes-slice", "bytes-concat", "bytes-to-list", "string-from-code", "bytes-make", "bytes-set"
+  , "bytes-tabulate" ]
 
 -- | The length heads a length symbol @L_x@ stands for.
 lengthHeads :: Set Text

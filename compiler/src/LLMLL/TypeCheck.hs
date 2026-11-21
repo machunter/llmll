@@ -1614,18 +1614,8 @@ isAdmissibleConstructor am func =
                           Nothing               -> Nothing
       _              -> Nothing
 
--- | ADMIT-VERIFIED (Option 2): the full-conjunction admissibility predicate for
--- a single clause's evidence. Admit ONLY when the record is verified-level,
--- body-faithful, NOT overflow-tainted, and carries a (hash-valid) persisted
--- 'erVerifiedHash'. 'Nothing' (no clause, or no/absent hash) ⇒ not admissible
--- (fail closed). Never keys off a bare 'erBodyFaithful'.
-erFullyVerifiedAdmissible :: Maybe EvidenceRecord -> Bool
-erFullyVerifiedAdmissible Nothing   = False
-erFullyVerifiedAdmissible (Just er) =
-     isVerifiedLevel (erDisplayLevel er)
-  && erBodyFaithful er
-  && not (erOverflowTainted er)
-  && maybe False (const True) (erVerifiedHash er)  -- fail closed on absent hash
+-- 'erFullyVerifiedAdmissible' lives in LLMLL.Syntax (BYTES-TABULATE-1: the
+-- emitter reads it for an imported generator).
 
 -- | DEF-ADMIT-XMOD-1: 'tcFnResolve' for one module. The termination-assumed
 -- set is the caller closure of the undischarged cycles over the qualified

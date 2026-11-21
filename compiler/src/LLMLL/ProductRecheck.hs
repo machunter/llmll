@@ -87,7 +87,7 @@ import LLMLL.FixpointEmit (EmitResult(..))
 import LLMLL.DiagnosticFQ (FQVerifyResult(..), ConstraintOrigin(..), isWdClause)
 import qualified LLMLL.ProductNF as PNF
 import LLMLL.SolverGuard (runSolverGuardedInput)
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, applyTabulateGenVerdict)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning)
 
 -- ---------------------------------------------------------------------------
@@ -459,14 +459,18 @@ recheckProductsWith run er r = do
 -- A @sat@ whose model failed the exact evaluation keeps its mark, and the
 -- outcome's emit result gets a warning that names z3 (design "Verdict and
 -- recheck").
+--
+-- BYTES-TABULATE-1: the generator rule ('applyTabulateGenVerdict') runs after
+-- the verdict rule on both paths, so all four callers decide
+-- @tabulate-gen-unverified@ the same way.
 recheckVerdict :: EmitResult -> FQVerifyResult
                -> IO (AbstractionOutcome, [(FQConstraintId, RecheckAnswer)])
 recheckVerdict er r
-  | null (recheckCandidates er r) = pure (applyAbstractionVerdict Set.empty er r, [])
+  | null (recheckCandidates er r) = pure (applyTabulateGenVerdict (applyAbstractionVerdict Set.empty er r), [])
   | otherwise = do
       z3 <- findZ3
       (cleared, answers) <- recheckProducts z3 er r
-      let ao    = applyAbstractionVerdict cleared er r
+      let ao    = applyTabulateGenVerdict (applyAbstractionVerdict cleared er r)
           warns = [ (mkWarning Nothing ("W-PRODUCT-RECHECK: z3 returned a model for constraint "
                        <> tshow i <> " that failed the exact evaluation (" <> why
                        <> "); the constraint keeps its product mark."))

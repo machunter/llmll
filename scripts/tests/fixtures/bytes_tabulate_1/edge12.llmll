@@ -1,0 +1,8 @@
+;; V9, edge case 12: f tabulates over g, and g calls f.
+(def g [n: int i: int] -> int
+  (pre (>= n 0))
+  (post (and (>= result 0) (<= result 255)))
+  (mod (bytes-length (f n)) 256))
+(def-shell f [n: int] -> bytes
+  (pre (>= n 0))
+  (bytes-tabulate 1 g n))

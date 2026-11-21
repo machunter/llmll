@@ -1,0 +1,9 @@
+;; V6, edge case 4c: both lengths are named n, 3 outside and 5 inside.
+(def id-at [i: int] -> int (pre (and (>= i 0) (< i 256))) (post (= result i)) i)
+(def-shell f [u: int] -> int
+  (post (= result 0))
+  (let [(n 3)]
+    (let [(r1 (bytes-tabulate n id-at))]
+      (let [(n 5)]
+        (let [(r2 (bytes-tabulate n id-at))]
+          (if (= (bytes-length r1) (bytes-length r2)) 0 1))))))

@@ -1,0 +1,7 @@
+;; BT-V14: ramp's post is false (the length is n, not n + 1) and fb-at falls
+;; back. ramp is refuted, and the generator rule must not move it to
+;; tabulate-gen-unverified: a refuted caller stays refuted.
+(def fb-at [i: int] -> int (post (and (>= result 0) (<= result 255)))
+  (mod (string-length (int-to-string i)) 256))
+(def-shell ramp [n: int] -> int (pre (>= n 0)) (post (= result (+ n 1)))
+  (let [(r (bytes-tabulate n fb-at))] (bytes-length r)))

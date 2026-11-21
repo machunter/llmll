@@ -135,6 +135,10 @@ import LLMLL.FixpointEmit (addCongruence, congruenceFact, conjoinAll)
 import LLMLL.FixpointEmit (abstractedBuiltins, exactBitBuiltins, BitExact(..), bitExact, bitExactTerm, wdSiteText, wdGoalInContext, bytesCallNames, bytesParamSorts)
 import LLMLL.Checkout (bitCharFuncEntries)
 import LLMLL.AbstractionVerdict (abstractionRepair)
+import LLMLL.AbstractionVerdict (applyTabulateGenVerdict)  -- BYTES-TABULATE-1 step 3
+import LLMLL.ProductRecheck (recheckVerdict)               -- BYTES-TABULATE-1 step 3
+import LLMLL.DiagnosticFQ (tabulateObligationText)         -- BYTES-TABULATE-1 step 3
+import LLMLL.FixpointEmit (PreObl(..))                     -- BYTES-TABULATE-1 step 3
 import LLMLL.Contracts (clauseGuardedOps)
 import qualified Data.Bits as Bits
 import Test.QuickCheck (NonNegative(..))
@@ -11591,11 +11595,16 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
               , ("bytes-concat",      EApp "bytes-concat"      [EVar "b", EVar "b"])
               , ("bytes-concat-many", EApp "bytes-concat-many" [EVar "xs"])
               , ("bytes-to-list",     EApp "bytes-to-list"     [EVar "b"])
-              , ("bytes-from-string", EApp "bytes-from-string" [EVar "s"]) ]
+              , ("bytes-from-string", EApp "bytes-from-string" [EVar "s"])
+              -- BYTES-TABULATE-1: a clause refuses it (plan finding 8), so the
+              -- length lemma takes case (a). The arm needs its generator in the
+              -- ContractEnv.
+              , ("bytes-tabulate",    EApp "bytes-tabulate"    [ELit (LitInt 3), EVar "id-at"]) ]
             se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
+            genEnv = Map.fromList [ ("id-at", ([("i", TInt)], Contract Nothing Nothing (Just (EApp "=" [EVar "result", EVar "i"])) Nothing Nothing [] [], Just TInt)) ]
         Map.keysSet canon `shouldBe` sealedAxiomBuiltins
         forM_ (Map.toList canon) $ \(nm, call) ->
-          case snd (bodyToPredFrom 0 se Map.empty Set.empty call) of
+          case snd (bodyToPredFrom 0 se genEnv Set.empty call) of
             Just cv@CallVC{} -> do
               cvCallee cv `shouldBe` nm
               forM_ [ lem | ("lemma", lem) <- cvPostParts cv ] $ \lem ->
@@ -11927,7 +11936,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             body = EApp "g" [ELit (LitInt 42)]
             (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
         case result of
-          Just (CallVC callee args _argEs mPre _mPost _pParts _rVar rSort _cont _ _) -> do
+          Just (CallVC callee args _argEs mPre _mPost _pParts _rVar rSort _cont _ _ _) -> do
             callee `shouldBe` "g"
             args `shouldBe` [FQLit 42]
             mPre `shouldBe` Just (FQBinPred FQGe (FQLit 42) (FQLit 0))
@@ -11956,7 +11965,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             body = EApp "g" [ELit (LitInt 42)]
             (_, result) = bodyToPredFrom 0 Map.empty cenv Set.empty body
         case result of
-          Just (CallVC _ _ _ mPre mPost _ _ _ _ _ _) -> do
+          Just (CallVC _ _ _ mPre mPost _ _ _ _ _ _ _) -> do
             mPre `shouldBe` Nothing
             mPost `shouldSatisfy` isJust
           other -> expectationFailure $ "Expected CallVC, got: " ++ show other
@@ -11968,21 +11977,22 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
                     (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
                     []
                     "_r" FQInt
-                    (SimpleVC [] (FQVar "_r")) Nothing False
+                    (SimpleVC [] (FQVar "_r")) Nothing False []
             obligs = collectCallPreObligations bvc
         length obligs `shouldBe` 1
-        let (callee, prePred, guard, ctxCalls, _pathLbs, _argEs) = head obligs
+        let (callee, prePred, guard, ctxCalls, _pathLbs, _argEs, binders) = head obligs
         callee `shouldBe` "g"
         prePred `shouldBe` FQBinPred FQGe (FQLit 42) (FQLit 0)
         guard `shouldBe` FQTrue
         ctxCalls `shouldBe` []   -- F-NIW-4: no prior calls on this single-call path
+        binders `shouldBe` []    -- BYTES-TABULATE-1: only a cvPreParts obligation declares constants
 
       it "no obligation from CallVC without pre" $ do
         let bvc = CallVC "g" [FQLit 42] [] Nothing
                     (Just (FQBinPred FQEq (FQVar "_r") (FQLit 42)))
                     []
                     "_r" FQInt
-                    (SimpleVC [] (FQVar "_r")) Nothing False
+                    (SimpleVC [] (FQVar "_r")) Nothing False []
         collectCallPreObligations bvc `shouldBe` []
 
       -- F-NIW-4: a later call's obligation carries the prior call's (rVar, sort,
@@ -11993,14 +12003,14 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             inner = CallVC "g" [FQVar "_r1"] []
                       (Just (FQBinPred FQGe (FQVar "_r1") (FQLit 5)))  -- 2nd pre references _r1
                       (Just (FQBinPred FQGe (FQVar "_r2") (FQLit 0)))
-                      [] "_r2" FQInt (SimpleVC [] (FQVar "_r2")) Nothing False
+                      [] "_r2" FQInt (SimpleVC [] (FQVar "_r2")) Nothing False []
             outer = CallVC "f" [FQLit 9] []
                       (Just (FQBinPred FQGe (FQLit 9) (FQLit 0)))
-                      (Just post1) [] "_r1" FQInt inner Nothing False
+                      (Just post1) [] "_r1" FQInt inner Nothing False []
             obligs = collectCallPreObligations outer
         length obligs `shouldBe` 2
-        let (_, _, _, ctx0, _, _) = obligs !! 0
-            (_, pre1, _, ctx1, _, _) = obligs !! 1
+        let (_, _, _, ctx0, _, _, _) = obligs !! 0
+            (_, pre1, _, ctx1, _, _, _) = obligs !! 1
         ctx0 `shouldBe` []                              -- first call: no prior context
         ctx1 `shouldBe` [("_r1", FQInt, post1)]         -- second call: assumes first call's post over _r1
         pre1 `shouldBe` FQBinPred FQGe (FQVar "_r1") (FQLit 5)
@@ -12138,7 +12148,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             se = Map.fromList [("x", FQInt)] :: SortEnv
             (_, result) = bodyToPredFrom 0 se cenv Set.empty body
         case result of
-          Just (CallVC callee _ _ _ _ _ _ _ cont _ _) -> do
+          Just (CallVC callee _ _ _ _ _ _ _ cont _ _ _) -> do
             callee `shouldBe` "g"
             -- Continuation should be a BranchVC (the match)
             case cont of
@@ -22935,8 +22945,10 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- decided after the solver on the same path.
       -- FQ-NAME-COLLIDE-1 added the fourteenth: 'FallbackNameCollision',
       -- decided over the assembled file beside 'FallbackUnboundSymbols'.
-      length cs `shouldBe` 14
-      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 14
+      -- BYTES-TABULATE-1 added the fifteenth: 'FallbackTabulateGenUnverified',
+      -- decided after the solver ('applyTabulateGenVerdict').
+      length cs `shouldBe` 15
+      Set.size (Set.fromList (map renderFallbackCause cs)) `shouldBe` 15
 
     it "a nonlinear post names the operator, not the whole clause" $ do
       -- SIGMA-CONST-ARITH-1: (* n 2) is admitted now. MUL-VAR-1: (* n n)
@@ -25024,7 +25036,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
         w5   = "(def-shell t [le: (fn [int int] -> bool) a: int b: int] -> int (post (= result 0)) (if (le a b) (if (le a b) 0 1) 0))"
         kInt = Just ("g", [FQInt])
         leaf r = SimpleVC [] (FQVar r)
-        call k a r p cont = CallVC "g" [a] [] Nothing (Just p) [] r FQInt cont k False
+        call k a r p cont = CallVC "g" [a] [] Nothing (Just p) [] r FQInt cont k False []
         p1 = FQBinPred FQGe (FQVar "_r1") (FQLit 0)
         p2 = FQBinPred FQGe (FQVar "_r2") (FQLit 0)
         postOf (CallVC { cvPostAssumption = m }) = m
@@ -27663,8 +27675,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             , ("bytes-concat",      EApp "bytes-concat"      [EVar "b", EVar "b"])
             , ("bytes-concat-many", EApp "bytes-concat-many" [EVar "xs"])
             , ("bytes-to-list",     EApp "bytes-to-list"     [EVar "b"])
-            , ("bytes-from-string", EApp "bytes-from-string" [EVar "s"]) ]
+            , ("bytes-from-string", EApp "bytes-from-string" [EVar "s"])
+            -- BYTES-TABULATE-1: T1 is the table's pre; T2 and T3 are cvPreParts.
+            , ("bytes-tabulate",    EApp "bytes-tabulate"    [ELit (LitInt 3), EVar "id-at"]) ]
           se = Map.fromList [ ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt), ("k", FQInt) ]
+          genEnv = Map.fromList [ ("id-at", ([("i", TInt)], Contract Nothing Nothing (Just (EApp "=" [EVar "result", EVar "i"])) Nothing Nothing [] [], Just TInt)) ]
           table nm as = case (nm, as) of
             ("map-get",   [h, _, k]) -> Just (PMapGet h k)
             ("bytes-get", [b', i])   -> Just (PBytesGet b' i)
@@ -27673,10 +27688,11 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             ("string-from-code", [c])  -> Just (PStringFromCode c)
             ("bytes-make", [n, v])     -> Just (PBytesMake n v)
             ("bytes-slice", [b', st, en]) -> Just (PBytesSlice b' st en)
+            ("bytes-tabulate", [n])       -> Just (PBytesTabulate n)
             _                        -> Nothing
       Map.keysSet canon `shouldBe` sealedAxiomBuiltins
       forM_ (Map.toList canon) $ \(nm, call) ->
-        case snd (bodyToPredFrom 0 se Map.empty Set.empty call) of
+        case snd (bodyToPredFrom 0 se genEnv Set.empty call) of
           Just cv@CallVC{} -> case cvPreObligation cv of
             Nothing  -> pure ()
             Just pre -> fmap partialPre (table nm (cvArgs cv)) `shouldBe` Just pre
@@ -29112,12 +29128,21 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       evB Map.empty (EApp "bytes-tabulate" [lint 20000, EVar "id-at"]) `shouldBe` Nothing
       evB Map.empty (EApp "bytes-tabulate" [lint 3, EVar "no-such"]) `shouldBe` Nothing
       evB (Map.singleton "id-at" (lint 0)) (EApp "bytes-tabulate" [lint 3, EVar "id-at"]) `shouldBe` Nothing
-    it "BT-FB-1 step 1 has no emitter arm: a contracted caller falls back with app:bytes-tabulate and is never body-faithful" $ do
+    -- BYTES-TABULATE-1 step 3 gave the emitter its arm: a contracted caller is
+    -- body-faithful now (its post is checked, so `post false` is not proved).
+    -- A generator the arm cannot read still sends the caller to fallback with
+    -- app:bytes-tabulate (BT-E-4, BT-E-5, BT-E-5b).
+    it "BT-FB-1 a contracted caller is body-faithful; one whose generator the arm cannot read falls back with app:bytes-tabulate" $ do
       er <- emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty
               (parsedB (invAt ++ [ "(def-shell wrong [buf: bytes] -> bytes (post false)"
                                  , "  (bytes-tabulate (bytes-length buf) inv-at buf))" ]))
-      erBodyFaithfulFns er `shouldBe` ["inv-at"]
-      lookup "wrong" (erFallbackConstructs er) `shouldBe` Just ["app:bytes-tabulate"]
+      erBodyFaithfulFns er `shouldBe` ["inv-at", "wrong"]
+      er2 <- emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty
+              (parsedB [ "(def m-at [m: map[int, int] i: int] -> int (post (>= result 0)) 0)"
+                       , "(def-shell wrong [m: map[int, int] n: int] -> int (post (= result n))"
+                       , "  (bytes-length (bytes-tabulate n m-at m)))" ])
+      erBodyFaithfulFns er2 `shouldNotSatisfy` elem "wrong"
+      lookup "wrong" (erFallbackConstructs er2) `shouldBe` Just ["app:bytes-tabulate"]
     it "BT-AS-1 the agent spec states the variadic call" $ do
       let row = find ((== "bytes-tabulate") . beName) (asBuiltins agentSpec)
       fmap (map fst . beParams) row `shouldBe` Just ["n", "gen", "a1 … ak"]
@@ -29167,8 +29192,8 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       let ss = parsedG (invAt ++ invert)
       Map.lookup "invert" (FSCG.unprovedEdges Map.empty ss) `shouldBe` Just []
       uncheckedCallPres Map.empty ss ["inv-at", "invert"] `shouldBe` []
-      -- step 2 has no emitter arm, so invert is never body-faithful: the full
-      -- edge set is read and the generator's pre is reported unchecked
+      -- a caller that is not body-faithful (here by fiat) has its full edge
+      -- set read, so the generator's pre is reported unchecked
       uncheckedCallPres Map.empty ss ["inv-at"] `shouldBe` [("invert", "inv-at")]
     it "BT-G-5 a generator also passed as a value, or called or tabulated inside a lambda, stays unproved" $ do
       let ss = parsedG (invAt ++
@@ -29230,6 +29255,302 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
             [ "(def g [n: int i: int] -> int (post (>= result 0)) (bytes-length (f n)))"
             , "(def-shell f [n: int] -> bytes (bytes-tabulate 1 g n))" ]
       recursiveNames cyc `shouldBe` Set.fromList ["f", "g"]
+
+  -- -----------------------------------------------------------------------
+  -- BYTES-TABULATE-1 step 3 (image-library-proposal Rev 4a, Part B): the
+  -- verifier. At each call site T1 (n >= 0), T2 (gen's pre at a fresh index
+  -- in range) and T3 (gen's post bounds its value to 0..255), each its own
+  -- constraint named by its clause tag; the caller assumes only L,
+  -- bytesLen(r) = n, on a fresh r. A caller whose generator is not verified
+  -- falls back with tabulate-gen-unverified, decided after the solver.
+  -- -----------------------------------------------------------------------
+  describe "BYTES-TABULATE-1 step 3: the verifier" $ do
+    let parsedV src = case parseStatements GrammarCoreInversion "<bt3>" (T.unlines src) of
+          Left err -> error ("BYTES-TABULATE-1 step 3 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        invAt = [ "(def inv-at [buf: bytes i: int] -> int"
+                , "  (pre (and (>= i 0) (< i (bytes-length buf))))"
+                , "  (post (= result (- 255 (bytes-get buf i))))"
+                , "  (- 255 (bytes-get buf i)))" ]
+        idAt  = [ "(def id-at [i: int] -> int (pre (and (>= i 0) (< i 256))) (post (= result i)) i)" ]
+        fbAt  = [ "(def fb-at [i: int] -> int (post (and (>= result 0) (<= result 255)))"
+                , "  (mod (string-length (int-to-string i)) 256))" ]
+        emitV ss = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty ss
+        emitC cache ss = emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" cache Map.empty ss
+        clausesOf er fn = [ coClause o | o <- Map.elems (erConstraintTable er), coFunction o == fn ]
+        idsOf er fn p = [ i | (i, o) <- Map.toList (erConstraintTable er), coFunction o == fn, p (coClause o) ]
+        conOf er i = head [ c | c <- fqConstraints (erFQFile er), conId c == i ]
+        bindName' er b = head [ bindName x | x <- fqBinds (erFQFile er), bindId x == b ]
+        isTab = T.isPrefixOf "call-pre:bytes-tabulate"
+        causeOf er f = lookup f (erBodyFallbackCauses er)
+        -- the answer, then the two post-solver rules, as 'recheckVerdict' runs them
+        verdict er r = applyTabulateGenVerdict (applyAbstractionVerdict Set.empty er r)
+        solvedV ss k = do
+          er <- emitV ss
+          tmp <- getTemporaryDirectory
+          (fqPath, h) <- SIO.openTempFile tmp "bytes-tabulate.fq"
+          SIO.hClose h
+          TIO.writeFile fqPath (erFQText er)
+          mLF <- do a <- findExecutable "liquid-fixpoint"
+                    maybe (findExecutable "fixpoint") (pure . Just) a
+          case mLF of
+            Nothing -> pendingWith "liquid-fixpoint/fixpoint not installed"
+            Just lf -> do
+              (code, out, err) <- solverRun lf ["-q", "--json", fqPath]
+              removeFile fqPath
+              (ao, _) <- recheckVerdict er (parseFQOutcome code (T.pack out <> T.pack err))
+              k er ao
+        failingClauses er ao = case aoResult ao of
+          FQUnsafe ids -> [ (coFunction o, coClause o) | i <- ids, Just o <- [Map.lookup i (erConstraintTable er)] ]
+          _            -> []
+        verifiedIn ao f = f `elem` erBodyFaithfulFns (aoEmit ao) && not (f `Set.member` aoRefuted ao)
+                          && aoResult ao == FQSafe
+        cenvOf = Map.fromList
+          [ ("id-at", ([("i", TInt)], Contract (Just (EApp "and" [ EApp ">=" [EVar "i", ELit (LitInt 0)]
+                                                               , EApp "<" [EVar "i", ELit (LitInt 256)] ]))
+                                               Nothing (Just (EApp "=" [EVar "result", EVar "i"])) Nothing Nothing [] [], Just TInt))
+          , ("np-at", ([("i", TInt)], Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [], Just TInt))
+          , ("m-at",  ([("m", TMap TInt TInt), ("i", TInt)], Contract Nothing Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [], Just TInt))
+          , ("up-at", ([("i", TInt)], Contract Nothing Nothing (Just (EApp ">=" [EVar "result", EApp "string-length" [EApp "int-to-string" [EVar "i"]]])) Nothing Nothing [] [], Just TInt))
+          , ("upre-at", ([("i", TInt)], Contract (Just (EApp ">=" [EApp "string-length" [EApp "int-to-string" [EVar "i"]], ELit (LitInt 0)]))
+                                                 Nothing (Just (EApp ">=" [EVar "result", ELit (LitInt 0)])) Nothing Nothing [] [], Just TInt)) ]
+        armOf call = snd (bodyToPredFrom 0 (Map.fromList [("n", FQInt), ("m$has", FQArr FQInt FQInt), ("m$val", FQArr FQInt FQInt)]) cenvOf Set.empty call)
+    it "BT-E-1 the arm: T1 is the table pre, L is the one lemma part, no reflection, no congruence, post assumed" $ do
+      case armOf (EApp "bytes-tabulate" [EVar "n", EVar "id-at"]) of
+        Just cv@CallVC{} -> do
+          cvCallee cv `shouldBe` "bytes-tabulate"
+          cvPreObligation cv `shouldBe` Just (partialPre (PBytesTabulate (FQVar "n")))
+          partialPre (PBytesTabulate (FQVar "n")) `shouldBe` FQBinPred FQGe (FQVar "n") (FQLit 0)
+          cvPostParts cv `shouldBe` [("lemma", FQBinPred FQEq (FQApp "bytesLen" [FQVar (cvResultVar cv)]) (FQVar "n"))]
+          [ t | (t, _) <- cvPostParts cv, t == "reflection" ] `shouldBe` []
+          cvCongKey cv `shouldBe` Nothing
+          cvPostUnassumed cv `shouldBe` False
+          map poTag (cvPreParts cv) `shouldBe` ["gen-pre:id-at", "byte-range:id-at"]
+        other -> expectationFailure ("no CallVC: " <> show other)
+    it "BT-E-2 three obligations, T2 and T3 with their own declared constants, each in its own constraint only (branch, let, later call)" $ do
+      let ss = parsedV (idAt ++
+                 [ "(def h [x: int] -> int (pre (>= x 0)) (post (= result x)) x)"
+                 , "(def-shell f [n: int k: int] -> int (pre (and (>= n 0) (<= n 200)))"
+                 , "  (post (>= result 0))"
+                 , "  (if (> k 0)"
+                 , "      (let [(m (+ n 1))] (let [(b (bytes-tabulate m id-at))] (h (bytes-length b))))"
+                 , "      0))" ])
+      er <- emitV ss
+      erBodyFaithfulFns er `shouldSatisfy` elem "f"
+      lookup "f" (erBodyFallbackCauses er) `shouldBe` Nothing
+      sort (filter isTab (clausesOf er "f")) `shouldBe`
+        sort ["call-pre:bytes-tabulate", "call-pre:bytes-tabulate:gen-pre:id-at", "call-pre:bytes-tabulate:byte-range:id-at"]
+      idsOf er "f" (== "call-pre:bytes-tabulate:gen-pre:id-at") `shouldSatisfy` ((== 1) . length)
+      idsOf er "f" (== "call-pre:bytes-tabulate:byte-range:id-at") `shouldSatisfy` ((== 1) . length)
+      let envNames i = map (bindName' er) (conEnv (conOf er i))
+          t2 = head (idsOf er "f" (== "call-pre:bytes-tabulate:gen-pre:id-at"))
+          t3 = head (idsOf er "f" (== "call-pre:bytes-tabulate:byte-range:id-at"))
+          idxs i = [ n | n <- envNames i, "tab_idx" `T.isInfixOf` n ]
+          vals i = [ n | n <- envNames i, "tab_val" `T.isInfixOf` n ]
+      length (idxs t2) `shouldBe` 1
+      vals t2 `shouldBe` []
+      length (idxs t3) `shouldBe` 1
+      length (vals t3) `shouldBe` 1
+      -- no other constraint's environment declares or names the constants
+      let others = [ c | c <- fqConstraints (erFQFile er), conId c `notElem` [t2, t3] ]
+      [ conId c | c <- others, n <- map (bindName' er) (conEnv c), "tab_" `T.isInfixOf` n ] `shouldBe` []
+      [ conId c | c <- others, "tab_" `T.isInfixOf` emitPred (reftPred (conLhs c)) ] `shouldBe` []
+      -- the later call's pre (h) does not see them either, and the index is
+      -- in no hypothesis of T2 (its lhs) beyond the range in its goal
+      emitPred (reftPred (conLhs (conOf er t2))) `shouldNotSatisfy` T.isInfixOf "tab_idx"
+    it "BT-E-3 a generator without a pre gets no T2; T1 and T3 remain" $ do
+      case armOf (EApp "bytes-tabulate" [EVar "n", EVar "np-at"]) of
+        Just cv@CallVC{} -> map poTag (cvPreParts cv) `shouldBe` ["byte-range:np-at"]
+        other -> expectationFailure ("no CallVC: " <> show other)
+    it "BT-E-4 a generator parameter of a map sort refuses the arm, so the caller falls back" $
+      isNothing (armOf (EApp "bytes-tabulate" [EVar "n", EVar "m-at", EVar "m"])) `shouldBe` True
+    it "BT-E-5 a generator post outside the fragment refuses the arm; an unknown generator too" $ do
+      isNothing (armOf (EApp "bytes-tabulate" [EVar "n", EVar "up-at"])) `shouldBe` True
+      isNothing (armOf (EApp "bytes-tabulate" [EVar "n", EVar "no-such-at"])) `shouldBe` True
+    it "BT-E-5b T2 cannot be dropped: a generator pre outside the fragment sends the caller to fallback, and the unchecked call-pre stays reported" $ do
+      -- step 2 removed the generator slot from unprovedEdges because T2 proves
+      -- the pre. If T2 cannot be built the caller must not be body-faithful.
+      isNothing (armOf (EApp "bytes-tabulate" [EVar "n", EVar "upre-at"])) `shouldBe` True
+      let ss = parsedV
+                 [ "(def upre-at [i: int] -> int (pre (>= (string-length (int-to-string i)) 1)) (post (>= result 0)) 0)"
+                 , "(def-shell f [n: int] -> int (pre (>= n 0)) (post (= result n)) (bytes-length (bytes-tabulate n upre-at)))" ]
+      er <- emitV ss
+      erBodyFaithfulFns er `shouldNotSatisfy` elem "f"
+      causeOf er "f" `shouldSatisfy` isJust
+      filter isTab (clausesOf er "f") `shouldBe` []
+      uncheckedCallPres Map.empty ss (erBodyFaithfulFns er) `shouldSatisfy` elem ("f", "upre-at")
+    it "BT-E-9 two tabulates in one body get distinct results, indices and values" $ do
+      er <- emitV (parsedV (idAt ++
+              [ "(def-shell f [n: int] -> int (pre (and (>= n 0) (<= n 200))) (post (>= result 0))"
+              , "  (let [(a (bytes-tabulate n id-at))] (let [(b (bytes-tabulate n id-at))]"
+              , "    (+ (bytes-length a) (bytes-length b)))))" ]))
+      let t2s = idsOf er "f" (== "call-pre:bytes-tabulate:gen-pre:id-at")
+          t3s = idsOf er "f" (== "call-pre:bytes-tabulate:byte-range:id-at")
+          tabNames i = [ n | n <- map (bindName' er) (conEnv (conOf er i)), "tab_" `T.isInfixOf` n ]
+          fq = erFQText er
+          results = nub [ w | w <- T.words (T.map (\c -> if c `elem` ("()[]{},:;=" :: String) then ' ' else c) fq)
+                            , "call_bytes_tabulate" `T.isInfixOf` w ]
+      length t2s `shouldBe` 2
+      length t3s `shouldBe` 2
+      let consts = map tabNames (t2s ++ t3s)
+      all (not . null) consts `shouldBe` True
+      -- the two T2s name different indices; the two T3s different indices and values
+      nub (concatMap tabNames t2s) `shouldSatisfy` ((== 2) . length)
+      nub (concatMap tabNames t3s) `shouldSatisfy` ((== 4) . length)
+      length results `shouldBe` 2
+    it "BT-E-10 n = 0 (edge case 5): T2 and T3 hold on a false premise, so a generator whose pre is false still verifies there" $
+      solvedV (parsedV [ "(def no-at [i: int] -> int (pre false) (post (= result 300)) 300)"
+                       , "(def-shell z [u: int] -> int (post (= result 0)) (bytes-length (bytes-tabulate 0 no-at)))" ]) $ \_ ao ->
+        verifiedIn ao "z" `shouldBe` True
+    it "BT-E-11 invert verifies; the off-by-one length fails T2 and the message names T2" $
+      solvedV (parsedV (invAt ++
+                 [ "(def-shell invert [buf: bytes] -> bytes"
+                 , "  (post (= (bytes-length result) (bytes-length buf)))"
+                 , "  (bytes-tabulate (bytes-length buf) inv-at buf))"
+                 , "(def-shell invert1 [buf: bytes] -> bytes"
+                 , "  (post (= (bytes-length result) (+ (bytes-length buf) 1)))"
+                 , "  (bytes-tabulate (+ (bytes-length buf) 1) inv-at buf))" ])) $ \er ao -> do
+        aoRefuted ao `shouldBe` Set.fromList ["invert1"]
+        failingClauses er ao `shouldBe` [("invert1", "call-pre:bytes-tabulate:gen-pre:inv-at")]
+        "invert" `elem` erBodyFaithfulFns (aoEmit ao) `shouldBe` True
+        map diagMessage (reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable er) (aoReportCtx ao) (aoResult ao)))
+          `shouldSatisfy` any (T.isInfixOf "(T2)")
+    it "BT-E-12 edge case 3: a generator whose post does not bound its value fails T3, named T3" $
+      solvedV (parsedV
+                 [ "(def bad-at [buf: bytes i: int] -> int"
+                 , "  (pre (and (>= i 0) (< i (bytes-length buf))))"
+                 , "  (post (>= result 0))"
+                 , "  (+ (bytes-get buf i) 1))"
+                 , "(def-shell f [buf: bytes] -> bytes"
+                 , "  (post (= (bytes-length result) (bytes-length buf)))"
+                 , "  (bytes-tabulate (bytes-length buf) bad-at buf))" ]) $ \er ao -> do
+        aoRefuted ao `shouldBe` Set.fromList ["f"]
+        failingClauses er ao `shouldBe` [("f", "call-pre:bytes-tabulate:byte-range:bad-at")]
+        map diagMessage (reportDiagnostics (fqResultToReportWD "t.llmll" (erConstraintTable er) (aoReportCtx ao) (aoResult ao)))
+          `shouldSatisfy` any (T.isInfixOf "is not proved to lie in 0..255 at every index of bytes-tabulate in 'f' (T3)")
+    it "BT-E-6 edge case 4a: two tabulates of lengths 3 and 5 over one generator and argument are refuted, not verified" $
+      solvedV (parsedV (idAt ++
+                 [ "(def-shell f [u: int] -> int"
+                 , "  (post (= result 0))"
+                 , "  (let [(r1 (bytes-tabulate 3 id-at))] (let [(r2 (bytes-tabulate 5 id-at))]"
+                 , "    (if (= (bytes-length r1) (bytes-length r2)) 0 1))))" ])) $ \_ ao -> do
+        aoRefuted ao `shouldBe` Set.fromList ["f"]
+        verifiedIn ao "f" `shouldBe` False
+    it "BT-E-7 edge case 4b: the same two tabulates under the post false do not verify" $
+      solvedV (parsedV (idAt ++
+                 [ "(def-shell f [u: int] -> int"
+                 , "  (post false)"
+                 , "  (let [(r1 (bytes-tabulate 3 id-at))] (let [(r2 (bytes-tabulate 5 id-at))]"
+                 , "    (+ (bytes-length r1) (bytes-length r2)))))" ])) $ \_ ao ->
+        verifiedIn ao "f" `shouldBe` False
+    it "BT-E-8 edge case 4c: both lengths named n in nested lets, 3 outside and 5 inside, are refuted" $
+      solvedV (parsedV (idAt ++
+                 [ "(def-shell f [u: int] -> int"
+                 , "  (post (= result 0))"
+                 , "  (let [(n 3)] (let [(r1 (bytes-tabulate n id-at))]"
+                 , "    (let [(n 5)] (let [(r2 (bytes-tabulate n id-at))]"
+                 , "      (if (= (bytes-length r1) (bytes-length r2)) 0 1))))))" ])) $ \_ ao -> do
+        aoRefuted ao `shouldBe` Set.fromList ["f"]
+        verifiedIn ao "f" `shouldBe` False
+    it "BT-V-1 edge case 11: a def-shell tabulating over a local generator that falls back moves to tabulate-gen-unverified" $ do
+      er <- emitV (parsedV (fbAt ++
+              [ "(def-shell ramp [n: int] -> bytes (pre (>= n 0)) (post (= (bytes-length result) n))"
+              , "  (bytes-tabulate n fb-at))" ]))
+      erBodyFaithfulFns er `shouldBe` ["ramp"]
+      Map.lookup "ramp" (erTabulateGens er) `shouldBe` Just [("fb-at", Nothing)]
+      let ao = verdict er FQSafe
+      erBodyFaithfulFns (aoEmit ao) `shouldBe` []
+      causeOf (aoEmit ao) "ramp" `shouldBe` Just FallbackTabulateGenUnverified
+      lookup "ramp" (erFallbackConstructs (aoEmit ao)) `shouldBe` Just ["tabulate-gen:fb-at"]
+      aoTabulateUnverified ao `shouldBe` [("ramp", "fb-at")]
+      aoFallbackFns ao `shouldSatisfy` elem "ramp"
+      renderFallbackCause FallbackTabulateGenUnverified `shouldBe` "tabulate-gen-unverified"
+      map diagMessage (erDiagnostics (aoEmit ao)) `shouldSatisfy`
+        any (\m -> "tabulate-gen-unverified" `T.isInfixOf` m && "Verify 'fb-at' first" `T.isInfixOf` m)
+      -- with a verified local generator nothing moves
+      er2 <- emitV (parsedV (idAt ++ [ "(def-shell ramp [n: int] -> bytes (pre (and (>= n 0) (<= n 256)))"
+                                     , "  (post (= (bytes-length result) n)) (bytes-tabulate n id-at))" ]))
+      erBodyFaithfulFns (aoEmit (verdict er2 FQSafe)) `shouldBe` ["id-at", "ramp"]
+    it "BT-V-2 an imported generator is read through its gated evidence: asserted moves the caller, fully verified does not" $ do
+      let lib = buildModuleEnv ["gen"] (parsedV idAt) Map.empty emptyEnv
+          vrec = EvidenceRecord (DLVerified "liquid-fixpoint") True Nothing [] False Nothing Nothing False (Just "sha256:x") False []
+          libV = lib { meContractStatus = Map.fromList [("id-at", ContractStatus (Just vrec) (Just vrec) [])] }
+          src = parsedV [ "(import gen)"
+                        , "(def-shell ramp [n: int] -> bytes (pre (and (>= n 0) (<= n 256)))"
+                        , "  (post (= (bytes-length result) n)) (bytes-tabulate n gen.id-at))" ]
+      er <- emitC (Map.fromList [(["gen"], lib)]) src
+      Map.lookup "ramp" (erTabulateGens er) `shouldBe` Just [("gen.id-at", Just False)]
+      erBodyFaithfulFns er `shouldBe` ["ramp"]
+      causeOf (aoEmit (verdict er FQSafe)) "ramp" `shouldBe` Just FallbackTabulateGenUnverified
+      erV <- emitC (Map.fromList [(["gen"], libV)]) src
+      Map.lookup "ramp" (erTabulateGens erV) `shouldBe` Just [("gen.id-at", Just True)]
+      erBodyFaithfulFns (aoEmit (verdict erV FQSafe)) `shouldBe` ["ramp"]
+    it "BT-V-3 a refuted generator moves its caller, and the trust report gives it depends-on-refuted" $ do
+      let ss = parsedV
+                 [ "(def k-at [i: int] -> int (post (= result 0)) 1)"
+                 , "(def-shell ramp [n: int] -> bytes (pre (>= n 0)) (post (= (bytes-length result) n))"
+                 , "  (bytes-tabulate n k-at))" ]
+      er <- emitV ss
+      let kIds = idsOf er "k-at" ("body-post" `T.isPrefixOf`)
+          ao = verdict er (FQUnsafe kIds)
+      kIds `shouldSatisfy` (not . null)
+      aoRefuted ao `shouldBe` Set.fromList ["k-at"]
+      causeOf (aoEmit ao) "ramp" `shouldBe` Just FallbackTabulateGenUnverified
+      let rep = markRefuted (aoRefuted ao) (buildTrustReport Map.empty ss Map.empty)
+      concat [ teDrifts e | e <- trEntries rep, teName e == "ramp" ] `shouldSatisfy` any (T.isInfixOf "depends-on-refuted")
+    it "BT-V-4 a refuted caller stays refuted: the rule never moves a function in a hard set" $ do
+      er <- emitV (parsedV (fbAt ++
+              [ "(def-shell ramp [n: int] -> int (pre (>= n 0)) (post (= result (+ n 1)))"
+              , "  (let [(r (bytes-tabulate n fb-at))] (bytes-length r)))" ]))
+      let rIds = idsOf er "ramp" ("body-post" `T.isPrefixOf`)
+          ao = verdict er (FQUnsafe rIds)
+      aoRefuted ao `shouldBe` Set.fromList ["ramp"]
+      erBodyFaithfulFns (aoEmit ao) `shouldBe` ["ramp"]
+      causeOf (aoEmit ao) "ramp" `shouldBe` Nothing
+      aoTabulateUnverified ao `shouldBe` []
+    it "BT-V-5 the rule iterates to a fixed point over a chain of local generators, whatever the order" $ do
+      -- f (first in the file) tabulates over g2, which tabulates over g1, which falls back
+      er <- emitV (parsedV (
+              [ "(def-shell f [n: int] -> bytes (pre (>= n 0)) (post (= (bytes-length result) n)) (bytes-tabulate n g2))"
+              , "(def g2 [i: int] -> int (pre (and (>= i 0) (<= i 255))) (post (and (>= result 0) (<= result 255)))"
+              , "  (bytes-length (bytes-tabulate i g1)))" ] ++
+              [ "(def g1 [i: int] -> int (post (and (>= result 0) (<= result 255)))"
+              , "  (mod (string-length (int-to-string i)) 256))" ]))
+      erBodyFaithfulFns er `shouldBe` ["f", "g2"]
+      let ao = verdict er FQSafe
+      erBodyFaithfulFns (aoEmit ao) `shouldBe` []
+      sort (aoTabulateUnverified ao) `shouldBe` [("f", "g2"), ("g2", "g1")]
+    it "BT-D-1 the T1 text, and no other tag reads as a tabulate obligation" $ do
+      tabulateObligationText "f" "call-pre:bytes-tabulate" `shouldBe` Just "the length of bytes-tabulate in 'f' may be negative (T1)"
+      tabulateObligationText "f" "call-pre:bytes-get" `shouldBe` Nothing
+      tabulateObligationText "f" "call-pre:bytes-tabulatex" `shouldBe` Nothing
+      tabulateObligationText "f" "body-post" `shouldBe` Nothing
+    it "BT-D-2 the T2 text names the generator" $
+      tabulateObligationText "f" "call-pre:bytes-tabulate:gen-pre:g" `shouldBe`
+        Just "the pre of generator 'g' is not proved at every index 0 ≤ i < n of bytes-tabulate in 'f' (T2)"
+    it "BT-D-3 the T3 text names the generator and the repair" $
+      tabulateObligationText "f" "call-pre:bytes-tabulate:byte-range:g" `shouldBe`
+        Just "a value of generator 'g' is not proved to lie in 0..255 at every index of bytes-tabulate in 'f' (T3); its post must bound the result"
+    it "BT-S-1 the sets: bytes-tabulate is the fourteenth sealed builtin, abstracted, with an exact length" $ do
+      Set.size sealedAxiomBuiltins `shouldBe` 14
+      Set.member "bytes-tabulate" sealedAxiomBuiltins `shouldBe` True
+      Set.member "bytes-tabulate" abstractedBuiltins `shouldBe` True
+      Set.member "bytes-tabulate" exactSealedBuiltins `shouldBe` False
+      Set.member "bytes-tabulate" exactLengthBuiltins `shouldBe` True
+      [ c | c <- [minBound .. maxBound], renderFallbackCause c == "tabulate-gen-unverified" ] `shouldBe` [FallbackTabulateGenUnverified]
+    it "BT-V-6 recheckVerdict runs the generator rule, so verify, patch, --cdp and the diverge classifier all decide it" $ do
+      er <- emitV (parsedV (fbAt ++
+              [ "(def-shell ramp [n: int] -> bytes (pre (>= n 0)) (post (= (bytes-length result) n))"
+              , "  (bytes-tabulate n fb-at))" ]))
+      (ao, answers) <- recheckVerdict er FQSafe
+      answers `shouldBe` []
+      aoResult ao `shouldBe` FQSafe
+      aoTabulateUnverified ao `shouldBe` [("ramp", "fb-at")]
+      erBodyFaithfulFns (aoEmit ao) `shouldBe` []
+    it "BT-C-1 a tabulate in a post is outside the fragment: the clause refuses it and the function falls back" $ do
+      exprToPred (EApp "=" [EApp "bytes-length" [EApp "bytes-tabulate" [EVar "n", EVar "id-at"]], EVar "n"]) `shouldBe` Nothing
+      er <- emitV (parsedV (idAt ++ [ "(def-shell f [n: int] -> int (post (= (bytes-length (bytes-tabulate n id-at)) n)) n)" ]))
+      causeOf er "f" `shouldBe` Just FallbackContractPost
 
   -- -----------------------------------------------------------------------
   -- BYTE-IO step 3, S4 (BYTES-UNSIZED-1): the evaluator and the generator.
@@ -29880,7 +30201,7 @@ callResultMarkSpec = describe "CALL-RESULT-MARK-1 cone (Rev 2b)" $ do
   it "CR-E7 flattenBodyVC is the projection of flattenBodyVCTagged, and the tags split each path guard" $ do
     let p = FQVar
         post n = Just (FQAnd [FQBinPred FQGe (p n) (FQLit 0), FQBinPred FQLe (p n) (FQLit 9)])
-        call n cont = CallVC "g" [] [] Nothing (post n) [] n FQInt cont Nothing False
+        call n cont = CallVC "g" [] [] Nothing (post n) [] n FQInt cont Nothing False []
         leaf = SimpleVC [] (p "r")
         br g t e = BranchVC g [] t e
         g1 = FQBinPred FQGt (p "x") (FQLit 0)
@@ -29888,8 +30209,8 @@ callResultMarkSpec = describe "CALL-RESULT-MARK-1 cone (Rev 2b)" $ do
         trees = [ leaf, call "c1" leaf, br g1 leaf leaf, br g1 (call "c1" leaf) leaf
                 , call "c1" (br g2 leaf (call "c2" leaf)), br g1 (br g2 leaf leaf) (call "c1" leaf)
                 , call "c1" (call "c2" (br g1 leaf leaf)), br g2 (call "c1" (br g1 (call "c2" leaf) leaf)) leaf
-                , CallVC "h" [] [] Nothing Nothing [] "c3" FQInt leaf Nothing False
-                , br g1 (CallVC "h" [] [] Nothing Nothing [] "c3" FQInt leaf Nothing False) (call "c1" leaf)
+                , CallVC "h" [] [] Nothing Nothing [] "c3" FQInt leaf Nothing False []
+                , br g1 (CallVC "h" [] [] Nothing Nothing [] "c3" FQInt leaf Nothing False []) (call "c1" leaf)
                 , call "c1" (call "c2" (call "c4" leaf)), br (FQNot g1) (br g1 leaf leaf) (br g2 leaf leaf) ]
         atoms q = case q of { FQAnd qs -> concatMap atoms qs; FQTrue -> []; _ -> [q] }
     length trees `shouldBe` 12
@@ -30087,7 +30408,7 @@ lenExactSpec = describe "ABSTRACTION-LEN-EXACT-1" $ do
     hits (withDefs [dr] [st]) ["x"] (con [snd dr, st] (goalAt "r")) `shouldBe` True
   it "LX-U9 bytes-concat-many and bytes-from-string lemmas are not length definitions" $ do
     let r = FQVar "r"
-        call c parts = CallVC c [] [] Nothing (Just (FQAnd (map snd parts))) parts "r" FQInt (SimpleVC [] r) Nothing False
+        call c parts = CallVC c [] [] Nothing (Just (FQAnd (map snd parts))) parts "r" FQInt (SimpleVC [] r) Nothing False []
     collectLenDefs (call "bytes-concat-many" [("lemma", FQBinPred FQGe (len "r") (FQLit 0))]) `shouldBe` Map.empty
     collectLenDefs (call "bytes-from-string" [("lemma", FQBinPred FQLe (FQApp "strLen" [v "s"]) (len "r"))]) `shouldBe` Map.empty
     collectLenDefs (call "bytes-slice" [("lemma", eq (len "r") (sub (v "e") (v "s")))]) `shouldBe` Map.fromList [("r", eq (len "r") (sub (v "e") (v "s")))]
@@ -30095,8 +30416,9 @@ lenExactSpec = describe "ABSTRACTION-LEN-EXACT-1" $ do
     let d = sliceDef "x" (v "e") (v "s")
     hits (recP { crLenDefs = Map.fromList [d] }) ["x"] (con [snd d] (goalAt "x")) `shouldBe` True
 
-  it "LX-C1 exactLengthBuiltins is the six rows and excludes the inexact four" $ do
-    exactLengthBuiltins `shouldBe` Set.fromList ["bytes-slice", "bytes-concat", "bytes-to-list", "string-from-code", "bytes-make", "bytes-set"]
+  it "LX-C1 exactLengthBuiltins is the seven rows and excludes the inexact four" $ do
+    -- BYTES-TABULATE-1 adds the seventh row, bytes-tabulate (bytesLen(r) = n).
+    exactLengthBuiltins `shouldBe` Set.fromList ["bytes-slice", "bytes-concat", "bytes-to-list", "string-from-code", "bytes-make", "bytes-set", "bytes-tabulate"]
     Set.toList (Set.intersection exactLengthBuiltins (Set.fromList ["bytes-concat-many", "bytes-from-string", "string-code-at", "bytes-widen"])) `shouldBe` []
 
   -- S. solver-backed verdicts

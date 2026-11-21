@@ -1,0 +1,12 @@
+;; BT-V13, the step-2 invariant: the generator slot is not an unproved edge
+;; because T2 proves the generator's pre. Here the pre is outside the
+;; fragment, so T2 cannot be built: the caller must fall back, and the call-pre
+;; stays reported unchecked. It must never be body-faithful with no T2.
+(def upre-at [i: int] -> int
+  (pre (>= (string-length (int-to-string i)) 1))
+  (post (and (>= result 0) (<= result 255)))
+  0)
+(def-shell ramp [n: int] -> bytes
+  (pre (>= n 0))
+  (post (= (bytes-length result) n))
+  (bytes-tabulate n upre-at))
