@@ -604,6 +604,19 @@ runtimePreamble =
   , "  | n > toInteger (maxBound :: Int) = error (\"bytes-make: length \" ++ show n ++ \" is too large to represent\")"
   , "  | otherwise                       = BS.replicate (fromInteger n) (fromInteger v)"
   , ""
+  , "-- BYTES-TABULATE-1. Byte i is f i, for i from 0 in order, filled into one buffer."
+  , "-- The length guards come first; a value outside 0..255 stops before it is narrowed."
+  , "bytes_tabulate :: Integer -> (Integer -> Integer) -> BS.ByteString"
+  , "bytes_tabulate n f"
+  , "  | n < 0                           = error (\"bytes-tabulate: pre-condition failed: length \" ++ show n ++ \" is negative\")"
+  , "  | n > toInteger (maxBound :: Int) = error (\"bytes-tabulate: length \" ++ show n ++ \" is too large to represent\")"
+  , "  | otherwise                       = fst (BS.unfoldrN (fromInteger n) step 0)"
+  , "  where"
+  , "    step i = let v = f i in"
+  , "      if v < 0 || v > 255"
+  , "        then error (\"bytes-tabulate: generator value \" ++ show v ++ \" at index \" ++ show i ++ \" outside byte range 0..255\")"
+  , "        else Just (fromInteger v, i + 1)"
+  , ""
   , "-- The half-open range [s, e). A pre, not a clamp: an offset error stops here."
   , "bytes_slice :: BS.ByteString -> Integer -> Integer -> BS.ByteString"
   , "bytes_slice b s e"
@@ -736,6 +749,17 @@ runtimePreamble =
   , "  | n < 0            = error (ctx ++ \" is undefined: bytes-make length \" ++ show n ++ \" is negative\")"
   , "  | v < 0 || v > 255 = error (ctx ++ \" is undefined: bytes-make value \" ++ show v ++ \" outside byte range 0..255\")"
   , "  | otherwise        = bytes_make n v"
+  , ""
+  , "llmll_cl_bytes_tabulate :: String -> Integer -> (Integer -> Integer) -> BS.ByteString"
+  , "llmll_cl_bytes_tabulate ctx n f"
+  , "  | n < 0                           = error (ctx ++ \" is undefined: bytes-tabulate length \" ++ show n ++ \" is negative\")"
+  , "  | n > toInteger (maxBound :: Int) = error (ctx ++ \" is undefined: bytes-tabulate length \" ++ show n ++ \" is too large to represent\")"
+  , "  | otherwise                       = bytes_tabulate n g"
+  , "  where"
+  , "    g i = let v = f i in"
+  , "      if v < 0 || v > 255"
+  , "        then error (ctx ++ \" is undefined: bytes-tabulate generator value \" ++ show v ++ \" at index \" ++ show i ++ \" outside byte range 0..255\")"
+  , "        else v"
   , ""
   , "llmll_cl_bytes_slice :: String -> BS.ByteString -> Integer -> Integer -> BS.ByteString"
   , "llmll_cl_bytes_slice ctx b s e"
@@ -2679,6 +2703,16 @@ emitApp :: Name -> [Expr] -> Text
 emitApp "first"  [a] = "(fst " <> emitExpr a <> ")"
 emitApp "second" [a] = "(snd " <> emitExpr a <> ")"
 emitApp "pair"   [a,b] = "(" <> emitExpr a <> ", " <> emitExpr b <> ")"
+-- BYTES-TABULATE-1: the generator becomes a function of the index, with the
+-- extra arguments applied first. 'emitExpr' has already forced n and each
+-- non-atomic extra argument, in order, through 'esForceArgs', so they are
+-- evaluated once, before the index loop, even when n is 0 (call-by-value).
+-- The clause form takes the context string first, as the other guarded
+-- operations do; it is variadic, so it cannot use their generic equation.
+emitApp "bytes-tabulate" (n : g : as) =
+  "(bytes_tabulate " <> wrap n <> " " <> tabulateGenFn g as <> ")"
+emitApp "clause%bytes-tabulate" (ctx : n : g : as) =
+  "(llmll_cl_bytes_tabulate " <> wrap ctx <> " " <> wrap n <> " " <> tabulateGenFn g as <> ")"
 -- CLAUSE-WELLDEF-1: the guarded partial operations of a clause check
 -- (Contracts.guardClause). The first argument is the context string.
 emitApp f (ctx : args)
@@ -2732,6 +2766,13 @@ emitApp f [a, b]
 emitApp func args =
   "(" <> toHsIdent func <> " " <> T.unwords (map wrap args) <> ")"
 
+-- | BYTES-TABULATE-1: the generator of a tabulate as a Haskell function of the
+-- index, @(\llmll_ti -> g a1 ... ak llmll_ti)@. @llmll_ti@ takes the reserved
+-- prefix, so no user name can be captured by it.
+tabulateGenFn :: Expr -> [Expr] -> Text
+tabulateGenFn g as =
+  "(\\llmll_ti -> " <> wrap g <> " " <> T.unwords (map wrap as ++ ["llmll_ti"]) <> ")"
+
 -- | CLAUSE-WELLDEF-1: the preamble helper of each guarded clause operation.
 clauseGuardHelpers :: [(Name, Text)]
 clauseGuardHelpers =
@@ -2740,6 +2781,7 @@ clauseGuardHelpers =
   , ("bytes-set", "llmll_cl_bytes_set")
   , ("bytes-make",  "llmll_cl_bytes_make")   -- BYTES-UNSIZED-1
   , ("bytes-slice", "llmll_cl_bytes_slice")
+  , ("bytes-tabulate", "llmll_cl_bytes_tabulate")  -- BYTES-TABULATE-1 (own emitApp equation)
   , ("unwrap",    "llmll_cl_unwrap")
   , ("/",         "llmll_cl_div")
   , ("mod",       "llmll_cl_mod")
@@ -3843,7 +3885,7 @@ hsPreambleNames =
   , "bit_and", "bit_or", "bit_shl", "bit_shr", "bit_xor"
   , "bytes_get", "bytes_length", "bytes_set", "bytes_zero", "err", "hmac_sha1"
   -- BYTES-UNSIZED-1
-  , "LlmllBytes", "bytes_make", "bytes_slice", "bytes_concat", "bytes_concat_many"
+  , "LlmllBytes", "bytes_make", "bytes_slice", "bytes_tabulate", "bytes_concat", "bytes_concat_many"
   , "bytes_from_list", "bytes_to_list", "bytes_widen", "bytes_from_string", "bytes_to_string"
   , "int_to_string", "is_ok", "jsonHexVal", "jsonIsDigit", "jsonIsHex"
   , "jsonIsIntLexeme", "jsonLit", "jsonMaxDepth", "jsonNumOk", "jsonPArr"

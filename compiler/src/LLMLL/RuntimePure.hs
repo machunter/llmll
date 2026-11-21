@@ -388,6 +388,19 @@ bytes_make n v
   | n > toInteger (maxBound :: Int) = error ("bytes-make: length " ++ show n ++ " is too large to represent")
   | otherwise                       = BS.replicate (fromInteger n) (fromInteger v)
 
+-- BYTES-TABULATE-1. Byte i is f i, for i from 0 in order, filled into one buffer.
+-- The length guards come first; a value outside 0..255 stops before it is narrowed.
+bytes_tabulate :: Integer -> (Integer -> Integer) -> BS.ByteString
+bytes_tabulate n f
+  | n < 0                           = error ("bytes-tabulate: pre-condition failed: length " ++ show n ++ " is negative")
+  | n > toInteger (maxBound :: Int) = error ("bytes-tabulate: length " ++ show n ++ " is too large to represent")
+  | otherwise                       = fst (BS.unfoldrN (fromInteger n) step 0)
+  where
+    step i = let v = f i in
+      if v < 0 || v > 255
+        then error ("bytes-tabulate: generator value " ++ show v ++ " at index " ++ show i ++ " outside byte range 0..255")
+        else Just (fromInteger v, i + 1)
+
 -- The half-open range [s, e). A pre, not a clamp: an offset error stops here.
 bytes_slice :: BS.ByteString -> Integer -> Integer -> BS.ByteString
 bytes_slice b s e

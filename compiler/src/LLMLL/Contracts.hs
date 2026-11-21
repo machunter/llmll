@@ -410,7 +410,9 @@ clauseGuardedOps =
   , "string-code-at", "string-from-code"
   -- BYTES-UNSIZED-1: partial (a length or value pre, a range pre), so a clause
   -- check stops with "is undefined" rather than the builtin's own error.
-  , "bytes-make", "bytes-slice" ]
+  , "bytes-make", "bytes-slice"
+  -- BYTES-TABULATE-1: a length pre and a value range, as bytes-make.
+  , "bytes-tabulate" ]
 
 -- ---------------------------------------------------------------------------
 -- Compile-time Contract Evaluation (Symbolic)
@@ -563,6 +565,16 @@ evalC cs fe fuel env (EApp func args)
         argVals <- mapM (evalC cs fe fuel env) args
         applyLambda cs fe (fuel - 1) lam argVals
       _ -> Nothing
+-- BYTES-TABULATE-1: the generator slot names a program function, which is not
+-- a value here, so it reaches 'evalBuiltinApp' as the name. n and the extra
+-- arguments are evaluated in order, as the built program forces them. A
+-- generator name bound in the environment is a binder (FN-SHADOW-1): the
+-- generic path below evaluates it, and the arm does not reduce.
+evalC cs fe fuel env (EApp "bytes-tabulate" (nE : EVar g : aEs))
+  | Map.notMember g env = do
+      nV  <- evalC cs fe fuel env nE
+      aVs <- mapM (evalC cs fe fuel env) aEs
+      evalBuiltinApp cs fe fuel "bytes-tabulate" (nV : EVar g : aVs)
 evalC cs fe fuel env (EApp func args) = do
   argVals <- mapM (evalC cs fe fuel env) args
   case Map.lookup func fe of
@@ -800,6 +812,22 @@ evalBuiltinApp _ _ _ "bytes#" [xs]
   | Just _ <- bytesFlat (EApp bytesValTag [xs]) = Just (EApp bytesValTag [xs])
 evalBuiltinApp _ _ _ "bytes-make" [ELit (LitInt n), ELit (LitInt v)]
   | n >= 0, n <= rangeCap, v >= 0, v <= 255 = Just (bytesValE (RP.bytes_make n v))
+-- BYTES-TABULATE-1: each byte is the generator's value at its index, by the
+-- evaluator's own user-call step, then the runtime body builds the value. A
+-- length past 'rangeCap', a reduction that fails or a value outside 0..255
+-- discards the sample (the built program stops there).
+evalBuiltinApp cs fe fuel "bytes-tabulate" (ELit (LitInt n) : EVar g : aVs)
+  | n >= 0, n <= rangeCap
+  , Just (ps, body) <- Map.lookup g fe
+  , length ps == length aVs + 1 = do
+      vs <- mapM (\i -> evalC cs fe (fuel - 1) (Map.fromList (zip ps (aVs ++ [ELit (LitInt i)]))) body)
+                 [0 .. n - 1]
+      ws <- mapM tabByte vs
+      let m = Map.fromList (zip [0 ..] ws)
+      pure (bytesValE (RP.bytes_tabulate n (m Map.!)))
+  where
+    tabByte (ELit (LitInt v)) | v >= 0, v <= 255 = Just v
+    tabByte _                                    = Nothing
 evalBuiltinApp _ _ _ "bytes-slice" [b, ELit (LitInt s), ELit (LitInt e)] = do
   bs <- bytesFlat b
   if s >= 0 && s <= e && e <= toInteger (BS.length bs)
@@ -958,6 +986,7 @@ modeledBuiltins = Set.fromList
   , "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many"
   , "bytes-from-list", "bytes-to-list", "bytes-widen"
   , "bytes-from-string", "bytes-to-string"
+  , "bytes-tabulate"
   , "map-has", "map-get", "map-put", "map-empty"
   ]
 

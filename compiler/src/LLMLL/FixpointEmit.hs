@@ -507,7 +507,10 @@ bytesCallNames :: Set.Set Name
 bytesCallNames = Set.fromList
   [ "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many"
   , "bytes-from-list", "bytes-to-list", "bytes-widen"
-  , "bytes-from-string", "bytes-to-string" ]
+  , "bytes-from-string", "bytes-to-string"
+  -- BYTES-TABULATE-1 step 1: hoisted, with no arm yet, so a caller falls back
+  -- with app:bytes-tabulate.
+  , "bytes-tabulate" ]
 
 -- | BITWISE-1: a bit application with an exact reflection. The field is the
 -- operand the solver still sees and the numeral the form divides or multiplies
@@ -2833,7 +2836,8 @@ bytesOpNames :: [Name]
 bytesOpNames = ["bytes-length", "bytes-get", "bytes-set", "bytes-zero"
                , "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many"
                , "bytes-from-list", "bytes-to-list", "bytes-widen"
-               , "bytes-from-string", "bytes-to-string"]
+               , "bytes-from-string", "bytes-to-string"
+               , "bytes-tabulate"]  -- BYTES-TABULATE-1
 
 -- | The reflected map-op family (stage A2).
 mapOpNames :: [Name]
@@ -7219,7 +7223,8 @@ bytesArrsOfVC aliases cenv = go
     -- callee whose declared return is either byte type.
     bytesCall f
       | f `elem` ["bytes-set", "bytes-zero", "bytes-make", "bytes-slice", "bytes-concat"
-                 , "bytes-concat-many", "bytes-from-string", "bytes-widen"] = True
+                 , "bytes-concat-many", "bytes-from-string", "bytes-widen"
+                 , "bytes-tabulate"] = True
       | Just (_, _, Just rt) <- Map.lookup f cenv = isBytesTy aliases rt
       | otherwise = False
     rootedIn s (FQVar n) = n `Set.member` s

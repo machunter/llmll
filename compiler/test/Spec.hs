@@ -19042,8 +19042,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- wasi.fs.write-bytes, wasi.io.stdin-bytes, wasi.io.stdout-bytes). All
       -- four are hand-written runtimePreamble bodies reached by the generic
       -- emission, so all four land in needsBinding: 112 -> 116.
-      Map.size builtinEnv      `shouldBe` 149
-      length needsBinding      `shouldBe` 116
+      -- 149 -> 150 with BYTES-TABULATE-1's bytes-tabulate. Its hand-written
+      -- emitApp equation keeps the mangled head, so it lands in needsBinding
+      -- (116 -> 117, the preamble's bytes_tabulate) AND in the hand-written
+      -- class below (8 -> 9), as the five INT-INDEX-WRAP-1 names once did.
+      Map.size builtinEnv      `shouldBe` 150
+      length needsBinding      `shouldBe` 117
       length resolvedElsewhere `shouldBe` 10
 
     -- BUILTIN-BODY-1 residue (1), closed 2026-09-06. A hand-written emitApp
@@ -19078,10 +19082,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
     -- their equations now emit exactly the generic form and leave this set.
     -- GENERIC-COMPARE-1: compare joins (7 -> 8); scripts/build-smoke/smoke.llmll
     -- calls it (smoke-compare), as the next example requires.
-    it "eight builtins lower through a hand-written emitApp equation" $
+    -- BYTES-TABULATE-1: bytes-tabulate joins (8 -> 9); its generator becomes
+    -- a lambda over the index. scripts/build-smoke/bytes_tabulate.llmll calls it.
+    it "nine builtins lower through a hand-written emitApp equation" $
       sort handWritten `shouldBe` sort
         [ "first", "second", "pair", "list-length", "string-length"
-        , "bytes-length", "sha1", "compare" ]
+        , "bytes-length", "sha1", "compare", "bytes-tabulate" ]
 
     it "every hand-written emitApp equation is called by a build-smoke fixture" $ do
       let dir = "../scripts/build-smoke"
@@ -28976,6 +28982,147 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
           , h `notElem` preLines ] `shouldBe` []
 
   -- -----------------------------------------------------------------------
+  -- BYTES-TABULATE-1 step 1 (image-library-proposal Rev 3, Part B): the
+  -- surface, codegen and run time of (bytes-tabulate n gen a1 ... ak). The
+  -- generator slot takes only the name of a top-level def with a post
+  -- (tabulate-gen-not-named otherwise); codegen has three run-time guards and
+  -- fills one buffer in index order; the evaluator models it through the
+  -- runtime body. Nothing here is verified: every caller falls back in step 1.
+  -- -----------------------------------------------------------------------
+  describe "BYTES-TABULATE-1 step 1: surface, codegen and run time" $ do
+    let parsedB src = case parseStatements GrammarCoreInversion "<bt1>" (T.unlines src) of
+          Left err -> error ("BYTES-TABULATE-1 test source failed to parse: " ++ show err)
+          Right ss -> ss
+        errsOfB r = [ (diagKind d, diagMessage d)
+                    | d <- reportDiagnostics r, diagSeverity d == SevError ]
+        errsB src = errsOfB (typeCheck GrammarCoreInversion emptyEnv (parsedB src))
+        okB src   = errsB src `shouldBe` []
+        badB src  = errsB src `shouldNotBe` []
+        notNamed src = map fst (errsB src) `shouldSatisfy` elem (Just "tabulate-gen-not-named")
+        invAt = [ "(def inv-at [buf: bytes i: int] -> int"
+                , "  (pre (and (>= i 0) (< i (bytes-length buf))))"
+                , "  (post (= result (- 255 (bytes-get buf i))))"
+                , "  (- 255 (bytes-get buf i)))" ]
+        idAt  = [ "(def id-at [i: int] -> int (post (= result i)) i)" ]
+        linAt = [ "(def lin-at [a: int b: int i: int] -> int (post (>= result 0)) (mod (+ (- a b) i) 256))" ]
+        bs    = BSS.pack
+        errOf x = do r <- CE.try (CE.evaluate x)
+                     pure (either (\(CE.ErrorCall m) -> Just m) (const Nothing) r)
+        preLines = T.lines (T.unlines runtimePreamble)
+        lint  = ELit . LitInt
+    it "BT-TC-1 a named def with a post is accepted, with zero, one and two arguments before the index" $ do
+      okB (invAt ++ ["(def-shell invert [buf: bytes] -> bytes (bytes-tabulate (bytes-length buf) inv-at buf))"])
+      okB (idAt ++ ["(def-shell ramp [n: int] -> bytes (bytes-tabulate n id-at))"])
+      okB (linAt ++ ["(def-shell lin [n: int a: int b: int] -> bytes (bytes-tabulate n lin-at a b))"])
+    it "BT-TC-2 a lambda in the generator slot is tabulate-gen-not-named" $ do
+      notNamed ["(def-shell f [n: int] -> bytes (bytes-tabulate n (fn [i: int] 0)))"]
+      [ m | (Just "tabulate-gen-not-named", m) <- errsB ["(def-shell f [n: int] -> bytes (bytes-tabulate n (fn [i: int] 0)))"] ]
+        `shouldSatisfy` any (T.isInfixOf "a lambda has no name and no post")
+    it "BT-TC-3 a function-typed parameter is tabulate-gen-not-named, even when it shadows a valid generator" $ do
+      notNamed ["(def-shell f [n: int g: (fn [int] -> int)] -> bytes (bytes-tabulate n g))"]
+      notNamed (idAt ++ ["(def-shell f [n: int id-at: (fn [int] -> int)] -> bytes (bytes-tabulate n id-at))"])
+    it "BT-TC-4 a let-bound function is tabulate-gen-not-named" $
+      notNamed (idAt ++ ["(def-shell f [n: int] -> bytes (let [(g id-at)] (bytes-tabulate n g)))"])
+    it "BT-TC-5 a def-shell generator is tabulate-gen-not-named, though it has a post" $ do
+      let src = [ "(def-shell sh-at [i: int] -> int (post (= result 0)) 0)"
+                , "(def-shell f [n: int] -> bytes (bytes-tabulate n sh-at))" ]
+      notNamed src
+      [ m | (Just "tabulate-gen-not-named", m) <- errsB src ] `shouldSatisfy` any (T.isInfixOf "'sh-at' is not declared with def")
+    it "BT-TC-6 a def without a post is tabulate-gen-not-named" $ do
+      notNamed [ "(def np-at [i: int] -> int i)"
+               , "(def-shell f [n: int] -> bytes (bytes-tabulate n np-at))" ]
+      [ m | (Just "tabulate-gen-not-named", m) <- errsB [ "(def np-at [i: int] -> int i)"
+                                                         , "(def-shell f [n: int] -> bytes (bytes-tabulate n np-at))" ] ]
+        `shouldSatisfy` any (T.isInfixOf "'np-at' has no post")
+    it "BT-TC-7 the generator's signature is checked: the argument count, an int index last, an int result, each argument's type" $ do
+      badB (invAt ++ ["(def-shell f [n: int] -> bytes (bytes-tabulate n inv-at))"])
+      badB (idAt ++ ["(def-shell f [n: int] -> bytes (bytes-tabulate n id-at 7))"])
+      badB [ "(def s-at [buf: bytes s: string] -> int (post (>= result 0)) 0)"
+           , "(def-shell f [b: bytes] -> bytes (bytes-tabulate 3 s-at b))" ]
+      badB [ "(def b-at [i: int] -> bool (post (= result true)) true)"
+           , "(def-shell f [n: int] -> bytes (bytes-tabulate n b-at))" ]
+      badB (invAt ++ ["(def-shell f [n: int] -> bytes (bytes-tabulate n inv-at \"x\"))"])
+      -- none of these is a naming error
+      map fst (errsB (idAt ++ ["(def-shell f [n: int] -> bytes (bytes-tabulate n id-at 7))"]))
+        `shouldSatisfy` notElem (Just "tabulate-gen-not-named")
+    it "BT-TC-8 the length must be an int, two arguments are the minimum, and the result is bytes" $ do
+      badB (idAt ++ ["(def-shell f [s: string] -> bytes (bytes-tabulate s id-at))"])
+      badB ["(def-shell f [n: int] -> bytes (bytes-tabulate n))"]
+      badB (idAt ++ ["(def-shell f [n: int] -> int (bytes-tabulate n id-at))"])
+      badB (idAt ++ ["(def-shell f [n: int] -> bytes[4] (bytes-tabulate n id-at))"])
+      okB  (idAt ++ ["(def-shell f [n: int] -> int (bytes-length (bytes-tabulate n id-at)))"])
+    it "BT-TC-9 an imported generator is accepted qualified and opened; an imported def-shell is refused" $ do
+      let lib = buildModuleEnv ["gen"] (parsedB (invAt ++ ["(def-shell sh-at [i: int] -> int (post (= result 0)) 0)"]))
+                               Map.empty emptyEnv
+          cache = Map.fromList [(["gen"], lib)]
+          chk src = errsOfB (typeCheckWithCache GrammarCoreInversion cache builtinEnv (parsedB src))
+      chk [ "(import gen)"
+          , "(def-shell invert [buf: bytes] -> bytes (bytes-tabulate (bytes-length buf) gen.inv-at buf))" ]
+        `shouldBe` []
+      chk [ "(import gen)", "(open gen)"
+          , "(def-shell invert [buf: bytes] -> bytes (bytes-tabulate (bytes-length buf) inv-at buf))" ]
+        `shouldBe` []
+      map fst (chk [ "(import gen)", "(def-shell f [n: int] -> bytes (bytes-tabulate n gen.sh-at))" ])
+        `shouldSatisfy` elem (Just "tabulate-gen-not-named")
+    it "BT-CG-1 the preamble carries bytes_tabulate and its clause helper; both names are reserved" $ do
+      [ h | h <- [ "bytes_tabulate :: Integer -> (Integer -> Integer) -> BS.ByteString"
+                 , "llmll_cl_bytes_tabulate :: String -> Integer -> (Integer -> Integer) -> BS.ByteString" ]
+          , h `notElem` preLines ] `shouldBe` []
+      isReservedHsName "bytes_tabulate" `shouldBe` True
+      clauseGuardedOps `shouldContain` ["bytes-tabulate"]
+    it "BT-CG-2 emission: the generator is a function of the index with the arguments first; n and each argument are forced before the call" $ do
+      emitApp "bytes-tabulate" [EVar "n", EVar "inv-at", EVar "buf"]
+        `shouldBe` "(bytes_tabulate (n) (\\llmll_ti -> (inv_at) (buf) llmll_ti))"
+      emitApp "bytes-tabulate" [EVar "n", EVar "id-at"]
+        `shouldBe` "(bytes_tabulate (n) (\\llmll_ti -> (id_at) llmll_ti))"
+      let forced = emitExpr (EApp "bytes-tabulate" [ EApp "bytes-get" [EVar "b", lint 99], EVar "k-at"
+                                                   , EApp "bytes-get" [EVar "b", lint 98] ])
+      -- both forcings come before the call, n's first (call-by-value, P9)
+      (T.length (fst (T.breakOn "!llmll_sa0" forced)) < T.length (fst (T.breakOn "!llmll_sa2" forced))) `shouldBe` True
+      (T.length (fst (T.breakOn "!llmll_sa2" forced)) < T.length (fst (T.breakOn "(bytes_tabulate" forced))) `shouldBe` True
+      emitExpr (EApp "clause%bytes-tabulate" [ELit (LitString "C"), EVar "n", EVar "id-at"])
+        `shouldSatisfy` T.isInfixOf "(llmll_cl_bytes_tabulate (\"C\") (n) (\\llmll_ti -> (id_at) llmll_ti))"
+    it "BT-RT-1 the runtime body: byte i is f i, in order; n = 0 never calls f; the three guards stop with their texts" $ do
+      RP.bytes_tabulate 4 (\i -> 10 * i) `shouldBe` bs [0, 10, 20, 30]
+      RP.bytes_tabulate 0 (\_ -> error "called") `shouldBe` BSS.empty
+      RP.bytes_tabulate 256 id `shouldBe` bs [0 .. 255]
+      errOf (RP.bytes_tabulate (-1) id) >>= (`shouldBe` Just "bytes-tabulate: pre-condition failed: length -1 is negative")
+      errOf (RP.bytes_tabulate (2 ^ (64 :: Int) + 5) id)
+        >>= (`shouldBe` Just "bytes-tabulate: length 18446744073709551621 is too large to represent")
+      errOf (RP.bytes_tabulate 4 (\i -> if i == 2 then 256 else 0))
+        >>= (`shouldBe` Just "bytes-tabulate: generator value 256 at index 2 outside byte range 0..255")
+      errOf (RP.bytes_tabulate 3 (\i -> i - 1))
+        >>= (`shouldBe` Just "bytes-tabulate: generator value -1 at index 0 outside byte range 0..255")
+    it "BT-PBT-1 the evaluator reduces a tabulate to the runtime body's value, arguments first, index last" $ do
+      let fe = buildFuncEnv (parsedB (invAt ++ linAt ++ idAt))
+          evB = evalExprStaticWith fe maxFuel Map.empty
+          buf = bytesValE (bs [0, 7, 255])
+      evB (EApp "bytes-tabulate" [lint 3, EVar "inv-at", buf]) `shouldBe` Just (bytesValE (bs [255, 248, 0]))
+      evB (EApp "bytes-tabulate" [lint 3, EVar "lin-at", lint 3, lint 10])
+        `shouldBe` Just (bytesValE (RP.bytes_tabulate 3 (\i -> (3 - 10 + i) `mod` 256)))
+      evB (EApp "bytes-tabulate" [lint 0, EVar "id-at"]) `shouldBe` Just (bytesValE BSS.empty)
+      evB (EApp "bytes-length" [EApp "bytes-tabulate" [EOp "+" [lint 2, lint 3], EVar "id-at"]]) `shouldBe` Just (lint 5)
+      Set.member "bytes-tabulate" modeledBuiltins `shouldBe` True
+    it "BT-PBT-2 a sample discards on a value past 255, a negative or over-cap length, an unknown or bound generator" $ do
+      let fe = buildFuncEnv (parsedB idAt)
+          evB env = evalExprStaticWith fe maxFuel env
+      evB Map.empty (EApp "bytes-tabulate" [lint 257, EVar "id-at"]) `shouldBe` Nothing
+      evB Map.empty (EApp "bytes-tabulate" [lint (-1), EVar "id-at"]) `shouldBe` Nothing
+      evB Map.empty (EApp "bytes-tabulate" [lint 20000, EVar "id-at"]) `shouldBe` Nothing
+      evB Map.empty (EApp "bytes-tabulate" [lint 3, EVar "no-such"]) `shouldBe` Nothing
+      evB (Map.singleton "id-at" (lint 0)) (EApp "bytes-tabulate" [lint 3, EVar "id-at"]) `shouldBe` Nothing
+    it "BT-FB-1 step 1 has no emitter arm: a contracted caller falls back with app:bytes-tabulate and is never body-faithful" $ do
+      er <- emitFixpointWithCache defaultEmitOptions { emitBodyVCs = True } "t.llmll" Map.empty Map.empty
+              (parsedB (invAt ++ [ "(def-shell wrong [buf: bytes] -> bytes (post false)"
+                                 , "  (bytes-tabulate (bytes-length buf) inv-at buf))" ]))
+      erBodyFaithfulFns er `shouldBe` ["inv-at"]
+      lookup "wrong" (erFallbackConstructs er) `shouldBe` Just ["app:bytes-tabulate"]
+    it "BT-AS-1 the agent spec states the variadic call" $ do
+      let row = find ((== "bytes-tabulate") . beName) (asBuiltins agentSpec)
+      fmap (map fst . beParams) row `shouldBe` Just ["n", "gen", "a1 … ak"]
+      fmap beReturns row `shouldBe` Just "bytes"
+
+  -- -----------------------------------------------------------------------
   -- BYTE-IO step 3, S4 (BYTES-UNSIZED-1): the evaluator and the generator.
   -- The canonical byte value (bytesValE) serves bytes and bytes[n]; every
   -- operation reduces on it through its LLMLL.RuntimePure body, a failed pre
@@ -29184,9 +29331,12 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       forM_ ["bytes-from-list", "bytes-to-string"] $ \n ->
         (Set.member n sealedAxiomBuiltins || Set.member n abstractedBuiltins) `shouldBe` False
     it "T-V10 the ANF hoist set: nine step-3 names join; bytes-length does not (Rev 2a item 1)" $ do
+      -- BYTES-TABULATE-1 step 1: bytes-tabulate joins (no arm yet: a hoisted
+      -- call reaches the catch-all and the caller falls back).
       Set.toList bytesCallNames `shouldBe` sort
         [ "bytes-make", "bytes-slice", "bytes-concat", "bytes-concat-many", "bytes-from-list"
-        , "bytes-to-list", "bytes-widen", "bytes-from-string", "bytes-to-string" ]
+        , "bytes-to-list", "bytes-widen", "bytes-from-string", "bytes-to-string"
+        , "bytes-tabulate" ]
       Set.member "bytes-length" bytesCallNames `shouldBe` False
       -- a nested slice is hoisted, so bytes-length meets a variable and the body is faithful
       er <- emitS "(def-shell t [b: bytes] -> int (post (= result (bytes-length b))) (bytes-length (bytes-slice b 0 (bytes-length b))))"
