@@ -3,7 +3,7 @@ module Main (main) where
 
 import Test.Hspec
 import Control.Monad (forM_, when, unless)
-import Control.Exception (finally)
+import Control.Exception (SomeException, finally, try)
 import Data.Word (Word8)
 import System.Exit (ExitCode(..), exitWith, exitSuccess, exitFailure)
 import Data.IORef (newIORef, readIORef, writeIORef)
@@ -28521,6 +28521,13 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       case r of
         FQResourceLimit s -> rsKind s `shouldBe` StopTime
         other             -> expectationFailure ("expected FQResourceLimit, got " ++ show other)
+    it "SG-10: a guard stop fails a solverRun example and names the limit" $ do
+      setSolverLimits (SolverLimits 0 1)
+      r <- try (solverRun "sh" ["-c", "sleep 30"]) :: IO (Either SomeException (ExitCode, String, String))
+      setSolverLimits defaultSolverLimits
+      case r of
+        Left e  -> show e `shouldSatisfy` isInfixOf "time limit"
+        Right _ -> expectationFailure "a guard stop did not fail the example"
 
   -- -----------------------------------------------------------------------
   -- FQ-NAME-COLLIDE-1: two names that reach the solver as one symbol. Each
@@ -30071,9 +30078,15 @@ gpVals = [ ((a, b), c) | a <- [0, 1], b <- [False, True], c <- [-1, 1] ]
 -- 'runSolverGuarded', which rewrites the qualifier lines for liquid-fixpoint
 -- 0.9.6.3.4 and later. A direct 'readProcessWithExitCode' handed those solvers
 -- the colon form, and 128 examples failed on 0.9.6.3.7 with a parse error. A
--- guard stop reads as exit 137 with no output, which no example accepts.
+-- guard stop fails the example and names the limit: it used to read as empty
+-- output, which failed a positive match with no reason and passed a negative one.
 solverRun :: FilePath -> [String] -> IO (ExitCode, String, String)
-solverRun lf args = either (const (ExitFailure 137, "", "")) id <$> runSolverGuarded lf args
+solverRun lf args = runSolverGuarded lf args >>= either stopped pure
+  where
+    stopped s = do
+      expectationFailure $ "the solver guard stopped " ++ lf ++ ": "
+        ++ T.unpack (resourceStopText s)
+      pure (ExitFailure 137, "", "")
 
 -- ---------------------------------------------------------------------------
 -- CALL-RESULT-MARK-1 (docs/design/byte-io-proposal.md, Amendment Rev 2b):
