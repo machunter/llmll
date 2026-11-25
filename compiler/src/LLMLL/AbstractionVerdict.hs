@@ -225,8 +225,8 @@ tabulateGenConstruct g = "tabulate-gen:" <> g
 -- 'FallbackTabulateGenUnverified'.
 tabulateGenRepair :: Name -> Text
 tabulateGenRepair g =
-  " The generator '" <> g <> "' is not verified, and the buffer's content is its values. Verify the module of '"
-  <> g <> "' first, with its body inside the decidable fragment."
+  " The generator '" <> g <> "' is not verified, and the buffer's content is its values. Prove '"
+  <> g <> "' first: its body must be inside the decidable fragment, and an imported module is verified before its importer."
 
 -- | The attribution string a reclassified function carries in
 -- 'erFallbackConstructs', 'W-BODY-FALLBACK' and the @abstraction_fallback@

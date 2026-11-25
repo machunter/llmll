@@ -29474,7 +29474,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       aoFallbackFns ao `shouldSatisfy` elem "ramp"
       renderFallbackCause FallbackTabulateGenUnverified `shouldBe` "tabulate-gen-unverified"
       map diagMessage (erDiagnostics (aoEmit ao)) `shouldSatisfy`
-        any (\m -> "tabulate-gen-unverified" `T.isInfixOf` m && "Verify 'fb-at' first" `T.isInfixOf` m)
+        any (\m -> "tabulate-gen-unverified" `T.isInfixOf` m && "Prove 'fb-at' first" `T.isInfixOf` m && not ("from a def" `T.isInfixOf` m))
       -- with a verified local generator nothing moves
       er2 <- emitV (parsedV (idAt ++ [ "(def-shell ramp [n: int] -> bytes (pre (and (>= n 0) (<= n 256)))"
                                      , "  (post (= (bytes-length result) n)) (bytes-tabulate n id-at))" ]))

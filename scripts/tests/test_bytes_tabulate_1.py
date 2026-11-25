@@ -360,7 +360,7 @@ def test_bt_v7_edge11_unverified_generator_gives_the_named_cause(fx):
     assert not _entry(doc, "ramp").get("effective_level", "").startswith("verified")
     # The hint must not send the author to a def caller: BT-V8 refuses one.
     hint = [m for m in _messages(doc) if "tabulate-gen:gen.fb-at" in m]
-    assert hint and all("Verify the module of 'gen.fb-at' first" in m and "from a def" not in m for m in hint), _messages(doc)
+    assert hint and all("Prove 'gen.fb-at' first" in m and "from a def" not in m for m in hint), _messages(doc)
 
 
 def test_bt_v8_edge11_a_def_caller_fails_check(fx):
