@@ -4,7 +4,7 @@
 
 <a id="Latest"></a>
 
-## Unreleased (on `main` after v0.41.1)
+## v0.42.0: a byte buffer is built in linear time from a verified per-index function (2026-11-24)
 
 **One new builtin, `bytes-tabulate` (`BYTES-TABULATE-1`). `proof_artifact_version` 0.3.0 → 0.4.0
 and `trust_report_version` 1.11.0 → 1.12.0; `codegen_semantics_version` (`int-unbounded-1`),
