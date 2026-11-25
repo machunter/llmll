@@ -78,7 +78,7 @@ import Data.Maybe (mapMaybe, fromMaybe, isJust, isNothing, listToMaybe)
 import Data.List (nub, partition, (\\))
 import Data.Char (isDigit)
 import qualified Data.Set as Set
-import Control.Monad (forM_, forM, foldM, when, unless, void, join, (>=>))
+import Control.Monad (forM_, forM, foldM, foldM_, when, unless, void, join, (>=>))
 import LLMLL.InvariantRegistry (InvariantPattern, InvariantSuggestion(..), matchPatterns)
 import Control.Monad.State.Strict
 
@@ -498,6 +498,11 @@ builtinEnv = Map.fromList $
   , ("bytes-to-list",     TFn [TBytesU] (TList TInt))
   , ("bytes-widen",       TFn [TVar "bs"] TBytesU)
   , ("bytes-from-string", TFn [TString] TBytesU)
+  -- BYTES-TABULATE-1 (image-library-proposal Rev 3, Part B): variadic,
+  -- (bytes-tabulate n gen a1 ... ak). This nominal signature (no extra
+  -- arguments) serves name membership only: admission, reserved names, the
+  -- agent spec and the parity gate. inferArrayOp types every call.
+  , ("bytes-tabulate",    TFn [TInt, TFn [TInt] TInt] TBytesU)
   , ("bytes-to-string",   TFn [TBytesU] (TResult TString TInt))
   , ("map-has",     TFn [TMap (TVar "k") (TVar "v"), TVar "k"] TBool)
   , ("map-get",      TFn [TMap (TVar "k") (TVar "v"), TVar "k"] (TVar "v"))
@@ -790,6 +795,12 @@ data TCState = TCState
   -- body or contract holds a product of two non-constant terms, with the
   -- first such product. Read by 'checkCalleeAdmissibility' only.
   , tcImportedProducts :: Map Name Expr
+  -- BYTES-TABULATE-1: appended at the END for the reason 'tcRetTypes' gives.
+  -- Each function a generator slot may name, mapped to (declared with def,
+  -- has an authored post): this module's own definitions bare, the closure's
+  -- qualified, and opened ones bare as well. Read by the bytes-tabulate arm of
+  -- 'inferArrayOp' only.
+  , tcGenKinds :: Map Name (Bool, Bool)
   } deriving (Show)
 
 type TC a = State TCState a
@@ -1167,7 +1178,7 @@ resolveRetTypes gm strict env aliases cs xmodSeed stmts m0
                       (TCState envSeeded [] aliases Nothing False False [] [] cs
                                Map.empty Map.empty [] strict gm False 0
                                Map.empty [] Map.empty seeded sccs Map.empty
-                               Map.empty Set.empty Map.empty Map.empty Map.empty)
+                               Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty)
       in Map.mapWithKey (keep (tcRetTypes st)) m
     -- SC1 again, on the read side: a round may only replace a wildcard, and only
     -- with something that is not itself a wildcard. A freshened wildcard
@@ -1603,18 +1614,8 @@ isAdmissibleConstructor am func =
                           Nothing               -> Nothing
       _              -> Nothing
 
--- | ADMIT-VERIFIED (Option 2): the full-conjunction admissibility predicate for
--- a single clause's evidence. Admit ONLY when the record is verified-level,
--- body-faithful, NOT overflow-tainted, and carries a (hash-valid) persisted
--- 'erVerifiedHash'. 'Nothing' (no clause, or no/absent hash) ⇒ not admissible
--- (fail closed). Never keys off a bare 'erBodyFaithful'.
-erFullyVerifiedAdmissible :: Maybe EvidenceRecord -> Bool
-erFullyVerifiedAdmissible Nothing   = False
-erFullyVerifiedAdmissible (Just er) =
-     isVerifiedLevel (erDisplayLevel er)
-  && erBodyFaithful er
-  && not (erOverflowTainted er)
-  && maybe False (const True) (erVerifiedHash er)  -- fail closed on absent hash
+-- 'erFullyVerifiedAdmissible' lives in LLMLL.Syntax (BYTES-TABULATE-1: the
+-- emitter reads it for an imported generator).
 
 -- | DEF-ADMIT-XMOD-1: 'tcFnResolve' for one module. The termination-assumed
 -- set is the caller closure of the undischarged cycles over the qualified
@@ -1675,7 +1676,7 @@ initialTCState :: GrammarMode -> TypeEnv -> AliasMap -> Bool -> Bool -> TCState
 initialTCState gm env am sketch strict =
   TCState env [] (Map.union am builtinAliases) Nothing False sketch [] [] Map.empty Map.empty Map.empty []
           strict gm False 0 Map.empty [] Map.empty Map.empty Map.empty Map.empty
-          Map.empty Set.empty Map.empty Map.empty Map.empty
+          Map.empty Set.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | Run the type checker monad.
 runTC :: GrammarMode -> TypeEnv -> TC a -> (a, [Diagnostic])
@@ -1935,7 +1936,8 @@ typeCheckWithCacheModeSites' gm strict cache entryCS baseEnv stmts =
                  (Set.fromList [ p | p <- importsOf stmts, Map.member p cl ])
                  Map.empty
                  (genericDeclsOf cl)
-                 (importedProductsOf cl))
+                 (importedProductsOf cl)
+                 (genKindsOf cl))
       -- XMOD-SCOPE R1: one declaration for each top-level name in this
       -- module's build closure. The closure is this module's own imports,
       -- transitively ('closureOf'), not the whole cache, so a collision inside
@@ -2006,6 +2008,28 @@ importedProductsOf cl = Map.fromList
   , Just p <- [listToMaybe (mapMaybe firstNonConstProduct (b : catMaybesL [contractPre c, contractPost c]))] ]
   where catMaybesL xs = [ x | Just x <- xs ]
 
+-- | BYTES-TABULATE-1: every definition of a closure module, under its
+-- qualified name, with (declared with def, has an authored post): what the
+-- generator slot of bytes-tabulate asks of a name.
+genKindsOf :: ModuleCache -> Map Name (Bool, Bool)
+genKindsOf cl = Map.fromList
+  [ (T.intercalate "." path <> "." <> n, k)
+  | (path, menv) <- Map.toList cl
+  , st <- meStatements menv
+  , Just (n, k) <- [genKindOf st] ]
+
+-- | BYTES-TABULATE-1: a definition's name with (declared with def, has an
+-- authored post). A refinement-typed return alone is not a post.
+genKindOf :: Statement -> Maybe (Name, (Bool, Bool))
+genKindOf st = case normalizeDefStmt st of
+  Just (n, _, _, c, _) -> Just (n, (isDefForm, isJust (contractPost c)))
+  Nothing              -> Nothing
+  where
+    isDefForm = case st of
+      SDef{}      -> True
+      SDefLogic{} -> True
+      _           -> False
+
 -- | GENERICS-1: the declared type parameters of every generic def-shell in a
 -- closure, under its qualified name (the key 'seedModule' gives its type).
 genericDeclsOf :: ModuleCache -> Map Name [(Name, Maybe TyConstraint)]
@@ -2049,6 +2073,10 @@ checkStatements rawStmts = do
   -- empty 'tcAliasMap', so this is a no-op union there.
   -- v0.4 CAP-1: store top-level statements for capability checks in inferExpr
   modify $ \s -> s { tcAliasMap = Map.union aliasMap (tcAliasMap s), tcTrusts = Map.union trustMap (tcTrusts s), tcModuleStmts = stmts }
+  -- BYTES-TABULATE-1: this module's own definitions, bare-keyed, over the
+  -- qualified closure seed (local wins, as for 'tcGenericDecls').
+  modify $ \s -> s { tcGenKinds = Map.union
+      (Map.fromList (mapMaybe genKindOf stmts)) (tcGenKinds s) }
   -- GENERICS-1: this module's own generic definitions, bare-keyed, over the
   -- qualified closure seed.
   modify $ \s -> s { tcGenericDecls = Map.union
@@ -2626,6 +2654,11 @@ checkStatement (SOpen openPath_ mNames) = do
     modify $ \s -> case Map.lookup (prefix <> bareName) (tcGenericDecls s) of
       Just tps -> s { tcGenericDecls = Map.insert bareName tps (tcGenericDecls s) }
       Nothing  -> s
+    -- BYTES-TABULATE-1: an opened function keeps its generator kind; a local
+    -- definition of the same name wins.
+    modify $ \s -> case Map.lookup (prefix <> bareName) (tcGenKinds s) of
+      Just k  -> s { tcGenKinds = Map.insertWith (\_new old -> old) bareName k (tcGenKinds s) }
+      Nothing -> s
   -- ADMIT-VERIFIED (Option 2, seam 5): the qualified-seeded ContractStatus
   -- (typeCheckWithCacheMode seeds 'tcContractStatus' under '<path>.<name>'
   -- keys) is invisible to the bare-name admissibility lookup in
@@ -3928,6 +3961,7 @@ freeTVarNames _                  = Set.empty  -- TInt, TString, TBool, TUnit, TB
 arrayOpNames :: [Name]
 arrayOpNames =
   [ "bytes-length", "bytes-get", "bytes-set", "bytes-zero", "bytes-widen"
+  , "bytes-tabulate"  -- BYTES-TABULATE-1: variadic, generator slot checked by name
   , "map-has", "map-get", "map-put", "map-keys", "map-entries" ]
 
 -- | LEVER-A0: dedicated typing for the array/map operation family (proposal
@@ -3976,6 +4010,50 @@ inferArrayOp func args = case func of
       other    -> tcError $ "function 'bytes-widen' expects bytes[n] as argument 1, got "
                             <> typeLabel other
     pure TBytesU
+  -- BYTES-TABULATE-1 (image-library-proposal Rev 3, Part B):
+  -- (bytes-tabulate n gen a1 ... ak). n is an int. gen is the bare name of a
+  -- top-level def with an authored post, of type (T1 ... Tk int) -> int; the
+  -- last parameter is the index. Each aj meets Tj. Anything else in the
+  -- generator slot is tabulate-gen-not-named: the verifier instantiates gen's
+  -- contract at a fresh index, and a lambda or a binder has none to give.
+  "bytes-tabulate" -> do
+    when (length args < 2) $
+      tcError $ "function 'bytes-tabulate' expects at least 2 args (n gen a1 ... ak), got "
+                <> tshow (length args)
+    intArg 0
+    let extraIx = [2 .. length args - 1]
+    case drop 1 args of
+      -- Sketch: a hole in the generator slot has the type the extra
+      -- arguments determine.
+      (EHole hk : _) -> do
+        extraTys <- mapM argAt extraIx
+        withSegment "args" $ withSegment "1" $
+          checkExpr (EHole hk) (TFn (extraTys ++ [TInt]) TInt)
+      (EVar g : _) -> do
+        mPs <- tabulateGenParams g (length extraIx)
+        case mPs of
+          Nothing -> mapM_ argAt extraIx
+          Just ps -> foldM_ (\subst (j, expected) ->
+            withSegment "args" $ withSegment (tshow j) $
+              case drop j args of
+                (EHole hk : _) -> do
+                  checkExpr (EHole hk) (applySubst subst expected)
+                  pure subst
+                (e : _) -> do
+                  actual    <- inferExpr e
+                  expected' <- expandAlias expected
+                  actual'   <- expandAlias actual
+                  structuralUnify func subst (stripDep expected') (stripDep actual')
+                [] -> pure subst
+            ) Map.empty (zip extraIx ps)
+      (other : _) -> do
+        _ <- argAt 1
+        genNotNamed $ case other of
+          ELambda {} -> "a lambda has no name and no post"
+          _          -> "it is an expression, not the name of a def"
+        mapM_ argAt extraIx
+      [] -> pure ()
+    pure TBytesU
   "map-has" -> do
     checkArity 2
     _ <- mapArgAndKey
@@ -4003,6 +4081,62 @@ inferArrayOp func args = case func of
     unknownName func $ "call to unknown function '" <> func <> "'"
     pure (TVar "?")
   where
+    -- BYTES-TABULATE-1: the generator slot, (EVar g). Returns the parameter
+    -- types of the k extra arguments when g's signature has k + 1 parameters,
+    -- else Nothing (the extra arguments are then typed on their own).
+    tabulateGenParams g k = do
+      local <- isLocalBinder g
+      t     <- argAt 1   -- unknown-name and XMOD-SCOPE export checks
+      kinds <- gets tcGenKinds
+      if local
+        then do
+          genNotNamed $ "'" <> g <> "' is a parameter or local binder, not a top-level def"
+          pure Nothing
+        else case Map.lookup g kinds of
+          Nothing -> do
+            case t of
+              TVar _ -> pure ()   -- unknown name, already reported
+              TFn {} -> genNotNamed $ "'" <> g <> "' is not a top-level def of this program"
+              other  -> genNotNamed $ "'" <> g <> "' is not a function (it has type "
+                                      <> typeLabel other <> ")"
+            pure Nothing
+          Just (False, _) -> do
+            genNotNamed $ "'" <> g <> "' is not declared with def (a def-shell cannot be a generator)"
+            pure Nothing
+          Just (True, False) -> do
+            genNotNamed $ "'" <> g <> "' has no post"
+            pure Nothing
+          Just (True, True) -> case t of
+            TFn ps r -> do
+              let nPs = length ps
+              if nPs /= k + 1
+                then do
+                  tcError $ "bytes-tabulate: generator '" <> g <> "' takes " <> tshow nPs
+                            <> " parameter(s), so the call needs " <> tshow (nPs - 1 :: Int)
+                            <> " argument(s) after it, got " <> tshow k
+                  pure Nothing
+                else do
+                  idxOk <- compatibleExpanded (last ps) TInt
+                  unless idxOk $
+                    tcError $ "bytes-tabulate: the last parameter of generator '" <> g
+                              <> "' is the index and must be int, got " <> typeLabel (last ps)
+                  retOk <- compatibleExpanded r TInt
+                  unless retOk $
+                    tcError $ "bytes-tabulate: generator '" <> g <> "' must return int, got "
+                              <> typeLabel r
+                  pure (Just (init ps))
+            TVar _ -> pure Nothing
+            other -> do
+              genNotNamed $ "'" <> g <> "' is not a function (it has type "
+                            <> typeLabel other <> ")"
+              pure Nothing
+    genNotNamed :: Text -> TC ()
+    genNotNamed reason = do
+      enclosing <- gets (maybe "<top>" id . tcCurrentFn)
+      ptr <- gets tcPointerStack
+      let mPtr = if null ptr then Nothing
+                 else Just ("/" <> T.intercalate "/" (ptr ++ ["args", "1"]))
+      modify $ \st -> st { tcErrors = tcErrors st ++ [mkTabulateGenNotNamed enclosing reason mPtr] }
     checkArity n =
       when (length args /= n) $
         tcError $ "function '" <> func <> "' expects " <> tshow (n :: Int)

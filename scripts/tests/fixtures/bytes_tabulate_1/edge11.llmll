@@ -1,0 +1,6 @@
+;; V7, V12, T3, edge case 11: a def-shell tabulating over a generator that falls back.
+(import gen)
+(def-shell ramp [n: int] -> bytes
+  (pre (>= n 0))
+  (post (= (bytes-length result) n))
+  (bytes-tabulate n gen.fb-at))

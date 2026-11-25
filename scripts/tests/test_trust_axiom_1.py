@@ -60,7 +60,8 @@ VERIFY_TIMEOUT_S = 300
 # MODE-CLI-1 moved it to 1.9.0 deliberately (unbounded_entry_loop).
 # TRUST-REPORT-GATE-1 moved it to 1.10.0 deliberately (discarded_records).
 # CLAUSE-WELLDEF-1 moved it to 1.11.0 deliberately (ill_defined_fns).
-TRUST_REPORT_VERSION = "1.11.0"
+# BYTES-TABULATE-1 moved it to 1.12.0 deliberately (generator dependencies).
+TRUST_REPORT_VERSION = "1.12.0"
 
 # A bytes-free and map-free program. It must disclose nothing, which is what
 # proves the activation gate is inherited rather than mirrored.

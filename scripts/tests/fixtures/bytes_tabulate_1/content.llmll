@@ -1,0 +1,7 @@
+;; V11: a post that reads the content of a tabulate result cannot be proved
+;; (no content fact), and falls back as abstraction:app:bytes-tabulate.
+(import gen)
+(def-shell first-inv [buf: bytes] -> bytes
+  (pre (> (bytes-length buf) 0))
+  (post (= (bytes-get result 0) (- 255 (bytes-get buf 0))))
+  (bytes-tabulate (bytes-length buf) gen.inv-at buf))

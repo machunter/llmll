@@ -70,7 +70,7 @@ import LLMLL.FixpointEmit (emitFixpoint, emitFixpointWith, emitFixpointWithCache
 import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, resourceStopValue, fqPathFor, runDirFor, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..))
 import LLMLL.SolverGuard (SolverLimits(..), defaultSolverLimits, setSolverLimits, getSolverLimits, renderLimits, parseLimits, installSolverSignalHandlers)
 -- ABSTRACTION-VERDICT-1: every solver consumer that turns UNSAFE into a claim
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoFallbackFns, aoReportCtx, aoCitedResult, postUnassumedConstruct)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoFallbackFns, aoReportCtx, aoCitedResult, postUnassumedConstruct, tabulateGenConstruct)
 import LLMLL.ProductRecheck (recheckVerdict, recheckCandidates, counterexampleLine, RecheckAnswer(..))
 import LLMLL.Serve (ServeOptions(..), defaultServeOptions, runServe)
 import LLMLL.Sketch (encodeSketchResult, inferredTypeLabel)
@@ -1698,6 +1698,8 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
               -- CLAUSE-WELLDEF-1: the functions the same rule moved because only
               -- a definedness obligation failed, over marked hypotheses.
               welldefFns     = aoWelldefUnproved avOut
+              -- BYTES-TABULATE-1: the functions the generator rule moved.
+              tabulateFns    = aoTabulateUnverified avOut
               -- VERIFY-RPT-1 (Commit 4): refuted functions = body-faithful fns
               -- named by the constraint-table origin of each unsafe id.
               bodyFaithfulSet = Set.fromList (erBodyFaithfulFns emitR)
@@ -1783,7 +1785,7 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
           -- CLAUSE-WELLDEF-1: the hard marker and the third cause, the same way.
           unless (json || Set.null illDefinedSet) $
             TIO.putStrLn $ "   ill-defined: " <> T.intercalate ", " (Set.toList illDefinedSet)
-          unless (json || (null abstractionFns && null unassumedFns && null welldefFns)) $ do
+          unless (json || (null abstractionFns && null unassumedFns && null welldefFns && null tabulateFns)) $ do
             unless (null welldefFns) $
               TIO.putStrLn $ "   clause-welldef fallback: "
                 <> T.intercalate ", " [ f <> " (" <> c <> ")" | (f, c) <- welldefFns ]
@@ -1793,6 +1795,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
             unless (null unassumedFns) $
               TIO.putStrLn $ "   callee-post fallback: "
                 <> T.intercalate ", " [ f <> " (" <> postUnassumedConstruct g <> ")" | (f, g) <- unassumedFns ]
+            unless (null tabulateFns) $
+              TIO.putStrLn $ "   tabulate-gen fallback: "
+                <> T.intercalate ", " [ f <> " (" <> tabulateGenConstruct g <> ")" | (f, g) <- tabulateFns ]
             mapM_ (\d -> TIO.putStrLn $ "   ⚠️  " <> diagMessage d)
                   (drop (length (erDiagnostics emitR0)) (erDiagnostics emitR))
 
@@ -2297,7 +2302,9 @@ doVerify json gm fp mFqOut lsOpts trustReportArg weaknessCheckArg obligations sp
                     ++ [ f <> " (" <> renderFallbackCause FallbackCalleePostUnassumed <> ", "
                            <> postUnassumedConstruct g <> ")" | (f, g) <- unassumedFns ]
                     ++ [ f <> " (" <> renderFallbackCause FallbackClauseWelldefUnproved <> ", "
-                           <> c <> ")" | (f, c) <- welldefFns ])
+                           <> c <> ")" | (f, c) <- welldefFns ]
+                    ++ [ f <> " (" <> renderFallbackCause FallbackTabulateGenUnverified <> ", "
+                           <> tabulateGenConstruct g <> ")" | (f, g) <- tabulateFns ])
             when (trustReport && not obligationReport) $
               if json
                 then nest "trust_report" (formatTrustReportJson stReport)

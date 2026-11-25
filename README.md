@@ -1,4 +1,4 @@
-# LLMLL — v0.41.1
+# LLMLL — v0.42.0
 
 **An experiment in letting AI write the code: the compiler checks each function against its contract, proves it when the body is in the decidable fragment, and refutes a type-correct but wrong body before it merges.**
 
@@ -217,7 +217,7 @@ LLMLL provides body-faithful SMT verification for a **QF-LIA core** with **compo
 | `EPair` / pair returns (`first`, `second`, `pair`) | ✅ (datatype selectors) | n/a |
 | Non-recursive datatype construction | ✅ | n/a |
 | `bytes[n]`, `bytes` and `map` operations (`bytes-get`/`-set`/`-length`/`-zero`/`-widen`, `map-has`/`-get`/`-put`/`-empty`) | ✅ (array theory; index-in-bounds and key-presence are proof obligations) | non-`{int,string}` keys, direct `(map-empty)` reads, whole-structure `=`, `bytes-widen` in a `pre` or `post`: contract-only |
-| `bytes-make`, `bytes-slice`, `bytes-concat`, `bytes-concat-many`, `bytes-to-list`, `bytes-from-string` in a body | ✅ partial (a length fact, no content); an UNSAFE answer whose failing check depends on such a result falls back, and the exact length of a slice, concat or make counts as known | `bytes-from-list`, `bytes-to-string`, and any of them in a `pre` or `post`: contract-only |
+| `bytes-make`, `bytes-tabulate`, `bytes-slice`, `bytes-concat`, `bytes-concat-many`, `bytes-to-list`, `bytes-from-string` in a body | ✅ partial (a length fact, no content); an UNSAFE answer whose failing check depends on such a result falls back, and the exact length of a slice, concat, make or tabulate counts as known | `bytes-from-list`, `bytes-to-string`, and any of them in a `pre` or `post`: contract-only |
 | Bit operations: `bit-shl` / `bit-shr` by a ground `0..4096`, `bit-and` with a mask `2^w - 1` | ✅ (exact: `* 2^c`, `div 2^c`, `mod 2^w`; operands `>= 0` are proof obligations) | `bit-or`, `bit-xor`, any other mask or shift: contract-only |
 | Character codes (`string-code-at`, `string-from-code`) in a body | ✅ partial (`strCode` with range `0..1114111`; a result of length 1); an UNSAFE answer resting on one falls back | in a `pre` or `post`: contract-only |
 | String literals in `=` / `!=`, `string-length` of a literal | ✅ | string structure (concat, substring, regex): contract-only |

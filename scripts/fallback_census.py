@@ -102,6 +102,10 @@ KNOWN_CAUSES = (
     # FQ-NAME-COLLIDE-1: decided over the assembled file. The post is assumed,
     # so it stays in the ratio's denominator.
     "fq-name-collision",
+    # BYTES-TABULATE-1: decided after the solver. The caller's VC was answered,
+    # but a generator it tabulates over is not verified; the post is assumed,
+    # so it stays in the ratio's denominator.
+    "tabulate-gen-unverified",
 )
 
 # Outcomes worth confirming alone before they are believed: each depends on the

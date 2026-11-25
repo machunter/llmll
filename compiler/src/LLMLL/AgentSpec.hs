@@ -96,6 +96,15 @@ agentSpec = AgentSpec
       | name `Set.member` operatorNames = (mkOp name ty : ops, fns)
       | otherwise                       = (ops, mkFn name ty : fns)
 
+    -- BYTES-TABULATE-1: variadic, so its builtinEnv signature (name
+    -- membership only) does not describe a call. The row states the call.
+    mkFn "bytes-tabulate" _ = BuiltinEntry
+      { beName    = "bytes-tabulate"
+      , beParams  = [ ("n", "int")
+                    , ("gen", "def with post: (T1, …, Tk, int) → int")
+                    , ("a1 … ak", "T1 … Tk") ]
+      , beReturns = "bytes"
+      }
     mkFn name (TFn params ret) = BuiltinEntry
       { beName    = name
       , beParams  = zipWith (\i t -> (paramName i t, renderType t)) [0 :: Int ..] params

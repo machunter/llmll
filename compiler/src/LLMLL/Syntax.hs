@@ -68,6 +68,7 @@ module LLMLL.Syntax
   , evidenceMeet
   , evidenceCovers
   , isVerifiedLevel
+  , erFullyVerifiedAdmissible  -- BYTES-TABULATE-1: moved from TypeCheck
   , isSolverBacked
   , dlProverName
   , dlLabel
@@ -691,6 +692,21 @@ isVerifiedLevel :: DisplayLevel -> Bool
 isVerifiedLevel DLVerified{}     = True
 isVerifiedLevel DLVerifiedLean{} = True
 isVerifiedLevel _                = False
+
+-- BYTES-TABULATE-1: moved here from LLMLL.TypeCheck so the emitter can read
+-- it for an imported generator ('erTabulateGens'). Unchanged.
+-- | ADMIT-VERIFIED (Option 2): the full-conjunction admissibility predicate for
+-- a single clause's evidence. Admit ONLY when the record is verified-level,
+-- body-faithful, NOT overflow-tainted, and carries a (hash-valid) persisted
+-- 'erVerifiedHash'. 'Nothing' (no clause, or no/absent hash) ⇒ not admissible
+-- (fail closed). Never keys off a bare 'erBodyFaithful'.
+erFullyVerifiedAdmissible :: Maybe EvidenceRecord -> Bool
+erFullyVerifiedAdmissible Nothing   = False
+erFullyVerifiedAdmissible (Just er) =
+     isVerifiedLevel (erDisplayLevel er)
+  && erBodyFaithful er
+  && not (erOverflowTainted er)
+  && maybe False (const True) (erVerifiedHash er)  -- fail closed on absent hash
 
 -- | True when evidence includes a solver-/prover-backed proof of the BODY.
 -- TRUST-CC-1: this used to return True for 'DLContractChecked' as well, which

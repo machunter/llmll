@@ -31,6 +31,8 @@ module LLMLL.HoleAnalysis
   , buildCallGraph
   , extractCalls     -- PARTIAL-FNS-GRAPH-1: shared with CallGraph
   , extractCallsScoped -- FN-SHADOW-1: call heads not bound by a parameter or local binder
+  , tabulateGenOf      -- BYTES-TABULATE-1: the generator of a bytes-tabulate call
+  , tabulateGensScoped -- BYTES-TABULATE-1: the generators a body tabulates over
     -- * v0.10: pointer → function name (shared with ObligationAssembly)
   , enclosingFunc
     -- * v0.11 LT-PPR: non-linear arithmetic predicate (shared with TypeCheck)
@@ -620,9 +622,20 @@ normalizeComplexity reason
 -- v0.3.3: Dependency Analysis
 -- ---------------------------------------------------------------------------
 
+-- | BYTES-TABULATE-1 (image-library-proposal Part B, "The generator is a
+-- callee"): the generator of a @(bytes-tabulate n gen a1 ... ak)@ call. The
+-- type checker admits only the bare name of a top-level @def@ in that slot
+-- (@tabulate-gen-not-named@ otherwise), so the generator is always an 'EVar'.
+-- Passing it is a callee edge with the effect of a direct call, so both call
+-- extractors below yield it; every call graph and callee set reads one of them.
+tabulateGenOf :: Name -> [Expr] -> Maybe Name
+tabulateGenOf "bytes-tabulate" (_ : EVar g : _) = Just g
+tabulateGenOf _ _                               = Nothing
+
 -- | Extract all function call names from an expression (recursive walk).
+-- BYTES-TABULATE-1: a bytes-tabulate call also yields its generator.
 extractCalls :: Expr -> [Name]
-extractCalls (EApp name args)   = name : concatMap extractCalls args
+extractCalls (EApp name args)   = name : maybe [] pure (tabulateGenOf name args) ++ concatMap extractCalls args
 extractCalls (ELit _)           = []
 extractCalls (EVar _)           = []
 extractCalls (ELet binds body)  = concatMap (\(_, _, e) -> extractCalls e) binds ++ extractCalls body
@@ -642,11 +655,29 @@ extractCalls (EDo steps)        = concatMap (\(DoStep _ e _) -> extractCalls e) 
 -- parameter `pick` as a call to a top-level `pick`: a spurious edge in the
 -- termination graph, the call-pre report and the trust report's callee rows.
 -- Use this for any reader that resolves a call head to a function.
+--
+-- BYTES-TABULATE-1: a bytes-tabulate call also yields its generator, unless a
+-- binder in scope shadows the generator's name.
 extractCallsScoped :: [Name] -> Expr -> [Name]
-extractCallsScoped params = go (Set.fromList params)
+extractCallsScoped params = map fst . scopedCallEdges params
+
+-- | BYTES-TABULATE-1: the generators a body passes to bytes-tabulate, scoped
+-- as 'extractCallsScoped' is. Such an edge emits no descent obligation, so
+-- 'ObligationAssembly.descentDischargedFns' never discharges a recursive group
+-- that one of these edges closes.
+tabulateGensScoped :: [Name] -> Expr -> [Name]
+tabulateGensScoped params body = [ g | (g, True) <- scopedCallEdges params body ]
+
+-- | The scoped call edges of a body, each flagged True when it is a
+-- bytes-tabulate generator rather than a call head.
+scopedCallEdges :: [Name] -> Expr -> [(Name, Bool)]
+scopedCallEdges params = go (Set.fromList params)
   where
     go bound e = case e of
-      EApp f as      -> [ f | not (f `Set.member` bound) ] ++ concatMap (go bound) as
+      EApp f as      -> [ (f, False) | not (f `Set.member` bound) ]
+                        ++ [ (g, True) | not (f `Set.member` bound)
+                                       , Just g <- [tabulateGenOf f as], not (g `Set.member` bound) ]
+                        ++ concatMap (go bound) as
       EOp _ as       -> concatMap (go bound) as
       EIf a b c      -> concatMap (go bound) [a, b, c]
       ELet bs body   ->

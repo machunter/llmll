@@ -1,0 +1,15 @@
+;; BYTES-TABULATE-1 generators (image-library-proposal Part B, contract plan).
+;; inv-at verifies; bad-at verifies but its post does not bound its value
+;; (edge case 3); fb-at's body is outside the fragment, so it falls back
+;; (edge case 11).
+(def inv-at [buf: bytes i: int] -> int
+  (pre (and (>= i 0) (< i (bytes-length buf))))
+  (post (= result (- 255 (bytes-get buf i))))
+  (- 255 (bytes-get buf i)))
+(def bad-at [buf: bytes i: int] -> int
+  (pre (and (>= i 0) (< i (bytes-length buf))))
+  (post (>= result 0))
+  (+ (bytes-get buf i) 1))
+(def fb-at [i: int] -> int
+  (post (and (>= result 0) (<= result 255)))
+  (mod (string-length (int-to-string i)) 256))

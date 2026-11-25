@@ -1,0 +1,23 @@
+;; BYTES-TABULATE-1 fixture (step 1).
+;;
+;; `bytes-tabulate` lowers through a hand-written emitApp equation
+;; (CodegenHs.hs): the generator becomes a Haskell lambda over the index,
+;; `(bytes_tabulate n (\llmll_ti -> g a1 ... ak llmll_ti))`. Spec.hs requires
+;; every hand-written equation to be applied in some scripts/build-smoke/*.llmll,
+;; because a typo in one type-checks and dies only at GHC. This is that call
+;; site. The built-program cells in scripts/tests/test_bytes_tabulate_1.py
+;; compile and run the same shape and compare its output with Python.
+;;
+;; The generator is a top-level `def` with a `post`, the only form
+;; `bytes-tabulate` accepts in its second slot (`tabulate-gen-not-named`).
+(module bytes_tabulate
+  (export inv-at invert)
+
+  (def inv-at [buf: bytes i: int] -> int
+    (pre (and (>= i 0) (< i (bytes-length buf))))
+    (post (= result (- 255 (bytes-get buf i))))
+    (- 255 (bytes-get buf i)))
+
+  ;; One extra argument (buf) before the index.
+  (def-shell invert [buf: bytes] -> bytes
+    (bytes-tabulate (bytes-length buf) inv-at buf)))

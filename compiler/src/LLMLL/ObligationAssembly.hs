@@ -106,7 +106,8 @@ import LLMLL.TrustReport
   , trustAssumptionRows )
 import LLMLL.HoleAnalysis
   ( HoleReport(..), HoleEntry(..), HoleStatus(..)
-  , holeEntries, analyzeHoles, buildCallGraph, enclosingFunc )
+  , holeEntries, analyzeHoles, buildCallGraph, enclosingFunc
+  , tabulateGensScoped )  -- BYTES-TABULATE-1
 import LLMLL.ObligationMining (isQfLia, generateCandidates, CandidateExpr(..))
 import LLMLL.TypeCheck (builtinEnv, runSketch, seedCacheEnv, SketchResult(..), SketchHole(..))
 import LLMLL.Sketch (inferredTypeLabel)
@@ -403,6 +404,15 @@ recursiveSCCs stmts =
 -- (aa increases m → bb → aa) discharges to total — a false SAFE at the total tier.
 -- Uniform arity ⟹ every intra-SCC edge is same-arity ⟹ every edge emitted (and, on
 -- SAFE, passed) its descent constraint ⟹ the discharge is non-vacuous.
+--
+-- BYTES-TABULATE-1 (image-library-proposal Part B, finding 2 of the plan): a
+-- generator passed to bytes-tabulate is a call-graph edge ('buildCallGraph'),
+-- but the descent walk emits nothing for it (the call's callee is the builtin,
+-- not the generator). An SCC that such an edge closes therefore has an edge
+-- with no descent constraint, and the invariant above fails: a non-terminating
+-- cycle f →tab g → f with measures n and n + 1 would discharge to total. So an
+-- SCC in which some member tabulates over a member of the same SCC is never
+-- discharged. It stays termination-assumed, and strict core refuses it.
 descentDischargedFns
   :: [Statement]   -- ^ entry statements (call graph + per-fn measure arity)
   -> [Name]        -- ^ measured fns ('erMeasuredFns': all tuple components translate)
@@ -416,8 +426,23 @@ descentDischargedFns stmts measured bodyFaithful isSafe
           , all (`elem` measured) scc
           , all (`Set.member` bodyFaithful) scc
           , uniformArity scc
+          , not (tabulateClosed scc)
           , n <- scc ]
   where
+    -- BYTES-TABULATE-1: the scoped generator edges per function, over the
+    -- statement forms 'buildCallGraph' keys.
+    tabGens = Map.fromListWith (++)
+      [ (nm, tabulateGensScoped (map fst ps) body)
+      | st <- stmts
+      , Just (nm, ps, body) <- [ case st of
+                                   SDefLogic nm' ps' _ _ b       -> Just (nm', ps', b)
+                                   SLetrec nm' ps' _ _ _ b       -> Just (nm', ps', b)
+                                   SDef nm' ps' _ _ b            -> Just (nm', ps', b)
+                                   SDefShell nm' ps' _ _ b _ _   -> Just (nm', ps', b)
+                                   SDefInvariant nm' ps' _ _ b   -> Just (nm', ps', b)
+                                   _                             -> Nothing ] ]
+    tabulateClosed scc =
+      any (\m -> any (`elem` scc) (Map.findWithDefault [] m tabGens)) scc
     measureArity nm = case [ length dec | SDefShell nm' _ _ _ _ dec _ <- stmts, nm' == nm ] of
                         (k:_) -> k
                         []    -> 0

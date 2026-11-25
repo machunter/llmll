@@ -163,8 +163,9 @@ def test_proof_artifact_carries_epoch_and_ill_defined(tmp_path):
     assert p.returncode == 1, p.stdout + p.stderr
     art = json.loads((tmp_path / "e1.pa.json").read_text())
     # FQ-NAME-COLLIDE-1 moved both: artifact 0.3.0, soundness epoch "8";
-    # BYTES-MAKE-ALIAS-1 moved the epoch alone, to "9".
-    assert art["proof_artifact_version"] == "0.3.0"
+    # BYTES-MAKE-ALIAS-1 moved the epoch alone, to "9";
+    # BYTES-TABULATE-1 moved the artifact alone, to 0.4.0.
+    assert art["proof_artifact_version"] == "0.4.0"
     assert art["composed_versions"]["checker_soundness_version"] == "9"
     mk = next(f for f in art["functions"] if f["name"] == "mk")
     assert mk["ill_defined"] is True

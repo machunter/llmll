@@ -4,6 +4,58 @@
 
 <a id="Latest"></a>
 
+## v0.42.0: a byte buffer is built in linear time from a verified per-index function (2026-11-24)
+
+**One new builtin, `bytes-tabulate` (`BYTES-TABULATE-1`). `proof_artifact_version` 0.3.0 → 0.4.0
+and `trust_report_version` 1.11.0 → 1.12.0; `codegen_semantics_version` (`int-unbounded-1`),
+`checker_soundness_version` (9), `verify_json_version` (1.3.0) and the JSON-AST schema are
+unchanged. Measured on liquid-fixpoint 0.9.6.3.7, Apple Silicon.**
+
+- **`(bytes-tabulate n gen a1 … ak)` builds an `n`-byte buffer in O(n)** from a named `def` with a
+  `post`; byte `i` is `(gen a1 … ak i)`.
+- **The fallback census has 0 per-file differences** over 299 files against v0.41.1.
+- **Throughput** (aarch64, `-O1`, the invert generator): about 25 ns per byte with contracts and
+  14 without. A `bytes-set` loop is quadratic: 7.5 µs per byte at 4·10⁵ bytes.
+- **Witnesses:** `scripts/tests/test_bytes_tabulate_1.py` (24 cells: 7 built-program, 14 verdict,
+  3 trust), run by a new CI step pinned at 24 cells with no skip.
+- **Tests:** hspec 3416 → 3467, pytest 959 → 983 passed (10 skipped).
+
+### Added: a byte buffer from a verified per-index function — `BYTES-TABULATE-1`
+
+`e284d74a` (surface, codegen, run time), `7f440ca4` (callee edge), `e18b2b72` (verifier),
+`5dc5a0c7` (versions, CI). Implemented as settled in
+[`docs/design/image-library-proposal.md`](docs/design/image-library-proposal.md) Rev 4a, Part B.
+
+- **The generator is a name.** A lambda, a binder, a `def-shell` or a `def` without a `post` is the
+  new `check` error `tabulate-gen-not-named`.
+- **Three obligations at the call:** T1 `n ≥ 0`; T2 the generator's `pre` at a fresh index in
+  range; T3 its `post` bounds the value to `0..255`. A failed one is `refuted` and named in the
+  message. A generator `pre` or `post` outside the fragment makes the whole caller fall back.
+- **The caller learns the length, not the content.** The result is a fresh term per occurrence with
+  `bytesLen(result) = n`, exact when `n` is. The sealed-builtin axiom set goes from thirteen to
+  fourteen. A `post` that reads the content falls back with `abstraction:app:bytes-tabulate`.
+- **The generator is a callee** for the effective level, `depends-on-refuted`, the record key,
+  strict core and the termination graph. A caller over a generator that is not proved falls back
+  with the new cause **`tabulate-gen-unverified`** (construct `tabulate-gen:<gen>`). A recursive
+  group that a tabulate edge closes is never discharged by `decreases`.
+- **Run time:** the arguments are evaluated once, before the loop, even at `n = 0`. The program
+  stops on a negative length, on a length above the platform `Int` maximum, and on a generator
+  value outside `0..255`, before any narrowing.
+- **Spec:** `LLMLL.md` §13.12 (table row, the `bytes-tabulate` paragraphs, the axiom set), §5.3.3,
+  §5.3.4, §5.3.5 and the `termination_unverified` paragraph; `docs/getting-started.md` §4.34. The
+  fallback-cause list there now also names `clause-welldef-unproved` (v0.37.0), which it omitted.
+
+### Roadmap and design
+
+- `docs/design/image-library-proposal.md` (Rev 4a, SETTLED 2026-11-20) and its professor review.
+- Filed: `IMAGE-LIB-1` (G7, PLAN). `DIV-VAR-1` moves from DECIDE to PLAN.
+
+### Tests: a solver-guard stop fails its hspec example and names the limit
+
+`solverRun` in `compiler/test/Spec.hs` read a guard stop as empty output, so a positive match
+failed with no reason and a negative match passed. It now fails the example with the limit, peak
+memory and elapsed time (hspec SG-10). No compiler change.
+
 ## v0.41.1: the examples verify again, the census stops counting empty passes, and imported termination proofs reach the trust report (2026-11-19)
 
 **Measured on liquid-fixpoint 0.9.6.3.7, Apple Silicon. Two compiler changes

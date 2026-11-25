@@ -1,0 +1,5 @@
+;; V2: one byte too many. T2 fails at index bytesLen(buf).
+(import gen)
+(def invert [buf: bytes] -> bytes
+  (post (= (bytes-length result) (+ (bytes-length buf) 1)))
+  (bytes-tabulate (+ (bytes-length buf) 1) gen.inv-at buf))

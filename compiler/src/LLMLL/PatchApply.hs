@@ -784,9 +784,13 @@ calleePreUnmet stmts table failedIds =
   case find isCallPre failedOrigins of
     Just o  ->
       let callee = T.drop (T.length "call-pre:") (coClause o)
+          -- BYTES-TABULATE-1: T2 and T3 carry a ':gen-pre:<g>' or
+          -- ':byte-range:<g>' suffix after the builtin's name.
+          preOf  | "bytes-tabulate:" `T.isPrefixOf` callee = "bytes-tabulate"
+                 | otherwise                                = callee
       in Just CalleePreUnmet
            { cpuCallee          = callee
-           , cpuRequiredPre     = fromMaybe callee (calleePreText callee)
+           , cpuRequiredPre     = fromMaybe preOf (calleePreText preOf)
            , cpuCallSitePointer = coJsonPtr o
            }
     Nothing -> Nothing

@@ -1,0 +1,6 @@
+;; V8: the same caller as a def is refused by check (strict-core admission).
+(import gen)
+(def ramp [n: int] -> bytes
+  (pre (>= n 0))
+  (post (= (bytes-length result) n))
+  (bytes-tabulate n gen.fb-at))

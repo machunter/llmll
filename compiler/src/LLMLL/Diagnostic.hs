@@ -62,6 +62,7 @@ module LLMLL.Diagnostic
   , mkCoreFfiCallee
   , mkCoreMembershipViolationLocal
   , mkCoreBinderCallee
+  , mkTabulateGenNotNamed
   , mkCoreTerminationAssumed
   , mkCoreExcludedBuiltin
   -- * REFINE-REUSE: non-blocking reuse-duplicate warning
@@ -845,6 +846,22 @@ mkCoreBinderCallee defName callee =
   in (mkError Nothing msg)
        { diagKind       = Just "core-membership-violation"
        , diagSuggestion = Just ("Write '" <> defName <> "' as a def-shell, which may call a function-typed parameter")
+       }
+
+-- | BYTES-TABULATE-1: the generator slot of @(bytes-tabulate n gen a1 ... ak)@
+-- does not name a top-level @def@ with a @post@. The verifier proves gen's
+-- @pre@ and its byte range at a fresh index from gen's contract, so the slot
+-- needs a name with a contract: a lambda, a parameter, a local binder, a
+-- @def-shell@ or a @def@ without @post@ is refused. The pointer is the
+-- generator argument when the checker tracks one (JSON-AST input).
+mkTabulateGenNotNamed :: Text -> Text -> Maybe Text -> Diagnostic
+mkTabulateGenNotNamed enclosing reason mPtr =
+  let msg = "'" <> enclosing <> "': the generator of bytes-tabulate must be the name of a "
+            <> "top-level def with a post; " <> reason
+  in (mkError Nothing msg)
+       { diagKind       = Just "tabulate-gen-not-named"
+       , diagPointer    = mPtr
+       , diagSuggestion = Just "Write the generator as a top-level (def g [a1: T1 ... i: int] -> int (post ...) ...) and pass its name"
        }
 
 -- | FFI-TIER1-1 (E9): the same violation when the callee is a haskell.*

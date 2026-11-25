@@ -112,11 +112,17 @@ defsOf = mapMaybe go
 -- call it translates; it proves nothing for a function passed as a value
 -- (`extractRefs`) or for a call inside a lambda body, which the VC does not
 -- enter. Resolved to graph nodes as 'qualifiedCallGraph' resolves an edge.
+--
+-- BYTES-TABULATE-1: the generator slot of a bytes-tabulate call is not an
+-- unproved edge. The call's T2 obligation proves the generator's pre at every
+-- index 0 <= i < n. A generator also passed elsewhere as a value stays
+-- unproved through that occurrence; a tabulate inside a lambda body stays
+-- unproved through 'lambdaCalls', whose 'extractCallsScoped' yields it.
 unprovedEdges :: ModuleCache -> [Statement] -> Map Name [Name]
 unprovedEdges cache entryStmts =
   let resolve = resolveWith cache "" entryStmts
   in Map.fromList
-       [ (f, nub (concatMap resolve (extractRefs ps body ++ lambdaCalls (Set.fromList ps) body)))
+       [ (f, nub (concatMap resolve (refsWith True ps body ++ lambdaCalls (Set.fromList ps) body)))
        | (f, ps, body) <- defsOf entryStmts ]
   where
     -- call heads inside a lambda body, scope-aware
@@ -148,7 +154,12 @@ prefixOf p = T.intercalate "." p <> "."
 -- edge. A @let@ binding sees only the binders before it; a @do@ step sees the
 -- names bound by the steps before it.
 extractRefs :: [Name] -> Expr -> [Name]
-extractRefs params = go (Set.fromList params)
+extractRefs = refsWith False
+
+-- | 'extractRefs', optionally without the generator slot of each
+-- bytes-tabulate call ('unprovedEdges', BYTES-TABULATE-1).
+refsWith :: Bool -> [Name] -> Expr -> [Name]
+refsWith skipTabGen params = go (Set.fromList params)
   where
     go bound expr = case expr of
       EVar n
@@ -156,6 +167,8 @@ extractRefs params = go (Set.fromList params)
         | otherwise          -> [n]
       ELit _          -> []
       EHole _         -> []
+      EApp "bytes-tabulate" (n : EVar _ : rest)
+        | skipTabGen  -> concatMap (go bound) (n : rest)
       EApp _ args     -> concatMap (go bound) args
       EOp _ args      -> concatMap (go bound) args
       EIf c t e       -> go bound c ++ go bound t ++ go bound e

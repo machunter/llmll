@@ -1,0 +1,5 @@
+;; V1: the caller verifies, and its trust level is verified.
+(import gen)
+(def invert [buf: bytes] -> bytes
+  (post (= (bytes-length result) (bytes-length buf)))
+  (bytes-tabulate (bytes-length buf) gen.inv-at buf))

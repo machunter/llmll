@@ -1,0 +1,7 @@
+;; V4, edge case 4a: two tabulates of lengths 3 and 5 are two terms.
+(def id-at [i: int] -> int (pre (and (>= i 0) (< i 256))) (post (= result i)) i)
+(def-shell f [u: int] -> int
+  (post (= result 0))
+  (let [(r1 (bytes-tabulate 3 id-at))]
+    (let [(r2 (bytes-tabulate 5 id-at))]
+      (if (= (bytes-length r1) (bytes-length r2)) 0 1))))

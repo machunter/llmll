@@ -92,6 +92,15 @@
 -- 'aoIllDefined' or 'aoMeasureBad' keeps at least one cited id: it is kept
 -- only through a non-candidate id (rule 2), and the hard sets read only
 -- non-candidate ids.
+--
+-- BYTES-TABULATE-1 (image-library-proposal Part B, "The generator is a
+-- callee"; plan finding 5) adds a second rule, 'applyTabulateGenVerdict', run
+-- after the one above on every answer. A body-faithful function that
+-- tabulates over a generator that is not body-faithful and verified moves to
+-- the fallback outcome with cause 'FallbackTabulateGenUnverified' and the
+-- construct @tabulate-gen:<g>@. A function in a hard set (refuted, ill-defined,
+-- measure-not-decreasing) is never moved: T2 and T3 rest on the generator's
+-- contract, not its body, so its own failure stands.
 
 module LLMLL.AbstractionVerdict
   ( AbstractionOutcome(..)
@@ -107,6 +116,10 @@ module LLMLL.AbstractionVerdict
   , postUnassumedRepair
   , welldefConstruct
   , WdFailKind(..)
+    -- * BYTES-TABULATE-1: the post-solver generator rule
+  , applyTabulateGenVerdict
+  , tabulateGenConstruct
+  , tabulateGenRepair
   ) where
 
 import Data.Text (Text)
@@ -162,6 +175,10 @@ data AbstractionOutcome = AbstractionOutcome
     -- ^ CALL-RESULT-MARK-1 (H4): for each id in 'aoMarkedIds', the construct
     -- of the mark that hit it: @abstraction:app:<g>@, else
     -- @post-unassumed:app:<g>@, else @abstraction:nonlinear:*@
+  , aoTabulateUnverified :: [(Text, Name)]
+    -- ^ BYTES-TABULATE-1: each function 'applyTabulateGenVerdict' moved with
+    -- cause 'FallbackTabulateGenUnverified', with the first generator that is
+    -- not verified, in body-faithful order
   } deriving (Show)
 
 -- | CALL-RESULT-MARK-1 (H4): the failing ids a refuted function cites. The
@@ -180,7 +197,7 @@ aoCitedResult ao = case aoResult ao of
 -- kill) reads this, not 'aoReclassified'.
 aoFallbackFns :: AbstractionOutcome -> [Text]
 aoFallbackFns ao = map fst (aoReclassified ao) ++ map fst (aoUnassumed ao)
-                ++ map fst (aoWelldefUnproved ao)
+                ++ map fst (aoWelldefUnproved ao) ++ map fst (aoTabulateUnverified ao)
 
 -- | CLAUSE-WELLDEF-1: what the diagnostics renderer needs from the verdict.
 aoReportCtx :: AbstractionOutcome -> WdReportCtx
@@ -198,6 +215,18 @@ postUnassumedRepair :: Name -> Text
 postUnassumedRepair g =
   " The solver's counterexample may need a fact from the post of '" <> g
   <> "', which the verifier did not assume at this call. A callee post is assumed only when all of it is inside the decidable fragment."
+
+-- | BYTES-TABULATE-1: the construct of a function that tabulates over a
+-- generator that is not verified.
+tabulateGenConstruct :: Name -> Text
+tabulateGenConstruct g = "tabulate-gen:" <> g
+
+-- | BYTES-TABULATE-1: the repair sentence 'W-BODY-FALLBACK' adds for
+-- 'FallbackTabulateGenUnverified'.
+tabulateGenRepair :: Name -> Text
+tabulateGenRepair g =
+  " The generator '" <> g <> "' is not verified, and the buffer's content is its values. Prove '"
+  <> g <> "' first: its body must be inside the decidable fragment, and an imported module is verified before its importer."
 
 -- | The attribution string a reclassified function carries in
 -- 'erFallbackConstructs', 'W-BODY-FALLBACK' and the @abstraction_fallback@
@@ -283,6 +312,7 @@ applyAbstractionVerdict cleared er r = case r of
                            | i <- ids, Just o <- [Map.lookup i table], isWdClause (coClause o) ]
       , aoMarkedIds    = Set.fromList [ i | i <- kept, isJust (candidate i) ]
       , aoMarkCause    = Map.fromList [ (i, k) | i <- kept, isJust (candidate i), Just k <- [markCause i] ]
+      , aoTabulateUnverified = []
       }
     where
       table    = erConstraintTable er
@@ -350,7 +380,8 @@ applyAbstractionVerdict cleared er r = case r of
   _ -> AbstractionOutcome { aoResult = r, aoEmit = er, aoReclassified = [], aoAbstractionConstructs = [], aoUnassumed = []
                           , aoWelldefUnproved = [], aoIllDefined = Set.empty
                           , aoMeasureBad = Set.empty, aoRefuted = Set.empty
-                          , aoWdFailing = Map.empty, aoMarkedIds = Set.empty, aoMarkCause = Map.empty }
+                          , aoWdFailing = Map.empty, aoMarkedIds = Set.empty, aoMarkCause = Map.empty
+                          , aoTabulateUnverified = [] }
 
 -- | The construct a reclassified function carries.
 constructOf :: Reclass -> Text
@@ -359,6 +390,7 @@ constructOf c = case rcCause c of
   cause                         -> innerConstruct cause (rcCallee c)
   where
     innerConstruct FallbackCalleePostUnassumed g = postUnassumedConstruct g
+    innerConstruct FallbackTabulateGenUnverified g = tabulateGenConstruct g
     innerConstruct _                           g
       | rcProduct c = nonlinearConstruct
       | otherwise   = abstractionConstruct g
@@ -396,6 +428,7 @@ reclassifyEmit table rs er = er
     already = Set.fromList (erBodyFallback er)
     fresh = [ c | c <- rs, not (rcFn c `Set.member` already) ]
     repairOf FallbackCalleePostUnassumed g = postUnassumedRepair g
+    repairOf FallbackTabulateGenUnverified g = tabulateGenRepair g
     repairOf _                           g = abstractionRepair g
     -- MUL-VAR-1 (finding F11): a product names no callee, so it gets its own
     -- repair sentence and never "two calls to ''".
@@ -436,3 +469,43 @@ reclassifyEmit table rs er = er
       in (mkWarning Nothing msg)
            { diagCode    = Just "W-CLAUSE-WELLDEF-UNPROVED"
            , diagPointer = Just (coJsonPtr o) }
+
+-- | BYTES-TABULATE-1 (image-library-proposal Part B, "The generator is a
+-- callee"; plan finding 5): the post-solver rule for 'FallbackTabulateGenUnverified'.
+--
+-- A local generator's verdict is known only now, so the rule runs here, after
+-- 'applyAbstractionVerdict', on every answer (SAFE included). The candidates
+-- are the body-faithful functions outside the hard sets ('aoRefuted',
+-- 'aoIllDefined', 'aoMeasureBad'): a hard function keeps its own outcome,
+-- because T2 and T3 rest on the generator's contract, not its body. A
+-- candidate moves when one of its generators ('erTabulateGens') is imported
+-- and not fully verified, or is local and not in the verified-local set. That
+-- set is the candidates minus the moved, so a generator that itself tabulates
+-- over an unverified one moves too: the rule iterates to a fixed point, which
+-- exists because the moved set only grows over a finite set. A moved function
+-- leaves the body-faithful set through 'reclassifyEmit', as every other cause
+-- does, so no verified record is written for it.
+applyTabulateGenVerdict :: AbstractionOutcome -> AbstractionOutcome
+applyTabulateGenVerdict ao
+  | null rs   = ao
+  | otherwise = ao { aoEmit = reclassifyEmit (erConstraintTable er) rs er
+                   , aoTabulateUnverified = aoTabulateUnverified ao ++ [ (rcFn c, rcCallee c) | c <- rs ] }
+  where
+    er    = aoEmit ao
+    gens  = erTabulateGens er
+    hard  = Set.unions [aoRefuted ao, aoIllDefined ao, aoMeasureBad ao]
+    cands = [ f | f <- erBodyFaithfulFns er, not (f `Set.member` hard) ]
+    unverifiedGens vl f =
+      [ g | (g, st) <- Map.findWithDefault [] f gens
+          , case st of
+              Just ok -> not ok
+              Nothing -> not (g `Set.member` vl) ]
+    fixMoved mv =
+      let vl  = Set.fromList [ f | f <- cands, not (f `Set.member` mv) ]
+          new = [ f | f <- cands, not (f `Set.member` mv), not (null (unverifiedGens vl f)) ]
+      in if null new then mv else fixMoved (Set.union mv (Set.fromList new))
+    moved    = fixMoved Set.empty
+    finalVL  = Set.fromList [ f | f <- cands, not (f `Set.member` moved) ]
+    rs = [ Reclass f FallbackTabulateGenUnverified g FallbackTabulateGenUnverified [] False []
+         | f <- cands, f `Set.member` moved
+         , g : _ <- [unverifiedGens finalVL f] ]
