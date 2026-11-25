@@ -563,7 +563,7 @@ This means `DLVerified` with `body_faithful = true` guarantees the implementatio
 
 **Coverage:** `ELet` (alpha-renamed), `EIf` (path-sensitive; a call in a later operand of `and`, `or` or `=>` is checked only on the path that evaluates it), `EApp` to a contracted callee (assume-guarantee — same-file **or imported**), an **n-arm sum `EMatch`** (`Result` or a user ADT of any arity, mixed nullary/payload arms, nested at any depth, including sequential matches) with scrutinee-constructor postconditions, `bool` values, admissible (non-recursive) datatype construction, and QF-LIA operators. A recursive `def-shell` cycle verifies by assume-guarantee — partial correctness by default (`termination_unverified`), **total** with a discharging `(decreases …)` measure. Falls back to contract-only verification: a payload the fragment cannot admit (anything other than `int`, `bool` or `string` — a recursive sum and a non-recursive user sum alike), a match arm that discards its payload with `_` instead of binding it, non-linear expressions (`*`, `/`, `mod`), and functions with >4096 execution paths.
 
-**JSON output:** `--json verify` appends five keys to the report object. `body_faithful` and `body_fallback` are name lists. `body_fallback_causes` gives one of thirteen fixed strings per fallen-back function: `contract-post-outside-fragment`, `contract-pre-outside-fragment`, `contract-signature-outside-fragment`, `body-outside-fragment`, `path-cap-exceeded`, `mixed-map-tail`, `unfilled-hole` (the body is a scaffold: nothing is written to prove), `no-post` (there is no proof goal), `map-result-components-unbound` (the post reads a map-valued `result` through the split `$has`/`$val` encoding on a path whose result binder is scalar, so the components name nothing), `constraint-symbols-unbound` (an emitted constraint named a symbol its own environment does not declare, which crashes the solver rather than producing a verdict, so the function's body VC is withdrawn whole), and `abstraction-unsafe` (the solver answered UNSAFE, but every failing constraint holds two or more call results of one callee, so the counterexample may need two calls with equal arguments to disagree, or one result of `string-code-at`, `string-from-code` or a partial byte operation such as `bytes-slice`, which the verifier knows only in part, that the failing check depends on; the construct is `abstraction:app:<callee>`, and the function is listed under the optional key `abstraction_fallback`), and `callee-post-unassumed` (the solver answered UNSAFE, but every failing constraint holds either the calls of `abstraction-unsafe` or the result of a call whose callee `post` the verifier did not assume in full, and at least one holds the second; a post is not assumed in full when it is outside the fragment or a call-site sort guard drops a conjunct; the construct is `post-unassumed:app:<callee>`, qualified for an imported callee, and the function is listed under the optional key `post_unassumed_fallback`), and `fq-name-collision` (an emitted constraint holds two source names that print as one solver symbol, such as `a-b` beside `a_b`, one name bound twice, or a binder that spells an internal name; the solver could identify two values, so the body VC is withdrawn and `W-FQ-NAME-COLLIDE` names the spellings). `body_fallback_constructs` names what refused the function. For a contract clause it gives the minimal sub-terms the fragment cannot express, or the guard that refused the whole clause. For a body whose `match` is at fault it gives one of three closed labels: `match-wildcard-payload` (an arm writes its payload as `_`, and binding it by name repairs the match), `match-payload-sort` (the scrutinee carries a payload the fragment cannot admit — anything other than `int`, `bool` or `string`), or `match-arm-shape` (an arm set outside the admitted shapes for another reason). For any other body it gives the innermost terms that refused, in the same form as a contract clause, such as `nonlinear:*` or `app:string-slice`. An `if`, `let` or `match` is named only where the fragment refuses it, in an argument position such as `(+ (if c 1 2) 3)`. A call is named beside a refused argument only when it refuses without it: `(unwrap-or (ok (if …)) 0)` gives `app:unwrap-or` and `if`. A scaffold carries no constructs: nothing is written to refuse. `fn_kinds` gives each function's definition form.
+**JSON output:** `--json verify` appends five keys to the report object. `body_faithful` and `body_fallback` are name lists. `body_fallback_causes` gives one of fifteen fixed strings per fallen-back function: `contract-post-outside-fragment`, `contract-pre-outside-fragment`, `contract-signature-outside-fragment`, `body-outside-fragment`, `path-cap-exceeded`, `mixed-map-tail`, `unfilled-hole` (the body is a scaffold: nothing is written to prove), `no-post` (there is no proof goal), `map-result-components-unbound` (the post reads a map-valued `result` through the split `$has`/`$val` encoding on a path whose result binder is scalar, so the components name nothing), `constraint-symbols-unbound` (an emitted constraint named a symbol its own environment does not declare, which crashes the solver rather than producing a verdict, so the function's body VC is withdrawn whole), and `abstraction-unsafe` (the solver answered UNSAFE, but every failing constraint holds two or more call results of one callee, so the counterexample may need two calls with equal arguments to disagree, or one result of `string-code-at`, `string-from-code` or a partial byte operation such as `bytes-slice`, which the verifier knows only in part, that the failing check depends on; the construct is `abstraction:app:<callee>`, and the function is listed under the optional key `abstraction_fallback`), and `callee-post-unassumed` (the solver answered UNSAFE, but every failing constraint holds either the calls of `abstraction-unsafe` or the result of a call whose callee `post` the verifier did not assume in full, and at least one holds the second; a post is not assumed in full when it is outside the fragment or a call-site sort guard drops a conjunct; the construct is `post-unassumed:app:<callee>`, qualified for an imported callee, and the function is listed under the optional key `post_unassumed_fallback`), `clause-welldef-unproved` (the solver answered UNSAFE, but only definedness obligations fail and each rests on a result the verifier knows in part; `LLMLL.md` §5.3.4), `tabulate-gen-unverified` (the function passes `bytes-tabulate` a generator that is not proved; the construct is `tabulate-gen:<generator>`), and `fq-name-collision` (an emitted constraint holds two source names that print as one solver symbol, such as `a-b` beside `a_b`, one name bound twice, or a binder that spells an internal name; the solver could identify two values, so the body VC is withdrawn and `W-FQ-NAME-COLLIDE` names the spellings). `body_fallback_constructs` names what refused the function. For a contract clause it gives the minimal sub-terms the fragment cannot express, or the guard that refused the whole clause. For a body whose `match` is at fault it gives one of three closed labels: `match-wildcard-payload` (an arm writes its payload as `_`, and binding it by name repairs the match), `match-payload-sort` (the scrutinee carries a payload the fragment cannot admit — anything other than `int`, `bool` or `string`), or `match-arm-shape` (an arm set outside the admitted shapes for another reason). For any other body it gives the innermost terms that refused, in the same form as a contract clause, such as `nonlinear:*` or `app:string-slice`. An `if`, `let` or `match` is named only where the fragment refuses it, in an argument position such as `(+ (if c 1 2) 3)`. A call is named beside a refused argument only when it refuses without it: `(unwrap-or (ok (if …)) 0)` gives `app:unwrap-or` and `if`. A scaffold carries no constructs: nothing is written to refuse. `fn_kinds` gives each function's definition form.
 
 ```json
 {
@@ -2066,6 +2066,50 @@ Five things to know:
   length computed from it, the bug falls back with exit 0. Then pass the slice to a callee that
   takes a `bytes` parameter with a length `pre` (`LLMLL.md` §13.12).
 - **`(= a b)` on two byte values is contract-only** in a `post`, as it is for `bytes[n]`.
+
+### §4.34 Building a Buffer from a Verified Per-Index Function (`bytes-tabulate`)
+
+A loop over `bytes-set` copies the buffer at every step. `(bytes-tabulate n gen a1 … ak)` fills an
+`n`-byte buffer once; byte `i` is `(gen a1 … ak i)`. Put the generator in its own module, so a
+`def` can call it:
+
+```lisp
+;; gen2.llmll
+(def inv-at [buf: bytes i: int] -> int
+  (pre (and (>= i 0) (< i (bytes-length buf))))
+  (post (= result (- 255 (bytes-get buf i))))
+  (- 255 (bytes-get buf i)))
+```
+
+```lisp
+;; inv.llmll
+(import gen2)
+(def invert [buf: bytes] -> bytes
+  (post (= (bytes-length result) (bytes-length buf)))
+  (bytes-tabulate (bytes-length buf) gen2.inv-at buf))
+```
+
+```
+$ llmll verify gen2.llmll
+✅ gen2.llmll — SAFE (liquid-fixpoint)
+$ llmll verify inv.llmll
+✅ inv.llmll — SAFE (liquid-fixpoint)
+```
+
+Verify the generator first: a caller over an unproved generator falls back with
+`tabulate-gen-unverified`. Three obligations fall on the caller (`LLMLL.md` §13.12): the length is
+not negative (T1), the generator's `pre` holds at every index (T2), and its `post` bounds every
+value to `0..255` (T3). With `(+ (bytes-length buf) 1)` in the body and the post, `verify` exits 1:
+
+```
+error: the pre of generator 'gen2.inv-at' is not proved at every index 0 ≤ i < n of bytes-tabulate in 'invert' (T2) (constraint #2)
+```
+
+- **The generator is a name, not an expression.** A lambda, a parameter, a `def-shell` or a `def`
+  without a `post` is the `check` error `tabulate-gen-not-named`.
+- **State the content in the generator's `post`.** The caller learns the length of the result and
+  nothing about its bytes, so a `post` such as `(= (bytes-get result 0) …)` falls back with
+  `abstraction:app:bytes-tabulate`.
 
 ---
 
