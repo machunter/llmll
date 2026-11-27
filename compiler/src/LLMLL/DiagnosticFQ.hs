@@ -36,6 +36,7 @@ module LLMLL.DiagnosticFQ
   , fqResultToReportWD
     -- * BYTES-TABULATE-1: the T1, T2 and T3 texts
   , tabulateObligationText
+  , divisionObligationText
   ) where
 
 import Data.Text (Text)
@@ -515,6 +516,15 @@ tabulateObligationText fn clause = case T.stripPrefix "call-pre:bytes-tabulate" 
               <> fn <> "' (T3); its post must bound the result")
   _ -> Nothing
 
+-- | DIV-VAR-1 (finding 14): the text of the @d >= 1@ obligation of a body
+-- division, by its clause tag @call-pre:/@ or @call-pre:mod@. 'Nothing' for
+-- any other tag.
+divisionObligationText :: Text -> Text -> Maybe Text
+divisionObligationText fn clause = case T.stripPrefix "call-pre:" clause of
+  Just o | o `elem` ["/", "mod"] ->
+    Just ("the divisor of '" <> o <> "' in '" <> fn <> "' is not proved to be at least 1 (" <> clause <> ")")
+  _ -> Nothing
+
 -- | One Diagnostic per failed constraint id. An unmarked id carries
 -- @diagKind = Just "lh-unsafe"@ (the kind 'fallbackUnsafeDiag' uses), or
 -- @clause-ill-defined@ for a definedness id, as an error. CALL-RESULT-MARK-1:
@@ -541,6 +551,8 @@ toDiag fp table wctx cid =
                     "body verification of '" <> fn <> "' may fail" <> tl
                   -- BYTES-TABULATE-1: T1, T2 and T3 are named here too.
                   clause | Just t <- tabulateObligationText fn clause -> t <> tl
+                  -- DIV-VAR-1: the divisor of a body division.
+                  clause | Just t <- divisionObligationText fn clause -> t <> tl
                   clause | "call-pre:" `T.isPrefixOf` clause ->
                     "call-site precondition of '" <> T.drop 9 clause <> "' may not hold in '" <> fn <> "'" <> tl
                   clause -> clause <> "-condition of '" <> fn <> "' may fail" <> tl
@@ -555,6 +567,8 @@ toDiag fp table wctx cid =
                                       <> "' failed (else-branch does not satisfy postcondition)"
                   -- BYTES-TABULATE-1: a failed T1, T2 or T3 names which one.
                   clause | Just t <- tabulateObligationText (coFunction orig) clause -> t
+                  -- DIV-VAR-1: a failed d >= 1 names the divisor's operator.
+                  clause | Just t <- divisionObligationText (coFunction orig) clause -> t
                   clause | "call-pre:" `T.isPrefixOf` clause ->
                     let callee = T.drop 9 clause  -- drop "call-pre:"
                     in "call-site precondition of '" <> callee

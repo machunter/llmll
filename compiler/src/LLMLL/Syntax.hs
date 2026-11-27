@@ -108,6 +108,7 @@ module LLMLL.Syntax
   , constArithAdmitted
   , firstNonConstProduct
   , firstVarDivision
+  , varDivisions
 
     -- * Match-arm admissibility (SHELL-FALLBACK-SILENT-1)
   , classifyResultArms
@@ -1070,7 +1071,15 @@ firstNonConstProduct = firstSubExpr $ \case
 -- ('groundInt'), in pre-order, by the emitter's test. A ground divisor does
 -- not match, whatever its sign.
 firstVarDivision :: Expr -> Maybe Expr
-firstVarDivision = firstSubExpr $ \case
+firstVarDivision = firstSubExpr isVarDivision
+
+-- | DIV-VAR-1: every `/` or `mod` by a divisor that is not ground, in
+-- pre-order, by the same test as 'firstVarDivision'.
+varDivisions :: Expr -> [Expr]
+varDivisions e = [ e | isVarDivision e ] ++ concatMap varDivisions (subExprs e)
+
+isVarDivision :: Expr -> Bool
+isVarDivision = \case
     EOp op [_, d]  -> varDiv op d
     EApp op [_, d] -> varDiv op d
     _              -> False
@@ -1080,9 +1089,11 @@ firstVarDivision = firstSubExpr $ \case
 firstSubExpr :: (Expr -> Bool) -> Expr -> Maybe Expr
 firstSubExpr ok e
   | ok e      = Just e
-  | otherwise = listToMaybe (mapMaybe (firstSubExpr ok) (children e))
-  where
-    children x = case x of
+  | otherwise = listToMaybe (mapMaybe (firstSubExpr ok) (subExprs e))
+
+-- | The direct sub-expressions of an expression.
+subExprs :: Expr -> [Expr]
+subExprs x = case x of
       EApp _ as      -> as
       EOp _ as       -> as
       EIf c t f      -> [c, t, f]

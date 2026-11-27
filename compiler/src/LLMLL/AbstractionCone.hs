@@ -115,8 +115,10 @@
 --     read, @bytes-set@ a store, @bytes-zero@ the constant array, and
 --     @bytes-widen@ the identity). The CR-C1 test fails CI when a new sealed
 --     arm is not classified.
---   * The one other builtin arm, the exact bit forms ('exactBitBuiltins'),
---     reflects the arithmetic term itself.
+--   * The two other builtin arms reflect the arithmetic term itself: the
+--     exact bit forms ('exactBitBuiltins'), and (DIV-VAR-1) `/` and `mod` by
+--     a divisor that is not ground ('exactDivBuiltins'), whose result is the
+--     division term with a PROVE pre @d >= 1@. Neither is sealed.
 --   * No other arm of 'bodyToPredM' gives a fresh result with only a lemma.
 --     A user-function call is covered by clause 2 (two calls to one callee),
 --     the callee-post mark (CALLEE-POST-UNASSUMED-1) and the modular reading

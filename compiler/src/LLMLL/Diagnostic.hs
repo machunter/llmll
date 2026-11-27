@@ -332,21 +332,31 @@ data ProductWhy
 
 -- | MUL-VAR-1: the 'W-BODY-FALLBACK' text of a function whose failing
 -- constraint holds a product. The text does not vary by z3 version. Same code
--- and kind as 'mkBodyFallbackWarning'.
+-- and kind as 'mkBodyFallbackWarning'. DIV-VAR-1 (finding 11): for a division
+-- construct (@abstraction:nonlinear:/@, @nonlinear:/@, @nonlinear:mod@) the
+-- first line, the not-proved line and the over-the-limit line name a division.
+-- The pair-limit line counts product pairs, so it keeps its text.
 mkBodyFallbackProduct :: Text        -- ^ function name
-                      -> Text        -- ^ the construct (@abstraction:nonlinear:*@ or @nonlinear:*@)
+                      -> Text        -- ^ the construct (@abstraction:nonlinear:*@, @nonlinear:*@, or a division construct)
                       -> Maybe Text  -- ^ JSON pointer of the constraint's clause
                       -> ProductWhy
                       -> Diagnostic
 mkBodyFallbackProduct fnName construct ptr why =
   let line3 = case why of
-        ProductNotProved -> "Product facts did not prove it. Native z3 found no counterexample."
+        ProductNotProved
+          | isDivision -> "Division facts did not prove it. Native z3 found no counterexample."
+          | otherwise  -> "Product facts did not prove it. Native z3 found no counterexample."
         ProductPairLimit k lim ->
           "This constraint holds " <> tshow k <> " product pairs, including any unrelated product in scope; the limit is "
           <> tshow lim <> ", so monotonicity and congruence facts were not added."
-        ProductOverLimit -> "This constraint is over the limit for products after its equations are applied."
+        ProductOverLimit
+          | isDivision -> "This constraint is over the limit for divisions after its equations are applied."
+          | otherwise  -> "This constraint is over the limit for products after its equations are applied."
+      isDivision = construct `elem` ["abstraction:nonlinear:/", "nonlinear:/", "nonlinear:mod"]
+      term | isDivision = "division"
+           | otherwise  = "product"
       msg = T.intercalate "\n"
-        [ "W-BODY-FALLBACK " <> fnName <> ": the post is not proved. A product is in the failing constraint."
+        [ "W-BODY-FALLBACK " <> fnName <> ": the post is not proved. A " <> term <> " is in the failing constraint."
         , "  Refused by: " <> construct <> maybe "" ("   at " <>) ptr
         , "  " <> line3
         , "  The post stays a run-time check. A strict-core def that calls " <> fnName <> " will be refused."

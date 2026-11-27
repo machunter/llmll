@@ -21,6 +21,16 @@ What a pass here means:
   not proved is never verified; a ground divisor <= 0 and `rem` stay refused.
 * The fixtures of the hspec suite (witnesses.json) and of this file are what
   the committed scripts write.
+* E3 to E6 are the other callers (step 2). `patch` rejects a wrong fill of
+  `row-of`, and names the divisor when its `d >= 1` is not proved;
+  `diverge-report` puts the wrong fill under `refuted`; one `--cdp` run kills
+  every mutant of the `row-of` post (CDP runs must not overlap,
+  CDP-FQ-RACE-1); a replay of a division refutation reproduces and reruns the
+  native recheck, also on a VC whose only emitter symbols are `div##k` and
+  `mod##k`.
+* T1: the trust report names the ground-fact family `division-facts`.
+* X1: a bytes-tabulate over `at.hflip-at` verifies its length post, and the
+  generator's byte-range constraint (T3) holds division facts at the index.
 
 Every test that verifies needs a built llmll (LLMLL_BIN), liquid-fixpoint and
 z3 on PATH.
@@ -296,3 +306,232 @@ def test_dv_e2_edge_case_6_is_ill_defined(tmp_path: Path) -> None:
     assert ("the pre of 'unguarded' is not defined where it is evaluated: (/ e d) needs (>= d 1)"
             in p.stdout), p.stdout
     assert "ill-defined: unguarded" in p.stdout, p.stdout
+
+
+# --- step 2: the other callers ---------------------------------------------------
+
+def _v(n: str) -> dict:
+    return {"kind": "var", "name": n}
+
+
+def _op(o: str, *args: dict) -> dict:
+    return {"kind": "op", "op": o, "args": list(args)}
+
+
+def _lit(k: int) -> dict:
+    return {"kind": "lit-int", "value": k}
+
+
+def _and(*xs: dict) -> dict:
+    return xs[0] if len(xs) == 1 else _op("and", xs[0], _and(*xs[1:]))
+
+
+# geom.row-of with a hole for its body, as a def
+ROW_OF = {
+    "schemaVersion": "0.15.0",
+    "llmll_version": "0.42.0",
+    "statements": [
+        {"kind": "export", "names": ["row-of"]},
+        {"kind": "def", "name": "row-of",
+         "params": [{"name": n, "param_type": {"kind": "primitive", "name": "int"}} for n in "wchi"],
+         "return_type": {"kind": "primitive", "name": "int"},
+         "pre": _and(_op(">=", _v("w"), _lit(1)), _op(">=", _v("c"), _lit(1)), _op(">=", _v("h"), _lit(1)),
+                     _op(">=", _v("i"), _lit(0)), _op("<", _v("i"), _op("*", _op("*", _v("w"), _v("h")), _v("c")))),
+         "post": _and(_op("=", _v("result"), _op("/", _v("i"), _op("*", _v("w"), _v("c")))),
+                      _op(">=", _v("result"), _lit(0)), _op("<", _v("result"), _v("h"))),
+         "body": {"kind": "hole-named", "name": "body"}},
+    ],
+}
+POINTER = "/statements/1/body"
+GOOD = _op("/", _v("i"), _op("*", _v("w"), _v("c")))
+WRONG = _op("/", _v("i"), _v("w"))                       # the table's example mutant
+UNPROVED = _op("/", _v("i"), _op("-", _v("w"), _lit(1)))  # w - 1 >= 1 is not proved
+UNPROVED_MOD = _op("mod", _v("i"), _op("-", _v("w"), _lit(1)))
+
+
+@pytest.fixture
+def row_of(tmp_path: Path) -> Path:
+    (tmp_path / "rowof.ast.json").write_text(json.dumps(ROW_OF))
+    return tmp_path
+
+
+def _patch(work: Path, fill: dict) -> subprocess.CompletedProcess:
+    p = _run(work, "checkout", "rowof.ast.json", POINTER)
+    assert p.returncode == 0, p.stdout + p.stderr
+    tok = json.loads(p.stdout)["token"]
+    req = work / "req.json"
+    req.write_text(json.dumps({"token": tok, "patch": [{"op": "replace", "path": POINTER, "value": fill}]}))
+    return _run(work, "patch", "rowof.ast.json", "req.json")
+
+
+@needs_solver
+def test_dv_e3_patch_rejects_a_wrong_fill(row_of: Path) -> None:
+    before = (row_of / "rowof.ast.json").read_bytes()
+    p = _patch(row_of, WRONG)
+    assert p.returncode == 1, p.stdout + p.stderr
+    res = _last_json(p.stdout)
+    assert res["result"] == "PatchVerifyError", res
+    assert any(d.get("kind") == "lh-unsafe" for d in res["diagnostics"]), res
+    assert (row_of / "rowof.ast.json").read_bytes() == before, "the refuted fill was written"
+
+
+@needs_solver
+def test_dv_e3_patch_accepts_the_right_fill(row_of: Path) -> None:
+    p = _patch(row_of, GOOD)
+    assert p.returncode == 0, p.stdout + p.stderr
+    res = _last_json(p.stdout)
+    assert res["result"] == "PatchSuccess", res
+    assert res["verification"] == [{"body_faithful": True, "fn": "row-of"}], res
+
+
+@needs_solver
+@pytest.mark.parametrize("op, fill", [("/", UNPROVED), ("mod", UNPROVED_MOD)])
+def test_dv_e3b_patch_names_an_unproved_divisor(row_of: Path, op: str, fill: dict) -> None:
+    """The obligation id call-pre:<op> renders in --json and in patch; the
+    callee is the operator, and required_pre is d >= 1 with the divisor."""
+    p = _patch(row_of, fill)
+    assert p.returncode == 1, p.stdout + p.stderr
+    res = _last_json(p.stdout)
+    assert res["result"] == "PatchVerifyError", res
+    assert res.get("reason") == "callee-precondition-unmet" and res.get("callee") == op, res
+    assert res.get("required_pre") == "(>= (- w 1) 1)", res
+    assert res.get("call_site_pointer") == POINTER, res
+    msgs = [d["message"] for d in res["diagnostics"] if d.get("kind") == "lh-unsafe"]
+    assert any(m.startswith(f"the divisor of '{op}' in 'row-of' is not proved to be at least 1 (call-pre:{op})")
+               for m in msgs), res
+
+
+@needs_solver
+def test_dv_e4_diverge_reports_the_wrong_fill_refuted(row_of: Path) -> None:
+    ids = {}
+    session = None
+    for name, fill in (("good", GOOD), ("wrong", WRONG)):
+        p = _run(row_of, "checkout", "--multi", "2", "rowof.ast.json", POINTER)
+        assert p.returncode == 0, p.stdout + p.stderr
+        out = json.loads(p.stdout)
+        session = session or out["session"]
+        scratch = row_of / out["scratch"]
+        mod = json.loads(scratch.read_text())
+        mod["statements"][1]["body"] = fill
+        scratch.write_text(json.dumps(mod))
+        ids[name] = out["token"]["token"][:12]
+    p = _run(row_of, "diverge-report", "rowof.ast.json", session)
+    assert p.returncode == 0, p.stdout + p.stderr
+    sp = _last_json(p.stdout)["divergence_witness"]["status_partition"]
+    assert sp["refuted"] == [ids["wrong"]], sp
+    assert sp["verified"] == [ids["good"]], sp
+    assert sp["outside_fragment"] == [], sp
+
+
+ROW_OF_SRC = """(module rowof
+  (export row-of)
+  (def row-of [w: int c: int h: int i: int] -> int
+    (pre (and (>= w 1) (and (>= c 1) (and (>= h 1) (and (>= i 0) (< i (* (* w h) c)))))))
+    (post (and (= result (/ i (* w c))) (and (>= result 0) (< result h))))
+    (/ i (* w c))))
+"""
+
+
+@needs_solver
+def test_dv_e5_cdp_kills_mutants_of_the_row_of_post(tmp_path: Path) -> None:
+    """One serial --cdp run: every candidate is validated and none satisfies the post."""
+    (tmp_path / "rowof.llmll").write_text(ROW_OF_SRC)
+    p = _run(tmp_path, "--json", "verify", "--cdp", "--trust-report", "rowof.llmll")
+    assert p.returncode == 0, p.stdout + p.stderr
+    doc = _last_json(p.stdout)
+    tr = doc["trust_report"]
+    tr = json.loads(tr) if isinstance(tr, str) else tr
+    axis = next(e for e in tr["entries"] if e["name"] == "row-of")["discriminative_axis"]
+    assert axis["candidate_count"] > 0, axis
+    assert axis["excluded_candidate_count"] == 0, axis
+    assert axis["satisfying_candidate_count"] == 0, axis
+
+
+def _tamper(path: Path, fid: str, **fields) -> None:
+    art = json.loads(path.read_text())
+    f = next(f for f in art["functions"] if f["name"] == fid)
+    f.update(fields)
+    path.write_text(json.dumps(art))
+
+
+@needs_solver
+@pytest.mark.parametrize("name, fid, only_div", [("m-chan-of-04", "chan-of", False), ("r7b", "zero-divisor", True)])
+def test_dv_e6_replay_of_a_division_refutation_reruns_the_recheck(tmp_path: Path, name: str, fid: str,
+                                                                    only_div: bool) -> None:
+    """The replay reproduces; the same artifact with the function's record
+    changed from refuted to a fallback fails closed, because the rerun native
+    recheck gives the refutation back. r7b's stored VC names div## and mod##
+    and no mul##: before step 2 its replay skipped the recheck, so the changed
+    record reproduced."""
+    t = TASKS[name]
+    shutil.copy(FIXTURES / t["file"], tmp_path / t["file"])
+    p = _run(tmp_path, "verify", t["file"], "--proof-artifact", "a.pa.json")
+    assert p.returncode == 1, p.stdout + p.stderr
+    art = json.loads((tmp_path / "a.pa.json").read_text())
+    assert art["solver_result"] == "unsafe-refuted", art
+    f = next(f for f in art["functions"] if f["name"] == fid)
+    assert f["refuted"] is True and f["fallback_reason"] is None, f
+    assert ("mul##" not in art["vc"]) == only_div and "div##" in art["vc"], name
+    r = _run(tmp_path, "replay-artifact", "a.pa.json")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "reproduced" in r.stdout, r.stdout
+    _tamper(tmp_path / "a.pa.json", fid, refuted=False, fallback_reason="abstraction-unsafe")
+    r = _run(tmp_path, "replay-artifact", "a.pa.json")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "FAILED CLOSED" in r.stdout and "native recheck" in r.stdout, r.stdout
+
+
+@needs_solver
+def test_dv_t1_trust_report_discloses_division_facts(tmp_path: Path) -> None:
+    shutil.copy(FIXTURES / "geom.llmll", tmp_path / "geom.llmll")
+    p = _run(tmp_path, "--json", "verify", "--trust-report", "geom.llmll")
+    assert p.returncode == 0, p.stdout + p.stderr
+    tr = _last_json(p.stdout)["trust_report"]
+    tr = json.loads(tr) if isinstance(tr, str) else tr
+    fams = {e["name"]: e.get("ground_fact_families", []) for e in tr["entries"]}
+    assert "division-facts" in fams["row-of"], fams
+    assert "division-facts" not in fams["offset"] and "division-facts" not in fams["hflip-x"], fams
+    assert tr["trust_report_version"] == "1.12.0", tr.get("trust_report_version")
+
+
+FLIP_SRC = """(module flip
+  (import at)
+  (export hflip)
+  (def hflip [buf: bytes w: int h: int c: int] -> bytes
+    (pre (and (>= w 1) (and (>= h 1) (and (or (= c 1) (= c 3)) (and (<= (* (* w h) c) 268435456) (= (bytes-length buf) (* (* w h) c)))))))
+    (post (= (bytes-length result) (bytes-length buf)))
+    (bytes-tabulate (bytes-length buf) at.hflip-at buf w h c)))
+"""
+
+
+@needs_solver
+def test_dv_x1_tabulate_over_hflip_at(tmp_path: Path, geom_dir: Path) -> None:
+    """The length post verifies. The generator's post holds divisions at the
+    index, so its byte-range constraint (T3) names division symbols and a
+    division fact over the index. Its gen-pre constraint (T2) has none: the
+    pre of hflip-at holds no division."""
+    for f in ("geom.llmll", "geom.llmll.verified.json"):
+        shutil.copy(geom_dir / f, tmp_path / f)
+    shutil.copy(FIXTURES / "at.llmll", tmp_path / "at.llmll")
+    p = _run(tmp_path, "--json", "verify", "at.llmll")
+    assert p.returncode == 0, p.stdout + p.stderr
+    (tmp_path / "flip.llmll").write_text(FLIP_SRC)
+    p = _run(tmp_path, "--json", "verify", "--trust-report", "flip.llmll")
+    assert p.returncode == 0, p.stdout + p.stderr
+    doc = _last_json(p.stdout)
+    assert _verdict(doc, "hflip") == "verified", p.stdout
+    tr = doc["trust_report"]
+    tr = json.loads(tr) if isinstance(tr, str) else tr
+    entry = next(e for e in tr["entries"] if e["name"] == "hflip")
+    assert "division-facts" in entry.get("ground_fact_families", []), entry
+    q = _run(tmp_path, "verify", "flip.llmll")
+    fq = re.search(r"\.fq written to (\S+\.fq)", q.stdout)
+    assert fq, q.stdout
+    blocks = Path(fq.group(1)).read_text().split("constraint:")[1:]
+    t3 = [b for b in blocks if "_bv_tab_val_" in b.split("\n  rhs ")[1].split("\n  id ")[0]]
+    t2 = [b for b in blocks if b not in t3 and "_bv_tab_idx_" in b.split("\n  rhs ")[1].split("\n  id ")[0]]
+    assert len(t3) == 1 and len(t2) == 1, (len(t3), len(t2))
+    assert "div##" in t3[0] and "mod##" in t3[0], t3[0][:400]
+    assert re.search(r"\([^()]*_bv_tab_idx_\d+[^()]*\)", t3[0]) and re.search(
+        r"\((?=[^()]*_bv_tab_idx_\d+)(?=[^()]*(?:div|mod)##\d+)[^()]*\)", t3[0]), "no division fact over the index"
+    assert "div##" not in t2[0] and "mod##" not in t2[0]

@@ -112,7 +112,7 @@ import Data.Time.Calendar (fromGregorian)
 import ModuleSpec (moduleSpec)
 import ProductSpec (productSpec)
 import RecheckSpec (recheckSpec)
-import DivSpec (divSpec)
+import DivSpec (divSpec, divStep2Spec)
 import LLMLL.EvidenceKey (evidenceKey, evidenceKeys, moduleKeyEnv)  -- HASH-PRE-ASYM; TRUST-REPORT-GATE-1
 import LLMLL.Specialize (specialize, specializeWithRet, GenericStats(..), emptyGenericStats, gsDefinitions, gsInstances, copyTypeArgsSuffix)  -- GENERICS-1 S5
 import LLMLL.CodegenHs (typeParamContext, constraintHsClasses)  -- GENERICS-1 S6
@@ -1277,9 +1277,10 @@ main = hspec $ do
       length prHoles `shouldBe` 1
 
     -- MUL-VAR-1 ("Lean worklist"): a product of two variables no longer gets
-    -- a static hole (the product facts may prove it); a variable divisor does.
-    it "non-linear contract auto-emits non-linear-contract hole (variable divisor; a product does not)" $ do
-      let nlExpr = EApp ">" [EApp "/" [EVar "n", EVar "m"], ELit (LitInt 0)]
+    -- a static hole (the product facts may prove it); a ground divisor 0 does
+    -- (DIV-VAR-1: a variable divisor no longer does either).
+    it "non-linear contract auto-emits non-linear-contract hole (ground divisor 0; a product does not)" $ do
+      let nlExpr = EApp ">" [EApp "/" [EVar "n", ELit (LitInt 0)], ELit (LitInt 0)]
           stmts = [SDefLogic "f" [("n", TInt), ("m", TInt)] Nothing
                      (Contract (Just nlExpr) Nothing Nothing Nothing Nothing [] []) (EVar "n")]
           prHoles = filter (\h -> holeKind h == HProofRequired "non-linear-contract" Nothing)
@@ -1295,9 +1296,10 @@ main = hspec $ do
     -- Leanstral Gap B: parsers route * / mod ^ to EOp (not EApp), so a
     -- contract like (* n m) arrives as EOp; isNonLinear must flag it too.
     it "non-linear contract in EOp form auto-emits non-linear-contract hole" $ do
-      -- pre: (/ n m) > 0 in EOp form — the shape the parser actually produces
-      -- (MUL-VAR-1: a variable divisor; a product is no longer flagged)
-      let nlExpr = EOp ">" [EOp "/" [EVar "n", EVar "m"], ELit (LitInt 0)]
+      -- pre: (/ n 0) > 0 in EOp form — the shape the parser actually produces
+      -- (a ground divisor 0; MUL-VAR-1: a product is no longer flagged;
+      -- DIV-VAR-1: nor is a variable divisor)
+      let nlExpr = EOp ">" [EOp "/" [EVar "n", ELit (LitInt 0)], ELit (LitInt 0)]
       let stmts = [SDefLogic "f" [("n", TInt), ("m", TInt)] Nothing
                      (Contract (Just nlExpr) Nothing Nothing Nothing Nothing [] []) (EVar "n")]
       let report = analyzeHoles stmts
@@ -1307,9 +1309,10 @@ main = hspec $ do
       length prHoles `shouldBe` 1
 
     it "isNonLinear flags EOp form and matches EApp form (Gap B, no EApp regression)" $ do
-      -- MUL-VAR-1: the witness is a variable divisor; a product is not flagged.
-      let eopMul  = EOp  "/" [EVar "n", EVar "m"]
-      let eappMul = EApp "/" [EVar "n", EVar "m"]
+      -- The witness is a ground divisor 0 (MUL-VAR-1: a product is not
+      -- flagged; DIV-VAR-1: nor is a variable divisor).
+      let eopMul  = EOp  "/" [EVar "n", ELit (LitInt 0)]
+      let eappMul = EApp "/" [EVar "n", ELit (LitInt 0)]
       -- EApp form unchanged (still flagged); EOp form now flagged identically.
       isNonLinear eappMul `shouldBe` True
       isNonLinear eopMul  `shouldBe` True
@@ -1401,15 +1404,16 @@ main = hspec $ do
       errs `shouldBe` []
 
     -- PPR-T4: non-linear predicate emits a QF-LIA warning
-    -- MUL-VAR-1: the witness is a variable divisor; a product keeps a warning
-    -- of the same form whose text does not say QF-LIA cannot discharge it.
+    -- The witness is a ground divisor 0 (DIV-VAR-1: a variable divisor has its
+    -- own text). MUL-VAR-1: a product keeps a warning of the same form whose
+    -- text does not say QF-LIA cannot discharge it.
     it "PPR-T4 non-linear predicate in PPR clause emits non-linear warning" $ do
       let warnsFor p = filter (\d -> diagSeverity d == SevWarning)
                          (reportDiagnostics (typeCheck GrammarCoreInversion emptyEnv
                            [SDefLogic "f" [("n", TInt), ("m", TInt)] (Just TInt)
                               (Contract (Just (EHole (HProofRequired "manual" (Just p)))) Nothing Nothing Nothing Nothing [] [])
                               (EVar "n")]))
-          divPred = EApp ">" [EApp "/" [EVar "n", EVar "m"], ELit (LitInt 0)]
+          divPred = EApp ">" [EApp "/" [EVar "n", ELit (LitInt 0)], ELit (LitInt 0)]
           mulPred = EApp ">" [EApp "*" [EVar "n", EVar "n"], ELit (LitInt 0)]
       length (filter (T.isInfixOf "non-linear" . diagMessage) (warnsFor divPred)) `shouldSatisfy` (>= 1)
       length (filter (T.isInfixOf "product of two non-constant terms" . diagMessage) (warnsFor mulPred)) `shouldSatisfy` (>= 1)
@@ -6182,7 +6186,7 @@ main = hspec $ do
       leanWorklistSelects ["nonlinear:*"] prod `shouldBe` True    -- over a product limit
       leanWorklistSelects [] prod `shouldBe` False                -- a product with no product cause
       leanWorklistSelects ["abstraction:app:g"] prod `shouldBe` False
-      leanWorklistSelects [] (EOp "/" [EVar "x", EVar "y"]) `shouldBe` True  -- variable divisor
+      leanWorklistSelects [] (EOp "/" [EVar "x", ELit (LitInt 0)]) `shouldBe` True  -- ground divisor 0
       leanWorklistSelects ["abstraction:nonlinear:*"] lin `shouldBe` True    -- product in the contract only
       leanWorklistSelects [] lin `shouldBe` False
 
@@ -18203,6 +18207,19 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       -- a function owning no product-marked id is not compared
       classifyRecheckReplay (RecheckRerun Set.empty Set.empty Set.empty Set.empty) prodArt o0 `shouldBe` o0
 
+    -- DIV-VAR-1: a division symbol is a product mark too ('erProductMarked'),
+    -- so a VC whose only marked symbol is div##k or mod##k reruns the recheck.
+    it "PA-7b (DIV-VAR-1): a stored VC whose only emitter symbol is div## or mod## reruns the recheck" $ do
+      let meta = SolverMeta "2009-15" "z3 4.x" ["-q","--json"] Nothing
+          art vc = ProofArtifact proofArtifactVersion (ComposedVersions "1.4.0" "0.7.0" (Just checkerSoundnessVersion))
+                     "f.llmll" (Just "sha256:H") meta codegenSemanticsVersion
+                     RUnsafeRefuted vc Nothing [] Nothing
+          o0 = ReplayReproduced RUnsafeRefuted
+      recheckReplayNeeded (art "(constraint ... div##0 ...)") o0 `shouldBe` True
+      recheckReplayNeeded (art "(constraint ... mod##1 ...)") o0 `shouldBe` True
+      recheckReplayNeeded (art "(constraint ... div_0 mod_1 ...)") o0 `shouldBe` False
+      recheckReplayNeeded (art "(constraint ... div##0 ...)") (ReplayReproduced RSafe) `shouldBe` False
+
   -- -----------------------------------------------------------------------
   -- CodegenHs: generated Main.hs must be valid, compilable Haskell
   -- (regression for the v0.14.2 doc-audit hangman findings — the `esc`
@@ -22846,18 +22863,25 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
       isNonLinear (op "*" (i 8) (v "r")) `shouldBe` False
       isNonLinear (EApp "mod" [v "x", i 8]) `shouldBe` False
       -- MUL-VAR-1: a product of two variables is encoded, so not flagged;
-      -- a variable divisor under it still is.
+      -- a refused divisor under it still is. DIV-VAR-1: a variable divisor
+      -- is encoded too, so not flagged.
       isNonLinear (op "*" (v "x") (v "y")) `shouldBe` False
-      isNonLinear (op "*" (v "x") (op "/" (v "a") (v "b"))) `shouldBe` True
+      isNonLinear (op "*" (v "x") (op "/" (v "a") (v "b"))) `shouldBe` False
+      isNonLinear (op "*" (v "x") (op "/" (v "a") (i 0))) `shouldBe` True
+      isNonLinear (op "rem" (v "x") (v "y")) `shouldBe` True
     -- MUL-VAR-1 ("Lean worklist"): the explicit ?proof-required warning keeps
     -- its form; for a product it no longer says QF-LIA cannot discharge it.
-    it "SCA-18b: the ?proof-required warning on a product does not say QF-LIA cannot discharge it" $ do
+    it "SCA-18b: the ?proof-required warning on a product or a variable divisor does not say QF-LIA cannot discharge it" $ do
       let msgs src = map diagMessage (checkErrs src)
           prod = msgs "(def-shell f [x: int y: int] -> int (post (?proof-required :reason \"r\" (>= (* x y) 0))) 0)"
           divv = msgs "(def-shell g [x: int y: int] -> int (post (?proof-required :reason \"r\" (>= (/ x y) 0))) 0)"
+          zero = msgs "(def-shell z [x: int] -> int (post (?proof-required :reason \"r\" (>= (/ x 0) 0))) 0)"
       any (T.isInfixOf "product of two non-constant terms") prod `shouldBe` True
       any (T.isInfixOf "QF-LIA") prod `shouldBe` False
-      any (T.isInfixOf "cannot be discharged by QF-LIA") divv `shouldBe` True
+      -- DIV-VAR-1: a variable divisor gets its own text; a ground 0 keeps the QF-LIA text
+      any (T.isInfixOf "?proof-required predicate contains a division by a non-constant divisor: verify may prove it with the division facts; where they do not, Leanstral obligation required") divv `shouldBe` True
+      any (T.isInfixOf "QF-LIA") divv `shouldBe` False
+      any (T.isInfixOf "cannot be discharged by QF-LIA") zero `shouldBe` True
       isNonLinear (op "/" (v "x") (op "-" (i 0) (i 8))) `shouldBe` True
       isNonLinear (op "/" (i 7) (i 0)) `shouldBe` True
 
@@ -30083,6 +30107,7 @@ holeAnalysisV033Tests = describe "v0.3.3 Agent Orchestration" $ do
   productSpec
   recheckSpec
   divSpec
+  divStep2Spec
 
   -- CALL-RESULT-MARK-1: the clause-1 cone and the H4 rendering
   callResultMarkSpec

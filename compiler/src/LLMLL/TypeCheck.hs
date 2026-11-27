@@ -3645,11 +3645,15 @@ inferHole (HProofRequired reason mPred) = do
       -- MUL-VAR-1 ("Lean worklist"): the warning keeps its form. A product
       -- of two non-constant terms is no longer 'isNonLinear', and the
       -- solver may prove it with the product facts, so its text does not say
-      -- that QF-LIA cannot discharge it.
+      -- that QF-LIA cannot discharge it. DIV-VAR-1: the same for a division
+      -- by a divisor that is not ground ('firstVarDivision'); a product is
+      -- named before a division, as 'importedProductsOf' does.
       if isNonLinear pred
         then tcWarn "?proof-required predicate contains non-linear arithmetic: cannot be discharged by QF-LIA; Leanstral obligation required"
-        else when (isJust (firstNonConstProduct pred)) $
-          tcWarn "?proof-required predicate contains a product of two non-constant terms: verify may prove it with the product facts; where they do not, Leanstral obligation required"
+        else if isJust (firstNonConstProduct pred)
+          then tcWarn "?proof-required predicate contains a product of two non-constant terms: verify may prove it with the product facts; where they do not, Leanstral obligation required"
+          else when (isJust (firstVarDivision pred)) $
+            tcWarn "?proof-required predicate contains a division by a non-constant divisor: verify may prove it with the division facts; where they do not, Leanstral obligation required"
   pure (TVar "?")
 
 -- | Infer type from do-steps with pair-thread enforcement (PR 2).

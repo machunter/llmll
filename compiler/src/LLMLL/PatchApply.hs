@@ -56,11 +56,11 @@ import LLMLL.ParserJSON (parseJSONASTValue)
 import LLMLL.TypeCheck (typeCheckWithCacheRet, emptyEnv)
 import LLMLL.LoadClosure (loadImportClosure)
 import LLMLL.Diagnostic (Diagnostic(..), DiagnosticReport(..), PatchOpInfo(..), rebaseToPatch)
-import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, Type, normalizeDefStmt)
+import LLMLL.Syntax (Statement(..), Contract(..), GrammarMode(..), ModuleCache, Type, normalizeDefStmt, Expr(..), varDivisions)
 import LLMLL.ObligationAssembly (exprToSExpr)
-import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause, abstractedBuiltins)
+import LLMLL.FixpointEmit (emitFixpointWithCache, EmitOptions(..), defaultEmitOptions, EmitResult(..), FallbackCause(..), renderFallbackCause, abstractedBuiltins, renderCallSite)
 import LLMLL.FixpointIR (FQFile(..))
-import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoReportCtx, aoCitedResult, nonlinearConstruct)
+import LLMLL.AbstractionVerdict (AbstractionOutcome(..), aoReportCtx, aoCitedResult, nonlinearConstruct, divisionConstruct)
 import LLMLL.ProductRecheck (recheckVerdict)
 import LLMLL.DiagnosticFQ (solveFQText, resourceStopText, fqResultToReportWD, FQVerifyResult(..), ConstraintOrigin(..), ConstraintTable)
 import qualified Data.Map.Strict as Map
@@ -727,6 +727,13 @@ notProvedMessage f
   , c == nonlinearConstruct =
   "'" <> pfName f <> "' was not proved: a product is in the failing constraint, and native z3 found no counterexample ("
     <> c <> "). Its postcondition was assumed."
+  -- DIV-VAR-1 (finding 11): the same for a division, which names no callee
+  -- either.
+  | pfCause f == Just (renderFallbackCause FallbackAbstraction)
+  , (c : _) <- pfConstructs f
+  , c == divisionConstruct =
+  "'" <> pfName f <> "' was not proved: a division is in the failing constraint, and native z3 found no counterexample ("
+    <> c <> "). Its postcondition was assumed."
   -- ABSTRACTION-VERDICT-1: the solver did answer UNSAFE here, so "passed the
   -- solver" would be false; and the construct is a callee, not a construct to
   -- rewrite away.
@@ -790,7 +797,7 @@ calleePreUnmet stmts table failedIds =
                  | otherwise                                = callee
       in Just CalleePreUnmet
            { cpuCallee          = callee
-           , cpuRequiredPre     = fromMaybe preOf (calleePreText preOf)
+           , cpuRequiredPre     = fromMaybe preOf (maybe (calleePreText preOf) Just (divisorPreText o callee))
            , cpuCallSitePointer = coJsonPtr o
            }
     Nothing -> Nothing
@@ -800,6 +807,28 @@ calleePreUnmet stmts table failedIds =
     -- Render the callee's own precondition (the predicate the caller failed to
     -- discharge). The predicate text is NOT in the failed-id table, so it is
     -- re-derived from the callee's contract — re-derived, not solver-witnessed.
+    -- DIV-VAR-1: a `/` or `mod` has no contract. Its condition is @d >= 1@,
+    -- printed with the divisor of the failing division: the one whose call
+    -- site ('coSite') matches, else the first one with that operator in the
+    -- enclosing function's body.
+    divisorPreText o op
+      | op `notElem` ["/", "mod"] = Nothing
+      | otherwise =
+          case [ (params, ds) | stmt <- stmts
+                              , Just (nm, params, _, _, body) <- [normalizeDefStmt stmt]
+                              , nm == coFunction o
+                              , let ds = [ (a, d) | x <- varDivisions body, Just (o', [a, d]) <- [opArgs x], o' == op ] ] of
+            ((params, ds@(_ : _)) : _) ->
+              let site = coSite o
+                  hit  = [ d | (a, d) <- ds, Just (renderCallSite params [a, d]) == site ]
+              in case hit ++ map snd ds of
+                   (d : _) -> Just ("(>= " <> exprToSExpr d <> " 1)")
+                   []      -> Nothing
+            _ -> Nothing
+    opArgs x = case x of
+      EOp o' as  -> Just (o', as)
+      EApp o' as -> Just (o', as)
+      _          -> Nothing
     calleePreText callee =
       case [ contractPre c | stmt <- stmts
                            , Just (nm, _, _, c, _) <- [normalizeDefStmt stmt]

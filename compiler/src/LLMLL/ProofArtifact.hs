@@ -61,6 +61,7 @@ import           Data.Text          (Text)
 import qualified Data.Text          as T
 
 import           LLMLL.TrustReport  (trustReportEmitVersion)
+import           LLMLL.FixpointIR   (emitterSymbolPrefixes)
 import           LLMLL.VerifiedCache (checkerSoundnessVersion)
 import           LLMLL.ParserJSON   (expectedSchemaVersion)
 
@@ -340,10 +341,11 @@ data RecheckReplay
 
 -- | MUL-VAR-1: a replay reruns the recheck only for a stored VC that holds a
 -- product symbol and whose raw answer reproduced as UNSAFE. Every other
--- artifact replays exactly as before.
+-- artifact replays exactly as before. DIV-VAR-1: a division symbol (@div##k@,
+-- @mod##k@) counts too, the marks 'LLMLL.FixpointEmit.erProductMarked' reads.
 recheckReplayNeeded :: ProofArtifact -> ReplayOutcome -> Bool
 recheckReplayNeeded art o = case o of
-  ReplayReproduced RUnsafeRefuted -> "mul##" `T.isInfixOf` paVc art
+  ReplayReproduced RUnsafeRefuted -> any (`T.isInfixOf` paVc art) emitterSymbolPrefixes
   _                               -> False
 
 -- | MUL-VAR-1 ("Verdict and recheck", Replay): "A replay of a rechecked

@@ -3,7 +3,7 @@
 -- at each other reader of 'exprToPred', and in the native recheck. The pure
 -- normal form and the facts are in "ProductSpec" (step 1a); the witness table
 -- through @llmll verify@ is @scripts/tests/test_div_var_1.py@.
-module DivSpec (divSpec) where
+module DivSpec (divSpec, divStep2Spec) where
 
 import Test.Hspec
 
@@ -28,7 +28,11 @@ import LLMLL.FixpointEmit
   , emitFixpointWith, exprToPred, exprToPredWD, WDObl(..), PartialOp(..), partialPre, wdSiteText
   , refusedConstructs, bodyToPredFrom, aNormalizeBody, collectCallBinders, exactDivBuiltins
   , sealedAxiomBuiltins, sigmaAutoPred, measureToPred, extractQualifiers, exprHasVarDiv )
-import LLMLL.DiagnosticFQ (FQVerifyResult(..), ConstraintOrigin(..), isWdClause)
+import LLMLL.DiagnosticFQ (FQVerifyResult(..), ConstraintOrigin(..), isWdClause
+  , fqResultToReportWD, emptyWdReportCtx, WdReportCtx(..), divisionObligationText)
+import LLMLL.Diagnostic (mkBodyFallbackProduct, ProductWhy(..), DiagnosticReport(..), Severity(..))
+import LLMLL.HoleAnalysis (isNonLinear, leanWorklistSelects)
+import LLMLL.PatchApply (notProvedMessage, PatchedFn(..))
 import LLMLL.AbstractionVerdict (AbstractionOutcome(..), applyAbstractionVerdict, divisionConstruct)
 import qualified LLMLL.ProductNF as PNF
 import qualified LLMLL.ProductFacts as PF
@@ -427,3 +431,82 @@ divSpec = describe "DIV-VAR-1 step 1b: the emitter, the gates and the recheck" $
           aoRefuted av `shouldBe` Set.fromList ["f"]
           length answers `shouldSatisfy` (> 0)
           [ diagMessage d | d <- erDiagnostics (aoEmit av), diagCode d == Just "W-BODY-FALLBACK" ] `shouldBe` []
+
+-- ---------------------------------------------------------------------------
+-- Step 2: messages, holes, other callers
+-- ---------------------------------------------------------------------------
+
+divStep2Spec :: Spec
+divStep2Spec = describe "DIV-VAR-1 step 2: messages, holes and other callers" $ do
+  let origin cl = ConstraintOrigin "f" cl "/statements/1/body" "t.llmll" Nothing
+      table = Map.fromList [ (5, origin "call-pre:/"), (6, origin "call-pre:mod"), (7, origin "call-pre:g") ]
+      report ctx is = reportDiagnostics (fqResultToReportWD "t.llmll" table ctx (FQUnsafe is))
+  it "DV-M-1 a refuted d >= 1 names the divisor's operator; another call-pre keeps its text" $ do
+    divisionObligationText "f" "call-pre:/" `shouldBe` Just "the divisor of '/' in 'f' is not proved to be at least 1 (call-pre:/)"
+    divisionObligationText "f" "call-pre:mod" `shouldBe` Just "the divisor of 'mod' in 'f' is not proved to be at least 1 (call-pre:mod)"
+    divisionObligationText "f" "call-pre:g" `shouldBe` Nothing
+    divisionObligationText "f" "call-pre:bytes-tabulate" `shouldBe` Nothing
+    let ds = report emptyWdReportCtx [5, 6, 7]
+    map diagMessage ds `shouldBe`
+      [ "the divisor of '/' in 'f' is not proved to be at least 1 (call-pre:/) (constraint #5)"
+      , "the divisor of 'mod' in 'f' is not proved to be at least 1 (call-pre:mod) (constraint #6)"
+      , "call-site precondition of 'g' not satisfied in 'f' \x2014 caller does not prove callee's precondition (constraint #7)" ]
+    map diagKind ds `shouldBe` replicate 3 (Just "lh-unsafe")
+    map diagSeverity ds `shouldBe` replicate 3 SevError
+    map diagPointer ds `shouldBe` replicate 3 (Just "/statements/1/body")
+  it "DV-M-2 a marked d >= 1 is lh-may-fail and names the divisor's operator" $ do
+    let ctx = emptyWdReportCtx { wrMarkedIds = Set.fromList [5, 6]
+                               , wrMarkCause = Map.fromList [(5, divisionConstruct), (6, divisionConstruct)] }
+        ds  = report ctx [5, 6]
+    map diagMessage ds `shouldBe`
+      [ "the divisor of '/' in 'f' is not proved to be at least 1 (call-pre:/): the counterexample uses a value the verifier knows only in part (abstraction:nonlinear:/), so no run may reach it (constraint #5)"
+      , "the divisor of 'mod' in 'f' is not proved to be at least 1 (call-pre:mod): the counterexample uses a value the verifier knows only in part (abstraction:nonlinear:/), so no run may reach it (constraint #6)" ]
+    map diagKind ds `shouldBe` replicate 2 (Just "lh-may-fail")
+    map diagSeverity ds `shouldBe` replicate 2 SevWarning
+  it "DV-M-3 the W-BODY-FALLBACK text names a division for a division construct, and a product otherwise" $ do
+    let first c w = head (T.lines (diagMessage (mkBodyFallbackProduct "f" c (Just "/statements/1/post") w)))
+    first "abstraction:nonlinear:/" ProductNotProved `shouldBe` "W-BODY-FALLBACK f: the post is not proved. A division is in the failing constraint."
+    first "nonlinear:/" ProductOverLimit `shouldBe` "W-BODY-FALLBACK f: the post is not proved. A division is in the failing constraint."
+    first "nonlinear:mod" ProductOverLimit `shouldBe` "W-BODY-FALLBACK f: the post is not proved. A division is in the failing constraint."
+    first "abstraction:nonlinear:*" ProductNotProved `shouldBe` "W-BODY-FALLBACK f: the post is not proved. A product is in the failing constraint."
+    first "nonlinear:*" ProductOverLimit `shouldBe` "W-BODY-FALLBACK f: the post is not proved. A product is in the failing constraint."
+    let third c w = T.lines (diagMessage (mkBodyFallbackProduct "f" c (Just "/statements/1/post") w)) !! 2
+    forM_ ["abstraction:nonlinear:/", "nonlinear:/", "nonlinear:mod"] $ \c -> do
+      third c ProductNotProved `shouldBe` "  Division facts did not prove it. Native z3 found no counterexample."
+      third c ProductOverLimit `shouldBe` "  This constraint is over the limit for divisions after its equations are applied."
+    forM_ ["abstraction:nonlinear:*", "nonlinear:*"] $ \c -> do
+      third c ProductNotProved `shouldBe` "  Product facts did not prove it. Native z3 found no counterexample."
+      third c ProductOverLimit `shouldBe` "  This constraint is over the limit for products after its equations are applied."
+    -- the pair limit counts product pairs, whatever the construct
+    third "abstraction:nonlinear:/" (ProductPairLimit 70 64) `shouldBe` third "abstraction:nonlinear:*" (ProductPairLimit 70 64)
+    -- through the verdict rule: an uncleared division id
+    er <- emitSrc "(module d (export f) (def f [x: int d: int] -> int (pre (>= d 1)) (post (>= result 0)) (/ x d)))"
+    let av = applyAbstractionVerdict Set.empty er (FQUnsafe (ids "body-post" er))
+        ws = [ diagMessage d | d <- erDiagnostics (aoEmit av), diagCode d == Just "W-BODY-FALLBACK" ]
+    map (take 3 . T.lines) ws `shouldBe`
+      [[ "W-BODY-FALLBACK f: the post is not proved. A division is in the failing constraint."
+       , "  Refused by: abstraction:nonlinear:/   at /statements/1/body"
+       , "  Division facts did not prove it. Native z3 found no counterexample." ]]
+    any (T.isInfixOf "Refused by: abstraction:nonlinear:/") ws `shouldBe` True
+  it "DV-M-4 isNonLinear: a variable divisor is not flagged; a ground divisor <= 0 and rem are" $ do
+    isNonLinear (op "/" [v "x", v "y"]) `shouldBe` False
+    isNonLinear (op "mod" [v "x", v "y"]) `shouldBe` False
+    isNonLinear (app "mod" [v "x", op "*" [v "w", v "c"]]) `shouldBe` False
+    isNonLinear (op "*" [v "x", op "/" [v "a", v "b"]]) `shouldBe` False
+    isNonLinear (op "/" [v "x", i 0]) `shouldBe` True
+    isNonLinear (op "mod" [v "x", op "-" [i 2, i 2]]) `shouldBe` True
+    isNonLinear (op "/" [op "/" [v "x", i 0], v "d"]) `shouldBe` True   -- its operands are still scanned
+    isNonLinear (op "rem" [v "x", v "y"]) `shouldBe` True
+    isNonLinear (op "/" [v "x", i 8]) `shouldBe` False
+  it "DV-M-5 leanWorklistSelects takes abstraction:nonlinear:/ and nonlinear:/, and no longer a variable divisor by syntax" $ do
+    let lin = op "+" [v "x", v "y"]
+    leanWorklistSelects ["abstraction:nonlinear:/"] lin `shouldBe` True
+    leanWorklistSelects ["nonlinear:/"] lin `shouldBe` True
+    leanWorklistSelects [] (op "/" [v "x", v "y"]) `shouldBe` False
+    leanWorklistSelects [] (op "/" [v "x", i 0]) `shouldBe` True
+    leanWorklistSelects ["abstraction:app:g"] (op "/" [v "x", v "y"]) `shouldBe` False
+  it "DV-M-6 the patch notProved message of a division names no callee" $ do
+    notProvedMessage (PatchedFn "f" False (Just "abstraction-unsafe") [divisionConstruct])
+      `shouldBe` "'f' was not proved: a division is in the failing constraint, and native z3 found no counterexample (abstraction:nonlinear:/). Its postcondition was assumed."
+    notProvedMessage (PatchedFn "f" False (Just "abstraction-unsafe") ["abstraction:nonlinear:*"])
+      `shouldBe` "'f' was not proved: a product is in the failing constraint, and native z3 found no counterexample (abstraction:nonlinear:*). Its postcondition was assumed."

@@ -360,11 +360,20 @@ isSimpleDecreases _         = False
 -- scanned, so `(* x (/ a b))` stays flagged through the variable divisor.
 -- Whether a product fell back is an outcome, not a syntactic fact; the Lean
 -- worklist reads it from 'leanWorklistSelects'.
+--
+-- DIV-VAR-1 (finding 8): a `/` or `mod` by a divisor that is not ground
+-- ('groundInt') is not flagged either. The emitter encodes it with the
+-- division facts and owes @d >= 1@ where it is evaluated. Its operands are
+-- still scanned. A ground divisor that is not an admitted constant-linear
+-- form (a divisor <= 0) stays flagged, as do `rem`, `^` and `**`.
 isNonLinear :: Expr -> Bool
 isNonLinear (EApp op args)
   | op `elem` ["/", "mod"]
+  , [_, d] <- args
+  , Nothing <- groundInt d       = any isNonLinear args  -- e.g. (/ x y)
+  | op `elem` ["/", "mod"]
   , length args == 2
-  , not (constArithAdmitted op args) = True  -- e.g. (* n m), (/ x y), (mod x -8)
+  , not (constArithAdmitted op args) = True  -- e.g. (/ x 0), (mod x -8)
   | op `elem` ["rem", "^", "**"]
   , length args == 2
   , not (all isLit args) = True  -- e.g. (rem n m) where n, m are not both literals
@@ -385,12 +394,13 @@ isNonLinear _               = False
 -- fallback constructs ('erFallbackConstructs'). Selected: a product the
 -- verdict rule moved to fallback (@abstraction:nonlinear:*@), a product the
 -- emitter refused over a limit (@nonlinear:*@), or a body that holds a
--- remaining nonlinear operator ('isNonLinear': a variable divisor, @rem@,
+-- remaining nonlinear operator ('isNonLinear': a ground divisor <= 0, @rem@,
 -- @^@, @**@). A product that the facts proved is not in the fallback set, so
--- it never reaches this test.
+-- it never reaches this test. DIV-VAR-1 (finding 11): the same for a division,
+-- @abstraction:nonlinear:/@ and @nonlinear:/@.
 leanWorklistSelects :: [Text] -> Expr -> Bool
 leanWorklistSelects constructs body =
-  any (`elem` ["abstraction:nonlinear:*", "nonlinear:*"]) constructs
+  any (`elem` ["abstraction:nonlinear:*", "nonlinear:*", "abstraction:nonlinear:/", "nonlinear:/"]) constructs
   || isNonLinear body
 
 -- ---------------------------------------------------------------------------
