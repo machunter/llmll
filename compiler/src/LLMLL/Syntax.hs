@@ -107,6 +107,7 @@ module LLMLL.Syntax
   , constArith
   , constArithAdmitted
   , firstNonConstProduct
+  , firstVarDivision
 
     -- * Match-arm admissibility (SHELL-FALLBACK-SILENT-1)
   , classifyResultArms
@@ -1058,12 +1059,29 @@ constArithOps = ["*", "/", "mod"]
 -- constant-linear form ('constArith'). So @(* 3 x)@ and a constant-folded
 -- factor such as @(* (+ 1 2) x)@ do not match.
 firstNonConstProduct :: Expr -> Maybe Expr
-firstNonConstProduct e = case e of
-  EOp "*" [a, b]  | nonConst a b -> Just e
-  EApp "*" [a, b] | nonConst a b -> Just e
-  _ -> listToMaybe (mapMaybe firstNonConstProduct (children e))
+firstNonConstProduct = firstSubExpr $ \case
+    EOp "*" [a, b]  -> nonConst a b
+    EApp "*" [a, b] -> nonConst a b
+    _               -> False
   where
     nonConst a b = not (isJust (groundInt (EOp "*" [a, b]))) && not (isJust (constArith "*" [a, b]))
+
+-- | DIV-VAR-1 (N1): the first `/` or `mod` by a divisor that is not ground
+-- ('groundInt'), in pre-order, by the emitter's test. A ground divisor does
+-- not match, whatever its sign.
+firstVarDivision :: Expr -> Maybe Expr
+firstVarDivision = firstSubExpr $ \case
+    EOp op [_, d]  -> varDiv op d
+    EApp op [_, d] -> varDiv op d
+    _              -> False
+  where varDiv op d = op `elem` (["/", "mod"] :: [Name]) && not (isJust (groundInt d))
+
+-- | The first sub-expression, in pre-order, that a test accepts.
+firstSubExpr :: (Expr -> Bool) -> Expr -> Maybe Expr
+firstSubExpr ok e
+  | ok e      = Just e
+  | otherwise = listToMaybe (mapMaybe (firstSubExpr ok) (children e))
+  where
     children x = case x of
       EApp _ as      -> as
       EOp _ as       -> as
@@ -1079,24 +1097,31 @@ firstNonConstProduct e = case e of
 -- | LT-INV (v0.11): return 'True' if an expression is admissible inside a
 -- strict-core ('SDef') body per the grammar production in the proposal §3.2.
 -- Admits: literals, variables, QF-LIA operators, `*` (MUL-VAR-1), `/` and `mod`
--- only in an admitted constant-linear form (SIGMA-CONST-ARITH-1; never `rem`), let, if,
+-- by a positive ground divisor (SIGMA-CONST-ARITH-1) or by a divisor that is not
+-- ground (DIV-VAR-1; never `rem`), let, if,
 -- function application, two-arm Result EMatch, n-arm (>= 2) sum EMatch whose
 -- arms are all nullary / single-payload / catch-all (MATCH-WIDEN-2 verifier
 -- parity), pair constructor, and non-'HProofRequired' holes.
--- Rejects: lambdas, do-notation, await, non-linear operators (a non-constant or
--- non-positive divisor, `rem`), a match arm with
+-- Rejects: lambdas, do-notation, await, non-linear operators (a ground divisor
+-- that is not positive, `rem`), a match arm with
 -- a multi-payload constructor pattern, and '?proof-required' holes.
 isCoreBodySyntactic :: Expr -> Bool
 isCoreBodySyntactic expr = case expr of
   ELit _                   -> True
   EVar _                   -> True
-  -- SIGMA-CONST-ARITH-1: `*`, `/` and `mod` are core syntax exactly when the
-  -- node is an admitted constant-linear form ('constArithAdmitted').
+  -- SIGMA-CONST-ARITH-1: `/` and `mod` by a ground divisor are core syntax
+  -- exactly when the node is an admitted constant-linear form
+  -- ('constArithAdmitted').
   -- MUL-VAR-1 (design decision 3): a product of two non-constant terms is core
   -- syntax. The verifier normalizes it and adds the fixed fact set; a def it
   -- cannot prove falls back at verify, as any other def does.
+  -- DIV-VAR-1 (N1): so is a `/` or `mod` by a divisor that is not ground. The
+  -- verifier owes `d >= 1` at each evaluation, so a def whose divisor is not
+  -- proved is never verified.
   EOp op args
     | op == "*"               -> all isCoreBodySyntactic args
+    | op `elem` ["/", "mod"], [_, d] <- args, not (isJust (groundInt d))
+                              -> all isCoreBodySyntactic args
     | op `elem` constArithOps -> constArithAdmitted op args && all isCoreBodySyntactic args
     | otherwise               -> isLinearOp op && all isCoreBodySyntactic args
   ELet binds body          -> all (\(_, _, e) -> isCoreBodySyntactic e) binds

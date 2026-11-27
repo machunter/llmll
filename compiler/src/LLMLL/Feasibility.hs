@@ -59,7 +59,7 @@ import           Text.Read (readMaybe)
 import           LLMLL.Syntax (Contract(..), Expr(..), Name, Type(..))
 import           LLMLL.FixpointIR (FQBinOp(..), FQPred(..))
 import           LLMLL.FixpointEmit
-                   (AliasMap, exprToPred, renameVar, resolveAliasTy
+                   (AliasMap, exprToPred, exprHasVarDiv, renameVar, resolveAliasTy
                    , resolveAllRefinements)
 
 -- ---------------------------------------------------------------------------
@@ -190,8 +190,12 @@ buildQuery am params mRet contract = do
 
 -- | Lower an 'Expr' to an SMT-LIB term via the QF-LIA fragment gate 'exprToPred',
 --   then the prefix renderer. 'Nothing' at either step ⇒ out of fragment.
+--   DIV-VAR-1: a division by a divisor that is not ground is out, because raw
+--   SMT @div@ differs from the program's at a divisor below 1.
 lowerE :: Expr -> Maybe Text
-lowerE e = exprToPred e >>= fqPredToSMT
+lowerE e
+  | exprHasVarDiv e = Nothing
+  | otherwise       = exprToPred e >>= fqPredToSMT
 
 -- | The SMT sort for a base type, or 'Nothing' for anything that is not Int/Bool
 --   after alias/refinement resolution (⇒ Abstain).

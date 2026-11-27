@@ -51,6 +51,7 @@ module LLMLL.FixpointIR
   , fqFreeSymbols
     -- * MUL-VAR-1
   , mulSymbolPrefix
+  , emitterSymbolPrefixes
     -- * Emission-boundary name check (FQ-NAME-COLLIDE-1)
   , predRawSymbols
   , fqNameCollisions
@@ -309,15 +310,21 @@ emitConstant c =
 -- MUL-VAR-1: a name with the reserved prefix @mul##@ passes unchanged. It is
 -- the emitter's monomial symbol, and mapping it would give @mul__k@, a name
 -- that a source program can spell. A source name cannot hold @#@ (Lexer
--- 'pWord'), so no program name reaches this branch.
+-- 'pWord'), so no program name reaches this branch. DIV-VAR-1: the division
+-- symbols @div##k@ and @mod##k@ pass the same way.
 sanitizeFQId :: Text -> Text
 sanitizeFQId t
-  | mulSymbolPrefix `T.isPrefixOf` t = t
+  | any (`T.isPrefixOf` t) emitterSymbolPrefixes = t
   | otherwise = T.map (\c -> if isAlphaNum c || c == '_' then c else '_') t
 
 -- | MUL-VAR-1: the prefix of a monomial symbol, @mul##k@.
 mulSymbolPrefix :: Text
 mulSymbolPrefix = "mul##"
+
+-- | The prefixes of the emitter's own symbols: @mul##k@, and (DIV-VAR-1)
+-- @div##k@ and @mod##k@.
+emitterSymbolPrefixes :: [Text]
+emitterSymbolPrefixes = [mulSymbolPrefix, "div##", "mod##"]
 
 -- | The emitted @.fq@ symbol for a datatype constructor (FQ-CTOR-COLLIDE-1).
 --

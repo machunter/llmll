@@ -1,0 +1,2210 @@
+{
+ "refusals": {
+  "r7-refuse-1": {
+   "construct": "nonlinear:/",
+   "file": "r7-refuse-1.llmll",
+   "id": "refused",
+   "outcome": "fallback",
+   "term": "(/ x 0)"
+  },
+  "r7-refuse-2": {
+   "construct": "nonlinear:mod",
+   "file": "r7-refuse-2.llmll",
+   "id": "refused",
+   "outcome": "fallback",
+   "term": "(mod x 0)"
+  },
+  "r7-refuse-3": {
+   "construct": "nonlinear:/",
+   "file": "r7-refuse-3.llmll",
+   "id": "refused",
+   "outcome": "fallback",
+   "term": "(/ x -2)"
+  },
+  "r7-refuse-4": {
+   "construct": "nonlinear:mod",
+   "file": "r7-refuse-4.llmll",
+   "id": "refused",
+   "outcome": "fallback",
+   "term": "(mod x -3)"
+  },
+  "r7-refuse-5": {
+   "construct": "nonlinear:/",
+   "file": "r7-refuse-5.llmll",
+   "id": "refused",
+   "outcome": "fallback",
+   "term": "(/ x (- 0 2))"
+  },
+  "r7-refuse-6": {
+   "construct": "nonlinear:mod",
+   "file": "r7-refuse-6.llmll",
+   "id": "refused",
+   "outcome": "fallback",
+   "term": "(mod x (- 2 2))"
+  },
+  "r7-refuse-7": {
+   "construct": "nonlinear:/",
+   "file": "r7-refuse-7.llmll",
+   "id": "refused",
+   "outcome": "fallback",
+   "term": "(/ x (/ 1 2))"
+  },
+  "r7-refuse-8": {
+   "construct": "nonlinear:rem",
+   "file": "r7-refuse-8.llmll",
+   "id": "refused",
+   "outcome": "unknown-function",
+   "term": "(rem x d)"
+  },
+  "r7-refuse-9": {
+   "construct": "nonlinear:quot",
+   "file": "r7-refuse-9.llmll",
+   "id": "refused",
+   "outcome": "unknown-function",
+   "term": "(quot x d)"
+  }
+ },
+ "summary": {
+  "counted": 166,
+  "equivalent_mutants": 4,
+  "mutants": 147,
+  "refusals": 9,
+  "source": "scripts/divvar/divvar_run.py build_tasks(), divvar_lib.oracle",
+  "tasks": 167
+ },
+ "tasks": {
+  "chan-of": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "geom.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "original",
+   "row": "1"
+  },
+  "col-of": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "geom.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "original",
+   "row": "1"
+  },
+  "hflip-at": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "at.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "original",
+   "row": "1"
+  },
+  "m-chan-of-01": {
+   "body": "(+ i c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-01.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "AOR mod->+",
+   "row": "1"
+  },
+  "m-chan-of-02": {
+   "body": "(- i c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-02.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "AOR mod->-",
+   "row": "1"
+  },
+  "m-chan-of-03": {
+   "body": "(* i c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-03.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "AOR mod->*",
+   "row": "1"
+  },
+  "m-chan-of-04": {
+   "body": "(/ i c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-04.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "AOR mod->/",
+   "row": "1"
+  },
+  "m-chan-of-05": {
+   "body": "(mod c i)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-05.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-chan-of-06": {
+   "body": "(mod (+ i 1) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-06.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-chan-of-07": {
+   "body": "(mod (- i 1) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-07.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-chan-of-08": {
+   "body": "(mod i (+ c 1))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-08.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-chan-of-09": {
+   "body": "(mod i (- c 1))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-09.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-chan-of-10": {
+   "body": "c",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-10.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "identity",
+   "row": "1"
+  },
+  "m-chan-of-11": {
+   "body": "0",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-chan-of-11.llmll",
+   "first": null,
+   "id": "chan-of",
+   "kind": "mutant",
+   "op": "constant-result",
+   "row": "1"
+  },
+  "m-col-of-01": {
+   "body": "(+ (mod i (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-01.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR /->+",
+   "row": "1"
+  },
+  "m-col-of-02": {
+   "body": "(- (mod i (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-02.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR /->-",
+   "row": "1"
+  },
+  "m-col-of-03": {
+   "body": "(* (mod i (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-03.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR /->*",
+   "row": "1"
+  },
+  "m-col-of-04": {
+   "body": "(mod (mod i (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-04.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR /->mod",
+   "row": "1"
+  },
+  "m-col-of-05": {
+   "body": "(/ c (mod i (* w c)))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-05.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-col-of-06": {
+   "body": "(/ (+ i (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-06.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR mod->+",
+   "row": "1"
+  },
+  "m-col-of-07": {
+   "body": "(/ (- i (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-07.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR mod->-",
+   "row": "1"
+  },
+  "m-col-of-08": {
+   "body": "(/ (* i (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-08.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR mod->*",
+   "row": "1"
+  },
+  "m-col-of-09": {
+   "body": "(/ (/ i (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-09.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR mod->/",
+   "row": "1"
+  },
+  "m-col-of-10": {
+   "body": "(/ (mod (* w c) i) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-10.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-col-of-11": {
+   "body": "(/ (mod (+ i 1) (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-11.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-col-of-12": {
+   "body": "(/ (mod (- i 1) (* w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-12.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-col-of-13": {
+   "body": "(/ (mod i (+ w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-13.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR *->+",
+   "row": "1"
+  },
+  "m-col-of-14": {
+   "body": "(/ (mod i (- w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-14.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR *->-",
+   "row": "1"
+  },
+  "m-col-of-15": {
+   "body": "(/ (mod i (/ w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-15.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR *->/",
+   "row": "1"
+  },
+  "m-col-of-16": {
+   "body": "(/ (mod i (mod w c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-16.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "AOR *->mod",
+   "row": "1"
+  },
+  "m-col-of-17": {
+   "body": "(/ (mod i w) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-17.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "factor-deletion",
+   "row": "1"
+  },
+  "m-col-of-18": {
+   "body": "(/ (mod i c) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-18.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "factor-deletion",
+   "row": "1"
+  },
+  "m-col-of-19": {
+   "body": "(/ (mod i (* (+ w 1) c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-19.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-col-of-20": {
+   "body": "(/ (mod i (* (- w 1) c)) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-20.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-col-of-21": {
+   "body": "(/ (mod i (* w (+ c 1))) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-21.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-col-of-22": {
+   "body": "(/ (mod i (* w (- c 1))) c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-22.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-col-of-23": {
+   "body": "(/ (mod i (* w c)) (+ c 1))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-23.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-col-of-24": {
+   "body": "(/ (mod i (* w c)) (- c 1))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-24.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-col-of-25": {
+   "body": "w",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-25.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "identity",
+   "row": "1"
+  },
+  "m-col-of-26": {
+   "body": "0",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-26.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "constant-result",
+   "row": "1"
+  },
+  "m-col-of-27": {
+   "body": "(mod i w)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-col-of-27.llmll",
+   "first": null,
+   "id": "col-of",
+   "kind": "mutant",
+   "op": "table-example (not generated)",
+   "row": "1"
+  },
+  "m-hflip-at-01": {
+   "body": "(let ((y (row-of c w h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "m-hflip-at-01.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-02": {
+   "body": "(let ((y (row-of h c w i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-02.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-03": {
+   "body": "(let ((y (row-of i c h w)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-03.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-04": {
+   "body": "(let ((y (row-of w h c i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-04.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-05": {
+   "body": "(let ((y (row-of w i h c)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-05.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-06": {
+   "body": "(let ((y (row-of w c i h)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-06.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-07": {
+   "body": "(let ((y (row-of (+ w 1) c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-07.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-08": {
+   "body": "(let ((y (row-of (- w 1) c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-08.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-09": {
+   "body": "(let ((y (row-of w (+ c 1) h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-09.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-10": {
+   "body": "(let ((y (row-of w (- c 1) h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-10.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-11": {
+   "body": "(let ((y (row-of w c (+ h 1) i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "m-hflip-at-11.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-12": {
+   "body": "(let ((y (row-of w c (- h 1) i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-12.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-13": {
+   "body": "(let ((y (row-of w c h (+ i 1))) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-13.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-14": {
+   "body": "(let ((y (row-of w c h (- i 1))) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-14.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-15": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of c w h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-15.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-16": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of h c w i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-16.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-17": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of i c h w)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-17.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-18": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w h c i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-18.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-19": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w i h c)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-19.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-20": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c i h)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-20.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-21": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of (+ w 1) c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-21.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-22": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of (- w 1) c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-22.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-23": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w (+ c 1) h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-23.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-24": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w (- c 1) h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-24.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-25": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c (+ h 1) i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "m-hflip-at-25.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-26": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c (- h 1) i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-26.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-27": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h (+ i 1))) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-27.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-28": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h (- i 1))) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-28.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-29": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of i c)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-29.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-30": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of (+ c 1) i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-30.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-31": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of (- c 1) i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-31.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-32": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c (+ i 1))) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-32.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-33": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c (- i 1))) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-33.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-34": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x x w)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-34.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-35": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x (+ w 1) x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-35.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-36": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x (- w 1) x)) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-36.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-37": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w (+ x 1))) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-37.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-38": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w (- x 1))) (j (offset w h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-38.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-39": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset h w c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-39.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-40": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset c h w y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-40.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-41": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset y h c w xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-41.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-42": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset xf h c y w k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-42.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-43": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset k h c y xf w))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-43.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-44": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w c h y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-44.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-45": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w y c h xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-45.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-46": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w xf c y h k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-46.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-47": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w k c y xf h))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-47.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-48": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h y c xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-48.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-49": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h xf y c k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-49.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-50": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h k y xf c))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-50.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-51": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c xf y k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-51.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-52": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c k xf y))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-52.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-53": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y k xf))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-53.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-hflip-at-54": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset (+ w 1) h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-54.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-55": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset (- w 1) h c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-55.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-56": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w (+ h 1) c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "m-hflip-at-56.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-57": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w (- h 1) c y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-57.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-58": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h (+ c 1) y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-58.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-59": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h (- c 1) y xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-59.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-60": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c (+ y 1) xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-60.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-61": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c (- y 1) xf k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-61.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-62": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y (+ xf 1) k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-62.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-63": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y (- xf 1) k))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-63.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-64": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf (+ k 1)))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-64.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-65": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf (- k 1)))) (bytes-get buf j))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-65.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-66": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf (+ j 1)))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-66.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-hflip-at-67": {
+   "body": "(let ((y (row-of w c h i)) (x (col-of w c h i)) (k (chan-of c i)) (xf (hflip-x w x)) (j (offset w h c y xf k))) (bytes-get buf (- j 1)))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-67.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-hflip-at-68": {
+   "body": "w",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-68.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "identity",
+   "row": "1"
+  },
+  "m-hflip-at-69": {
+   "body": "0",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-69.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "constant-result",
+   "row": "1"
+  },
+  "m-hflip-at-70": {
+   "body": "255",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-70.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "constant-result",
+   "row": "1"
+  },
+  "m-hflip-at-71": {
+   "body": "(bytes-get buf i)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-hflip-at-71.llmll",
+   "first": "geom.llmll",
+   "id": "hflip-at",
+   "kind": "mutant",
+   "op": "table-example (not generated)",
+   "row": "1"
+  },
+  "m-row-of-01": {
+   "body": "(+ i (* w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-01.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "AOR /->+",
+   "row": "1"
+  },
+  "m-row-of-02": {
+   "body": "(- i (* w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-02.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "AOR /->-",
+   "row": "1"
+  },
+  "m-row-of-03": {
+   "body": "(* i (* w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-03.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "AOR /->*",
+   "row": "1"
+  },
+  "m-row-of-04": {
+   "body": "(mod i (* w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-04.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "AOR /->mod",
+   "row": "1"
+  },
+  "m-row-of-05": {
+   "body": "(/ (* w c) i)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-05.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-row-of-06": {
+   "body": "(/ (+ i 1) (* w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-06.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-row-of-07": {
+   "body": "(/ (- i 1) (* w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-07.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-row-of-08": {
+   "body": "(/ i (+ w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-08.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "AOR *->+",
+   "row": "1"
+  },
+  "m-row-of-09": {
+   "body": "(/ i (- w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-09.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "AOR *->-",
+   "row": "1"
+  },
+  "m-row-of-10": {
+   "body": "(/ i (/ w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-10.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "AOR *->/",
+   "row": "1"
+  },
+  "m-row-of-11": {
+   "body": "(/ i (mod w c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-11.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "AOR *->mod",
+   "row": "1"
+  },
+  "m-row-of-12": {
+   "body": "(/ i w)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-12.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "factor-deletion",
+   "row": "1"
+  },
+  "m-row-of-13": {
+   "body": "(/ i c)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-13.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "factor-deletion",
+   "row": "1"
+  },
+  "m-row-of-14": {
+   "body": "(/ i (* (+ w 1) c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-14.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-row-of-15": {
+   "body": "(/ i (* (- w 1) c))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-15.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-row-of-16": {
+   "body": "(/ i (* w (+ c 1)))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-16.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-row-of-17": {
+   "body": "(/ i (* w (- c 1)))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-17.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-row-of-18": {
+   "body": "w",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-18.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "identity",
+   "row": "1"
+  },
+  "m-row-of-19": {
+   "body": "0",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-row-of-19.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "mutant",
+   "op": "constant-result",
+   "row": "1"
+  },
+  "m-scale-src-01": {
+   "body": "(+ (* x sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-01.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "AOR /->+",
+   "row": "1"
+  },
+  "m-scale-src-02": {
+   "body": "(- (* x sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-02.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "AOR /->-",
+   "row": "1"
+  },
+  "m-scale-src-03": {
+   "body": "(* (* x sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-03.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "AOR /->*",
+   "row": "1"
+  },
+  "m-scale-src-04": {
+   "body": "(mod (* x sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-04.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "AOR /->mod",
+   "row": "1"
+  },
+  "m-scale-src-05": {
+   "body": "(/ dw (* x sw))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-05.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "swap",
+   "row": "1"
+  },
+  "m-scale-src-06": {
+   "body": "(/ (+ x sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-06.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "AOR *->+",
+   "row": "1"
+  },
+  "m-scale-src-07": {
+   "body": "(/ (- x sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-07.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "AOR *->-",
+   "row": "1"
+  },
+  "m-scale-src-08": {
+   "body": "(/ (/ x sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-08.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "AOR *->/",
+   "row": "1"
+  },
+  "m-scale-src-09": {
+   "body": "(/ (mod x sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-09.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "AOR *->mod",
+   "row": "1"
+  },
+  "m-scale-src-10": {
+   "body": "(/ x dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-10.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "factor-deletion",
+   "row": "1"
+  },
+  "m-scale-src-11": {
+   "body": "(/ sw dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-11.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "factor-deletion",
+   "row": "1"
+  },
+  "m-scale-src-12": {
+   "body": "(/ (* (+ x 1) sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-12.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-scale-src-13": {
+   "body": "(/ (* (- x 1) sw) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-13.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-scale-src-14": {
+   "body": "(/ (* x (+ sw 1)) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-14.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-scale-src-15": {
+   "body": "(/ (* x (- sw 1)) dw)",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-15.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-scale-src-16": {
+   "body": "(/ (* x sw) (+ dw 1))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-16.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "index+1",
+   "row": "1"
+  },
+  "m-scale-src-17": {
+   "body": "(/ (* x sw) (- dw 1))",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-17.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "index-1",
+   "row": "1"
+  },
+  "m-scale-src-18": {
+   "body": "sw",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-18.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "identity",
+   "row": "1"
+  },
+  "m-scale-src-19": {
+   "body": "0",
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "m-scale-src-19.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "mutant",
+   "op": "constant-result",
+   "row": "1"
+  },
+  "r2a": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "r2a.llmll",
+   "first": null,
+   "id": "scale-one",
+   "kind": "original",
+   "row": "2"
+  },
+  "r2b": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "r2b.llmll",
+   "first": null,
+   "id": "scale-one",
+   "kind": "original",
+   "row": "2"
+  },
+  "r3": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "r3.llmll",
+   "first": null,
+   "id": "row-of-stride",
+   "kind": "original",
+   "row": "3"
+  },
+  "r5a": {
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "r5a.llmll",
+   "first": null,
+   "id": "shadow",
+   "kind": "original",
+   "row": "5"
+  },
+  "r5b": {
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "r5b.llmll",
+   "first": null,
+   "id": "shadow",
+   "kind": "original",
+   "row": "5"
+  },
+  "r5c": {
+   "counted": false,
+   "expected": [
+    "fallback"
+   ],
+   "file": "r5c.llmll",
+   "first": null,
+   "id": "shadow",
+   "kind": "original",
+   "row": "5"
+  },
+  "r5d": {
+   "counted": true,
+   "expected": [
+    "refuted"
+   ],
+   "file": "r5d.llmll",
+   "first": null,
+   "id": "shadow",
+   "kind": "original",
+   "row": "5"
+  },
+  "r6a": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "r6a.llmll",
+   "first": null,
+   "id": "guarded",
+   "kind": "original",
+   "row": "6"
+  },
+  "r6b": {
+   "counted": true,
+   "expected": [
+    "ill-defined"
+   ],
+   "file": "r6b.llmll",
+   "first": null,
+   "id": "unguarded",
+   "kind": "original",
+   "row": "6"
+  },
+  "r6c": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "r6c.llmll",
+   "first": null,
+   "id": "guarded-use",
+   "kind": "original",
+   "row": "6"
+  },
+  "r7a": {
+   "counted": true,
+   "expected": [
+    "refuted",
+    "ill-defined"
+   ],
+   "file": "r7a.llmll",
+   "first": null,
+   "id": "neg-divisor",
+   "kind": "original",
+   "row": "7"
+  },
+  "r7b": {
+   "counted": true,
+   "expected": [
+    "refuted",
+    "ill-defined"
+   ],
+   "file": "r7b.llmll",
+   "first": null,
+   "id": "zero-divisor",
+   "kind": "original",
+   "row": "7"
+  },
+  "row-of": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "geom.llmll",
+   "first": null,
+   "id": "row-of",
+   "kind": "original",
+   "row": "1"
+  },
+  "rt-chan": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "rt.llmll",
+   "first": "geom.llmll",
+   "id": "rt-chan",
+   "kind": "original",
+   "row": "4"
+  },
+  "rt-col": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "rt.llmll",
+   "first": "geom.llmll",
+   "id": "rt-col",
+   "kind": "original",
+   "row": "4"
+  },
+  "rt-row": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "rt.llmll",
+   "first": "geom.llmll",
+   "id": "rt-row",
+   "kind": "original",
+   "row": "4"
+  },
+  "scale-src": {
+   "counted": true,
+   "expected": [
+    "verified"
+   ],
+   "file": "geom.llmll",
+   "first": null,
+   "id": "scale-src",
+   "kind": "original",
+   "row": "1"
+  }
+ }
+}

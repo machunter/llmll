@@ -1,0 +1,64 @@
+qualif True(v : int) { (true) }
+qualif GEZ(v : int) { (v >= 0) }
+qualif GTZ(v : int) { (v > 0) }
+qualif EqZ(v : int) { (v = 0) }
+qualif Eq(v : int, w : int) { (v = w) }
+qualif GE(v : int, w : int) { (v >= w) }
+qualif GT(v : int, w : int) { (v > w) }
+qualif Q_half_pre_36(v : int, x : int) { (x >= 0) }
+qualif Q_half_post_72(v : int, result : int, x : int) { (result = (x / 2)) }
+qualif Q_half_post_41(v : int, result : int) { (result >= 0) }
+qualif Q_third_pre_65(v : int, x : int) { ((x mod 3) >= 0) }
+qualif Q_third_post_41(v : int, result : int) { (result >= 0) }
+qualif Q_third_post_41(v : int, result : int) { (result < 3) }
+qualif Q_both_pre_36(v : int, x : int) { (x >= 0) }
+qualif Q_both_pre_36(v : int, y : int) { (y >= 0) }
+qualif Q_both_post_41(v : int, result : int) { (result >= 0) }
+qualif Q_step_post_103(v : int, result : int, x : int) { (result = (x - (x mod 8))) }
+bind 0 x : { v : int | true }
+bind 1 result : { v : int | true }
+bind 2 x : { v : int | true }
+bind 3 result : { v : int | true }
+bind 4 x : { v : int | true }
+bind 5 y : { v : int | true }
+bind 6 result : { v : int | true }
+bind 7 result : { v : int | true }
+bind 8 x : { v : int | true }
+bind 9 _bv_q_0 : { v : int | v = (x / 8) }
+bind 10 result : { v : int | true }
+bind 11 mul##0 : { v : int | true }
+constraint:
+  env [0; 1]
+  lhs { result : int | x >= 0 && result = (x / 2) }
+  rhs { result : int | result = (x / 2) && result >= 0 }
+  id 0
+  tag [0]
+
+constraint:
+  env [2; 3]
+  lhs { result : int | (x mod 3) >= 0 && result = (x mod 3) }
+  rhs { result : int | result >= 0 && result < 3 }
+  id 1
+  tag [1]
+
+constraint:
+  env [4; 5; 6; 11]
+  lhs { result : int | x >= 1 && (x / 2) > 2 && x >= 0 && y >= 0 && result = (mul##0 / 4 + (x mod 3)) && ((0 <= x && 0 <= y) => 0 <= mul##0) && ((0 <= x && y <= 0) => mul##0 <= 0) && ((1 <= x && 0 <= y) => y <= mul##0) && ((1 <= y && 0 <= x) => x <= mul##0) && ((x <= 0 && 0 <= y) => mul##0 <= 0) && (0 = x => 0 = mul##0) && (0 = y => 0 = mul##0) && (x = 1 => y = mul##0) && (x = 2 => (2 * y) = mul##0) && (y = 1 => mul##0 = x) && (y = 2 => mul##0 = (2 * x)) }
+  rhs { result : int | result >= 0 }
+  id 2
+  tag [2]
+
+constraint:
+  env [4; 5; 7]
+  lhs { result : int | (not (x >= 1 && (x / 2) > 2)) && x >= 0 && y >= 0 && result = 0 }
+  rhs { result : int | result >= 0 }
+  id 3
+  tag [3]
+
+constraint:
+  env [8; 9; 10]
+  lhs { result : int | result = (_bv_q_0 * 8) }
+  rhs { result : int | result = (x - (x mod 8)) }
+  id 4
+  tag [4]
+

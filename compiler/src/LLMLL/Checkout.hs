@@ -82,7 +82,7 @@ import LLMLL.HoleAnalysis (collectHolesExprPath, holeKind)
 import LLMLL.TypeCheck (ScopeBinding(..), ScopeSource(..))
 import LLMLL.TrustReport (TrustEntry)
 import LLMLL.ObligationAssembly (trustLabel, importedContractedFns, exprToSExpr, substExpr)
-import LLMLL.FixpointEmit (exprToPred)
+import LLMLL.FixpointEmit (exprToPred, exprHasVarDiv)
 import LLMLL.HubQuery (QueryResult(..))
 
 -- ---------------------------------------------------------------------------
@@ -1059,11 +1059,12 @@ assembleAssumptions aliasMap env hyps =
   -- SrcLetBinding tag stay excluded. MUL-VAR-1 Rev 3b (amendment 1): this is
   -- the one consumer that keeps a product of two non-constant terms, because
   -- the body VC assumes it: a filling agent needs @(= y (* w h))@.
+  -- DIV-VAR-1 (P6): a division by a divisor that is not ground is not offered.
   [ exprToSExpr (EApp "=" [EVar name, rhs])
   | (name, binding) <- Map.toAscList env
   , sbSource binding == SrcLetBinding
   , Just rhs        <- [sbDef binding]
-  , isJust (exprToPred rhs)
+  , isJust (exprToPred rhs) && not (exprHasVarDiv rhs)
   ]
   ++
   -- (v2b) match-scrutinee case hypotheses, already path-filtered and

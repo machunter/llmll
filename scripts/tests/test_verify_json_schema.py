@@ -127,9 +127,9 @@ def test_vs_solver_absent_is_not_run(tmp_path):
 # Before this fix the strict type-check gate in these commands printed text even
 # under `--json`; `llmll --json check` printed the diagnostics object. Measured
 # on the v0.29.1 binary and on 0.28.0: text on stdout for `verify`.
-# MUL-VAR-1: a product of two variables is core now, so the violation is a
-# variable divisor.
-SQ_CORE_VIOLATION = "(def sq [n: int] -> int (post (>= result 0)) (/ 100 n))\n"
+# MUL-VAR-1 and DIV-VAR-1: a product and a variable divisor are core now, so
+# the violation is a ground divisor 0.
+SQ_CORE_VIOLATION = "(def sq [n: int] -> int (post (>= result 0)) (/ 100 0))\n"
 
 
 @pytest.mark.parametrize("cmd", ["verify", "trust-report", "spec-coverage", "build", "run"])

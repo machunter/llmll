@@ -76,6 +76,7 @@ module LLMLL.ProductNF
   , innerPolys
   , condPolys
   , monosDeep
+  , monosPrinted
   , atomContains
   , polyContains
     -- * Printing
@@ -508,13 +509,23 @@ condPolys = \case
 
 -- | Every monomial reachable from the given polynomials, through atom arguments.
 monosDeep :: [Poly] -> Set.Set Mono
-monosDeep = go Set.empty
+monosDeep = monosVia innerPolys
+
+-- | DIV-VAR-1: every monomial that prints when a variable-divisor atom prints
+-- as its symbol. A monomial that occurs only inside such an atom does not.
+monosPrinted :: [Poly] -> Set.Set Mono
+monosPrinted = monosVia $ \a -> case isDivAtom a of
+  Just _  -> []
+  Nothing -> innerPolys a
+
+monosVia :: (Atom -> [Poly]) -> [Poly] -> Set.Set Mono
+monosVia inner = go Set.empty
   where
     go seen [] = seen
     go seen (p : rest) =
       let new = [ m | m <- Map.keys p, not (Set.member m seen) ]
           seen' = foldl' (flip Set.insert) seen new
-          more = concatMap (concatMap innerPolys . monoAtoms) new
+          more = concatMap (concatMap inner . monoAtoms) new
       in go seen' (more ++ rest)
 
 -- | Does atom @v@ occur in @p@, at any depth? An 'FQIte' is opaque to rules,

@@ -60,6 +60,10 @@ module LLMLL.FixpointEmit
   , refusedConstructs             -- FALLBACK-CENSUS-1: per-clause refusal labels
   , sigmaAutoPred                 -- MUL-VAR-1 Rev 3b: the contract channel minus products
   , exprHasVarProduct             -- MUL-VAR-1 Rev 3b: a product of two non-constant terms
+  , exprHasVarDiv                 -- DIV-VAR-1: a division by a divisor that is not ground
+  , exactDivBuiltins              -- DIV-VAR-1: the exact division arms (unit tests)
+  , measureToPred                 -- MUL-VAR-1, DIV-VAR-1: what a measure may hold (unit tests)
+  , extractQualifiers             -- DIV-VAR-1: a division gives no qualifier (unit tests)
   , bodyRefusalLabels             -- SHELL-FALLBACK-SILENT-1: per-body refusal labels
   , aNormalizeBody                -- AND-GUARD-PRE-1: unit tests read the lowering
   , classifyResultArms            -- SHELL-FALLBACK-SILENT-1: re-export, defined in Syntax
@@ -185,7 +189,7 @@ import LLMLL.TypeAdmissibility
 import LLMLL.FixpointIR
 import qualified LLMLL.ProductNF as PNF
 import qualified LLMLL.ProductFacts as PF
-import LLMLL.ProductFacts (hasProduct)
+import LLMLL.ProductFacts (hasProduct, hasVarDiv)
 import LLMLL.DiagnosticFQ (ConstraintOrigin(..), ConstraintTable, isWdClause)
 import LLMLL.AbstractionCone (ConeRec(..), emptyConeRec, coneHits, atomsOf, exactLengthBuiltins, lengthHeads)
 import LLMLL.Diagnostic (Diagnostic(..), mkWarning, mkError, mkBodyFallbackWarning, mkDecreasesUndischarged, mkBodyFallbackProduct, ProductWhy(..))
@@ -409,6 +413,14 @@ data EmitResult = EmitResult
     -- ok@ marks an imported one, @ok@ being 'erFullyVerifiedAdmissible' on its
     -- staleness-gated post evidence (False when it cannot be resolved).
     -- 'LLMLL.AbstractionVerdict.applyTabulateGenVerdict' reads it.
+  , erDivDefs            :: Map FQConstraintId PNF.Poly
+    -- ^ DIV-VAR-1: each definedness constraint of a division by a divisor that
+    -- is not ground (tag @call-pre:/@ or @call-pre:mod@, or a @wd-*@ tag with
+    -- the goal @d >= 1@), mapped to the normal form of @d@. Read before the
+    -- product pass, so a constraint whose goal the normal form proved is here
+    -- too. 'LLMLL.ProductRecheck' assumes @d >= 1@ in a recheck of the same
+    -- function only for a divisor with a constraint here that the solver did
+    -- not report UNSAFE.
   } deriving (Show)
 
 -- ---------------------------------------------------------------------------
@@ -510,6 +522,14 @@ exactSealedBuiltins = Set.fromList
 -- have no arm: the caller falls back.
 exactBitBuiltins :: Set.Set Name
 exactBitBuiltins = Set.fromList ["bit-and", "bit-shl", "bit-shr"]
+
+-- | DIV-VAR-1: the names whose 'CallVC' arm reflects a division by a divisor
+-- that is not ground. The result is equated to the arithmetic term, so two
+-- such calls in one constraint are two terms, not two unknown results:
+-- 'cbAbstractable' excludes them as it excludes 'exactBitBuiltins', and
+-- neither name is a sealed axiom.
+exactDivBuiltins :: Set.Set Name
+exactDivBuiltins = Set.fromList ["/", "mod"]
 
 -- | BITWISE-1 / CHAR-CODE-1: the builtins the ANF pass hoists, so a guard use
 -- carries its call-pre as @bytes-get@ does (D2). Only these names change: the
@@ -1248,6 +1268,7 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       binds   = binds0 ++ ppBinds pp
       consts  = ppConstraints pp
       groundFacts = groundFacts0 ++ [ (n, ["product-facts"]) | n <- ppFactFns pp ]
+                                 ++ [ (n, ["division-facts"]) | n <- ppDivFactFns pp ]
   -- NIW (v0.12): declare a UF constant for each measure symbol actually used in
   -- any constraint or binder. None used → empty section → byte-identical .fq.
   let ctorNames = Set.fromList $ concat
@@ -1327,8 +1348,11 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
       -- of two non-constant terms and whose body holds none.
       preProductFns = Set.fromList
         [ n | st <- stmts, Just (n, _, _, c, b) <- [normalizeDefStmt st]
-            , isJust (contractPre c >>= firstNonConstProduct)
-            , isNothing (firstNonConstProduct b) ]
+            , isJust (contractPre c >>= firstNonLinear)
+            , isNothing (firstNonLinear b) ]
+      -- DIV-VAR-1: a division by a divisor that is not ground counts as a
+      -- product does.
+      firstNonLinear e = firstNonConstProduct e <|> firstVarDivision e
       routed     = Map.keysSet freeByFn `Set.union` collRouted `Set.union` prodRouted
       -- A flagged constraint with no origin cannot be attributed to a function,
       -- so it is KEPT and the solver still refuses the file. That is exactly the
@@ -1517,14 +1541,28 @@ emitFixpointWithCache opts srcFile cache retTypes stmts = do
         | c <- keptCons
         , let envPreds = [ reftPred (bindReft b) | i <- conEnv c, Just b <- [Map.lookup i bindById] ]
               syms = Set.unions (map predSymbols (reftPred (conLhs c) : reftPred (conRhs c) : envPreds))
-        , any (PNF.mulSymPrefix `T.isPrefixOf`) (Set.toList syms) ]
+        , any (\s -> any (`T.isPrefixOf` s) [PNF.mulSymPrefix, PNF.divSymPrefix, PNF.modSymPrefix]) (Set.toList syms) ]
     , erMonoTable          = Map.restrictKeys (ppMonoTable pp) keptIds
     , erProductLhs         = Map.restrictKeys (ppBaseLhs pp) keptIds
     , erProductPairs       = Map.restrictKeys (ppPairs pp) keptIds
     , erMeasuredRecursive  =
         [ (n, i) | (n, i) <- Map.toList measuredIdx, n `Set.member` recursiveNames ]
     , erTabulateGens       = tabulateGensOf cache stmts
+    , erDivDefs            = divDefsOf consts0
     }
+
+-- | DIV-VAR-1 ('erDivDefs'): the divisor of each definedness constraint of a
+-- division. Only 'partialPre' @PDivVar@ gives a goal of the form @d >= 1@ under
+-- one of these tags.
+divDefsOf :: [FQConstraint] -> Map FQConstraintId PNF.Poly
+divDefsOf cs = Map.fromList
+  [ (conId c, p)
+  | c <- cs
+  , any isDivTag (conTag c)
+  , FQBinPred FQGe d (FQLit 1) <- [reftPred (conRhs c)]
+  , Right p <- [PNF.toPoly d] ]
+  where
+    isDivTag t = isWdClause t || t `elem` [ "call-pre:" <> op | op <- Set.toList exactDivBuiltins ]
 
 -- | BYTES-TABULATE-1 ('erTabulateGens'): each entry function's generators.
 -- A generator defined in the entry module is marked 'Nothing'; its verdict is
@@ -4336,6 +4374,7 @@ data PartialOp
   | PBytesMake FQPred FQPred         -- ^ BYTES-UNSIZED-1: length, value (body only)
   | PBytesSlice FQPred FQPred FQPred -- ^ BYTES-UNSIZED-1: bytes, start, end (body only)
   | PBytesTabulate FQPred            -- ^ BYTES-TABULATE-1: length (body only); T1
+  | PDivVar FQPred                   -- ^ DIV-VAR-1: the divisor, when it is not ground
   deriving (Show, Eq)
 
 -- | CLAUSE-WELLDEF-1: the ONE table of partial-builtin preconditions π_f.
@@ -4375,6 +4414,9 @@ partialPre (PBytesSlice b st en) =
 -- the runtime body ('LLMLL.RuntimePure.bytes_tabulate'). T2 and T3 are the
 -- arm's 'cvPreParts'.
 partialPre (PBytesTabulate n) = FQBinPred FQGe n (FQLit 0)
+-- DIV-VAR-1 (image-library-proposal Part C): on a positive divisor Haskell
+-- `div`/`mod` and the solver's agree, and neither stops.
+partialPre (PDivVar d) = FQBinPred FQGe d (FQLit 1)
 
 -- | CLAUSE-WELLDEF-1: one definedness obligation of a clause, @C ⟹ π_f@.
 data WDObl = WDObl
@@ -4397,6 +4439,7 @@ wdSiteText o = exprToSExpr (woOp o) <> " needs " <> exprToSExpr (surfacePre (woO
       EApp "bytes-get" [b, i]    -> EApp "and" (inBounds b i)
       EApp "bytes-set" [b, i, v] -> EApp "and" (inBounds b i ++ [EApp "<=" [lit 0, v], EApp "<=" [v, lit 255]])
       EApp op args | Just f <- bitExact op args -> EApp ">=" [bitExactOperand f, lit 0]
+      EApp op [_, d] | op `Set.member` exactDivBuiltins -> EApp ">=" [d, lit 1]
       _                          -> e
 
 -- | Convert a linear arithmetic LLMLL Expr to a FQPred.
@@ -4422,21 +4465,24 @@ assumedPostWD e = do
 
 -- | MUL-VAR-1 (design edge case 16): a decreases measure with a product of
 -- two non-constant terms stays refused. Descent is proved over exact terms,
--- and the product pass does not reach the measure's constraints.
+-- and the product pass does not reach the measure's constraints. DIV-VAR-1: a
+-- division by a divisor that is not ground stays refused for the same reason,
+-- and a measure has no definedness obligation of its own.
 measureToPred :: Expr -> Maybe FQPred
 measureToPred e = case exprToPred e of
-  Just p | not (hasProduct p) -> Just p
-  _                           -> Nothing
+  Just p | not (hasProduct p), not (hasVarDiv p) -> Just p
+  _                                              -> Nothing
 
 -- | MUL-VAR-1 Rev 3b (amendment 1): @Σ_auto@ does not widen. The contract
 -- channel translates a product of two non-constant terms, but the consumers
 -- that classify a clause as auto-dischargeable (contract-fragment labels,
 -- suggestion strength, refine reuse) keep the v0.38.1 answer: a clause holding
 -- such a product is outside. A constant-linear `*` ('constArithTerm') is
--- admitted exactly as before.
+-- admitted exactly as before. DIV-VAR-1: a division by a divisor that is not
+-- ground keeps its v0.42.0 answer too.
 sigmaAutoPred :: Expr -> Maybe FQPred
 sigmaAutoPred e
-  | exprHasVarProduct e = Nothing
+  | exprHasVarProduct e || exprHasVarDiv e = Nothing
   | otherwise           = exprToPred e
 
 -- | Whether an expression holds a `*` node that 'constArithTerm' does not
@@ -4449,6 +4495,21 @@ exprHasVarProduct e = here || any exprHasVarProduct (subExprs e)
       EOp  "*" args@[_, _] -> refusedMul args
       _                    -> False
     refusedMul args = isNothing (constArithTerm (\_ -> Identity (Just FQTrue)) "*" args)
+
+-- | DIV-VAR-1: whether an expression holds a `/` or `mod` node whose divisor
+-- is not ground.
+exprHasVarDiv :: Expr -> Bool
+exprHasVarDiv = isJust . firstVarDivision
+
+-- | DIV-VAR-1: is this node a `/` or `mod` by a divisor that is not ground?
+isVarDivNode :: Name -> [Expr] -> Bool
+isVarDivNode op args
+  | op `Set.member` exactDivBuiltins, [_, d] <- args = isNothing (groundInt d)
+  | otherwise = False
+
+-- | DIV-VAR-1: the term of such a node.
+varDivTerm :: Name -> FQPred -> FQPred -> FQPred
+varDivTerm op = FQBinArith (if op == "/" then FQDiv else FQMod)
 
 -- | CLAUSE-WELLDEF-1 (§4.1.1, W7): the one clause traversal. It returns the
 -- term that 'exprToPred' always returned and, beside it, the definedness
@@ -4518,6 +4579,13 @@ exprToPredWD c (EApp op [l, r])
   -- never reaches the solver as `*`: 'productPass' rewrites the constraint
   -- into its normal form. `*` is total, so the arm adds no obligation.
   | op == "*" = bin (FQBinArith FQMul)
+  -- DIV-VAR-1: `/` and `mod` by a divisor that is not ground reflect as
+  -- written; 'productPass' rewrites the constraint. WD: the operands'
+  -- obligations, then `d >= 1` in this context.
+  | isVarDivNode op [l, r] = do
+      (a, oa) <- exprToPredWD c l
+      (b, ob) <- exprToPredWD c r
+      pure (varDivTerm op a b, oa ++ ob ++ [WDObl c (partialPre (PDivVar b)) (EApp op [l, r])])
   -- non-linear ops: reject
   | op `elem` ["*", "/", "mod", "rem", "^", "**"] = Nothing
   where
@@ -4894,6 +4962,7 @@ innerRefusals callees = tailR
 appLabel :: Name -> [Expr] -> Text
 appLabel op args
   | op `elem` nonlinearOps            = "nonlinear:" <> op
+  | Just o <- T.stripPrefix shadowedDivTag op = "nonlinear:" <> o
   | op `elem` ["map-has", "map-get"]
   , (m:_) <- args, isMapEmptyE m      = "map-empty-operand:" <> op
   | otherwise                         = "app:" <> op
@@ -4922,7 +4991,8 @@ extractQualifiers sortMap clause fnName expr =
       -- constraint holds a kvar. A clause with a product of two non-constant
       -- terms gives none, as before products translated, so no `*` of two
       -- variables reaches the solver through a qualifier.
-      | hasProduct pred -> []
+      -- DIV-VAR-1: the same for a division by a divisor that is not ground.
+      | hasProduct pred || hasVarDiv pred -> []
       | otherwise -> atomicQualifiers sortMap fnName clause pred
 
 -- BOOL-FRAG (v0.14.15): sortMap carries each var's real FQSort (result + params);
@@ -5156,6 +5226,10 @@ localBinderNames = go
 -- holds a call this pass would hoist, the operator is first lowered to the
 -- nested `if` it means ('lowerGuard' in an `if` guard, 'lowerValue'
 -- elsewhere). A short-circuit operator without such a call is left as it was.
+--
+-- DIV-VAR-1: a `/` or `mod` by a divisor that is not ground is hoisted as a
+-- call is, so its `d >= 1` is owed where it is evaluated. Each node decides
+-- for itself ('isVarDivNode'): a constant divisor is never hoisted.
 aNormalizeBody :: Set.Set Name -> Expr -> State Int Expr
 aNormalizeBody calls = normTail
   where
@@ -5165,6 +5239,8 @@ aNormalizeBody calls = normTail
     hoists :: Expr -> Bool
     hoists e = case e of
       EApp f _ | isCall f -> True
+      EApp f as | isVarDivNode f as -> True
+      EOp  f as | isVarDivNode f as -> True
       EApp _ args -> any hoists args
       EOp  _ args -> any hoists args
       EPair a b   -> hoists a || hoists b
@@ -5254,10 +5330,14 @@ aNormalizeBody calls = normTail
         rhs <- normTail e'
         t <- freshName "anf"
         pure ([(PVar t, Nothing, rhs)], EVar t)
-      EApp f args | isCall f -> do
+      EApp f args | isCall f || isVarDivNode f args -> do
         (bs, as) <- atomizeArgs args
         t <- freshName "anf"
         pure (bs ++ [(PVar t, Nothing, EApp f as)], EVar t)
+      EOp f args | isVarDivNode f args -> do
+        (bs, as) <- atomizeArgs args
+        t <- freshName "anf"
+        pure (bs ++ [(PVar t, Nothing, EOp f as)], EVar t)
       EApp op args -> do { (bs, as) <- atomizeArgs args; pure (bs, EApp op as) }
       EOp  op args -> do { (bs, as) <- atomizeArgs args; pure (bs, EOp op as) }
       EPair a b    -> do { (bs, as) <- atomizeArgs [a, b]; pure (bs, mkPair as) }
@@ -5680,6 +5760,37 @@ bodyToPredM env se cenv sccSet (EApp "*" [l, r]) = do
     (Just (SimpleVC [] lp), Just (SimpleVC [] rp)) ->
       return . Just $ SimpleVC [] (FQBinArith FQMul lp rp)
     _ -> return Nothing
+
+-- DIV-VAR-1: `/` and `mod` by a divisor that is not ground, on the BITWISE-1
+-- pattern: `d >= 1` is PROVE-polarity (tag "call-pre:/" or "call-pre:mod") and
+-- the fresh result is EQUATED to the term, which 'productPass' prints as one
+-- symbol. A name the function binds is not the builtin: a let-bound name is in
+-- 'env', a function-typed parameter in the contract environment.
+bodyToPredM env se cenv sccSet (EApp op [eE, dE])
+  | isVarDivNode op [eE, dE]
+  , Map.notMember op env
+  , Map.notMember op cenv = do
+      evc <- bodyToPredM env se cenv sccSet eE
+      dvc <- bodyToPredM env se cenv sccSet dE
+      case (evc, dvc) of
+        (Just (SimpleVC [] eP), Just (SimpleVC [] dP)) -> do
+          r <- freshName (if op == "/" then "call_div" else "call_mod")
+          let parts = [("reflection", FQBinPred FQEq (FQVar r) (varDivTerm op eP dP))]
+          return . Just $ CallVC
+            { cvCallee         = op
+            , cvArgs           = [eP, dP]
+            , cvArgExprs       = []
+            , cvPreObligation  = Just (partialPre (PDivVar dP))
+            , cvPostAssumption = Just (conjoinAll (map snd parts))
+            , cvPostParts      = parts
+            , cvResultVar      = r
+            , cvResultSort     = FQInt
+            , cvContinuation   = SimpleVC [] (FQVar r)
+            , cvCongKey        = Nothing
+            , cvPostUnassumed  = False
+            , cvPreParts       = []
+            }
+        _ -> return Nothing
 
 -- Non-linear operators: reject
 bodyToPredM _ _ _ _ (EApp op [_, _])
@@ -6920,7 +7031,8 @@ data CallBinder = CallBinder
 -- it has a fact for every earlier same-key call on its path). So is an exact
 -- bit form ('exactBitBuiltins'), whose result is an arithmetic term. That arm
 -- writes parts and a call through a parameter of the same name does not, so the
--- parameter stays abstractable.
+-- parameter stays abstractable. DIV-VAR-1: a division result is the arithmetic
+-- term too ('exactDivBuiltins').
 --
 -- CALLEE-POST-UNASSUMED-1 ('cbUnassumed'): every call, congruence-keyed or
 -- not, carries its node's flag. The sealed builtins always assume their
@@ -6935,7 +7047,7 @@ collectCallBinders (CallVC c _ _ _ _ parts rv rs cont ck pu _) =
   [ (b, cb) | b <- rv : [ rv <> sfx | isMapArrRetSort rs, sfx <- ["$has", "$val"] ] ]
     ++ collectCallBinders cont
   where
-    exactBit = Set.member c exactBitBuiltins && not (null parts)
+    exactBit = Set.member c (exactBitBuiltins `Set.union` exactDivBuiltins) && not (null parts)
     cb = CallBinder
       { cbCallee       = c
       , cbRoot         = rv
@@ -7937,8 +8049,35 @@ markIntBuiltins declared body = go body
 -- Each clause is its own scope, so each is tested against its own binders.
 markContractIntBuiltins :: Set.Set Name -> Contract -> Contract
 markContractIntBuiltins declared c =
-  c { contractPre  = markIntBuiltins declared <$> contractPre c
-    , contractPost = markIntBuiltins declared <$> contractPost c }
+  c { contractPre  = clause <$> contractPre c
+    , contractPost = clause <$> contractPost c }
+  where clause = markIntBuiltins declared . markShadowedDiv declared
+
+-- | DIV-VAR-1: the prefix of a clause call that is not the builtin division,
+-- because the function declares its name. The clause walk ('exprToPredWD') has
+-- no scope, so the renamed call refuses there, with the label it had.
+shadowedDivTag :: Text
+shadowedDivTag = "shadowed-div%"
+
+-- | DIV-VAR-1: rename each `mod` by a divisor that is not ground to its
+-- 'shadowedDivTag' name when a declared name shadows `mod`. Read as the
+-- builtin, it would prove a claim about the function value. A ground divisor
+-- keeps the reading it had.
+markShadowedDiv :: Set.Set Name -> Expr -> Expr
+markShadowedDiv declared
+  | Set.null (Set.intersection exactDivBuiltins declared) = id
+  | otherwise = go
+  where
+    shadow f as = f `Set.member` declared && isVarDivNode f as
+    go e = case e of
+      EApp f as | shadow f as -> EApp (shadowedDivTag <> f) (map go as)
+                | otherwise   -> EApp f (map go as)
+      EOp f as                -> EOp f (map go as)
+      EIf c t f               -> EIf (go c) (go t) (go f)
+      ELet bs b               -> ELet [ (p, t, go x) | (p, t, x) <- bs ] (go b)
+      EMatch s arms           -> EMatch (go s) [ (p, go x) | (p, x) <- arms ]
+      EPair a b               -> EPair (go a) (go b)
+      _                       -> e
 
 -- | MINMAX-FRAG-1: every name an expression binds, at any depth.
 exprBinders :: Expr -> Set.Set Name
@@ -7994,6 +8133,10 @@ data ProductPass = ProductPass
   , ppBaseLhs     :: Map FQConstraintId FQPred
   , ppFactFns     :: [Text]
     -- ^ the function tag of each rewritten constraint that received a fact
+    -- of a product family
+  , ppDivFactFns  :: [Text]
+    -- ^ DIV-VAR-1: the function tag of each rewritten constraint that received
+    -- a fact of the families D0, G and D4
   , ppPairs       :: Map FQConstraintId Int
     -- ^ the pair count of each rewritten constraint over the pair limit
     -- ('PNF.maxPairs'), whose F4, F5 and F10 facts were omitted
@@ -8002,17 +8145,21 @@ data ProductPass = ProductPass
 -- | One constraint, rewritten.
 data ProductRewrite = ProductRewrite
   { rwMoved :: [FQBindId]          -- ^ environment binders whose refinement moved into the lhs
-  , rwNames :: [(Text, PNF.Mono)]  -- ^ each monomial symbol, in symbol order
+  , rwNames :: [(Text, PNF.Mono)]
+    -- ^ each monomial symbol in symbol order, then each division symbol with
+    -- its one-atom monomial (DIV-VAR-1)
   , rwLhs   :: FQPred              -- ^ the lhs with the product facts
   , rwBase  :: FQPred              -- ^ the lhs without them
   , rwRhs   :: FQPred
   , rwFacts :: Int
+  , rwDivFacts :: Int              -- ^ DIV-VAR-1: the facts of D0, G and D4 among them
   , rwCappedPairs :: Maybe Int
     -- ^ the pair count, when it is over the pair limit
   }
 
 -- | MUL-VAR-1: rewrite each constraint that holds a product of two
--- non-constant terms (in an environment refinement, its @lhs@ or its @rhs@).
+-- non-constant terms, or (DIV-VAR-1) a division by a divisor that is not
+-- ground, in an environment refinement, its @lhs@ or its @rhs@.
 --
 -- * Each predicate that holds a product is printed in normal form: each
 --   relation as @positive terms op negated negative terms@, sums flat, each
@@ -8025,21 +8172,26 @@ data ProductRewrite = ProductRewrite
 -- * The fact set ('PF.productFacts') is appended to the @lhs@, sorted by its
 --   printed text. Each @mul##k@ gets a binder with refinement @true@; @k@
 --   follows the sorted order of every monomial of degree 2 or more in the
---   constraint and its facts.
+--   constraint and its facts. A monomial that occurs only inside a division
+--   prints nowhere, so it gets no symbol.
+-- * DIV-VAR-1: each division pair @(e, d)@ prints as @div##k@ and @mod##k@,
+--   @k@ the pair's index in the sorted pair set, each a binder at @true@. No
+--   @e / d@ with a divisor that is not a literal reaches the solver.
 -- * A goal that reduces to @true@ removes the constraint; a conjunct of the
 --   goal that reduces to @true@ is dropped; a goal that reduces to @false@ is
 --   sent as @false@.
 -- * A refusal (a limit of "Limits") leaves the constraint as it came and
 --   reports it, so the caller routes its function to the fallback channel.
 productPass :: Set.Set FQConstraintId -> Map FQBindId FQBind -> FQBindId -> [FQConstraint] -> ProductPass
-productPass withOrigin bmap next0 cs0 = go next0 Map.empty cs0 (ProductPass [] [] [] [] Map.empty Map.empty [] Map.empty)
+productPass withOrigin bmap next0 cs0 = go next0 Map.empty cs0 (ProductPass [] [] [] [] Map.empty Map.empty [] [] Map.empty)
   where
     go _ _ [] acc = acc
       { ppConstraints = reverse (ppConstraints acc)
       , ppBinds       = reverse (ppBinds acc)
       , ppRefused     = reverse (ppRefused acc)
       , ppOrphans     = reverse (ppOrphans acc)
-      , ppFactFns     = reverse (ppFactFns acc) }
+      , ppFactFns     = reverse (ppFactFns acc)
+      , ppDivFactFns  = reverse (ppDivFactFns acc) }
     go next copies (c : rest) acc = case productRewrite bmap c of
       Nothing -> go next copies rest acc { ppConstraints = c : ppConstraints acc }
       Just (Left r)
@@ -8071,7 +8223,8 @@ productPass withOrigin bmap next0 cs0 = go next0 Map.empty cs0 (ProductPass [] [
              , ppBinds = reverse mulBinds ++ copyBinds ++ ppBinds acc
              , ppMonoTable = Map.insert (conId c) (Map.fromList (rwNames rw)) (ppMonoTable acc)
              , ppBaseLhs = Map.insert (conId c) (rwBase rw) (ppBaseLhs acc)
-             , ppFactFns = [ fnTagOf c | rwFacts rw > 0 ] ++ ppFactFns acc
+             , ppFactFns = [ fnTagOf c | rwFacts rw > rwDivFacts rw ] ++ ppFactFns acc
+             , ppDivFactFns = [ fnTagOf c | rwDivFacts rw > 0 ] ++ ppDivFactFns acc
              , ppPairs = maybe id (Map.insert (conId c)) (rwCappedPairs rw) (ppPairs acc) }
 
 -- | MUL-VAR-1: the cause of a function withdrawn because a limit refused one
@@ -8084,12 +8237,14 @@ productPass withOrigin bmap next0 cs0 = go next0 Map.empty cs0 (ProductPass [] [
 productRefusalCause :: Bool -> [(Text, PNF.Refusal, FQConstraint)] -> FallbackCause
 productRefusalCause preOnly rs
   | any (\(cl, _, _) -> cl `elem` ["pre", "wd-pre"]) rs = FallbackContractPre
-  | any (\(_, _, c) -> hasProduct (reftPred (conRhs c))) rs = FallbackContractPost
+  | any (\(_, _, c) -> nonLin (reftPred (conRhs c))) rs = FallbackContractPost
   -- finding 4: the product rides in the lhs from the pre, not the body
   | preOnly = FallbackContractPre
   | otherwise = FallbackBody
+  where nonLin p = hasProduct p || hasVarDiv p
 
--- | One constraint through the product pass. 'Nothing': it holds no product.
+-- | One constraint through the product pass. 'Nothing': it holds no product
+-- and no division by a divisor that is not ground.
 -- @Right Nothing@: its goal reduced to @true@.
 productRewrite :: Map FQBindId FQBind -> FQConstraint -> Maybe (Either PNF.Refusal (Maybe ProductRewrite))
 productRewrite bmap c
@@ -8097,9 +8252,11 @@ productRewrite bmap c
   | otherwise = Just $ do
       fr <- PF.productFacts hyps goal
       (_, polys1) <- nfAll (const Nothing)
-      let monos = Set.filter ((>= 2) . PNF.monoDegree) (PNF.monosDeep polys1)
+      let monos = Set.filter ((>= 2) . PNF.monoDegree) (PNF.monosPrinted polys1)
                     `Set.union` PF.factMonos (PF.frFacts fr)
-          names = PF.monoNames monos
+          mulNames = PF.monoNames monos
+          divNames = PF.divAtomNames (PF.frDivPairList fr)
+          names = mulNames `Map.union` divNames
           nm m  = FQVar <$> Map.lookup m names
       ((lhs', moved', rhs'), _) <- nfAll nm
       let facts = PF.renderFacts names (PF.frFacts fr)
@@ -8108,23 +8265,42 @@ productRewrite bmap c
           goal' = simplifyGoal rhs'
       when (hasProduct full || hasProduct goal') $
         Left (PNF.Refusal "nonlinear:*" "a product the normal form did not print as a symbol")
+      when (rawDiv full || rawDiv goal') $
+        Left (PNF.Refusal "nonlinear:/" "a division the normal form did not print as a symbol")
       pure $ if goal' == FQTrue then Nothing else Just ProductRewrite
         { rwMoved = map bindId prodEnv
-        , rwNames = [ (t, m) | (m, t) <- Map.toList names ]
+        , rwNames = [ (t, m) | ns <- [mulNames, divNames], (m, t) <- Map.toList ns ]
         , rwLhs   = full
         , rwBase  = base
         , rwRhs   = goal'
         , rwFacts = length facts
+        , rwDivFacts = PF.frDivFacts fr
         , rwCappedPairs = if PF.frCapped fr then Just (PF.frPairs fr) else Nothing }
   where
     envBs   = [ b | i <- conEnv c, Just b <- [Map.lookup i bmap] ]
     hypOf b = let r = bindReft b
               in if reftVar r == bindName b then reftPred r
                  else applySubst (Map.singleton (reftVar r) (FQVar (bindName b))) (reftPred r)
-    prodEnv = [ b | b <- envBs, hasProduct (reftPred (bindReft b)) ]
+    nonLin p = hasProduct p || hasVarDiv p
+    prodEnv = [ b | b <- envBs, nonLin (reftPred (bindReft b)) ]
     lhsP    = reftPred (conLhs c)
     goal    = reftPred (conRhs c)
-    anyProd = not (null prodEnv) || hasProduct lhsP || hasProduct goal
+    anyProd = not (null prodEnv) || nonLin lhsP || nonLin goal
+    -- DIV-VAR-1: a division by anything but a positive literal
+    rawDiv p = case p of
+      FQBinArith op _ d | op `elem` [FQDiv, FQMod], not (posLit d) -> True
+      FQBinArith _ a b  -> rawDiv a || rawDiv b
+      FQBinPred _ a b   -> rawDiv a || rawDiv b
+      FQAnd ps          -> any rawDiv ps
+      FQOr ps           -> any rawDiv ps
+      FQNot q           -> rawDiv q
+      FQKVar _ as       -> any rawDiv as
+      FQApp _ as        -> any rawDiv as
+      FQIte a b d       -> any rawDiv [a, b, d]
+      FQImplies a b     -> rawDiv a || rawDiv b
+      _                 -> False
+    posLit (FQLit k) = k > 0
+    posLit _         = False
     hyps    = [ hypOf b | b <- envBs, reftPred (bindReft b) /= FQTrue ] ++ PF.flatConjuncts [lhsP]
     nfAll nm = do
       (l, a) <- nfPred nm lhsP
@@ -8153,10 +8329,11 @@ simplifyGoal p = case p of
         spl q          = [q]
 
 -- | A predicate in normal form, with the polynomials it printed. A predicate
--- with no product is returned as it came.
+-- with no product and no division by a divisor that is not ground is returned
+-- as it came.
 nfPred :: (PNF.Mono -> Maybe FQPred) -> FQPred -> Either PNF.Refusal (FQPred, [PNF.Poly])
 nfPred nm p
-  | not (hasProduct p) = Right (p, [])
+  | not (hasProduct p), not (hasVarDiv p) = Right (p, [])
   | otherwise = case p of
       FQBinPred op l r
         | Just o <- nfRelOp op, not (nfPredShaped l), not (nfPredShaped r) -> do
@@ -8190,7 +8367,7 @@ nfPred nm p
 -- | An integer term in normal form.
 nfTerm :: (PNF.Mono -> Maybe FQPred) -> FQPred -> Either PNF.Refusal (FQPred, [PNF.Poly])
 nfTerm nm t
-  | not (hasProduct t) = Right (t, [])
+  | not (hasProduct t), not (hasVarDiv t) = Right (t, [])
   | otherwise = do
       q <- PNF.toPoly t
       Right (PNF.polyPred nm q, [q])

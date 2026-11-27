@@ -611,6 +611,20 @@ recheckSpec = describe "MUL-VAR-1 product pass, mark and native recheck" $ do
           (validated, _) = downgradeStaleVerifiedSidecar (parseMod cubicSrc) raw
       fmap erBodyFaithful (csPost (validated Map.! "f")) `shouldBe` Just False
       map diagMessage (coreKinds (coreAdmission cubicSrc (Map.lookup "f" validated))) `shouldBe` [nonlinearText]
+    it "DIV-VAR-1 (N1): a division by a variable is named the same way, and no cause is stated; a ground divisor is not named" $ do
+      let src body = T.unlines
+            [ "(module m (export f)"
+            , "  (def f [x: int y: int z: int] -> bool"
+            , "    (post (= result true))"
+            , "    " <> body <> "))" ]
+          msgs body = map diagMessage (coreKinds (coreAdmission (src body) (Just assertedCS)))
+          text at = "def 'c': callee 'm.f' was verified but is not body-faithful. Its body holds a division by a non-constant divisor at "
+            <> at <> "; verify may fall back on such a division. Only verified functions are admissible in strict-core bodies."
+      msgs "(> (/ x y) z)" `shouldBe` [text "(/ x y)"]
+      msgs "(> (+ 1 (mod x (- y z))) z)" `shouldBe` [text "(mod x (- y z))"]
+      msgs "(> (/ x 3) z)" `shouldSatisfy` all (T.isInfixOf "is not body-faithful and not in the trusted prelude")
+      -- in one clause a product is named before a division
+      msgs "(> (/ x y) (* y z))" `shouldSatisfy` all (T.isInfixOf "holds a product of two non-constant terms at (* y z);")
     it "a constant-folded product does not match: (* 3 x) and (* (+ 1 2) x) keep today's text" $ do
       let src = T.unlines
             [ "(module m (export f)"

@@ -1,0 +1,17 @@
+(module const
+  (export half third both step)
+  (def half [x: int] -> int
+    (pre (>= x 0))
+    (post (and (= result (/ x 2)) (>= result 0)))
+    (/ x 2))
+  (def third [x: int] -> int
+    (pre (>= (mod x 3) 0))
+    (post (and (>= result 0) (< result 3)))
+    (mod x 3))
+  (def both [x: int y: int] -> int
+    (pre (and (>= x 0) (>= y 0)))
+    (post (>= result 0))
+    (if (and (>= x 1) (> (/ x 2) 2)) (+ (/ (* x y) 4) (mod x (+ 1 2))) 0))
+  (def step [x: int] -> int
+    (post (= result (- x (mod x 8))))
+    (let [(q (/ x 8))] (* q 8))))

@@ -792,8 +792,9 @@ data TCState = TCState
   , tcGenericDecls   :: Map Name [(Name, Maybe TyConstraint)]
   -- MUL-VAR-1 Rev 3a: appended at the END for the reason 'tcRetTypes' gives.
   -- Each closure module's function (qualified, and bare once opened) whose
-  -- body or contract holds a product of two non-constant terms, with the
-  -- first such product. Read by 'checkCalleeAdmissibility' only.
+  -- body or contract holds a product of two non-constant terms or (DIV-VAR-1)
+  -- a division by a divisor that is not ground, with the first such term.
+  -- Read by 'checkCalleeAdmissibility' only.
   , tcImportedProducts :: Map Name Expr
   -- BYTES-TABULATE-1: appended at the END for the reason 'tcRetTypes' gives.
   -- Each function a generator slot may name, mapped to (declared with def,
@@ -1453,11 +1454,12 @@ checkCalleeAdmissibility func = do
             -- first" would loop. No JSON pointer addresses a statement of
             -- another module from this file, so the text prints the product.
             | Just _ <- Map.lookup func csMap
-            , Just p <- Map.lookup func prods = mkCoreMembershipNonlinear enclosing func (renderProductSExpr p)
+            , Just p <- Map.lookup func prods = mkCoreMembershipNonlinear enclosing func p (renderProductSExpr p)
             | otherwise                    = mkCoreMembershipViolation enclosing func
       modify $ \s -> s { tcErrors = tcErrors s ++ [d] }
 
--- | MUL-VAR-1 Rev 3a: the S-expression of a product, for the core-admission
+-- | MUL-VAR-1 Rev 3a: the S-expression of a product (or, DIV-VAR-1, of a
+-- division), for the core-admission
 -- text. Arithmetic, variables, literals and applications print as written;
 -- any other form prints as @(…)@.
 renderProductSExpr :: Expr -> Text
@@ -1998,15 +2000,19 @@ typeCheckWithCacheModeSites' gm strict cache entryCS baseEnv stmts =
 -- contract holds a product of two non-constant terms ('firstNonConstProduct',
 -- the emitter's test), under its qualified name (the key 'seedStatus' gives
 -- its contract status), with the first such product: body first, then pre,
--- then post.
+-- then post. DIV-VAR-1 (N1): a `/` or `mod` by a divisor that is not ground
+-- ('firstVarDivision') is named the same way; in one clause a product is
+-- named before a division.
 importedProductsOf :: ModuleCache -> Map Name Expr
 importedProductsOf cl = Map.fromList
   [ (T.intercalate "." path <> "." <> n, p)
   | (path, menv) <- Map.toList cl
   , st <- meStatements menv
   , Just (n, _, _, c, b) <- [normalizeDefStmt st]
-  , Just p <- [listToMaybe (mapMaybe firstNonConstProduct (b : catMaybesL [contractPre c, contractPost c]))] ]
-  where catMaybesL xs = [ x | Just x <- xs ]
+  , Just p <- [listToMaybe (mapMaybe firstNonLinear (b : catMaybesL [contractPre c, contractPost c]))] ]
+  where
+    catMaybesL xs = [ x | Just x <- xs ]
+    firstNonLinear e = maybe (firstVarDivision e) Just (firstNonConstProduct e)
 
 -- | BYTES-TABULATE-1: every definition of a closure module, under its
 -- qualified name, with (declared with def, has an authored post): what the

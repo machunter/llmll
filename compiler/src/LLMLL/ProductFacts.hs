@@ -774,9 +774,10 @@ literals polys =
 -- Printing
 -- ---------------------------------------------------------------------------
 
--- | Every monomial of degree 2 or more in the facts, at any depth.
+-- | Every monomial of degree 2 or more that the printed facts hold. A division
+-- prints as its symbol, so a monomial only inside one does not print.
 factMonos :: [Fact] -> Set.Set Mono
-factMonos fs = Set.filter ((>= 2) . monoDegree) $ monosDeep
+factMonos fs = Set.filter ((>= 2) . monoDegree) $ monosPrinted
   [ p | f <- fs, (_, p) <- factConc f : factPrem f ]
 
 -- | @mul##k@ for each monomial of degree 2 or more, numbered in sorted order.

@@ -14,7 +14,7 @@
 --   @byte-range@ gives a false @refuted@), and the negated @rhs@, with each
 --   @mul##k@ expanded from the emitter's table ('erMonoTable');
 -- * z3 reads it on standard input, under the solver guard, with
---   @(set-option :rlimit 2000000)@ and a 5 s process limit;
+--   @(set-option :rlimit 10000000)@ and a 5 s process limit;
 -- * on @sat@ it asks @get-value@ for each variable and each application of a
 --   free function, reads the values (integers, booleans, arrays as finite maps
 --   with a default, @Str@ values as tokens) and evaluates every hypothesis
@@ -42,6 +42,8 @@ module LLMLL.ProductRecheck
   , SmtSort(..)
   , Query(..)
   , buildQuery
+  , buildQueryWith
+  , provedDivisors
   , mkQuery
   , queryScript
   , expandMonos
@@ -79,7 +81,9 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as T
+import GHC.Clock (getMonotonicTime)
 import System.Directory (findExecutable)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode(..))
 
 import LLMLL.FixpointIR
@@ -95,8 +99,13 @@ import LLMLL.Diagnostic (Diagnostic(..), mkWarning)
 -- ---------------------------------------------------------------------------
 
 -- | z3's resource limit for one recheck query (design "The limit").
+-- DIV-VAR-1 (user decision, 2026-11-27): raised from 2000000. Through
+-- `llmll verify` on z3 4.15.4 a validated division refutation used up to
+-- 1242400, and CI's z3 4.8.12 is not measured. A query that reaches the
+-- limit costs about 0.2 s per 2000000, so 10000000 stays inside
+-- 'recheckSeconds'. A higher limit can add a refutation, never a proof.
 recheckRlimit :: Int
-recheckRlimit = 2000000
+recheckRlimit = 10000000
 
 -- | The process guard for one recheck query, in seconds.
 recheckSeconds :: Int
@@ -134,7 +143,8 @@ isValidated _              = False
 data SmtSort = SInt | SBool | SStr | SArr SmtSort SmtSort
   deriving (Show, Eq, Ord)
 
--- | One recheck query, with every @mul##k@ already expanded.
+-- | One recheck query, with every @mul##k@, @div##k@ and @mod##k@ already
+-- expanded.
 data Query = Query
   { qVars  :: [(Text, SmtSort)]            -- ^ variables, in name order
   , qFuns  :: [(Text, [SmtSort], SmtSort)] -- ^ free functions (arity 0: a constant)
@@ -159,7 +169,8 @@ renderSort = \case
   SStr -> "Str"
   SArr k v -> "(Array " <> renderSort k <> " " <> renderSort v <> ")"
 
--- | Replace each @mul##k@ by the product of its atoms, with @*@ written out.
+-- | Replace each @mul##k@ by the product of its atoms, with @*@ written out,
+-- and (DIV-VAR-1) each @div##k@ and @mod##k@ by its @(e / d)@ or @(e mod d)@.
 expandMonos :: Map Text PNF.Mono -> FQPred -> FQPred
 expandMonos tbl = go
   where
@@ -193,9 +204,29 @@ substVar from to = go
       FQImplies a b     -> FQImplies (go a) (go b)
       _                 -> p
 
--- | The recheck query of one constraint, or why the translator abstains.
+-- | The recheck query of one constraint, or why the translator abstains. No
+-- divisor is assumed to be positive ('buildQueryWith').
 buildQuery :: EmitResult -> FQConstraintId -> Either Text Query
-buildQuery er cid = do
+buildQuery = buildQueryWith Set.empty
+
+-- | DIV-VAR-1: the normal form of each divisor @d@ of a function whose
+-- definedness the solver proved: a definedness constraint of the function
+-- names it ('erDivDefs') and is not in the UNSAFE answer.
+provedDivisors :: EmitResult -> FQVerifyResult -> Text -> Set PNF.Poly
+provedDivisors er r f = Set.fromList
+  [ d | (i, d) <- Map.toList (erDivDefs er)
+      , not (i `Set.member` unsafe)
+      , Just o <- [Map.lookup i (erConstraintTable er)], coFunction o == f ]
+  where unsafe = case r of
+          FQUnsafe ids -> Set.fromList ids
+          _            -> Set.empty
+
+-- | 'buildQuery' with the proved divisors of the owning function. Each division
+-- pair of the constraint whose divisor is one of them adds the hypothesis
+-- @d >= 1@. The validator evaluates it as any hypothesis, so it can only
+-- narrow the models that count.
+buildQueryWith :: Set PNF.Poly -> EmitResult -> FQConstraintId -> Either Text Query
+buildQueryWith proved er cid = do
   let file = erFQFile er
   c <- maybe (Left "no such constraint") Right
          (lookup cid [ (conId x, x) | x <- fqConstraints file ])
@@ -203,11 +234,15 @@ buildQuery er cid = do
   base <- maybe (Left "no lhs without facts") Right (Map.lookup cid (erProductLhs er))
   let bmap  = Map.fromList [ (bindId b, b) | b <- fqBinds file ]
       envBs = [ b | i <- conEnv c, Just b <- [Map.lookup i bmap]
-                  , not (mulSymbolPrefix `T.isPrefixOf` bindName b) ]
+                  , not (any (`T.isPrefixOf` bindName b) emitterSymbolPrefixes) ]
       hypOf b = let r = bindReft b
                 in if reftVar r == bindName b then reftPred r else substVar (reftVar r) (bindName b) (reftPred r)
       envHyps = [ hypOf b | b <- envBs, reftPred (bindReft b) /= FQTrue ]
-      hyps  = map (expandMonos tbl) (envHyps ++ [base])
+      divs  = Set.fromList [ d | m <- Map.elems tbl, [a] <- [PNF.monoAtoms m]
+                               , Just (_, d) <- [PNF.isDivAtom a] ]
+      dHyps = [ FQBinPred FQGe (PNF.polyPred (const Nothing) d) (FQLit 1)
+              | d <- Set.toAscList (Set.intersection divs proved) ]
+      hyps  = map (expandMonos tbl) (envHyps ++ [base]) ++ dHyps
       goal  = expandMonos tbl (reftPred (conRhs c))
       sortsOfBinds = [ (bindName b, reftSort (bindReft b)) | b <- envBs ]
                   ++ [ (reftVar (conLhs c), reftSort (conLhs c)) ]
@@ -283,10 +318,10 @@ translate q = go
       FQBinPred op l r -> do
         o <- relName op
         bin o l r
-      FQBinArith FQDiv l (FQLit k) | k > 0 -> bin "div" l (FQLit k)
-      FQBinArith FQMod l (FQLit k) | k > 0 -> bin "mod" l (FQLit k)
-      FQBinArith FQDiv _ _ -> Left "a divisor that is not a positive literal"
-      FQBinArith FQMod _ _ -> Left "a divisor that is not a positive literal"
+      -- DIV-VAR-1: any divisor. SMT-LIB and Haskell differ at a divisor below
+      -- 1; 'evalPred' reads the model with Haskell's 'div' and 'mod'.
+      FQBinArith FQDiv l d -> bin "div" l d
+      FQBinArith FQMod l d -> bin "mod" l d
       FQBinArith op l r -> do
         o <- arithName op
         bin o l r
@@ -387,7 +422,8 @@ readAnswer q _code out err =
         unless (length vals == nv + length (qApps q)) $
           Left "get-value returned a different number of values"
         Right $ case validateModel q env appVals of
-          Left why -> RSatInvalid why
+          Left why | why == divisionByZero -> RSatUnreadable why
+                   | otherwise             -> RSatInvalid why
           Right () -> RValidated (Map.toList env)
       _ -> RSatUnreadable "no get-value output"
     Right (SAtom "unsat" : _) -> RUnsat
@@ -426,11 +462,53 @@ recheckProducts :: Maybe FilePath -> EmitResult -> FQVerifyResult
                 -> IO (Set FQConstraintId, [(FQConstraintId, RecheckAnswer)])
 recheckProducts Nothing er r =
   pure (Set.empty, [ (i, RNoSolver) | (_, is) <- recheckCandidates er r, i <- is ])
-recheckProducts (Just z3) er r = recheckProductsWith run er r
+recheckProducts (Just z3) er r = do
+  trace <- lookupEnv "LLMLL_RECHECK_TRACE"
+  recheckProductsWith (run trace) er r
   where
-    run i = case buildQuery er i of
+    proved = maybe Set.empty (provedDivisors er r . coFunction) . (`Map.lookup` erConstraintTable er)
+    run trace i = case buildQueryWith (proved i) er i of
       Left why -> pure (RAbstain why)
-      Right q  -> recheckQuery z3 q
+      Right q  -> maybe (recheckQuery z3 q) (\f -> recheckTraced f z3 er i q) trace
+
+-- | DIV-VAR-1, TEMPORARY (removed before step 3): with
+-- @LLMLL_RECHECK_TRACE=<file>@, run the query and append one JSON line: the
+-- id, its function and clause, the answer, the wall time in milliseconds and
+-- z3's rlimit count.
+recheckTraced :: FilePath -> FilePath -> EmitResult -> FQConstraintId -> Query -> IO RecheckAnswer
+recheckTraced file z3 er i q = case queryScript q of
+  Left why -> pure (RAbstain why)
+  Right script -> do
+    t0 <- getMonotonicTime
+    r <- try (runSolverGuardedInput recheckSeconds z3 ["-in", "-smt2"]
+                (T.unpack (script <> "(get-info :all-statistics)\n")))
+    t1 <- getMonotonicTime
+    let (ans, out) = case r of
+          Left (e :: SomeException) -> (RFailed (T.pack (show e)), "")
+          Right (Left _) -> (RStopped, "")
+          Right (Right (code, o, e)) -> (readAnswer q code (T.pack o) (T.pack e), o)
+        name = case ans of
+          RValidated _ -> "validated"
+          RSatInvalid w -> "sat-invalid: " <> w
+          RSatUnreadable w -> "sat-unreadable: " <> w
+          RUnsat -> "unsat"
+          RUnknown -> "unknown"
+          RStopped -> "stopped"
+          RFailed w -> "failed: " <> T.take 80 w
+          RAbstain w -> "abstain: " <> w
+          RNoSolver -> "no-solver"
+        rl = case T.breakOn ":rlimit-count" (T.pack out) of
+          (_, rest) | T.null rest -> "null"
+                    | otherwise -> T.takeWhile isDigit (T.dropWhile (not . isDigit) rest)
+        org = Map.lookup i (erConstraintTable er)
+        str t = "\"" <> T.map (\c -> if c `elem` ("\"\\\n" :: String) then '\'' else c) t <> "\""
+    appendFile file $ T.unpack $ "{\"id\": " <> tshow i
+      <> ", \"fn\": " <> str (maybe "" coFunction org)
+      <> ", \"clause\": " <> str (maybe "" coClause org)
+      <> ", \"answer\": " <> str name
+      <> ", \"ms\": " <> tshow (round ((t1 - t0) * 1000) :: Integer)
+      <> ", \"rlimit\": " <> rl <> "}\n"
+    pure ans
 
 -- | 'recheckProducts' with the runner given: each partition stops at its
 -- first validated id.
@@ -687,8 +765,13 @@ buildFunTable vars apps = foldM add Map.empty (sortOn (depth . fst) apps)
       FQOr ps -> maximum (0 : map depth ps)
       _ -> 0 :: Int
 
+-- | DIV-VAR-1: the program stops at a zero divisor, so a model that divides by
+-- zero is not a counterexample the evaluation can read ('RSatUnreadable').
+divisionByZero :: Text
+divisionByZero = "division by zero"
+
 -- | Exact evaluation: integers are unbounded, @/@ and @mod@ are Haskell
--- 'div' and 'mod' by a positive literal, arrays are finite maps.
+-- 'div' and 'mod' by any divisor but 0 (DIV-VAR-1), arrays are finite maps.
 evalPred :: Model -> FQPred -> Either Text Value
 evalPred m = go
   where
@@ -719,9 +802,10 @@ evalPred m = go
           FQAdd -> Right (VInt (x + y))
           FQSub -> Right (VInt (x - y))
           FQMul -> Right (VInt (x * y))
-          FQDiv | y > 0 -> Right (VInt (x `div` y))
-          FQMod | y > 0 -> Right (VInt (x `mod` y))
-          _ -> Left ("operator " <> tshow op <> " at divisor " <> tshow y)
+          FQDiv | y /= 0 -> Right (VInt (x `div` y))
+          FQMod | y /= 0 -> Right (VInt (x `mod` y))
+          _ | op `elem` [FQDiv, FQMod] -> Left divisionByZero
+            | otherwise -> Left ("operator " <> tshow op)
       FQAnd ps -> VBool . and <$> mapM (\q -> go q >>= bool) ps
       FQOr ps -> VBool . or <$> mapM (\q -> go q >>= bool) ps
       FQNot q -> VBool . not <$> (go q >>= bool)

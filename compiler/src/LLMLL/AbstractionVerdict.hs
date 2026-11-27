@@ -110,6 +110,7 @@ module LLMLL.AbstractionVerdict
   , aoReportCtx
   , abstractionConstruct
   , nonlinearConstruct
+  , divisionConstruct
   , abstractionRepair
   , productRepair
   , postUnassumedConstruct
@@ -123,6 +124,7 @@ module LLMLL.AbstractionVerdict
   ) where
 
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -239,6 +241,23 @@ abstractionConstruct g = "abstraction:app:" <> g
 nonlinearConstruct :: Text
 nonlinearConstruct = "abstraction:nonlinear:*"
 
+-- | DIV-VAR-1: the same construct when a failing product-marked constraint names
+-- a division symbol (@div##k@ or @mod##k@).
+divisionConstruct :: Text
+divisionConstruct = "abstraction:nonlinear:/"
+
+-- | DIV-VAR-1: does a rewritten constraint name a division symbol?
+namesDivision :: EmitResult -> FQConstraintId -> Bool
+namesDivision er i =
+  any (\s -> any (`T.isPrefixOf` s) [PNF.divSymPrefix, PNF.modSymPrefix])
+      (maybe [] Map.keys (Map.lookup i (erMonoTable er)))
+
+-- | The construct of a product-marked id.
+productConstruct :: EmitResult -> [FQConstraintId] -> Text
+productConstruct er is
+  | any (namesDivision er) is = divisionConstruct
+  | otherwise                 = nonlinearConstruct
+
 -- | CLAUSE-WELLDEF-1: the construct of a 'FallbackClauseWelldefUnproved'
 -- function, @welldef:@ plus the construct of the inner cause.
 welldefConstruct :: Text -> Text
@@ -271,11 +290,13 @@ data Reclass = Reclass
   , rcInner  :: FallbackCause
   , rcWdIds  :: [FQConstraintId]
   , rcProduct :: Bool
-    -- ^ MUL-VAR-1: the construct is @abstraction:nonlinear:*@ ('rcCallee' is
-    -- then empty)
+    -- ^ MUL-VAR-1: the construct is 'rcNonlinear' ('rcCallee' is then empty)
   , rcProdIds :: [FQConstraintId]
     -- ^ MUL-VAR-1: the failing ids that carry the product mark, in report
     -- order; 'W-BODY-FALLBACK' points at one of them
+  , rcNonlinear :: Text
+    -- ^ DIV-VAR-1: 'divisionConstruct' when one of 'rcProdIds' names a division
+    -- symbol, else 'nonlinearConstruct'
   }
 
 -- | The failing-id partition of §4.4.
@@ -337,7 +358,7 @@ applyAbstractionVerdict cleared er r = case r of
       markCause i
         | Just g <- absMark i = Just (abstractionConstruct g)
         | Just g <- cpuMark i = Just (postUnassumedConstruct g)
-        | prodMark i          = Just nonlinearConstruct
+        | prodMark i          = Just (productConstruct er [i])
         | otherwise           = Nothing
       -- Rule 2: one non-candidate id keeps the whole function.
       blocked  = Set.fromList [ f | i <- ids, isNothing (candidate i), Just f <- [fnOf i] ]
@@ -358,14 +379,15 @@ applyAbstractionVerdict cleared er r = case r of
       -- new-mark callee of the first failing id that carries it.
       -- MUL-VAR-1: when not every id carries the abstraction mark and none
       -- carries the callee-post mark, some id carries only the product mark,
-      -- and the construct is @abstraction:nonlinear:*@.
+      -- and the construct is 'productConstruct'.
       decide f is =
         let (inner, g, prod) = shipped is
             wdIds      = [ i | i <- is, partOf i == PWd ]
             prodIds    = [ i | i <- is, prodMark i ]
+            nonlin     = productConstruct er prodIds
         in if length wdIds == length is
-             then Reclass f FallbackClauseWelldefUnproved g inner wdIds prod prodIds
-             else Reclass f inner g inner wdIds prod prodIds
+             then Reclass f FallbackClauseWelldefUnproved g inner wdIds prod prodIds nonlin
+             else Reclass f inner g inner wdIds prod prodIds nonlin
       shipped is = case ( [ g | i <- is, Just g <- [absMark (i :: FQConstraintId)] ]
                         , [ g | i <- is, Just g <- [cpuMark i] ] ) of
         (g : gs, _) | length (g : gs) == length is -> (FallbackAbstraction, g, False)
@@ -392,7 +414,7 @@ constructOf c = case rcCause c of
     innerConstruct FallbackCalleePostUnassumed g = postUnassumedConstruct g
     innerConstruct FallbackTabulateGenUnverified g = tabulateGenConstruct g
     innerConstruct _                           g
-      | rcProduct c = nonlinearConstruct
+      | rcProduct c = rcNonlinear c
       | otherwise   = abstractionConstruct g
 
 -- | First-occurrence order, without duplicates.
@@ -506,6 +528,6 @@ applyTabulateGenVerdict ao
       in if null new then mv else fixMoved (Set.union mv (Set.fromList new))
     moved    = fixMoved Set.empty
     finalVL  = Set.fromList [ f | f <- cands, not (f `Set.member` moved) ]
-    rs = [ Reclass f FallbackTabulateGenUnverified g FallbackTabulateGenUnverified [] False []
+    rs = [ Reclass f FallbackTabulateGenUnverified g FallbackTabulateGenUnverified [] False [] nonlinearConstruct
          | f <- cands, f `Set.member` moved
          , g : _ <- [unverifiedGens finalVL f] ]

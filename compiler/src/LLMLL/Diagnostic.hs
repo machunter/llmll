@@ -99,7 +99,7 @@ import Text.Megaparsec (ParseErrorBundle, errorBundlePretty, bundleErrors, attac
 import Text.Megaparsec.Error (errorOffset, ParseError(..), ErrorFancy(..))
 import qualified Data.Set as Set
 import Text.Megaparsec.Pos (unPos, sourceLine, sourceColumn)
-import LLMLL.Syntax (Span(..), Statement(SImport), Import(importPath))
+import LLMLL.Syntax (Span(..), Statement(SImport), Import(importPath), Expr(EApp, EOp))
 import LLMLL.RegexPattern (RegexProblem(..))
 import GHC.Generics (Generic)
 
@@ -819,18 +819,28 @@ mkCoreMembershipViolation defName callee =
 -- hold it, so it says only that verify MAY fall back on such a product. The
 -- third argument places the product: a JSON pointer, or the product's
 -- S-expression when no pointer addresses a statement of another module.
--- Same 'diagKind' as 'mkCoreMembershipViolation'.
-mkCoreMembershipNonlinear :: Text -> Text -> Text -> Diagnostic
-mkCoreMembershipNonlinear defName callee at =
-  let msg = "def '" <> defName <> "': callee '" <> callee
-            <> "' was verified but is not body-faithful. Its body holds a product of"
-            <> " two non-constant terms at " <> at <> "; verify may fall back on such a product."
+-- Same 'diagKind' as 'mkCoreMembershipViolation'. DIV-VAR-1 (N1): a division by
+-- a non-constant divisor is named the same way ('nonlinearTermName').
+mkCoreMembershipNonlinear :: Text -> Text -> Expr -> Text -> Diagnostic
+mkCoreMembershipNonlinear defName callee term at =
+  let (long, short) = nonlinearTermName term
+      msg = "def '" <> defName <> "': callee '" <> callee
+            <> "' was verified but is not body-faithful. Its body holds " <> long
+            <> " at " <> at <> "; verify may fall back on such a " <> short <> "."
             <> " Only verified functions are admissible in strict-core bodies."
   in (mkError Nothing msg)
        { diagKind       = Just "core-membership-violation"
        , diagSuggestion = Just ("run (llmll verify) on " <> callee <> "'s module and read W-BODY-FALLBACK for the cause;"
                                 <> " restate " <> callee <> "'s contract, or write '" <> defName <> "' as a def-shell.")
        }
+
+-- | How a message names a non-linear term: in full, and by one noun.
+nonlinearTermName :: Expr -> (Text, Text)
+nonlinearTermName e = case e of
+  EOp op _  | op `elem` ["/", "mod"] -> division
+  EApp op _ | op `elem` ["/", "mod"] -> division
+  _ -> ("a product of two non-constant terms", "product")
+  where division = ("a division by a non-constant divisor", "division")
 
 -- | FN-SHADOW-1 (fn-param-uf-1-proposal R1, R6): the same violation when the
 -- call head is a parameter or a local binder. It names the binder: before

@@ -878,7 +878,9 @@ productSpec = describe "MUL-VAR-1 normal form and fact set (ProductNF, ProductFa
                   , (lbl, hs, g, m) <- divVariants r
                   , Right fr <- [ctl hs g]
                   , factSet Map.empty (frFacts fr) /= factSet m (frFacts base) ]
-        bad `shouldSatisfy` (not . null)
+        -- The script counts 13 on its own variants, which are random shuffles
+        -- (divvar_run.py invariance()); these 352 are fixed permutations.
+        map snd bad `shouldBe` concat (replicate 3 ["reversed", "combined-u"])
 
     describe "DV-LIM: the limit of 32 division pairs" $ do
       it "DV-LIM-1 32 written pairs pass, with the script's facts" $ do
