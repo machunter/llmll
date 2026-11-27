@@ -666,6 +666,26 @@ jobs:
           grep -q ' 24 passed' "$RUNNER_TEMP/bytes-tabulate-1.log" \
             || { echo "BYTES-TABULATE-1: expected 24 passed cells"; exit 1; }
 
+      # DIV-VAR-1 (image-library-proposal Part C): division and mod by a
+      # variable. The witness table in fixtures/div_var_1 gets its stated
+      # verdicts (false tasks refuted, true ones verified, an unproved divisor
+      # ill-defined), rem and a ground divisor <= 0 stay refused, and the
+      # end-to-end cells cover verify, patch (naming the divisor),
+      # diverge-report, --cdp, replay of a division-only VC, the trust report
+      # and bytes-tabulate over a division generator, against this runner's
+      # apt z3 (4.8.12). 34 cells; no skip allowed.
+      - name: Run DIV-VAR-1 cells (pytest, needs the solver and z3)
+        run: |
+          set -euo pipefail
+          SUBJECT="$(cd compiler && stack path --local-install-root)/bin/llmll"
+          LLMLL_BIN="$SUBJECT" python3 -m pytest scripts/tests/test_div_var_1.py -v -rs \
+            | tee "$RUNNER_TEMP/div-var-1.log"
+          if grep -q SKIPPED "$RUNNER_TEMP/div-var-1.log"; then
+            echo "a DIV-VAR-1 cell skipped; LLMLL_BIN, fixpoint and z3 must be on PATH here"; exit 1
+          fi
+          grep -q ' 34 passed' "$RUNNER_TEMP/div-var-1.log" \
+            || { echo "DIV-VAR-1: expected 34 passed cells"; exit 1; }
+
       # CALL-RESULT-MARK-1 and ABSTRACTION-LEN-EXACT-1 (byte-io-proposal
       # Amendment Rev 2b): the clause-1 cone of influence and the exact length
       # of a partial result. The witnesses in fixtures/call_result_mark_1 get

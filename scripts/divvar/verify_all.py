@@ -4,11 +4,9 @@
 The fixtures come from scripts/divvar/to_llmll.py. Each file runs in a fresh
 temporary folder, so no sidecar is written into the repo. Runs are serial.
 geom.llmll is verified first; a module that imports it gets a copy of it and
-of its sidecar. The binary is $LLMLL_BIN, else `llmll` on PATH. With
---trace DIR, LLMLL_RECHECK_TRACE writes one JSON line per recheck query to
-DIR/<task>.jsonl.
+of its sidecar. The binary is $LLMLL_BIN, else `llmll` on PATH.
 
-Usage: python3 scripts/divvar/verify_all.py OUT.json [--only PREFIX] [--trace DIR] [--fixtures DIR]
+Usage: python3 scripts/divvar/verify_all.py OUT.json [--only PREFIX] [--fixtures DIR]
 """
 import argparse
 import json
@@ -52,12 +50,9 @@ def verdict_of(doc, fid):
     return "other:" + str(doc.get("solver_verdict")), None, None
 
 
-def run(exe, cwd, name, trace=None):
-    env = dict(os.environ)
-    if trace:
-        env["LLMLL_RECHECK_TRACE"] = trace
+def run(exe, cwd, name):
     t0 = time.time()
-    p = subprocess.run([exe, "--json", "verify", "--trust-report", name], cwd=cwd, capture_output=True, text=True, env=env)
+    p = subprocess.run([exe, "--json", "verify", "--trust-report", name], cwd=cwd, capture_output=True, text=True)
     return p, last_json(p.stdout), round(time.time() - t0, 2)
 
 
@@ -65,15 +60,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("--only", default="")
-    ap.add_argument("--trace")
     ap.add_argument("--fixtures", default=DEFAULT_DIR)
     a = ap.parse_args()
     exe = os.environ.get("LLMLL_BIN") or shutil.which("llmll")
     ver = subprocess.run([exe, "--version"], capture_output=True, text=True).stdout.strip()
     expected = json.load(open(os.path.join(a.fixtures, "expected.json")))
-    if a.trace:
-        a.trace = os.path.abspath(a.trace)   # each run has its own working folder
-        os.makedirs(a.trace, exist_ok=True)
     base = tempfile.mkdtemp(prefix="divvar-geom-")
     shutil.copy(os.path.join(a.fixtures, "geom.llmll"), base)
     p, doc, _ = run(exe, base, "geom.llmll")
@@ -88,7 +79,7 @@ def main():
             if t["first"]:
                 shutil.copy(os.path.join(base, "geom.llmll"), tmp)
                 shutil.copy(os.path.join(base, "geom.llmll.verified.json"), tmp)
-            p, doc, wall = run(exe, tmp, t["file"], os.path.join(a.trace, name + ".jsonl") if a.trace else None)
+            p, doc, wall = run(exe, tmp, t["file"])
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
         v, cause, constructs = verdict_of(doc, t["id"])

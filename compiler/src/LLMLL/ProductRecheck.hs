@@ -81,9 +81,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
 import qualified Data.Text as T
-import GHC.Clock (getMonotonicTime)
 import System.Directory (findExecutable)
-import System.Environment (lookupEnv)
 import System.Exit (ExitCode(..))
 
 import LLMLL.FixpointIR
@@ -462,53 +460,12 @@ recheckProducts :: Maybe FilePath -> EmitResult -> FQVerifyResult
                 -> IO (Set FQConstraintId, [(FQConstraintId, RecheckAnswer)])
 recheckProducts Nothing er r =
   pure (Set.empty, [ (i, RNoSolver) | (_, is) <- recheckCandidates er r, i <- is ])
-recheckProducts (Just z3) er r = do
-  trace <- lookupEnv "LLMLL_RECHECK_TRACE"
-  recheckProductsWith (run trace) er r
+recheckProducts (Just z3) er r = recheckProductsWith run er r
   where
     proved = maybe Set.empty (provedDivisors er r . coFunction) . (`Map.lookup` erConstraintTable er)
-    run trace i = case buildQueryWith (proved i) er i of
+    run i = case buildQueryWith (proved i) er i of
       Left why -> pure (RAbstain why)
-      Right q  -> maybe (recheckQuery z3 q) (\f -> recheckTraced f z3 er i q) trace
-
--- | DIV-VAR-1, TEMPORARY (removed before step 3): with
--- @LLMLL_RECHECK_TRACE=<file>@, run the query and append one JSON line: the
--- id, its function and clause, the answer, the wall time in milliseconds and
--- z3's rlimit count.
-recheckTraced :: FilePath -> FilePath -> EmitResult -> FQConstraintId -> Query -> IO RecheckAnswer
-recheckTraced file z3 er i q = case queryScript q of
-  Left why -> pure (RAbstain why)
-  Right script -> do
-    t0 <- getMonotonicTime
-    r <- try (runSolverGuardedInput recheckSeconds z3 ["-in", "-smt2"]
-                (T.unpack (script <> "(get-info :all-statistics)\n")))
-    t1 <- getMonotonicTime
-    let (ans, out) = case r of
-          Left (e :: SomeException) -> (RFailed (T.pack (show e)), "")
-          Right (Left _) -> (RStopped, "")
-          Right (Right (code, o, e)) -> (readAnswer q code (T.pack o) (T.pack e), o)
-        name = case ans of
-          RValidated _ -> "validated"
-          RSatInvalid w -> "sat-invalid: " <> w
-          RSatUnreadable w -> "sat-unreadable: " <> w
-          RUnsat -> "unsat"
-          RUnknown -> "unknown"
-          RStopped -> "stopped"
-          RFailed w -> "failed: " <> T.take 80 w
-          RAbstain w -> "abstain: " <> w
-          RNoSolver -> "no-solver"
-        rl = case T.breakOn ":rlimit-count" (T.pack out) of
-          (_, rest) | T.null rest -> "null"
-                    | otherwise -> T.takeWhile isDigit (T.dropWhile (not . isDigit) rest)
-        org = Map.lookup i (erConstraintTable er)
-        str t = "\"" <> T.map (\c -> if c `elem` ("\"\\\n" :: String) then '\'' else c) t <> "\""
-    appendFile file $ T.unpack $ "{\"id\": " <> tshow i
-      <> ", \"fn\": " <> str (maybe "" coFunction org)
-      <> ", \"clause\": " <> str (maybe "" coClause org)
-      <> ", \"answer\": " <> str name
-      <> ", \"ms\": " <> tshow (round ((t1 - t0) * 1000) :: Integer)
-      <> ", \"rlimit\": " <> rl <> "}\n"
-    pure ans
+      Right q  -> recheckQuery z3 q
 
 -- | 'recheckProducts' with the runner given: each partition stops at its
 -- first validated id.
