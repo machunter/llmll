@@ -273,11 +273,15 @@ def test_dv_n1_core_syntax_and_an_unproved_divisor(tmp_path: Path) -> None:
 @needs_solver
 def test_dv_shadowed_mod_is_never_the_builtin(tmp_path: Path) -> None:
     """A function-typed parameter named `mod`: no claim about it is verified by
-    the division theorems, in the body or in a clause."""
-    for post, body in (("(= result (mod x d))", "(mod x d)"), ("(>= (mod x d) 0)", "0")):
+    the division theorems, in the body or in a clause, whatever the divisor.
+    SHADOW-MOD-1: v0.42.0 verified the two ground-divisor clauses."""
+    for pre, post, body in (("(>= d 1)", "(= result (mod x d))", "(mod x d)"),
+                            ("(>= d 1)", "(>= (mod x d) 0)", "0"),
+                            ("(>= d 1)", "(>= (mod x 2) 0)", "0"),
+                            ("(= (mod x 2) 5)", "false", "0")):
         (tmp_path / "s.llmll").write_text(
             "(module s (export f)\n  (def-shell f [mod: (fn [int int] -> int) x: int d: int] -> int\n"
-            f"    (pre (>= d 1)) (post {post}) {body}))\n")
+            f"    (pre {pre}) (post {post}) {body}))\n")
         p = _run(tmp_path, "--json", "verify", "--trust-report", "s.llmll")
         assert _verdict(_last_json(p.stdout), "f") == "fallback", p.stdout
 

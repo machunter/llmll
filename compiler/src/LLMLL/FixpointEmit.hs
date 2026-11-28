@@ -8059,16 +8059,17 @@ markContractIntBuiltins declared c =
 shadowedDivTag :: Text
 shadowedDivTag = "shadowed-div%"
 
--- | DIV-VAR-1: rename each `mod` by a divisor that is not ground to its
--- 'shadowedDivTag' name when a declared name shadows `mod`. Read as the
--- builtin, it would prove a claim about the function value. A ground divisor
--- keeps the reading it had.
+-- | DIV-VAR-1: rename each two-argument `mod` to its 'shadowedDivTag' name
+-- when a declared name shadows `mod`. Read as the builtin, it would prove a
+-- claim about the function value. The divisor does not matter: a ground
+-- divisor read as the builtin was a false proof too (SHADOW-MOD-1, v0.42.0:
+-- @(post (>= (mod x 2) 0))@ over a parameter @mod@ verified).
 markShadowedDiv :: Set.Set Name -> Expr -> Expr
 markShadowedDiv declared
   | Set.null (Set.intersection exactDivBuiltins declared) = id
   | otherwise = go
   where
-    shadow f as = f `Set.member` declared && isVarDivNode f as
+    shadow f as = f `Set.member` declared && f `Set.member` exactDivBuiltins && length as == 2
     go e = case e of
       EApp f as | shadow f as -> EApp (shadowedDivTag <> f) (map go as)
                 | otherwise   -> EApp f (map go as)

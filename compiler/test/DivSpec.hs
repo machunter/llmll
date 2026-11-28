@@ -171,6 +171,21 @@ divSpec = describe "DIV-VAR-1 step 1b: the emitter, the gates and the recheck" $
         , "  (def-shell f [mod: (fn [int int] -> int) x: int d: int] -> int (pre (>= d 1)) (post (>= (mod x d) 0)) 0))" ]
       lookup "f" (erFallbackConstructs er) `shouldBe` Just ["nonlinear:mod"]
       lookup "f" (erBodyFallbackCauses er) `shouldBe` Just FallbackContractPost
+    it "DV-E-4c SHADOW-MOD-1: a shadowed clause `mod` by a ground divisor is not the builtin either" $ do
+      -- v0.42.0 verified both: the clause read the parameter as the builtin
+      erPost <- emitSrc $ T.unlines
+        [ "(module s (export f)"
+        , "  (def-shell f [mod: (fn [int int] -> int) x: int] -> int (post (>= (mod x 2) 0)) 0))" ]
+      lookup "f" (erBodyFallbackCauses erPost) `shouldBe` Just FallbackContractPost
+      "f" `elem` erBodyFaithfulFns erPost `shouldBe` False
+      erPre <- emitSrc $ T.unlines
+        [ "(module s (export f)"
+        , "  (def-shell f [mod: (fn [int int] -> int) x: int] -> int (pre (= (mod x 2) 5)) (post false) 0))" ]
+      lookup "f" (erBodyFallbackCauses erPre) `shouldBe` Just FallbackContractPre
+      "f" `elem` erBodyFaithfulFns erPre `shouldBe` False
+      -- without the shadow, the ground divisor keeps the builtin reading
+      erOk <- emitSrc "(module s (export g) (def-shell g [x: int] -> int (post (>= (mod x 2) 0)) 0))"
+      "g" `elem` erBodyFaithfulFns erOk `shouldBe` True
 
   describe "the body arm" $ do
     it "DV-E-5 a body division is a CallVC with pre d >= 1 and one reflection part" $ do
