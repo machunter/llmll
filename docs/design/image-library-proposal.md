@@ -1,7 +1,7 @@
 ---
 name: image-library-proposal
 title: "IMAGE-LIB-1: an image library whose functions verify, with bytes-tabulate and variable divisors"
-status: "Rev 4a, SETTLED 2026-11-20 (4a: three clarifications from the DIV-VAR-1 engineer plan). Parts A, B and D settled at Rev 3 (user accepted decisions 1 to 5); Part C settled at Rev 4 after its witness table (166 of 166 as expected). Rev 4 also folds the BYTES-TABULATE-1 engineer plan's findings. Folds the security review of Rev 1 and the professor review of Rev 2 (image-library-review.md); dispositions in the appendix. No compiler code exists for Part C; BYTES-TABULATE-1 step 1 is in progress."
+status: "Rev 4b, SETTLED 2026-11-20; amended 2026-11-28 (4a: three clarifications from the DIV-VAR-1 engineer plan; 4b: the DIV-VAR-1 implementation record, user decisions of 2026-11-25 and 2026-11-27). Parts A, B and D settled at Rev 3 (user accepted decisions 1 to 5); Part C settled at Rev 4 after its witness table (166 of 166 as expected). Rev 4 also folds the BYTES-TABULATE-1 engineer plan's findings. Folds the security review of Rev 1 and the professor review of Rev 2 (image-library-review.md); dispositions in the appendix. BYTES-TABULATE-1 shipped in v0.42.0. Part C is implemented on branch div-var-1/step-1 (DIV-VAR-1), not yet released."
 date: 2026-11-20
 author: language-team
 rows: "Proposes IMAGE-LIB-1 and BYTES-TABULATE-1 (not filed). Gives DIV-VAR-1 (G7, DECIDE) its encoding record. Related: MUL-VAR-1 (shipped v0.39.0), CLAUSE-WELLDEF-1 (shipped v0.37.0), CALL-RESULT-MARK-1 and ABSTRACTION-LEN-EXACT-1 (shipped v0.41.0), BYTES-MAKE-ALIAS-1 (shipped v0.40.1), INT-INDEX-WRAP-1 (shipped), CALLEE-POST-UNASSUMED-1 (shipped v0.36.0), ABSTRACTION-RESULT-LEN-1 (G1, DECIDE), CONE-DEF-DIRECTION-1 (DECIDE), POST-CALL-XMOD-1 (G1, DECIDE), SIG-SCALAR-ARM-1 (G1, DECIDE), PAIR-NEST-PROJ-1 (G1, PLAN), POST-CONJ-SPLIT-1 (G1, PLAN), FFI-KERNEL-1 (G7, PLAN), WEAKNESS-MUTANT-1 (G1), PERF-TEXT-1 (G8, MEASURE)."
@@ -11,6 +11,13 @@ consumers: [user, professor, compiler-engineer, documentation-lead]
 # IMAGE-LIB-1: an image library whose functions verify
 
 **Settlement (2026-11-20).** The user accepted decisions 1 to 5 as recommended. Parts A, B and D settled at Rev 3, and BYTES-TABULATE-1 went to the compiler-engineer. Part C settled at Rev 4, after its witness table ran and the user accepted the five text changes it called for. DIV-VAR-1 can now go to the compiler-engineer.
+
+**Changes from Rev 4a to Rev 4b (2026-11-28).** Rev 4b records the DIV-VAR-1 implementation. It makes no new design decision; each change records a measurement or a user decision.
+
+- **Part C "Surface".** A non-ground divisor is core syntax in a `def` body and in a guard (N1, user decision 2026-11-25).
+- **Part C "Budget" and risk R8.** The witness table ran through `llmll verify`. The recheck limit increased from 2,000,000 to 10,000,000 rlimit units (user decision 2026-11-27).
+- **Part C witness table.** The table was repeated through `llmll verify`: 166 of 166 counted tasks as expected. The order-dependent control differs on 6 VCs, not 13.
+- **Appendix.** A new table maps the implementation findings and decisions to their dispositions.
 
 **Changes from Rev 3 to Rev 4.**
 
@@ -226,6 +233,8 @@ No new syntax. `(/ e d)` and `(mod e d)` with a non-constant `d` become admissib
 - in a body, as a PROVE call-site obligation, like the index of `bytes-get`;
 - in a clause, as a CLAUSE-WELLDEF-1 entry with `π = d ≥ 1`, which gives the status `ill-defined` when it is not proved.
 
+**Core syntax (Rev 4b).** With a non-ground divisor, both forms are core syntax in a `def` body and in a guard. `check` admits them in S-expression and JSON-AST input alike. Each evaluation point owes `d ≥ 1` as above. Before, the strict-core gate (`isCoreBodySyntactic`) refused `/` by a variable and admitted `mod` with no operator test, so neither reached the verifier from a `def` (N1).
+
 The bound is `d ≥ 1`, not `d ≠ 0`. For `d ≥ 1`, Haskell `div` and `mod` (floored, Haskell 2010 Report §6.4.2) and SMT-LIB `div` and `mod` (Euclidean) agree, because both give `0 ≤ r < d` and the same quotient for every sign of `e`. For `d < 0` they differ. `rem` and `quot` stay refused. A ground divisor keeps its current treatment: a positive numeral is admitted, and zero or a negative numeral stays refused, as `constArithTerm` refuses them today.
 
 ### Every emission site
@@ -303,6 +312,8 @@ As MUL-VAR-1 decision 2. A `sat` answer is checked again by native z3, and the m
 
 **Budget.** Three validated answers on `hflip-at` mutants used more than half of the recheck limit of 2,000,000 rlimit units, the largest 1,615,637. MUL-VAR-1's largest was 15,070. The first implementation step measures the budget again through `llmll verify` on the library, before any `*-at` refutation goes into CI.
 
+**Budget, measured through `llmll verify` (Rev 4b).** On z3 4.15.4, the largest validated division refutation used 1,242,400 rlimit units (`m-col-of-11`, 242 ms). One query reached the old limit of 2,000,000: `r5c`, a task that is expected to fall back, in 219 ms. **The limit is now 10,000,000** (`recheckRlimit`, user decision 2026-11-27). The limit is shared with MUL-VAR-1. At the new limit, `r5c` gives `unknown` at 10,000,032 units in 879 ms, and the task falls back as expected. Over the 164 recheck queries of the table, 144 validated, 19 were unreadable because the model divides by 0, and 1 was `unknown`. `recheckSeconds` stays 5. **z3 4.8.12, which CI uses, is not measured.** A higher limit can add a refutation, never a proof, because the validator decides each `refuted`.
+
 ### Version stamps
 
 `checker_soundness_version` does not change (P8). Each fact is a theorem, and Part C admits only terms that were refused before, so no earlier `verified` sidecar becomes false. This follows MUL-VAR-1, "Changing the fact set".
@@ -310,6 +321,8 @@ As MUL-VAR-1 decision 2. A `sat` answer is checked again by native z3, and the m
 ### Witness table (run 2026-11-20)
 
 **How to read it.** Every VC was built by a script, an extension of `scripts/mulvar/rev3.py`, on z3 4.15.4 and liquid-fixpoint 0.9.6.3.7. **Nothing with a variable divisor went through `llmll verify`**, because no emitter exists. The script and its output are session files and are not committed, so this record copies the numbers it uses. Mutant expectations come from an exhaustive Haskell-semantics oracle on small domains, independent of the solver. The first implementation step must repeat the table through `llmll verify`.
+
+**Repeated through `llmll verify` (Rev 4b, DIV-VAR-1 step 1b).** The fixtures are in `scripts/tests/fixtures/div_var_1/`, written by `scripts/divvar/to_llmll.py` and run by `scripts/divvar/verify_all.py`. On the 10,000,000 limit, 166 of 166 counted tasks gave the expected verdict: 148 refuted, 17 verified and 1 `ill-defined`. The periodicity row falls back and is not counted, as before. Row 8 differs in one count. The Haskell port pins 6 differences for the order-dependent control, not 13 (user decision 2026-11-27). The script's 13 came from random shuffles. The 6 are the three round-trip truth VCs under the "reversed" and "combined-u" variants. `scripts/tests/test_div_var_1.py` runs the table in CI.
 
 **Result: 166 of 166 counted tasks gave the expected verdict, and no false proof appeared.**
 
@@ -457,7 +470,7 @@ Boundary: `LLMLL.md` §5.3.3 and §5.3.5. Nothing goes to Lean.
 5. **R5. The trusted base grows by one length lemma.** Soundness, disclosed. The same kind of lemma as `bytes-make`, with the same guards.
 6. **R6. `d ≥ 1` is narrower than Haskell `div`.** Spec drift if `LLMLL.md` §13 does not change in the same release. Complicates.
 7. **R7. The mutant generator is test infrastructure that the refutation rate depends on.** Scope. A generator defect that drops mutants inflates the rate. The operator set is fixed in this record, and a test holds that every example mutant in the contract table is generated. The covered set does not depend on the generator.
-8. **R8. The recheck budget is close on `*-at` refutations.** Performance. The largest validated answer used 1,615,637 of 2,000,000 rlimit units. Part C "Refutation" requires a new measurement through `llmll verify` before these refutations go into CI.
+8. **R8. The recheck budget is close on `*-at` refutations.** Performance. The largest validated answer used 1,615,637 of 2,000,000 rlimit units. Part C "Refutation" requires a new measurement through `llmll verify` before these refutations go into CI. **Rev 4b: reduced, not closed.** Through `llmll verify` the largest was 1,242,400, and the limit is now 10,000,000 (Part C "Budget"). z3 4.8.12 is not measured.
 
 ## Decisions for the user
 
@@ -519,7 +532,7 @@ The review confirmed the soundness of C, the freshness argument, ∀-introductio
 | The paper derivations are not the solver's routes | Part C "Measured routes" replaces "Hand derivations" |
 | D4's rule clause is textually F9 at a division atom | Part C "Facts": D4 is pairwise only; the rule link is F9 |
 | Asserting `d ≥ 1` for every pair in the recheck hides an `ill-defined` clause | Part C "Refutation": asserted only where proved |
-| Recheck rlimit use up to 1,615,637 of 2,000,000 | Part C "Refutation", budget; risk R8 |
+| Recheck rlimit use up to 1,615,637 of 2,000,000 | Part C "Refutation", budget; risk R8. Rev 4b: raised to 10,000,000; see "Budget" |
 | T-literal needed by no witness; T-cofactor only over the pair cap | Part C trigger set note; risk R1 |
 | Two contract-table examples are not first-order mutants | Part A `col-of` example; Part D operator 10 |
 
@@ -531,3 +544,29 @@ The review confirmed the soundness of C, the freshness argument, ∀-introductio
 | A tabulate edge emits no descent obligation, so descent discharge would claim termination for a cycle through a generator | Part B "The generator is a callee": such groups are not descent-discharged |
 | `proof_artifact_version` must increase for the new fallback cause | "Affected surface": 0.3.0 to 0.4.0 |
 | Edge case 11 is unreachable from a `def` caller | Edge case 11 uses a `def-shell` caller |
+
+### DIV-VAR-1 engineer plan and implementation (2026-11-25 to 2026-11-28)
+
+Findings 1, 2 and 16 of the engineer plan were folded at Rev 4a (Part C "Normal form and pass order", Part B "Semantics"). The table records the rest.
+
+| Finding or decision | Disposition |
+|---|---|
+| N1. The strict-core gate refused every `def` witness | Part C "Surface": core syntax with a non-ground divisor (user decision 2026-11-25) |
+| N2. More tests pinned the old refusal than the plan listed | Each test changed to a ground divisor 0; a test of the refusal itself changed its assertion |
+| 3. The validator rejected a negative divisor | Implemented: Haskell `div` and `mod` for every divisor other than 0; a divisor of 0 is unreadable |
+| 4. Body VCs differ from the script's VCs | Measured at step 1b: fact counts differ, no verdict changed |
+| 5. The recheck needs a map from pair to obligation | Implemented: a divisor counts as proved when its definedness constraint is not in the UNSAFE set |
+| 6. Hoisting depends on the divisor | Implemented: only a non-ground divisor is hoisted; a constant-divisor program prints the same `.fq` bytes |
+| 7. Clause 2 of the abstraction verdict would hide refutations | Implemented: `exactDivBuiltins` is excluded from `cbAbstractable`; not sealed |
+| 8. Other readers of `exprToPred` | Implemented: `Feasibility` abstains, `measureToPred` refuses, `isNonLinear` no longer flags a variable divisor |
+| 9. An earlier fallback can become a refutation | Measured: the census over 299 files has no new `refuted`; one function, `compute-time-step`, becomes body-faithful |
+| 10. Tests assumed a variable divisor refuses | Changed to a ground divisor 0; `mul-var-proposal.md` decision 5 records the new refusal-scan reason |
+| 11. The construct of an uncleared division mark | Implemented: `abstraction:nonlinear:/`; `W-BODY-FALLBACK` and `patch` name a division |
+| 12. The ground-fact family | Implemented: `division-facts`; `trust_report_version` does not change |
+| 13. The recheck budget depends on the z3 version | Part C "Budget": measured on z3 4.15.4 only; the limit increased (Part III 2) |
+| 14. The tag of a body obligation | Implemented: `call-pre:/` and `call-pre:mod`; `patch` reports `required_pre` as `(>= <divisor> 1)` |
+| 15. Clause run-time checks stay as they are | No change: a clause stops at run time only at a divisor of 0; `verify` reports `d < 0` as `ill-defined` |
+| Part III 1. Twelve unlisted tests | Changed to a ground divisor 0 (user decision 2026-11-27) |
+| Part III 2. The recheck limit | 2,000,000 to 10,000,000 (user decision 2026-11-27) |
+| Part III 3. The invariance control | DV-INV-3 pins 6 differences, not 13 (user decision 2026-11-27) |
+| SHADOW-MOD-1. A clause `mod` by a ground divisor over a parameter named `mod` | Step 4: the verifier falls back, as step 1b already did for a variable divisor. This was not a false proof against the built program. On v0.42.0 the verifier and the run-time clause check both read the builtin `mod` (the generated code calls `llmll_cl_mod`). That mismatch with the source is the open row `CLAUSE-SHADOW-BUILTIN-1`. The fallback is conservative: the run-time check still calls the builtin |
