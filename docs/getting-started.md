@@ -534,7 +534,7 @@ The `.fq` file is still written and can be checked manually or in CI once the to
 **A third outcome sits between "proved" and "disproved", and the exit code does not distinguish it.** If the solver is present but returns no verdict — it was killed, or it exited without a parsable answer — `verify` reports that as a solver error, not as a refutation. It exits `1`, the same code a genuine refutation uses, so the exit code alone cannot tell a dead solver from a disproved contract. The `--json` payload carries `solver_verdict` for exactly this: `safe`, `refuted`, or `error`. `success` is `false` for both `refuted` and `error`, so a consumer that reads only `success` will call a dead solver a refutation. Read `solver_verdict`.
 
 > [!IMPORTANT]
-> `verify` discharges the decidable **`Σ_auto` fragment** — linear integer arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`), `bool`, non-recursive ADTs, and closed length/list measures. A product of two variables, such as `(< (+ (* y w) x) (* w h))` under `0 <= y < h` and `0 <= x < w`, is proved from a fixed set of facts about integer multiplication; a false one is `refuted`, with a `VC counterexample:` line, only when native z3 finds a model that LLMLL checks, and an unprovable true one falls back with `abstraction:nonlinear:*`. A function whose body or contract divides by a variable (`/`, `mod`), or holds a product over the degree or size limits, falls back: `verify` reports `body-fallback`, the postcondition is assumed, not proved, and the headline names the function. The experimental `--leanstral` path (or `--leanstral-mock` for testing) can take such an obligation to Lean. To mark one explicitly, write a predicate-carrying `?proof-required` (see §4.11).
+> `verify` discharges the decidable **`Σ_auto` fragment** — linear integer arithmetic (`+`, `-`, `=`, `<`, `<=`, `>=`, `>`), `bool`, non-recursive ADTs, and closed length/list measures. A product of two variables, such as `(< (+ (* y w) x) (* w h))` under `0 <= y < h` and `0 <= x < w`, is proved from a fixed set of facts about integer multiplication; a false one is `refuted`, with a `VC counterexample:` line, only when native z3 finds a model that LLMLL checks, and an unprovable true one falls back with `abstraction:nonlinear:*`. Division and `mod` by a variable, such as `(/ i w)`, are proved the same way from a fixed set of division facts when the divisor is proved to be at least 1 (§4.35). A function whose body or contract holds `rem`, `^`, `**`, or a product or division over the limits, falls back: `verify` reports `body-fallback`, the postcondition is assumed, not proved, and the headline names the function. The experimental `--leanstral` path (or `--leanstral-mock` for testing) can take such an obligation to Lean. To mark one explicitly, write a predicate-carrying `?proof-required` (see §4.11).
 
 #### Proof artifact
 
@@ -964,7 +964,8 @@ Negating an `int` key reverses its order. A string key cannot be negated: for de
 | `[...]` list literal as direct argument inside S-expression `if` branch | ✅ **Fixed** | Parses correctly, including as a nested function argument; the former `unexpected ]` restriction no longer applies |
 | `pre`/`post` **linear** contracts | ✅ Verified at compile time via `llmll verify` | — |
 | `pre`/`post` with a product of two variables (`(* w h)`) | ✅ Proved from the product facts where they suffice; otherwise falls back (`abstraction:nonlinear:*`), runtime assert still active | — |
-| `pre`/`post` with `/` or `mod` by a variable, `rem`, `^`, `**` | ⚠️ Falls back; runtime assert still active | `DIV-VAR-1` |
+| `pre`/`post` with `/` or `mod` by a variable | ✅ Proved from the division facts when `d ≥ 1` is proved where it is evaluated; otherwise falls back (`abstraction:nonlinear:/`), runtime assert still active | `DIV-VAR-1`, §4.35 |
+| `pre`/`post` with `rem`, `^`, `**` | ⚠️ Falls back; runtime assert still active | — |
 | `EPair` returning `TResult` approximation | ✅ **Fixed** | `EPair` now correctly typed `TPair a b`; `match` on pairs no longer suggests `Success`/`Error` arms |
 
 > [!NOTE]
@@ -2110,6 +2111,40 @@ error: the pre of generator 'gen2.inv-at' is not proved at every index 0 ≤ i <
 - **State the content in the generator's `post`.** The caller learns the length of the result and
   nothing about its bytes, so a `post` such as `(= (bytes-get result 0) …)` falls back with
   `abstraction:app:bytes-tabulate`.
+
+### §4.35 Division by a Variable (`/`, `mod`)
+
+A row index `(/ i w)` verifies in a `def` when the `pre` proves the divisor is at least 1:
+
+```lisp
+(def row-of [w: int i: int] -> int
+  (pre (and (>= w 1) (>= i 0)))
+  (post (and (>= result 0) (<= (* result w) i)))
+  (/ i w))
+```
+
+```
+$ llmll verify row.llmll
+✅ row.llmll — SAFE (liquid-fixpoint)
+```
+
+Every `/` and `mod` by a variable owes `d ≥ 1` where it is evaluated. With `(pre (>= i 0))` only,
+`verify` exits 1 and names the divisor, after the counterexample to the post:
+
+```
+error: body verification of 'row-of' failed — implementation does not satisfy postcondition (constraint #0)
+error: the divisor of '/' in 'row-of' is not proved to be at least 1 (call-pre:/) (constraint #1)
+   VC counterexample: i=1 result=-1 w=-1. Callee results in it are assumed, not computed.
+```
+
+- **In a `pre` or `post`, guard the division.** An unguarded `(pre (= (/ e d) q))` is
+  `ill-defined`: `(/ e d) needs (>= d 1)`. `(pre (=> (>= d 1) (= (/ e d) q)))` is defined.
+- **Rounding is floor, as in Haskell `div` and `mod`.** `(/ (- 0 7) 8)` is `-1` and
+  `(mod (- 0 7) 8)` is `1`; a `mod` result has the sign of the divisor.
+- **A true claim the facts cannot prove falls back.** `(= (mod (+ i w) w) (mod i w))` gives
+  `W-BODY-FALLBACK` with `abstraction:nonlinear:/`; the post stays a run-time check.
+- **`rem`, `^` and `**` stay outside**, and so does a `/` or `mod` by a ground divisor `≤ 0`, which
+  `check` refuses in a `def`.
 
 ---
 

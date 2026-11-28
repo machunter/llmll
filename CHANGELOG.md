@@ -4,6 +4,65 @@
 
 <a id="Latest"></a>
 
+## Unreleased (on `main` after v0.42.0)
+
+**Division and `mod` by a variable (`DIV-VAR-1`). No version stamp changes:
+`checker_soundness_version` (9), `proof_artifact_version` (0.4.0), `trust_report_version`
+(1.12.0), `verify_json_version` (1.3.0), `codegen_semantics_version` (`int-unbounded-1`) and the
+JSON-AST schema are unchanged. Measured on liquid-fixpoint 0.9.6.3.7 and z3 4.15.4, Apple Silicon.**
+
+- **`(/ e d)` and `(mod e d)` with a variable divisor are in the contract fragment** when `d ≥ 1`
+  is proved where each one is evaluated. A fixed set of division theorems (D0, G, D4, family
+  `division-facts`) is added per constraint, in one pass with the MUL-VAR-1 product facts.
+- **A false claim is `refuted` only after native z3 finds a counterexample** that Haskell `div`
+  and `mod` confirm. An unprovable true claim falls back with `abstraction:nonlinear:/`.
+- **Witness table:** 166 of 166 counted tasks as expected through `llmll verify` (148 refuted,
+  17 verified, 1 `ill-defined`). `scripts/tests/test_div_var_1.py` (34 cells) runs in a new CI
+  step pinned at 34 cells with no skip.
+- **The fallback census:** one function changes over 299 files against v0.42.0,
+  `examples/totp_rfc6238` `compute-time-step`, from fallback to body-faithful. No new `refuted`,
+  and the netpbm, netpbm-swarm and y4m trust reports (803 entries) do not change.
+- **Tests:** hspec 3467 → 3527, pytest 983 → 1017 passed (10 skipped).
+
+### Added: division and `mod` by a variable — `DIV-VAR-1`
+
+`37634197` (atoms and facts), `0aa9685e` (emitter, recheck, strict core), `50c45e92`
+(messages, holes, replay), `c852b700` (CI), `50e7e643` (shadowed `mod`). Implemented as settled in
+[`docs/design/image-library-proposal.md`](docs/design/image-library-proposal.md) Part C.
+
+- **Strict core admits a non-ground divisor** in a `def` body and guard, in S-expression and
+  JSON-AST input. `rem` and a ground divisor `≤ 0` stay refused.
+- **Each evaluation point owes `d ≥ 1`.** In a body it is a call-site obligation; a failure reads
+  `the divisor of '/' in '<f>' is not proved to be at least 1 (call-pre:/)`, and the same for
+  `mod`. In a clause it is a definedness entry, `(/ e d) needs (>= d 1)`, which gives
+  `ill-defined`.
+- **Messages:** `W-BODY-FALLBACK` and `patch` name a division; `patch` reports `required_pre` as
+  `(>= <divisor> 1)`; a variable `/` or `mod` no longer raises a `non-linear-contract` hole, and
+  the Lean worklist selects `abstraction:nonlinear:/`.
+- **Replay:** `replay-artifact` reruns the native recheck for a VC whose only marked symbols are
+  `div##` or `mod##`. Before, it accepted a changed recorded verdict on such a VC.
+- **The native recheck limit is 10000000 rlimit units** (was 2000000), for products and
+  divisions. The largest validated division refutation used 1242400 on z3 4.15.4; z3 4.8.12 is not
+  measured. A higher limit can add a refutation, never a proof.
+- **A clause `mod` over a name the function declares is not read as the builtin**, whatever the
+  divisor: `(post (>= (mod x 2) 0))` over a parameter `mod: (fn [int int] -> int)` verified on
+  v0.42.0 and now falls back with `contract-post-outside-fragment`. The run-time check of such a
+  clause still calls the builtin (`CLAUSE-SHADOW-BUILTIN-1`, open).
+- **Run time:** a clause's run-time check still stops only at a divisor of 0. At `d < 0` the clause
+  runs with Haskell `div` and `mod`, and `verify` reports a clause that can reach it `ill-defined`.
+- **Spec:** `LLMLL.md` §0, §4.4.1 (`ill-defined`), §5.3.3, §5.3.4, §5.3.5, §12 `core-expr`, §13.1;
+  `docs/getting-started.md` §4.7 and §4.35.
+
+### Tests
+
+Twelve existing tests used a variable divisor as their example of a refused term, and five more
+used it as their example of a term that raises a `non-linear-contract` hole. Each now uses a ground
+divisor 0; INV-G3 and F03 assert that a variable divisor is core.
+
+### Roadmap
+
+- Closed: `DIV-VAR-1`. Filed: `QUAL-PROBE-STOP-1` (G1, PLAN).
+
 ## v0.42.0: a byte buffer is built in linear time from a verified per-index function (2026-11-24)
 
 **One new builtin, `bytes-tabulate` (`BYTES-TABULATE-1`). `proof_artifact_version` 0.3.0 → 0.4.0
